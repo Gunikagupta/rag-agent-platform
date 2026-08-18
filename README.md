@@ -4,7 +4,7 @@ A production-grade Agentic RAG Platform built with **CockroachDB Cloud**, **Dist
 
 ---
 
-## 🛠️ CockroachDB Tools & AWS Services Used (Hackathon Scoring Criteria)
+## 🛠️ CockroachDB Tools & AWS Services Used
 
 ### 1. CockroachDB Distributed Vector Indexing
 - **Usage:** Stores paper embeddings using native `VECTOR(384)` fields.
@@ -25,25 +25,29 @@ A production-grade Agentic RAG Platform built with **CockroachDB Cloud**, **Dist
 
 ## 🏗️ Architecture Diagram
 
-+-----------------------------------------------------------------------+
-|                             USER INTERFACE                            |
-|                          (Streamlit Web App)                          |
-+-----------------------------------+-----------------------------------+
-|
-v
-+-----------------------------------+-----------------------------------+
-|                           RAG AGENT ENGINE                            |
-|                    (src/agent.py & src/search.py)                     |
-+-----------------+---------------------------------+-------------------+
-|                                 |
-v                                 v
-+-----------------+-------------------+   +---------+-------------------+
-|   COCKROACHDB CLOUD (AWS Region)    |   |         AWS SERVICES        |
-|  - Distributed Vector Search        |   |  - Amazon Bedrock (LLM)     |
-|  - Persistent Memory Table          |   |  - AWS ap-south-1 Hosting   |
-|  - Managed MCP & ccloud Control     |   |                             |
-+-------------------------------------+   +-----------------------------+
+```mermaid
+graph TD
+    UI["USER INTERFACE<br><i>(Streamlit Web App)</i>"]
+    
+    ENGINE["RAG AGENT ENGINE<br><i>(src/agent.py & src/search.py)</i>"]
+    
+    subgraph DB["COCKROACHDB CLOUD (AWS Region)"]
+        direction TB
+        DB_1["Distributed Vector Search"]
+        DB_2["Persistent Memory Table"]
+        DB_3["Managed MCP & ccloud Control"]
+    end
 
+    subgraph AWS["AWS SERVICES"]
+        direction TB
+        AWS_1["Amazon Bedrock (LLM)"]
+        AWS_2["AWS ap-south-1 Hosting"]
+    end
+
+    UI --> ENGINE
+    ENGINE --> DB
+    ENGINE --> AWS
+```
 
 ---
 
@@ -66,3 +70,4 @@ source venv/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
+```
