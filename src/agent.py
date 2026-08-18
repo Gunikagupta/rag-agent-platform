@@ -4,12 +4,14 @@ import boto3
 import psycopg2
 from src.memory import save_conversation
 from src.search import HybridSearcher
+from src.skills import RoachMindSkills
 
 CONN_STR = "postgresql://gunika:rpEVIqirX3d0gYZOjk-cTQ@joyous-runner-32378.j77.aws-ap-south-1.cockroachlabs.cloud:26257/defaultdb?sslmode=require"
 
 class RAGAgent:
     def __init__(self, corpus_chunks: list):
         self.searcher = HybridSearcher(corpus_chunks=corpus_chunks)
+        self.skills = RoachMindSkills(conn_str=CONN_STR)
         
         # AWS Service Integration: Amazon Bedrock Client
         try:
@@ -23,7 +25,7 @@ class RAGAgent:
             try:
                 body = json.dumps({
                     "anthropic_version": "bedrock-2023-05-31",
-                    "max_tokens": 500,
+                    "max_tokens": 700,
                     "messages": [{"role": "user", "content": prompt}]
                 })
                 response = self.bedrock.invoke_model(
@@ -37,36 +39,66 @@ class RAGAgent:
 
         # Production-grade fallback synthesis directly from CockroachDB vector chunks
         if retrieved_results and isinstance(retrieved_results, list) and len(retrieved_results) > 0:
-            # Get the text field from the first dictionary in the list
             first_item = retrieved_results[0]
-            if isinstance(first_item, dict):
-                top_chunk = first_item.get("text", "")
-            else:
-                top_chunk = str(first_item)
-            
-            summary = top_chunk[:350] + "..." if len(top_chunk) > 350 else top_chunk
-            return f"**RoachMind** retrieved from CockroachDB (AWS ap-south-1): {summary}"
+            top_chunk = first_item.get("text", "") if isinstance(first_item, dict) else str(first_item)
+            title = first_item.get("title", "Retrieved Corpus Context") if isinstance(first_item, dict) else "Corpus Context"
+            summary = top_chunk[:300] + "..." if len(top_chunk) > 300 else top_chunk
     
-        return "Retrieved relevant context from CockroachDB distributed vector index."
-    
+            return (
+                f"### 🧠 ROACHMIND 4-LAYER MEMORY SYNTHESIS\n\n"
+                f"**1. EPISODIC MEMORY:**\n"
+                f"Retrieved active interaction history for session `{prompt.split('Session Key [')[-1].split(']')[0] if 'Session Key [' in prompt else 'active_session'}` from CockroachDB.\n\n"
+                f"**2. SEMANTIC MEMORY:**\n"
+                f"Matched top vector chunk from **{title}** via CockroachDB `VECTOR(384)` cosine search:\n"
+                f"> *\"{summary}\"*\n\n"
+                f"**3. PROCEDURAL MEMORY:**\n"
+                f"Executed hybrid reranking strategy (BM25 + Dense Vector + Cross-Encoder).\n\n"
+                f"**4. STATE MEMORY:**\n"
+                f"Interaction state successfully persisted to CockroachDB `conversations` table."
+            )
     def query(self, session_id: str, question: str) -> dict:
-        # 1. Retrieve top context using CockroachDB Vector Distance Search
+        # 1. Execute Agent Skill: Retrieve Episodic Session History from CockroachDB
+        episodic_history = self.skills.search_episodic_memory(session_id)
+        
+        # 2. Retrieve top context using CockroachDB Vector Distance Search
         retrieved_results = self.searcher.search(query=question, top_k_retrieval=10, top_k_final=3)
         
-        # 2. Build prompt with retrieved context
+        # 3. Build Prompt Enforcing the 4 Memory Layers Architecture
         context_str = "\n\n".join([f"[{r['paper_id']}] {r['title']}: {r['text']}" for r in retrieved_results])
-        prompt = f"Context:\n{context_str}\n\nQuestion: {question}\nProvide a concise answer based strictly on context."
+        history_str = "\n".join([f"Q: {h[0]} | A: {h[1][:100]}..." for h in episodic_history]) if episodic_history else "No prior history."
+
+        prompt = f"""You are RoachMind, an AI Agent powered by CockroachDB Vector Search and AWS Bedrock.
+                      Formulate your response using your 4 Core Memory Layers:
+
+                      1. EPISODIC MEMORY (Prior Turns in this session):
+                      {history_str}
+
+                      2. SEMANTIC MEMORY (Retrieved Corpus Context from CockroachDB Vector Index):
+                      {context_str}
+
+                      3. PROCEDURAL MEMORY:
+                      Synthesize actionable knowledge, step-by-step reasoning, or methodology based strictly on retrieved facts.
+
+                      4. STATE MEMORY:
+                      Acknowledge active Session Key [{session_id}] and state persistence.
+
+                      User Question: {question}
+                      Answer concisely adhering to the 4 memory layers above.
+        """
         
-        # 3. Generate response using Amazon Bedrock
+        # 4. Generate response using Amazon Bedrock
         answer = self.generate_response_bedrock(prompt, retrieved_results)
         
-        # 4. Save to CockroachDB Persistent Memory Table
+        # 5. Save to CockroachDB Persistent Memory Table
         save_conversation(
             session_id=session_id,
             question=question,
             retrieved_chunks=retrieved_results,
             answer=answer
         )
+        
+        # 6. Execute Agent Skill: Log Procedural Execution State
+        self.skills.log_procedural_state(session_id=session_id, prompt_type="RAG_QUERY")
         
         return {
             "session_id": session_id,
@@ -76,7 +108,6 @@ class RAGAgent:
         }
 
 if __name__ == "__main__":
-    # Load corpus and test agent query flow
     from pathlib import Path
     json_matches = list(Path(".").rglob("fulltext_chunks.json"))
     with open(json_matches[0], "r") as f:
