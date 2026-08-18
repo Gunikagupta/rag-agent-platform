@@ -1,0 +1,1429 @@
+1
+Performance Enhancement of Gas Electron
+Multipliers Using an Optimized Single-Conical
+Hole Geometry for Different Charged Particles
+Poojan Angiras1, Sachin Rana1, Md. Kaosor Ali Mondal1, Shakir Eqbal1, Amal Sarkar1
+1 School of Physical Sciences, Indian Institute of Technology Mandi, Kamand, Mandi - 175005, India
+poojan.angiras@cern.ch, sachin.rana@cern.ch, mohommad.mondal@cern.ch, di2505@students.iitmandi.ac.in,
+amal.sarkar@cern.ch
+Abstract—Gas Electron Multipliers (GEMs) are essential de-
+tector components in modern high-energy physics experiments,
+where precise and stable detection of charged particles over a
+broad energy range is required. We present a comprehensive
+Garfield++ and ANSYS-based study of conventional bi-conical
+and optimized single-conical GEM detectors to investigate the
+performance of the GEM detector for muons (µ), pions (π), kaons
+(K), and protons (P), which constitute the dominant charged
+particles measured directly in collider-based experiments. The
+aim is to examine the impact of particle-dependent ionization
+characteristics on charge amplification and ion backflow, and
+to evaluate the potential of an optimized GEM configuration
+for different leptons and hadrons. The conventional bi-conical
+GEM design does not always operate at optimal efficiency,
+as ion backflow can lead to space-charge accumulation and
+electric field distortions, ultimately limiting performance in high-
+rate environments. Thus, geometrical optimization is essential
+to address these limitations and enhance detector performance.
+A single-conical hole geometry is introduced and systematically
+compared with the conventional bi-conical design. For both of
+these configurations, the results exhibit clear and systematic
+variations in the detector performance with the particle type
+and the incident energy. The optimized geometry improves the
+balance between effective gain and ion backflow, demonstrating
+its potential for future high-rate MPGD applications.
+Index Terms—Gas Electron Multiplier (GEM), Micro-Pattern
+Gaseous Detector (MPGD), Garfield++, ANSYS, optimization,
+Effective gain, Ion backflow (IBF), Muons, Pions, Kaons, Protons.
+I. INTRODUCTION
+Gaseous detectors have been used for more than a century
+in experimental physics to detect charged particles. Early de-
+tectors such as ionization chambers, Geiger–M¨uller counters,
+and multi-wire proportional chambers enabled precise mea-
+surements of particle flux, position, and energy deposition [1].
+MWPCs have made considerable progress in particle tracking;
+however, their performance is limited by space-charge effects,
+detector aging, and limited high-rate capabilities. Modern
+high-energy physics experiments are producing ever-higher
+luminosities, which in turn require detectors capable of op-
+erating at high particle fluxes while preserving high spatial
+resolution [2], timing accuracy, and long-term stability [3].
+This led to the creation of Micro-Patterned Gas Detectors
+(MPGDs), which use precisely patterned electrode structures
+to achieve efficient charge amplification [4], [5]. Technologies
+such as Micromegas and Gas Electron Multipliers (GEMs)
+can surpass conventional gaseous detectors in terms of rate
+capability, ion feedback, and signal quality [6].
+One of the most popular gas detector technologies among
+MPGDs is the Gas Electron Multiplier (GEM), originally
+proposed by Sauli in 1997 [7]. A GEM consists of a Kapton
+thin foil coated on both sides with a thin conductive layer and
+pierced by a high-density pattern of microscopic holes [8].
+The high electric field in these holes causes the electrons
+created in the drift region to undergo avalanche multiplication,
+and several GEM foils can be stacked to obtain high gain
+with stable operation [9]. These characteristics make GEM
+detectors widely used in tracking systems, time projection
+chambers, and muon detectors [10].
+A fundamental difficulty in GEM detectors is ion backflow
+(IBF), in which some of the positive ions generated during
+avalanche multiplication wander back into the drift region,
+altering the electric field and reducing detector performance,
+especially in continuous-readout systems [11], [12]. A major
+objective is therefore to reduce the ion backflow while main-
+taining a high effective gain. Common approaches include
+optimizing the electric-field configuration, employing multi-
+stage GEM structures, and modifying the GEM hole geometry
+[13].
+The shape of GEM holes has a considerable influence on
+the electric field, electron collection, charge amplification,
+and ion transport [14]. Since these processes govern the
+detector’s overall performance, optimizing the microscopic
+hole geometry has emerged as an effective approach to improv-
+ing GEM performance without altering the detector’s overall
+architecture. In recent years, several studies have explored
+alternative hole geometries to enhance electron transparency,
+improve charge multiplication, and suppress ion backflow,
+highlighting the strong dependence of detector performance
+on the hole profile [15], [16]. Such differences in the hole
+geometries influence the detector response under realistic
+operating conditions and have therefore become an important
+research field for the development of next-generation gaseous
+detectors.
+This optimization relies on electric-field calculations using
+ANSYS Mechanical APDL [17] together with microscopic
+arXiv:2607.17756v1  [hep-ex]  20 Jul 2026
+2
+charge-transport calculations performed with Garfield++ [18].
+These tools accurately describe electron and ion transport, gas
+ionization, diffusion, and avalanche formation, allowing sys-
+tematic investigation of the detector response under different
+operating conditions [19], [20].
+In high-energy physics experiments, GEM detectors are
+exposed to a wide range of charged particles, including
+electrons, muons, pions, kaons, and protons. The differences
+in their mass, energy loss, and ionization properties lead to
+differences in the primary electron production, which directly
+affect detector gain and ion backflow. Understanding such
+effects is crucial to optimizing detector performance under
+various experimental conditions.
+In this work, we present a comprehensive investigation
+of the impact of GEM hole geometry on detector perfor-
+mance by systematically comparing conventional bi-conical
+and optimized single-conical designs. The detector response
+to muons, pions, kaons, and protons is examined over a
+broad energy range to quantify the influence of hole geometry
+on effective gain and ion backflow. The results establish
+optimized hole geometry as an effective design parameter
+for achieving simultaneous enhancement of charge amplifi-
+cation and suppression of ion backflow in high-rate gaseous
+detectors. Realistic electric-field maps are generated using
+ANSYS Mechanical APDL and imported into Garfield++
+to model primary ionization, electron transport, avalanche
+multiplication, and ion drift. Primary ionization is described
+using the Bethe-Bloch formalism, and the dependence of
+the effective gain and ion backflow on particle species and
+incident energy is systematically evaluated for both single and
+triple-GEM configurations. The influence of hole geometry on
+detector performance is evaluated, with particular emphasis on
+enhancing effective gain while suppressing ion backflow, pro-
+viding guidance for the development of next-generation high-
+rate gaseous detectors. Unlike previous studies, which mainly
+focused on electron transport or detector optimization under
+fixed irradiation conditions, the present work systematically
+investigates the response of conventional and optimized GEM
+geometries to multiple charged particle species over a broad
+energy range, providing a unified understanding of geometry-
+dependent charge amplification and ion suppression relevant
+to future high-rate collider detectors.
+II. WORKING PRINCIPLE
+The operation of a triple Gas Electron Multiplier (GEM)
+detector is based on the sequential processes of primary
+ionization, electron transport, avalanche multiplication, and
+signal induction within a finely structured gaseous medium. A
+charged particle loses energy predominantly through ionization
+as described by the Bethe–Bloch formalism [21], when it
+passes through the drift region filled with an Ar:CO2 (70:30)
+gas mixture. This results in the formation of primary electron-
+ion pairs along its path.
+These electrons are guided toward the first GEM foil under
+the influence of a uniform electric field in the drift region.
+Upon entering the microscopic holes of the first GEM foil,
+where the electric field reaches several tens of kV/cm, the
+To the 
+electronics
+To the 
+electronics
+High Voltage
+Delay/Resistive line
+Incident particle
+Final stage multiplication
+Ion backflow
+Drift (3mm)
+Induction (1mm)
+Transfer 2 (2mm)
+Transfer 1 (1mm)
+Primary ionisation
+0 V
+-436 V
+-3275 V
+△V=367 V
+△V=436 V
+△V=780 V
+-803 V
+-2102 V
+△V=305 V
+-2495 V
+-1413 V
+△V=384 V
+-1797 V
+△V=610 V
+△V=393 V
+Fig. 1: Schematic of the triple-GEM detector geometry show-
+ing the drift, transfer, and induction regions, together with
+the applied electrode potentials and voltage differences across
+each region. The primary ionization process, successive elec-
+tron avalanche multiplication, ion backflow, and the readout
+electronics are also shown.
+electrons undergo avalanche multiplication through ionizing
+collisions. The resulting amplified electron cloud is extracted
+into the first transfer region and efficiently transported to the
+second GEM foil, where the multiplication process is repeated
+as shown in Fig. 1.
+This staged amplification continues through the third GEM
+foil, resulting in an exponential increase in the number of
+charge carriers and achieving an overall detector gain [22].
+Following the final amplification stage, the electrons are
+collected at the readout anode, producing the detector signal.
+Positive ions are produced during the multiplication drift in
+the opposite direction, most collected by the GEM electrodes,
+while a small fraction returns to the drift region, causing ion
+backflow [23]. The multi-layer GEM configuration plays a
+crucial role in suppressing this ion feedback by effectively
+trapping ions at intermediate stages while preserving high elec-
+tron transmission and gain [24]. The overall detector response
+is therefore governed by the electric-field configuration, the
+gas properties, and detector geometry [25].
+III. DETECTOR DESIGN AND COMPUTATIONAL
+FRAMEWORK
+A. Standard GEM detector Geometry
+The conventional GEM foil design widely employed in
+high-energy physics experiments is used as the reference
+geometry in this work. It consists of a 50 µm thick polyimide
+(Kapton) substrate coated on both sides with 5 µm thick
+copper layers. The foil is perforated with a regular hexagonal
+array of microscopic holes having a pitch of 140 µm. In the
+conventional bi-conical geometry, each hole has a minimum
+diameter of approximately 50 µm at the center of the foil and
+3
++
+Fig. 2: Schematic illustration of the ion collection mechanism
+in the conventional bi-conical (top) and optimized single-
+conical (bottom) GEM hole geometries. The red lines represent
+the electron trajectories, while the blue spheres represent the
+positive ions produced during avalanche multiplication.
+expands symmetrically to an outer diameter of 70 µm at both
+the top and bottom copper layers. This bi-conical hole profile
+is typically fabricated using the well-established double-mask
+chemical etching technique and has become the standard GEM
+geometry due to its reliable performance and mechanical
+stability [26]. In this work, it serves as the reference geometry
+for evaluating the performance of the optimized hole design.
+B. Hole Geometry Optimization
+The performance of a GEM detector is strongly influenced
+by the geometry of its microscopic holes, which directly
+affects electron and ion transport, avalanche multiplication,
+and ion collection via the electric-field distribution within the
+holes. Therefore, modifying the hole profile provides a simple
+and effective way to improve detector performance without
+changing the overall detector configuration. To investigate this
+effect, the conventional bi-conical geometry is compared with
+the optimized single-conical geometry.
+In the conventional bi-conical geometry, the avalanche de-
+velops near the middle of the hole, where the upper copper
+electrode is relatively farther from the multiplication region.
+Therefore, the positive ions produced during the avalanche
+have to travel a longer distance before being collected, al-
+lowing a fraction of them to drift back into the drift region
+and contribute to ion backflow. In contrast, the asymmetric
+profile of the proposed single-conical geometry brings the
+upper copper electrode closer to the avalanche region, as
+illustrated in Fig. 2. As a result, the positive ions have a shorter
+path to the electrode and are more likely to be collected before
+escaping into the drift region. This increases ion-collection ef-
+ficiency at the upper electrode, thereby reducing ion backflow
+while preserving electron transport and the overall detector
+architecture.
+Based on this concept, the conventional bi-conical hole ge-
+ometry was replaced with an optimized single-conical profile
+having a 50 µm upper opening and a 70 µm lower opening.
+An additional practical advantage of the proposed geometry
+is that it can be fabricated using the single-mask etching
+technique, which simplifies the fabrication process compared
+with the conventional double-mask process used for bi-conical
+GEM foils. In addition to the hole profile, all other detector
+parameters, such as foil thickness, hole pitch, materials, de-
+tector dimensions, gas mixture, and operating voltages, were
+kept unchanged. This ensures that any changes observed in
+the detector response arise solely from the modified hole
+geometry.
+C. Detector Configuration and Gas Parameters
+The GEM foil is placed in a simplified detector setup which
+consists of three regions: a drift region above the GEM, an
+amplification region within the GEM holes, and an induction
+region below the GEM. The drift region guides the primary
+electrons into the GEM holes and the induction region collects
+the multiplied charge on the readout electrode. For this study,
+typical dimensions are used with a drift gap of 3 mm and an
+induction gap of about 1 mm, as as shown in Fig 1. Transfer
+gaps of 1 mm and 2 mm are used for the first and second
+transfer regions, respectively.
+The gas mixture is an important factor in determining
+the electron transport properties, ion mobility, and avalanche
+characteristics. In the present work, a common mixture of
+Argon and Carbon Dioxide (Ar/CO2 in a 70:30 ratio) is used
+due to its favorable qualities, such as good electron drift
+velocity, moderate diffusion, and steady operation under high
+fields [27]. Typical field values are selected to obtain efficient
+electron transport and amplification. Drift fields are of the
+order of 1–3 kV/cm, induction fields of the order of 4–5 kV/cm
+and a high electric field in the GEM holes is generated by a
+voltage difference across the foil [28]. Both geometries use
+the same parameters to essentially isolate the effect of the
+hole shape on the detector performance [29].
+D. Electric Field Map Preparation using ANSYS Mechanical
+APDL
+The electric field distribution inside the GEM structure
+is estimated using ANSYS Mechanical APDL [30], which
+provides a finite element method (FEM) based solution of
+electrostatic fields in complex geometries. The detailed GEM
+geometry, including the Kapton substrate, copper layers, and
+hole structure is constructed in ANSYS environment. Ap-
+propriate boundary conditions are applied by applying fixed
+potentials to the copper electrodes to establish the electric field
+across the GEM as shown in Fig. 3 [31].
+A fine mesh is employed in the vicinity of the GEM
+holes to accurately capture the strong field gradients that
+drive avalanche multiplication. Particular attention is given to
+resolving the field inside the hole, where the electric field can
+reach values on the order of tens of kV/cm. The resulting
+3D electric field maps are then exported and formatted to be
+compatiblle with Garfield++, providing a seamless interface
+between field computation and particle transport studies. This
+ensures that the microscopic processes are based on realistic,
+high-resolution electric field distributions.
+4
+1
+MN
+MX
+X
+Y
+Z
+                                                                                
+-3275
+-2911.11
+-2547.22
+-2183.33
+-1819.44
+-1455.56
+-1091.67
+-727.778
+-363.889
+0
+MAY  5 2026
+06:31:32
+NODAL SOLUTION
+STEP=1
+SUB =1
+TIME=1
+VOLT     (AVG)
+RSYS=0
+SMN =-3275
+Fig. 3: Detector geometry designed in ANSYS Mechanical
+APDL using finite-element analysis. The geometry includes
+the drift, GEM, transfer, and induction regions with their
+corresponding applied voltages. The resulting electric-field
+maps are then imported into Garfield++ for the study of
+electron transport, avalanche multiplication, and ion backflow.
+IV. COMPUTATIONAL METHODOLOGY
+A detailed study has been carried out to examine the re-
+sponse of Gas Electron Multiplier (GEM) detectors to various
+charged-particle species. The methodology combines realistic
+particle generation, modeling of primary ionization, micro-
+scopic charge transport, and statistical analysis of detector
+observables. The goal is to obtain a predicted detector response
+that correctly describes the physical processes controlling the
+operation of the GEM detector under different conditions.
+A. Incident Particle Configuration
+The detector response is studied for a representative set of
+charged particles, commonly observed in high-energy physics
+experiments, namely muons (µ), pions (π), kaons (κ), and
+protons (p). These particles span a large range in mass and
+interaction properties and are therefore useful to test the
+dependence of detector performance on particle type. The
+detector response is studied for each particle species at incident
+energies up to 10 GeV, which is the energy range of interest
+for high-energy physics experiments. Charged particles were
+injected normal to the detector plane and traversed the entire
+drift gap, ensuring full primary ionization.
+The incident particle goes straight through the drift region
+perpendicular to the GEM surface. This setup reduces the
+geometric complexity while keeping the basic physics of
+particle–gas interactions. The length of the track is chosen
+to be large enough to cover the whole drift gap and therefore
+to pick up the whole ionization profile of each particle. The
+same incident geometry is maintained for all particle types so
+that any observed variation in the detector response can be
+directly attributed to the differences in the particle properties.
+Fig. 4: Electron avalanche in Garfield++, where the red lines
+denote the trajectories of positive ions drifting back towards
+the drift region, while the yellow lines show the trajectories
+of electrons.
+B. Primary Ionization
+Primary electron-ion pairs are produced when charged par-
+ticles pass through the detector gas. These primary electrons
+provide the starting point for electron transport and avalanche
+multiplication inside the GEM detector. In this work, the
+energy loss of charged particles in the gas is described using
+the Bethe-Bloch formalism, which estimates the number of
+ionization clusters produced for different particle types and
+incident energies.
+For each particle track, the deposited energy is converted
+into ionization clusters, each producing a number of primary
+electrons. The positions of these clusters along the particle
+track are statistically generated to reflect the stochastic nature
+of the ionization process. Because different particles deposit
+different amounts of energy in the gas, the number of primary
+electrons also varies with the particle type and energy. The
+generated primary electrons are then used as the input to
+subsequent electron transport and avalanche multiplication.
+C. Electron Transport and Avalanche Process
+The electric-field maps generated in ANSYS Mechanical
+APDL are imported into Garfield++, where the transport
+of charged particles and avalanche multiplication within the
+detector are investigated. The generated primary electrons
+are transported through the drift region under the applied
+electric field. The transport process is studied using micro-
+scopic tracking in Garfield++, which accounts for the velocity
+of electron drift, transverse and longitudinal diffusion, and
+interactions with gas molecules [32]. The electron trajectories
+are influenced by the detailed electric field maps imported
+from ANSYS, ensuring that field non-uniformities near the
+GEM holes are properly captured.
+As electrons enter the high-field region inside the GEM
+holes, they undergo avalanche multiplication through succes-
+sive ionizing collisions [33]. The trajectories of avalanche
+electrons and back-drifting positive ions are illustrated in
+5
+Fig 4, where yellow and red lines represent the path of electron
+and ion-backflow, respectively. This process is governed by the
+Townsend ionization coefficient which depends on the local
+electric field and the gas composition. Garfield++ tracks the
+path and multiplication history of each electron on the micro-
+scopic scale, enabling a detailed description of the avalanche
+process [34]. The total number of electrons produced in the
+avalanche is recorded for each primary electron and used to
+calculate the effective gain [35].
+In addition to the electron transport the motion of the
+positive ions generated by the avalanche is considered. Positive
+ions move much more slowly than electrons because they are
+heavier. Their trajectories are tracked until they are collected
+on the GEM electrodes or drift back into the drift region and
+contribute to the ion backflow (IBF).
+D. Collection of Charge and Signal Formation
+The detector signal is determined by the collection of
+multiplied electrons at the readout electrode. For each event,
+the total number of electrons arriving in the induction region
+is recorded. This parameter is directly related to the detector’s
+effective gain and represents the combined effects of electron
+transit, avalanche multiplication, and extraction efficiency.
+The corresponding positive ions produced during avalanche
+multiplication are also tracked, and the ion backflow fraction
+is determined from the fraction of ions that drift back into the
+drift region. This requires careful tracking of ion trajectories
+over relatively long timescales compared to electron motion.
+The balance between electron collection and ion backflow give
+a complete picture of detector performance, particularly under
+high-rate conditions, where ion buildup can strongly influence
+detector operation.
+E. Performance Parameters
+To evaluate the performance of the GEM detector, three
+parameters are considered: the effective gain, ion backflow
+(IBF), and the ion backflow-to-gain (IBF/Gain) ratio.
+Effective Gain: The effective gain is defined as the ratio
+of the number of electrons collected at the readout electrode
+to the number of incident particles entering the detector.
+Geff = Ncollected
+Nincident
+.
+(1)
+The electron multiplication inside the GEM holes is governed
+by the Townsend ionization and can be approximated by
+G ≈exp
+Z
+α(E) dx
+
+,
+(2)
+where α(E) is the Townsend ionization coefficient, which
+depends on the local electric field.
+Ion Backflow (IBF): Ion backflow is defined as the fraction
+of positive ions generated during avalanche multiplication that
+drift back into the drift region. It is calculated as
+IBF =
+N drift
+ions
+Nincident
+.
+(3)
+Since each avalanche electron is accompanied by a positive
+ion, the ion backflow is closely related to the avalanche multi-
+plication process and the electric-field configuration inside the
+detector.
+The IBF/Gain Ratio: The ion-backflow-to-gain (IBF/Gain)
+ratio is a normalized performance parameter that quantifies the
+balance between charge amplification and ion suppression. A
+lower value of this ratio indicates better suppression of ion
+backflow for a given detector gain.
+V. EXPERIMENTAL VALIDATION
+To establish the reliability of the computational framework
+employed in this work, the gain of a conventional single
+GEM detector is validated against published experimental
+measurements [36]. The present work uses the same validated
+framework reported in recent studies [37].
+The detector consists of a standard bi-conical GEM foil with
+a hole pitch of 140 µm, an inner hole diameter of 50 µm, an
+outer hole diameter of 70 µm, and a 50 µm thick Kapton foil
+coated with 5 µm copper on both sides. The drift and induction
+fields are fixed at 1.5 kV/cm and 5 kV/cm, respectively, while
+the voltage difference between the GEM foil (∆VGEM) is
+varied. The detector is irradiated with a 6 keV X-ray source,
+producing approximately 220 primary electrons in the gas.
+The electrostatic field distribution is computed in the AN-
+SYS Mechanical APDL using the same detector geometry
+and electric-field configuration. The computed field maps
+are imported into Garfield++, where microscopic electron
+transport and avalanche multiplication are calculated under the
+same operating conditions. The effective gain is obtained by
+calculating the ratio of the total number of avalanche electrons
+to the number of primary electrons.
+350
+400
+450
+500
+550
+600
+650
+GEM
+ V
+∆
+2
+10
+3
+10
+4
+10
+5
+10
+Gain
+Experimental
+ 
+++
+ANSYS + Garfield
+ 
+ 
+Fig. 5: Effective gain of a conventional single GEM detector
+as a function of the voltage difference across the GEM foil
+(∆VGEM). The comparison between the experimental mea-
+surements (red circles) and the calculated results (blue circles)
+demonstrates good agreement, validating the framework.
+The calculated effective gain agrees well with the exper-
+imental measurements for different values of ∆VGEM, as
+shown in Fig. 5. This agreement across the entire voltage range
+shows that the framework correctly reproduces the electron
+6
+multiplication process in a standard GEM detector. The modest
+discrepancies between the calculated and experimental values
+are within the expected experimental and statistical uncertain-
+ties and do not influence the overall agreement between the
+two data sets.
+The agreement between the calculated and experimental
+data confirms the validity of the ANSYS-Garfield++ frame-
+work and demonstrates its applicability to the investigation of
+different GEM hole geometries and their response to various
+charged particles.
+VI. RESULTS AND DISCUSSION
+The response of a gaseous detector is fundamentally de-
+termined by the primary ionization produced by an incident
+charged particle. The mean energy loss per unit path length in
+the gas is described by the Bethe–Bloch equation:
+−dE
+dx = Kz2 Z
+A
+1
+β2
+1
+2 ln
+2mec2β2γ2Wmax
+I2
+
+−β2 −δ
+2
+
+,
+(4)
+where z is the charge of the incident particle, β and γ are
+relativistic factors, Z and A are the atomic number and mass
+of the gas, I is the mean excitation energy, and Wmax is
+the maximum energy transfer per collision. The number of
+primary electron–ion pairs produced per unit length is given
+by:
+Nprim = 1
+W
+dE
+dx ,
+(5)
+where W is the mean energy required to produce an elec-
+tron–ion pair in the gas medium. The detector response is
+governed by two competing processes: electron multiplica-
+tion inside the GEM holes and the transport of positive
+ions produced during the avalanche. Although a higher gain
+improves the signal amplitude, excessive ion backflow can
+distort the electric field in the drift region and degrade detector
+performance during long-term operation. This study examines
+the dependence of effective gain and ion backflow on particle
+type and incident energy, and compares the detector response
+for conventional bi-conical and optimized single-conical GEM
+geometries.
+The detector response to muons, pions, kaons, and protons
+was examined over an incident-energy range extending up to
+10 GeV. These particles span a wide energy range, providing a
+suitable benchmark for evaluating the detector response under
+realistic conditions encountered in collider experiments.
+A. Single Gem characteristics
+The response characteristics of the single GEM detector
+were initially studied for both the standard bi-conical and
+optimized single-conical hole geometries to understand the
+basic behavior of charge amplification and ion transport within
+a single foil. The detector geometry with the applied voltages
+and the corresponding electric-field strengths in the drift,
+amplification and induction region is shown in Fig 6.
+The drift field guides the primary electrons towards the
+GEM holes without initiating multiplication, while the induc-
+tion field efficiently extracts the avalanche electrons towards
+the readout plane. An electric field of about 54.1 kV/cm is
+established inside the GEM holes, where electron multipli-
+cation takes place. The voltage configuration was kept fixed
+throughout the study so that the observed variations in the
+detector response arise only from differences in the incident
+particle and its energy.
+1 mm
+3 mm
+2.64 kV/cm
+54.1 kV/cm
+4.44 kV/cm
+0 V
+-1586 V
+△V=367 V
+△V=436 V
+-803 V
+-436 V
+△V=783 V
+Fig. 6: Operating configuration of the conventional bi-conical
+single-GEM detector illustrating the detector geometry, ap-
+plied electrode voltages, voltage differences across the de-
+tector, and the resulting electric-field strengths in the drift,
+amplification, and induction regions.
+Since a single GEM isolates a single amplification stage, it
+provides a direct way to study the effects of particle-dependent
+ionization and hole geometry on detector performance.
+0
+2000
+4000
+6000
+8000
+10000
+Energy (MeV)
+20
+60
+100
+140
+Effective Gain
+Pion
+Kaon
+Proton
+Muon
+Fig. 7: Variation of the effective gain with incident particle en-
+ergy for muons, pions, kaons, and protons in the conventional
+bi-conical single-foil GEM detector. The points represent the
+calculated effective gain, while the lines are included to
+guide the eye. Error bars represent the statistical uncertainties
+obtained from the Garfield++ calculation.
+The effective gain obtained for the standard single GEM is
+shown in Fig. 7. The error bars shown in all figures throughout
+this study represent the statistical uncertainties obtained from
+Garfield++. The gain exhibits a weak dependence on the par-
+ticle species and incident energy throughout the investigated
+7
+0
+2000
+4000
+6000
+8000
+10000
+Energy (MeV)
+20
+60
+100
+140
+Ion Backflow
+Pion
+Kaon
+Proton
+Muon
+Fig. 8: Ion-backflow as a function of the incident particle
+energy for muons, pions, kaons, and protons in the standard
+bi-conical single-foil GEM detector.
+range. Although protons, kaons, pions, and muons produce
+different numbers of primary ionization electrons because of
+their different stopping powers, the multiplication inside the
+GEM hole is controlled mainly by the local electric field.
+Once the primary electrons enter the high-field region, they
+undergo nearly identical avalanche multiplication regardless
+of the particle that produced them. Consequently, the effective
+gain remains almost unchanged for all particle species. A slight
+difference is observed at lower energies, where the variation in
+stopping power is predicted by the Bethe-Bloch equation. As
+the particle energy increases, the stopping powers gradually
+converge towards the minimum-ionizing region, resulting in a
+more uniform detector response.
+The corresponding ion-backflow is shown in Fig. 8 and
+follows the same trend as the effective gain, since each
+avalanche electron is accompanied by a positive ion. Most
+ions are collected by the GEM electrodes, with only a small
+fraction drifting back into the drift region, whereas the small
+differences among particle species arise mainly from variations
+in primary ionization.
+0
+2000
+4000
+6000
+8000
+10000
+Energy (MeV)
+0
+0.5
+1
+1.5
+2
+Ratio (IBF/Gain)
+Pion
+Kaon
+Proton
+Muon
+Fig. 9: Ion-backflow/gain ratio as a function of incident
+particle energy for muons, pions, kaons, and protons in the
+standard bi-conical single-foil GEM detector.
+0 V
+-1586 V
+△V=367 V
+△V=436 V
+-803 V
+-436 V
+△V=783 V
+1 mm
+3 mm
+4.44 kV/cm
+2.641 kV/cm
+57.8 kV/cm
+Fig. 10: Operating configuration of the optimized single-
+conical single-GEM detector illustrating the detector geom-
+etry, applied electrode voltages, voltage differences across the
+detector, and the resulting electric-field strengths in the drift,
+amplification, and induction regions.
+To evaluate the trade-off between charge amplification and
+ion suppression, the IBF/Gain ratio (Fig. 9) is used as a nor-
+malized performance metric. The ratio remains nearly constant
+across different particles and incident energies, indicating that
+electron multiplication and ion backflow increase in nearly
+equal proportions and are determined primarily by the electric-
+field configuration and hole geometry. Table I shows the
+numerical values of the effective gain, ion backflow, and
+IBF/Gain ratio for the muon at different energies, which
+serves as a baseline for comparison with the optimized GEM
+geometry.
+Energy(MeV)
+Gain
+Ion Backflow
+Ratio
+100
+84.29 ± 2.97
+70.76 ± 2.29
+0.840 ± 0.040
+300
+73.36 ± 3.15
+61.41 ± 2.57
+0.837 ± 0.050
+800
+78.11 ± 2.11
+65.52 ± 2.12
+0.839 ± 0.035
+3400
+71.63 ± 5.19
+59.97 ± 3.76
+0.838 ± 0.080
+10000
+72.83 ± 5.70
+61.25 ± 4.83
+0.841 ± 0.093
+TABLE I: Effective gain, ion backflow, and IBF/Gain ratio of
+the standard single-GEM configuration for muons.
+To investigate the influence of hole geometry on detector
+performance, the bi-conical GEM was replaced with a single-
+conical design while keeping the detector dimensions, gas
+mixture, and operating voltages unchanged. Fig. 10 shows
+the optimized single-GEM with the corresponding electric-
+field distribution. Compared with the conventional bi-conical
+geometry, the electric field inside the single-conical hole in-
+creases from about 54.1 kV/cm to 57.8 kV/cm, while the drift
+and induction fields remain the same. A higher electric field
+leads to stronger electron multiplication, resulting in increased
+gain. This indicates that the improvement originates from
+optimized hole geometry rather than the particle-dependent
+ionization process. In the modified hole geometry, the upper
+copper electrode is closer to the avalanche region, allowing
+8
+0
+2000
+4000
+6000
+8000
+10000
+Energy (MeV)
+40
+80
+120
+160
+200
+240
+Effective Gain
+Pion
+Kaon
+Proton
+Muon
+Fig. 11: Effective gain as a function of incident particle energy
+for muons, pions, kaons, and protons in the optimized single-
+conical single-foil GEM detector.
+positive ions to reach the electrode over a shorter distance. As
+a result, more ions are collected on the electrode, reducing ion
+backflow. Fig 11 and 12 demonstrate the variation of effective
+gain and ion-backflow, respectively, with incident energy for
+the optimized single conical geometry.
+0
+2000
+4000
+6000
+8000
+10000
+Energy (MeV)
+40
+80
+120
+160
+200
+240
+Ion Backflow
+Pion
+Kaon
+Proton
+Muon
+Fig. 12: Ion-backflow as a function of incident particle energy
+for muons, pions, kaons, and protons in the optimized single-
+conical single-foil GEM detector.
+Suppression of ion backflow is particularly important for
+GEM detectors operating at high particle rates. The buildup of
+positive ions in the drift region produces space-charge effects
+that distort the electric field [38], reduce electron transport
+efficiency, and degrade detector stability and tracking perfor-
+mance. In addition, the asymmetric hole profile guides the
+avalanche ions more efficiently towards the GEM electrodes,
+reducing the ion accumulation within the holes and mitigating
+local distortions of the electric field.
+The IBF/Gain ratio shown in Fig. 13 gives a clearer mea-
+sure of detector performance. Compared with conventional
+single-GEM geometry, the optimized single-conical geometry
+exhibits an increase in ion backflow, accompanied by a sub-
+stantially larger increase in effective gain over a wide energy
+range. As a result, the IBF/Gain ratio is consistently lower for
+0
+2000
+4000
+6000
+8000
+10000
+Energy (MeV)
+0
+0.5
+1
+1.5
+2
+Ratio (IBF/Gain)
+Pion
+Kaon
+Proton
+Muon
+Fig. 13: Ion-backflow/gain ratio as a function of incident
+particle energy for muons, pions, kaons, and protons in the
+optimized single-conical single-foil GEM detector.
+the optimized geometry, indicating that the increase in gain
+outweighs the corresponding increase in ion backflow. This
+reduction in the IBF/Gain ratio is observed for all particle
+species studied. Table II gives the summary of effective gain,
+ion backflow, and IBF/Gain ratio obtained for muons at differ-
+ent incident energies in the optimized single-conical single-foil
+GEM detector. Similar trends are observed for pions, kaons,
+and protons over the studied energy range. These observations
+motivated the implementation of the proposed geometry in a
+triple-GEM detector to evaluate its performance under realistic
+operating conditions.
+Energy(MeV)
+Gain
+Ion Backflow
+Ratio
+100
+202.71 ± 5.08
+154.88 ± 4.19
+0.764 ± 0.028
+300
+127.37 ± 4.95
+97.59 ± 3.88
+0.766 ± 0.043
+800
+131.17 ± 4.81
+101.35 ± 3.63
+0.773 ± 0.040
+3400
+151.59 ± 6.65
+116.11 ± 4.62
+0.766 ± 0.045
+10000
+164.72 ± 3.36
+126.49 ± 2.59
+0.768 ± 0.022
+TABLE II: Effective gain, ion backflow, and IBF/Gain ratio
+of the optimized single-GEM configuration for muons.
+1) Triple GEM characteristics: Although the single GEM
+configuration provides insight into the microscopic amplifi-
+cation behavior of an individual foil, modern high-energy
+physics detectors generally employ multiple GEM stages to
+achieve high, stable gain while minimizing ion backflow. Fig. 1
+illustrates the standard triple-GEM detector together with the
+applied voltages and the strength of the electric field in the
+drift, transfer, and induction regions. The electric fields were
+optimized to ensure efficient electron collection into the first
+GEM, high electron transparency between successive GEM
+stages, and effective extraction of avalanche electrons towards
+the readout plane.
+The effective gain and the corresponding ion backflow for
+the standard triple-GEM detector are presented in Fig. 14
+and
+15, respectively. As expected, cascading three GEM
+foils increases the overall gain by several orders of magnitude
+compared with the single-GEM configuration while retain-
+9
+0
+2000
+4000
+6000
+8000
+10000
+Energy (MeV)
+0
+20
+40
+60
+80
+100
+3
+10
+×
+Effective Gain
+Pion
+Kaon
+Proton
+Muon
+Fig. 14: Effective gain as a function of incident particle energy
+for muons, pions, kaons, and protons in the standard bi-conical
+triple-foil GEM detector.
+ing the weak dependence on particle species and incident
+energy. Because each avalanche electron is accompanied by
+a positive ion, the ion backflow follows a trend similar
+to the gain. Despite the significantly larger avalanche, the
+multi-stage configuration efficiently collects most of the ions
+on the intermediate GEM electrodes, allowing only a small
+fraction to drift back into the drift region. The small variations
+observed among different particle species originate primarily
+from differences in their initial ionization, whereas avalanche
+multiplication and ion transport remain governed mainly by
+the electric-field configuration within the GEM holes.
+0
+2000
+4000
+6000
+8000
+10000
+Energy (MeV)
+0
+20
+40
+60
+80
+100
+3
+10
+×
+Ion Backflow
+Pion
+Kaon
+Proton
+Muon
+Fig. 15: Ion-backflow as a function of incident particle energy
+for muons, pions, kaons, and protons in the standard bi-conical
+triple-foil GEM detector.
+The IBF/Gain ratio shown in Fig. 16 remains nearly constant
+throughout the energy for all particle species. The numerical
+values of the effective gain, ion backflow, and IBF/Gain ratio
+for the muon response at selected energies are summarized in
+Table III.
+Finally, the proposed single-conical hole geometry was
+implemented in all three GEM foils while maintaining the
+same detector dimensions, gas composition, and operating
+voltages as the conventional triple-GEM detector.
+0
+2000
+4000
+6000
+8000
+10000
+Energy (MeV)
+0
+0.5
+1
+1.5
+2
+Ratio (IBF/Gain)
+Pion
+Kaon
+Proton
+Muon
+Fig. 16: Ion-backflow/gain ratio as a function of incident
+particle energy for muons, pions, kaons, and protons in the
+standard bi-conical triple-foil GEM detector.
+Energy
+(MeV)
+Gain
+(×103)
+Ion Backflow
+(×103)
+Ratio
+100
+70.04 ± 11.21
+75.05 ± 14.04
+1.071 ± 0.248
+300
+51.52 ± 12.00
+55.27 ± 15.03
+1.073 ± 0.241
+1000
+34.72 ± 11.52
+37.27 ± 10.39
+1.074 ± 0.240
+2000
+35.29 ± 5.78
+37.84 ± 6.19
+1.072 ± 0.248
+10000
+67.27 ± 10.90
+72.14 ± 8.93
+1.072 ± 0.229
+TABLE III: Effective gain, ion backflow, and IBF/Gain ratio,
+with associated uncertainties, of the Standard triple-GEM
+configuration for muons across varying energies.
+2.61 kV/cm
+58.5 kV/cm
+ 62.5 kV/cm
+3.18 kV/cm
+3.11 kV/cm
+61.8 kV/cm
+4.44 kV/cm
+1 mm
+3 mm
+2 mm
+1 mm
+0 V
+-436 V
+-3275 V
+△V=367 V
+△V=436 V
+△V=780 V
+-803 V
+-2102 V
+△V=305 V
+-2495 V
+-1413 V
+△V=384 V
+-1797 V
+△V=610 V
+△V=393 V
+Fig. 17: Operating configuration of the optimized single-
+conical triple-GEM detector illustrating the detector geome-
+try, applied electrode voltages, voltage differences across the
+detector, and the resulting electric-field strengths in the drift,
+amplification, and induction regions.
+Fig. 17 shows the corresponding detector configuration and
+electric-field distribution. The modified geometry preserves the
+electric-field structure required for stable detector operation
+while altering the field distribution inside each GEM hole,
+thereby influencing both electron and ion transport throughout
+the multi-stage amplification process.
+10
+0
+2000
+4000
+6000
+8000
+10000
+Energy (MeV)
+0
+20
+40
+60
+80
+3
+10
+×
+Effective Gain
+Pion
+Kaon
+Proton
+Muon
+Fig. 18: Effective gain as a function of incident particle energy
+for muons, pions, kaons, and protons in the optimized single-
+conical triple-foil GEM detector.
+The effective gain and the corresponding ion backflow
+obtained with the optimized triple-GEM detector are presented
+in Fig. 18 and 19, respectively. The reduced electron trans-
+parency associated with the smaller entrance diameter limits
+charge transfer between successive GEM foils, producing a
+modest reduction in effective gain despite the stronger local
+electric field. A similar effect is observed for all the particle
+species. By appropriately adjusting the upper and lower hole
+diameters to maintain electron transparency comparable to
+that of the standard GEM, the gain can be further improved.
+Despite the modest decrease in gain, the modified geometry
+0
+2000
+4000
+6000
+8000
+10000
+Energy (MeV)
+0
+20
+40
+60
+80
+3
+10
+×
+Ion Backflow
+Pion
+Kaon
+Proton
+Muon
+Fig. 19: Ion-backflow as a function of incident particle energy
+for muons, pions, kaons, and protons in the optimized single-
+conical triple-foil GEM detector.
+exhibits significantly lower ion backflow. The asymmetric
+electric-field distribution promotes more efficient collection of
+avalanche ions on the GEM electrodes, reducing the number
+of ions drifting back into the drift region.
+The improvement becomes more evident from the IBF/Gain
+ratio shown in Fig. 20. Table IV summarizes the correspond-
+ing effective gain, ion backflow, and IBF/Gain ratio for the
+optimized single-conical triple-GEM detectors for incident
+muons at different energies. The gain decreases slightly due
+0
+2000
+4000
+6000
+8000
+10000
+Energy (MeV)
+0
+0.5
+1
+1.5
+2
+Ratio (IBF/Gain)
+Pion
+Kaon
+Proton
+Muon
+Standard triple GEM
+Fig. 20: Ion-backflow/gain ratio as a function of incident
+particle energy for muons, pions, kaons, and protons in the
+optimized single-conical triple-foil GEM detector.
+to reduced electron transparency in the modified geometry.
+Energy
+(MeV)
+Gain
+(×103)
+Ion Backflow
+(×103)
+Ratio
+100
+57.60 ± 6.64
+29.08 ± 3.38
+0.505 ± 0.083
+300
+32.62 ± 5.19
+16.52 ± 2.64
+0.506 ± 0.114
+1000
+33.22 ± 8.82
+16.81 ± 4.47
+0.506 ± 0.190
+2000
+40.58 ± 11.09
+20.58 ± 5.77
+0.507 ± 0.199
+10000
+44.19 ± 8.15
+22.30 ± 4.05
+0.505 ± 0.131
+TABLE IV: Effective gain, ion backflow, and IBF/Gain ratio,
+with associated uncertainties, of the Modified triple-GEM
+configuration for muons across five energies.
+This reduction is reasonably uniform with an average im-
+provement of approximately 52% over the standard bi-conical
+design shown in Table V. The ratio is almost independent of
+the particle type, indicating that the improvement is due to the
+changed hole geometry. This demonstrates that the optimized
+single-conical geometry gives a better balance between charge
+amplification and ion suppression than the conventional bi-
+conical design.
+Energy
+(MeV)
+Ratio
+(Standard)
+Ratio
+(Optimised)
+Improvement
+(in %)
+100
+1.071 ± 0.248
+0.505 ± 0.083
+52.88%
+300
+1.073 ± 0.241
+0.506 ± 0.114
+52.79%
+1000
+1.074 ± 0.240
+0.506 ± 0.190
+52.88%
+2000
+1.072 ± 0.248
+0.507 ± 0.199
+52.71%
+10000
+1.072 ± 0.229
+0.505 ± 0.131
+52.94%
+TABLE V: Percentage improvement in the ion-backflow-to-
+gain ratio between the Standard and Optimized triple-GEM
+configurations for muons. Average improvement: 52.84%
+VII. CONCLUSION
+A comprehensive investigation of the response of con-
+ventional and modified GEM detectors to muons, pions,
+kaons, and protons has been carried out using ANSYS and
+11
+Garfield++. The influence of particle-dependent ionization on
+effective gain and ion backflow was studied for both single
+and triple-GEM configurations over a wide energy range.
+For the conventional geometries, both gain and ion backflow
+showed only a weak dependence on particle species and inci-
+dent energy, indicating that the detector response is governed
+primarily by the electric-field distribution within the GEM
+holes. The proposed single-conical hole geometry modifies
+the field distribution and alters the transport of electrons
+and avalanche ions without changing the detector’s operating
+conditions.
+In the single-GEM configuration, the optimized geome-
+try produced a slightly lower IBF/Gain ratio with a large
+increase in gain. When extended to a triple-GEM detector,
+the modified geometry resulted in a slight reduction in gain
+due to lower electron transparency between successive GEM
+stages. A higher gain can be achieved by increasing the upper-
+hole size while maintaining the same upper-to-lower-hole size
+ratio, provided that the electric-field configuration remains
+unchanged. However, this reduction was accompanied by a
+much larger decrease in ion backflow, leading to an average
+improvement of about 52% in the ion backflow-to-gain ratio
+compared to the conventional bi-conical design.
+These results demonstrate that optimization of the GEM
+hole geometry provides a significantly improved balance
+between charge amplification and ion suppression without
+requiring changes to the detector architecture or operating
+conditions. The proposed single-conical geometry enhances
+ion collection efficiency while preserving effective charge
+multiplication, thereby reducing the likelihood of space-charge
+accumulation under high-rate conditions. Because of its simple
+implementation, compatibility with single-mask fabrication,
+and improved performance, the proposed geometry represents
+a practical and promising design for next-generation GEM-
+based gaseous tracking detectors in future high-energy physics
+experiments.
+ACKNOWLEDGMENT
+The authors appreciate the financial support provided by
+the Anusandhan National Research Foundation (ANRF), Gov-
+ernment of India, under the Individual Research Grant (IRG)
+project ANRF/IRG/2025/000338/PS. The authors also ac-
+knowledge the Indian Institute of Technology (IIT) Mandi for
+providing the computational and research facilities necessary
+to carry out this work. The authors sincerely thank the mem-
+bers of the CMS and DRD1 Collaborations for their valuable
+discussions, insightful suggestions, and constructive feedback,
+which have greatly benefited this work.
+REFERENCES
+[1] F. Sauli and A. Sharma, “Micro-pattern gaseous detectors,” Annual
+Review of Nuclear and Particle Science, vol. 49, pp. 341–388, 1999.
+[2] V. N. Kudryavtsev, T. V. Maltsev, and L. I. Shekhtman, “Study of spatial
+resolution of coordinate detectors based on gas electron multipliers,”
+Nuclear Instruments and Methods in Physics Research Section A:
+Accelerators, Spectrometers, Detectors and Associated Equipment, vol.
+845, pp. 289–292, 2017.
+[3] S. Malhotra, M. Naimuddin, A. Kumar, M. Gola, A. Bansal, and
+A. Shah, “Various studies with gas electron multiplier (gem) detectors,”
+in Proceedings of the XXII DAE High Energy Physics Symposium, ser.
+Springer Proceedings in Physics. Springer, 2018, vol. 203, pp. 227–230.
+[4] F. Sauli, “Principles of operation of multiwire proportional and drift
+chambers,” CERN Yellow Report, 1977.
+[5] A. Buzulutskov, “Radiation detectors based on gas electron multipliers,”
+Instruments and Experimental Techniques, vol. 50, no. 3, pp. 287–310,
+2007.
+[6] G. Charpak, J. Derr´e, Y. Giomataris, and P. Rebourgeard, “Micromegas,
+a multipurpose gaseous detector,” Nuclear Instruments and Methods in
+Physics Research Section A: Accelerators, Spectrometers, Detectors and
+Associated Equipment, vol. 478, no. 1, pp. 26–36, 2002, proceedings of
+the ninth Int.Conf. on Instrumentation.
+[7] F. Sauli, “Gem: A new concept for electron amplification in gas
+detectors,” Nucl. Instrum. Meth. A, vol. 386, pp. 531–534, 1997.
+[8] F. Sauli, “The gas electron multiplier (gem): Operating principles and
+applications,” Nucl. Instrum. Meth. A, vol. 805, pp. 2–24, 2016.
+[9] M. TITOV and L. ROPELEWSKI, “Micro-pattern gaseous detector
+technologies and rd51 collaboration,” Modern Physics Letters A, vol. 28,
+no. 13, p. 1340022, 2013.
+[10] F. Sauli, “Development and applications of gas electron multiplier
+detectors,” Nucl. Instrum. Meth. A, vol. 505, pp. 195–198, 2003.
+[11] S. Tarafdar, S. V. Greene, J. Velkovska, B. Blankenship, and M. Z.
+Reynolds, “Reduction of ion backflow using a quadruple gem detector
+with various gas mixtures,” Nuclear Instruments and Methods in Physics
+Research Section A, vol. 1046, p. 167460, 2022.
+[12] F. Sauli, L. Ropelewski, and P. Everaerts, “Ion feedback suppression in
+time projection chambers,” Nuclear Instruments and Methods in Physics
+Research Section A, vol. 560, pp. 269–277, 2006.
+[13] O. Bouianov, P. Bulianov, T. Hemmick, and I. Vassiliev, “Foil geometry
+effects on gem characteristics,” Nuclear Instruments and Methods in
+Physics Research Section A, vol. 458, no. 3, pp. 698–703, 2001.
+[14] H. Keller, T. Hebbeker, K. Hoepfner, G. Mocellin, and S. Zaleski,
+“Influence of hole geometry on gas gain in gem detectors,” Journal
+of Instrumentation, vol. 15, no. 06, p. C06004, jun 2020.
+[15] M. K. A. Mondal, P. Angiras, S. Rana, and A. Sarkar, “Optimizing gas
+electron multiplier (gem) geometry for enhanced gain, reduced ion back-
+flow, and improved detector performance,” Journal of Instrumentation,
+vol. 20, no. 04, p. T04011, apr 2025.
+[16] P. Bhattacharya, P. Roy, T. Dey, J. Datta, P. K. Rout, N. Majumdar, and
+S. Mukhopadhyay, “Numerical simulation of charging up, accumulation
+of space charge and formation of discharges,” Nuclear Instruments and
+Methods in Physics Research Section A, vol. 1075, p. 170336, 2025.
+[17] A. S. Martyanov and N. I. Neustroyev, “Ansys maxwell software for
+electromagnetic field calculations,” Eastern European Scientific Journal,
+no. 5, pp. 206–210, 2014.
+[18] R. Veenhof, “Garfield, recent developments,” Nucl. Instrum. Meth. A,
+1998.
+[19] M. Jagielski, K. Malinowski, and M. Chernyshova, “Hybrid garfield++
+simulations of gem detectors for tokamak plasma radiation monitoring,”
+Fusion Engineering and Design, vol. 195, p. 113970, 2023.
+[20] R. Veenhof, “Garfield, recent developments,” Nuclear Instruments and
+Methods in Physics Research Section A, vol. 419, pp. 726–730, 1998.
+[21] P. D. Group, “Passage of particles through matter,” Prog. Theor. Exp.
+Phys., 2020.
+[22] M. Abi-Akl, O. Bouhali, A. Castaneda, Y. Ghorbi, and T. Mohammed,
+“Uniformity studies in large area triple-gem detectors,” Nuclear Instru-
+ments and Methods in Physics Research Section A, vol. 832, pp. 1–9,
+2016.
+[23] S. Chatterjee, S. Das, and S. Biswas, “The charging-up phenomenon in
+gas electron multiplier detectors,” Particles, vol. 9, no. 2, p. 65, 2026.
+[24] R. B. et al., “The gas electron multiplier (gem),” IEEE Trans. Nucl. Sci.,
+vol. 44, no. 3, pp. 646–650, 1997.
+[25] R. N. Patra, R. N. Singaraju, S. Biswas, Z. Ahammed, T. K. Nayak,
+and Y. P. Viyogi, “Measurement of basic characteristics and gain
+uniformity of a triple gem detector,” Nuclear Instruments and Methods
+in Physics Research Section A: Accelerators, Spectrometers, Detectors
+and Associated Equipment, vol. 862, pp. 25–30, 2017.
+[26] O. Bouhali, P. Tarjan, H. Feindt, and J. Park, “Impact of the hole
+orientation of asymmetric gem foils on the performance of single and
+triple gem detectors,” Nuclear Instruments and Methods in Physics
+Research Section A, vol. 1070, p. 169257, 2022.
+[27] S. Bachmann, A. Bressan, M. Cape´ans, M. Deutel, S. Kappler, B. Ketzer,
+A. Polouektov, L. Ropelewski, F. Sauli, E. Schulte, L. Shekhtman,
+and A. Sokolov, “Discharge studies and prevention in the gas electron
+multiplier (gem),” Nuclear Instruments and Methods in Physics Research
+Section A: Accelerators, Spectrometers, Detectors and Associated Equip-
+ment, vol. 479, no. 2, pp. 294–308, 2002.
+12
+[28] B. A. Atoum, S. F. Biagi, D. Gonz´alez-D´ıaz, L. Lavezzi, M. Caccia,
+S. Maiolino, M. G. D. Navarra, E. Fragiacomo, L. D. Serrano, and
+E. Nappi, “Electron transport in gaseous detectors with a python-based
+monte carlo simulation code,” Computer Physics Communications, vol.
+254, p. 107357, 2020.
+[29] H. J. Hilke and W. Riegler, Gaseous Detectors.
+Cham: Springer
+International Publishing, 2020, pp. 91–136.
+[30] ANSYS Inc., ANSYS Mechanical APDL Documentation, ANSYS Inc.,
+Canonsburg, PA, USA, 2023, release 2023 R1.
+[31] P. Bhattacharya, B. Mohanty, S. Mukhopadhyay, N. Majumdar, and
+H. N. da Luz, “3d simulation of electron and ion transmission of gem-
+based detectors,” Nuclear Instruments and Methods in Physics Research
+Section A: Accelerators, Spectrometers, Detectors and Associated Equip-
+ment, vol. 870, pp. 64–72, 2017.
+[32] A. Amoroso, R. B. Ferroli, I. Balossino, M. Bertani, D. Bettoni,
+F. Bianchi, A. Bortone, A. Calcaterra, S. Cerioni, W. Cheng, G. Cibi-
+netto, A. C. Ramusino, G. Cotto, F. Cossio, M. D. R. Rolo, F. D. Mori,
+M. Destefanis, J. Dong, F. Evangelisti, R. Farinelli, ..., and S. Spataro,
+“Parsifal: A toolkit for triple-gem parametrized simulation,” Computer
+Physics Communications, vol. 295, p. 109000, 2024.
+[33] S. Bachmann, A. Bressan, L. Ropelewski, F. Sauli, A. Sharma, and
+H. Eberhardt, “Charge amplification and transfer processes in the
+gas electron multiplier,” Nuclear Instruments and Methods in Physics
+Research Section A, vol. 438, pp. 376–408, 1999.
+[34] W. Bonivento, A. Cardini, G. Bencivenni, F. Murtas, and D. Pinci, “A
+complete simulation of a triple-gem detector,” IEEE Transactions on
+Nuclear Science, vol. 49, no. 4, pp. 1638–1643, 2002.
+[35] O. Bouhali, A. Sheharyar, and T. Mohamed, “Accelerating avalanche
+simulation in gas based charged particle detectors,” Nuclear Instruments
+and Methods in Physics Research Section A, vol. 901, pp. 92–103, 2018.
+[36] S. Bachmann, A. Bressan, L. Ropelewski, F. Sauli, A. Sharma, and
+D. M¨ormann, “Charge amplification and transfer processes in the gas
+electron multiplier,” Nuclear Instruments and Methods in Physics Re-
+search Section A: Accelerators, Spectrometers, Detectors and Associated
+Equipment, vol. 438, no. 2-3, pp. 376–408, 1999.
+[37] S. Rana, M. K. A. Mondal, P. Angiras, and A. Sarkar, “Design
+optimization of triple gas electron multiplier for superior gain and
+reduced ion backflow,” 2026. [Online]. Available: https://arxiv.org/abs/
+2601.12553
+[38] F. V. B¨ohmer, M. Ball, S. Dørheim, C. H¨oppner, G. Lutter, M. Richter,
+O. Schmidt, and M. Włodarczyk, “Simulation of space-charge effects in
+an ungated gem-based tpc,” Nuclear Instruments and Methods in Physics
+Research Section A, vol. 719, pp. 101–104, 2013.

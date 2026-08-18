@@ -1,0 +1,2254 @@
+REASONING AS A DOUBLE-EDGED SWORD: ARCHITECTURE
+AND CROSS-STAGE ROBUSTNESS IN
+VISION-LANGUAGE-ACTION MODELS
+A PREPRINT
+Tuan Duong Trinh*, Naveed Akhtar, Basim Azam
+University of Melbourne
+Parkville, VIC, Australia
+{tuanduong.trinh.1, naveed.akhtar1, basim.azam}@unimelb.edu.au
+July 21, 2026
+ABSTRACT
+Does adding a reasoning step make a Vision-Language-Action (VLA) model more robust to perturba-
+tion? Intuitively, a policy that reasons before acting should absorb a perturbed input better than one
+that maps observations directly to actions. We test this premise head-on across three models that span
+the reasoning spectrum (no reasoning, a text chain-of-thought, and a latent iterative loop), perturbing
+each at the vision, reasoning, and action stages on LIBERO and SimplerEnv. Two questions organize
+the study: does the reasoning design shift robustness, and can the reasoning be read back at runtime as
+a safety signal? We find that the latent-iterative model is by far the least robust: under both stochastic
+noise and white-box perturbation its task success collapses, while the other two hold. This fragility is
+structural rather than cumulative: varying the reasoning depth at inference barely moves it. Reasoning
+outputs can in principle be monitored, but the monitors fail under fair tests. A plan–action consistency
+probe that looks near-perfect under naive evaluation falls to chance under adaptive attack. Under
+matched-FPR calibration, fusing it with an action-anomaly probe never lifts defended success above
+undefended. Scoped to these output-level behavioral probes under white-box vision-stage attack, this
+ceiling is a precondition that any viable defense must first satisfy.
+1
+Introduction
+Vision-Language-Action (VLA) models pair a vision-language backbone with an action head [1–3], and a growing
+number add an explicit reasoning step before acting: a chain-of-thought (CoT) plan in text [4, 5], or iterative refinement
+in a latent space [6]. The safety intuition behind it, that reasoning before acting should absorb a perturbed input better
+than acting on it directly, to our knowledge, remains largely untested. Existing robustness benchmarks [7] treat the
+model as a single black box and never isolate the reasoning step, which raises two questions. When a perturbation
+enters the pipeline, does the reasoning attenuate it, pass it through, or amplify it? And when the reasoning is exposed as
+an explicit plan, can that plan be read back as a runtime check on the action it drives?
+To address these questions, we put the intuition to a direct test. Three VLA models span the reasoning spectrum
+(Figure 1): OpenVLA-OFT [2, 8] (no reasoning), DeepThinkVLA [5] (text CoT), and RD-VLA [6] (latent iterative).
+We perturb them with a cross-stage attack matrix, stochastic noise and white-box PGD-10 [9] injected at the vision,
+reasoning, and action stages, across the LIBERO [10] and SimplerEnv [11] manipulation benchmarks.
+The latent-reasoning model is the least robust: task success rate (SR) collapses to 14.8% under Gaussian sensor
+noise and 0.0% under PGD-10, while the other two remain far more robust. Why would a latent reasoning loop
+amplify a perturbation rather than absorb it? The natural hypothesis is multiplicative compounding with depth, but
+an inference-time sweep of the recurrence depth K rules it out: extending the recurrence from K=8 to K=12 leaves
+∗Corresponding author.
+arXiv:2607.17786v1  [cs.RO]  20 Jul 2026
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+Prismatic
+SigLIP+DINOv2
+(no reasoning stage)
+MLPResNet
+4 layers
+at ∈R7
+OpenVLA-OFT
+No reasoning · ∼7B · SR 96.5%
+PaliGemma
+vision+lang
+CoT generation
+“move arm. .. ”
+Discrete tokens
+2048 bins
+at ∈R7
+DeepThinkVLA
+Text CoT · ∼3B · SR 93.0%
+Prismatic
+SigLIP+DINOv2
+Recurrence
+g◦K, K=12
+Linear proj.
+7×896
+at ∈R7
+RD-VLA
+Latent iter., K=12 · 0.5B · SR 89.2%
+δv
+δr
+δa
+Figure 1: The three VLAs span the reasoning spectrum (rows). Red dashed arrows mark stage-wise attack injection
+points: vision δv (left), reasoning δr (DT only; the only model with a text interface to corrupt), action δa (right). The
+green dotted box highlights DT’s text CoT as the only inspectable interface available for plan-action consistency probing
+(§5.1).
+Table 1: VLA-safety positioning. V/R/A: vision/reasoning/action; TC/LI/SP: text CoT, latent iterative, single-pass;
+Adapt.: Carlini-standard eval; Int.: runtime intervention; Arch.: differentiates ≥2 paradigms (§7).
+Work
+Stages
+Para.
+Adapt.
+Int.
+Arch.
+LIBERO-Plus [7]
+V
+–
+–
+–
+–
+TRAP [41]
+R
+TC
+–
+–
+–
+Wang et al. [42]
+V
+SP
+–
+–
+–
+Guo et al. [43]
+V, R
+TC
+–
+–
+–
+Trinh et al. [44]
+R
+TC
+–
+–
+–
+Our work
+V,R,A
+TC,LI,SP
+✓
+✓
+✓
+amplification essentially unchanged (ρ(12)/ρ(8)=1.005 against a multiplicative prediction of 2.0). The amplification
+is structural, not cumulative, a fixed property of the architecture rather than something that grows with depth.
+Can the exposed reasoning, then, serve as a defense? A text-reasoning model exposes a plan that a consistency check
+can read. We evaluate such a check under adaptive attack (standard practice [12]): naive corruption is detected almost
+perfectly, but adaptive attack reduces it to chance. Fusing this probe with an action-anomaly probe does no better: under
+matched-FPR calibration, no convex combination of the two raises defended task success above undefended on any
+PGD-10 cell (§5.2).
+Contributions.
+We make two contributions, one for each question:
+1. The fragility we identify is structural, not cumulative. It appears in RD-VLA, our latent-iterative model, whose
+task success collapses under both Gaussian sensor noise and white-box PGD-10 [9], while DeepThinkVLA
+and OpenVLA-OFT remain far more robust.
+An inference-time K-sweep shows depth is not the driver
+(ρ(12)/ρ(8)=1.005, against 2.0 if it compounded per step), placing the amplifier in the encoder and the recurrence’s
+fixed point.
+2. Two behavioral monitors that look promising under naive evaluation fail under fair tests. The plan–action consistency
+probe collapses to chance under adaptive attack [12] (detection AUC, area under the ROC curve: 0.996 →0.493),
+and under matched-FPR calibration no linear fusion of the text-consistency and action-anomaly probes raises
+defended SR above undefended SR on any PGD-10 cell. We characterize this as a precondition for defense work,
+not a no-go theorem.
+2
+Related work
+VLA policies span discrete-token, continuous, and diffusion action heads [13, 1, 2, 8, 3, 14–20], trained on large
+demonstration corpora [21–23] and evaluated on simulated manipulation benchmarks [10, 24–26, 11]. A recent
+line adds an explicit reasoning module in one of three modalities: text CoT (Embodied-CoT [4], ECoT-Lite [27],
+DeepThinkVLA [5]); latent iterative (RD-VLA [6]); visual (CoT-VLA [28]). Our lineup covers the first two plus
+a single-pass baseline; visual reasoning is out of scope. Reasoning enlarges the attack surface: CoT prompting [29]
+is exposed to prompt injection [30], jailbreaking [31], GCG suffixes [32], and CoT poisoning [33, 34], and CoT
+(un)faithfulness [35, 36] undercuts consistency-based defenses [37–40]. None of this work measures stage-wise
+amplification of an adversarial perturbation through the reasoning module.
+Classical adversarial-ML grounds our methodology: gradient-based attacks [45–48, 9, 49], adaptive evaluation [50, 12,
+51], gradient-free / transfer / ensemble attacks [52–55], and physical-world threats [56]; vision-language models inherit
+2
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+pixel-level vulnerabilities [57, 58]. Certified defenses [59–62] are typically loose for the attention-heavy backbones in
+modern VLAs, so we report empirically calibrated per-stage amplification, apply the Carlini adaptive standard, and use
+Holm–Bonferroni correction with bootstrap CIs for seed variance [63, 64].
+Trinh et al. [44] (text-CoT entity-swap on DT) is our closest reasoning-stage prior. We extend to all three pipeline stages,
+three reasoning paradigms, and adaptive evaluation (Table 1). Narrower-slice priors include TRAP [41] (text-CoT
+corruption), Wang et al. [42] (single-pass vision attacks), and Guo et al. [43] (vision + reasoning on a single text-CoT
+model). LIBERO-Plus [7] is a complementary non-adversarial benchmark sweeping seven robustness axes, most
+entering at the vision stage.
+3
+Setup
+3.1
+VLA pipeline and threat model
+A VLA model maps visual observations ot ∈RH×W ×3 and a task instruction ℓto a 7-DOF action at ∈R7 through
+three stages (vision encoder fv, optional reasoning module fr, and action head fa):
+at = fa
+ fr
+ fv(ot), ℓ
+
+.
+(1)
+The three models we study (Figure 1) span the reasoning spectrum: OpenVLA-OFT [2, 8] (single-pass, ∼7B, Prismatic
+backbone with MLPResNet action head), DeepThinkVLA (DT; text CoT, ∼3B, PaliGemma backbone, discrete
+action tokens), and RD-VLA (latent iterative, K=12 weight-tied recurrence, 0.5B, Prismatic backbone, linear action
+projection). All three are LIBERO-fine-tuned variants for the main-paper experiments (clean SR 96.5% for OFT,
+93.0% for DT, 89.2% for RD-VLA) and evaluated on LIBERO [10]’s 4 suites (object, spatial, goal, long-horizon) × 10
+tasks × 3 seeds; the unit of analysis is the matched (suite, seed) cell, each a mean SR over 50 episodes (10 tasks × 5
+trials), giving N=12 cells per condition (mean ± SE reported throughout). The SimplerEnv cross-benchmark in §4.3
+uses public OpenVLA-7B without LIBERO fine-tuning (clean SR 55.0% on Google-Robot non-floor tasks). The two
+OpenVLA-family members are different checkpoints with non-comparable absolute SR, so cross-benchmark verdicts
+use within-row ∆SR (Tab. 6, App. A).
+To isolate where reasoning architecture absorbs or amplifies a perturbation, we inject one perturbation at a single
+pipeline stage at a time (Figure 1 marks the three injection points δv, δr, δa). A stage-s adversary with budget ε
+perturbs ˜xs = xs + δs, either deterministically (∥δs∥p ≤ε, FGSM/PGD-class) or stochastically (δs ∼N(0, σ2I)), for
+s ∈{v, r, a}. We perturb the vision (pixel-space L∞or Gaussian), reasoning (entity-swap CoT, DT only), and action
+(Gaussian on the 7-DOF output, gripper excluded) stages (details in §3.2). We do not perturb the natural-language
+instruction ℓitself: instruction-level attacks (paraphrase, prompt injection) form a separate threat class that does not
+isolate reasoning-architecture-mediated effects, and our reasoning-stage entity swap probes a related semantic-content
+corruption at the model’s internally generated plan rather than the input. All quantities downstream of the vision stage
+flow through the same perturbed latent ˜zt = fv(˜ot). This shared dependency underpins Observation 1 (App. B).
+3.2
+Cross-stage attack matrix and physical analogs
+Vision stage. All three models share an identical FGSM [46] sweep at ε ∈{2, 4, 8, 16, 32}/255 and Gaussian sweep at
+σ ∈{0.01, 0.02, 0.05, 0.1, 0.2}. PGD-10 [9] (L∞, step ε/4; ε=8/255 is the canonical L∞budget in the adversarial-
+ML literature, and our headline cross-model tables report PGD-10 at this operating point) is run at ε ∈{4, 8, 16}/255
+for DT and at ε=8/255 for OFT only, restricted because OFT PGD-10 costs ∼10× FGSM compute. White-box PGD
+through RD-VLA’s K=12 recurrence is enabled by activation checkpointing; RD-VLA FGSM cells are reported as
+DT→RD-VLA transfer attacks [53, 54] (a documented white-box lower bound) since PGD-10 strictly dominates FGSM
+on the same model. We complement with the gradient-free Square Attack [52] at 100 queries. Per-architecture loss
+functions, gradient details, and the activation-checkpointing implementation: App. A. Reasoning stage (DT only).
+Entity-swap CoT corruption [44]: the task-relevant object in the model’s generated CoT is replaced with a random
+alternative from LIBERO’s 29-object vocabulary. We use this attack because it is the most semantically minimal
+corruption that inverts the action target while preserving syntactic well-formedness, directly testing whether the action
+head is causally coupled to the CoT’s entity field. Direction- and gripper-state swaps probe orthogonal dimensions of
+CoT-action coupling and are deferred to future work. Inapplicable to RD-VLA (no text) and OFT (no reasoning). Action
+stage. Additive Gaussian noise on the 7-DOF output (gripper excluded), σ ∈{0.01, 0.05, 0.1, 0.5, 1.0}, identical across
+all three models.
+Physical analogs.
+These analogs are class-level rather than calibrated. The cited work motivates that the corresponding
+noise classes arise in real-robot deployment, while our σ and ε sweeps isolate stage-local sensitivity rather than
+3
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+0.000 0.025 0.050 0.075 0.100 0.125 0.150 0.175 0.200
+Gaussian noise 
+0
+20
+40
+60
+80
+100
+Success Rate (%)
+(a) Gaussian Vision Noise 
+ Dose Response
+DeepThinkVLA
+RD-VLA
+OpenVLA-OFT
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Action noise 
+0
+20
+40
+60
+80
+100
+Success Rate (%)
+(b) Action Output Noise 
+ Dose Response
+DeepThinkVLA
+RD-VLA
+OpenVLA-OFT
+spatial
+object
+goal
+10
+LIBERO Suite
+100
+80
+60
+40
+20
+0
+SR Change (pp)
+1
+-2
+-2
+3
+-67
+-99
+-59
+-73
+-6
+-10
+-10
+-4
+(c) Three-Tier Vulnerability Pattern
+(Gaussian =0.2, SR change by suite)
+DeepThinkVLA
+RD-VLA
+OpenVLA-OFT
+Figure 2: Cross-stage vulnerability profile. (a) Gaussian vision noise dose-response: DT and OFT withstand, RD-VLA
+collapses. (b) Action-stage Gaussian noise produces a sharp cliff between σ=0.1 and σ=0.5 on all three models. (c)
+Two-tier Gaussian vulnerability at σ=0.2 (∆SR by suite): RD-VLA collapses (−74.3pp) while DT (−0.3pp) and OFT
+(−7.5pp) are inconclusive at N=12 (p=0.30). Error bars ±1 SE. The FGSM dose-response is in App. A; the PGD-10
+row, which separates DT from OFT, is in Table 2.
+Table 2: Cross-stage robustness summary. DT and OFT withstand Gaussian noise where RD-VLA collapses. PGD-10
+separates DT from OFT and establishes DT > OFT ≫RD-VLA at ε=8/255 (DT 49.8% vs. OFT 18.2% SR; Gaussian
+DT-vs-OFT inconclusive). Cells: w white-box; t DT→RD-VLA transfer (FGSM only); s stochastic. Cell shading
+encodes SR: green ≥80%, yellow 50–80%, orange 20–50%, red < 20%. App. A extends to ε∈{4, 8}/255.
+Attack
+OFT
+DT
+RD-VLA
+Gaussian σ=0.2
+89.0s
+92.7s
+14.8s
+FGSM ε=8/255
+83.5w
+55.8w
+65.2t
+PGD-10 ε=8/255
+18.2w
+49.8w
+0.0w
+reproducing any specific camera, actuator, or text-channel process. Vision-stage analogs. Additive Gaussian RGB
+noise is a stage-local proxy for stochastic imaging degradation such as sensor read noise, ISO grain, and lighting
+variation. Related common corruptions are catalogued in ImageNet-C [65], and sim-to-real work randomizes appearance
+and illumination factors because such variation affects real transfer [66]. LIBERO-Plus [7] documents modern VLAs
+collapsing under this noise class. Norm-bounded RGB attacks (FGSM, PGD-10) are not calibrated models of physical
+adversarial patches or printed perturbations [49, 56]. We include them as worst-case white-box diagnostics of visual-
+pathway sensitivity, complementary to the Gaussian condition. Failure under PGD should be read as evidence of
+small-margin visual dependence, not as evidence that the same perturbation physically transfers. Action-stage analogs.
+Additive Gaussian noise on the 7-DOF output is a stage-local proxy for command-to-motion mismatch arising from
+actuator slip, encoder drift, and end-effector miscalibration. Dynamics-randomization work motivates this noise class as
+a deployment concern [67]. We do not claim our output-space Gaussian reproduces the randomization protocol studied
+there. Reasoning-stage analogs. Entity swaps in the textual CoT are a controlled semantic corruption of the reasoning
+channel, analogous to upstream language-channel or grounding errors such as OCR/ASR substitutions or incorrect
+object-name binding. Prior work shows that neural sequence models can be brittle to text-channel noise [68]. This
+analog applies only to the text-CoT model (DT). Physical-world transfer itself remains future work (§7).
+4
+Cross-stage robustness across reasoning architectures
+Does the reasoning stage soften a perturbation, relay it, or magnify it? We locate the answer across the three models
+(§4.1), then trace the fragility to its architectural source (§4.2).
+4.1
+Cross-stage robustness ordering
+We evaluate vulnerability across 18 stage-wise attack conditions on 4 LIBERO suites × 3 seeds per (model, condition)
+cell (N=12 per cell). Figure 2 presents the cross-stage profile, Table 2 the canonical-operating-point comparison; full
+per-condition statistics in App. H.
+4
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+RD-VLA
+(latent iterative)
+0%
+33%
+67%
+FAILED
+100%
+DeepThinkVLA
+(text CoT)
+SUCCEEDED
+Figure 3: The σ=0.2 collapse, in rollouts. Representative episodes under Gaussian sensor noise (σ=0.2) on a
+libero_object task (“pick up the tomato sauce and place it in the basket”), sampled at even fractions (0%–100%)
+of each rollout from an identical start state. The latent-iterative RD-VLA (top) leaves the object untouched and fails,
+while the text-CoT DeepThinkVLA (bottom) completes the pick-and-place and succeeds, the per-episode face of the
+aggregate gap (14.8% vs. 92.7% SR, N=12; Table 2). These are single illustrative episodes; the quantitative claims
+rest on the N=12 aggregates. Full rollouts are in the supplementary video.
+Under Gaussian noise at σ=0.2, RD-VLA collapses (14.8%, ∆=−74.3pp) while DT (92.7%) and OFT (89.0%)
+withstand corruption (Fig. 3). The Gaussian ordering is two-tier: the DT-vs-OFT gap is inconclusive at N=12
+(∆DT-OFT=+3.7pp, d=0.87, paired Wilcoxon signed-rank test, the non-parametric paired test for matched (suite, seed)
+cells, with Holm-Bonferroni correction over the 13-test cross-model family, p=0.30), and both DT and OFT differ
+from RD-VLA significantly (p<0.01, d=6.5). White-box PGD-10 at ε=8/255 separates DT from OFT and establishes
+a strict three-tier ordering: DT 49.8%, OFT 18.2%, RD-VLA 0.0% (white-box on all three, RD-VLA via gradient
+checkpointing through the K=12 recurrence). To rule out the action stage as the driver, we also perturb there directly:
+Gaussian noise at the action stage produces a sharp cliff between σ=0.1 (≥76% SR) and σ=0.5 (≤9%) on all three
+models, consistent with action attacks bypassing the reasoning module entirely [43]. Only under FGSM does OFT
+reorder above DT (83.5% vs 55.8% at ε=8/255, a 27.7pp gap), which we analyze below.
+Mechanism: gradient masking refuted.
+Our EOT [50] test at T=2 narrows the OFT FGSM-vs-PGD-10 gap to
+≤4pp on 3/4 suites and strengthens PGD-10 slightly on average (∆PGD=−1.7pp), and gradient-free Square Attack
+at 100 queries leaves OFT at 95.5% SR. The residual asymmetry is consistent with loss-surface curvature on OFT’s
+MLPResNet head, not gradient masking (App. J; Hessian-trace probe and AutoAttack [55] are future work).
+4.2
+K-sweep falsification: amplification is K-invariant, not multiplicative
+To explain RD-VLA’s vulnerability, we test the standard mechanistic intuition for weight-tied recurrent reasoning.
+RD-VLA’s reasoning module is a recurrence fr = g◦K: the same function g applied K=12 times at inference. The
+end-to-end amplification ratio ρ(K) measures how much an input perturbation is magnified at the output, per unit
+input. The standard Lipschitz intuition (Lipschitz: an upper bound on per-layer sensitivity) predicts multiplicative
+growth, ρ(K) ≈LK
+iter, so a deeper loop should be the more fragile one (the formal three-stage Lipschitz bound is in
+App. L). We test directly by varying K at inference. Running K ∈{4, 8, 12} on the same evaluation episodes yields
+ρ(12)/ρ(8)=1.005 (Table 3). The multiplicative prediction at the back-solved ˆLiter=1.192 is ρ(12)/ρ(8)=2.0. The
+observed ρ(12) sits ∼80 pooled-SE units below this prediction. The multiplicative form is falsified.
+Proposition 1 (Recurrence amplification is structural and in-distribution K-invariant). For weight-tied recurrence
+fr = g◦K, the observed end-to-end amplification ratio ρRD-VLA/ρOFT=8.22 at σ=0.2 is consistent with the reasoning
+stage as the dominant amplifier and is K-invariant in the in-distribution range K∈{8, 12} (ρ(8)=48.70, ρ(12)=48.96,
+5
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+SE≤0.6, N=12 per K; the OOD K=4 point yields the same pattern, App. K). The multiplicative LK
+iter form is falsified
+(ρ(12)/ρ(8)=1.005 vs predicted 2.0). A stage-level Lipschitz claim isolating encoder, reasoning, and action-head
+contributions is future work.
+Table 3: RD-VLA K-sweep at ε=8/255 (N=12 per K, all 4 LIBERO suites × 3 seeds). Per-step amplification
+ρ(K) = ∥∆a∥2/ε is statistically flat across K, falsifying the LK
+iter hypothesis (which would predict 1.192K, growing
+4× from K=4 to K=12). Implied ˆLiter is ρ(12)/ρ(K))1/(12−K); values ≈1.0 indicate no per-iteration amplification.
+Free-intercept fit: ρ(K) = 48.507 · 1.0007K, MAFE 0.1%; paper back-solve baseline was 1.192. Caveat: K=4 clean
+SR is 72.8% vs. 89% at K=12, indicating K=4 is mildly OOD (model trained at K=12); the K∈{8, 12} comparison
+alone (both clean SR ≥88%, ratio ρ(12)/ρ(8)=1.005) is sufficient to falsify Liter=1.192.
+K
+Clean SR (%)
+Attacked SR (%)
+ρ(K)
+ˆLiter implied
+4
+72.8 ± 6.6
+0.0 ± 0.0
+48.682 ± 0.619
+1.0007
+8
+88.0 ± 4.2
+0.0 ± 0.0
+48.702 ± 0.409
+1.0013
+12
+89.2 ± 3.0
+0.0 ± 0.0
+48.956 ± 0.297
+—
+K-invariance suggests the dominant amplifier is the encoder plus the recurrence’s fixed-point output rather than the
+per-iteration accumulation. The K=4 point is out-of-distribution (OOD; RD-VLA was trained at K=12). We retain it
+because the OOD-stability is itself informative: the per-iteration multiplicative form does not materialise even when
+the recurrence is pushed off its trained operating point. The K-invariance claim therefore rests on the in-distribution
+range K∈{8, 12}. In DT, under FGSM, the CoT text diverges from clean (edit distance 0.37–0.43, semantic cosine
+0.90–0.92) and the magnitude of that divergence correlates with the resulting action deviation (DT under FGSM:
+Pearson r=+0.44, N=3,000, p<0.0001; larger CoT drift goes with larger action drift; full amplification cascade in
+App. K). The pattern is consistent with a three-stage cascade δv →δCoT →δa, although the single correlation does not
+establish the directed-graph structure.
+4.3
+Confound analysis and external-validity checks
+We attribute the cross-architecture pattern to reasoning type with four controls, ruling out backbone, scale, action
+head, and training data (full analysis App. I). (i) RD-VLA and OFT share the Prismatic backbone but differ at the
+reasoning stage (K=12 weight-tied recurrence vs. single-pass) and differ by 9.9× at σ=0.2: backbone alone cannot
+explain the gap. (ii) The SR-vulnerability ordering (DT < OFT < RD-VLA) is non-monotone in parameters and
+per-step amplification, ruling out scale and downstream sensitivity. (iii) RD-VLA’s output projection is a contraction
+(σ1=0.091) and DT’s discrete tokenization is a quantization barrier at the action head: the amplification originates
+upstream, in the recurrent reasoning layers (Prop. 1). (iv) A CoT-disabled ablation on DT yields no detected CoT-on
+advantage at σ=0.2 (∆=+1.5pp, paired t, N=12, p=0.35). Equivalence tests place the CoT effect within ±5pp, with
+the caveat that the zero-token control is off-manifold relative to an in-distribution skip-CoT comparator (future work).
+Read together, the four controls localise the within-Prismatic recurrence as the load-bearing architectural attribution
+behind the 9.9× SR-degradation gap (RD-VLA vs. OFT at σ=0.2). The small DT-OFT residual is consistent with
+backbone rather than CoT.
+SimplerEnv (cross-architecture sanity). On SimplerEnv [11], the OFT FGSM/PGD-10 asymmetry replicates on the
+public OpenVLA-7B checkpoint (PGD-10 exceeds FGSM on every task by mean 17.2 pp). Only OpenVLA-7B has a
+Bridge/Fractal-compatible checkpoint, so we treat this as a single-architecture sanity check rather than cross-model
+replication (per-task details and viability-exclusion notes in App. N). LIBERO-Plus (cross-class consistency). On
+LIBERO-Plus [7]’s seven naturalistic-perturbation factors (not a K-sweep test of Prop. 1), we find the RD-VLA-vs-
+{DT, OFT} paired ∆SR gap exceeds 30 pp on six of seven factors. The exception is robot initial state, where the
+RD-vs-OFT gap collapses to +9.6 pp and all three policies degrade comparably (∆SR=−57.5 vs −67.1 pp), so the
+structural-amplifier reading does not extend to starting-state shifts (per-factor results and selection-bias diagnostic in
+App. O).
+5
+Reasoning-based runtime defenses
+The reasoning stage drives how a perturbation propagates (§4). Can it also supply a runtime safety signal? We probe
+two behavioral monitors under an adaptive attacker: a plan–action consistency probe (§5.1) and a stage-fused monitor
+(§5.2), calibrated at matched FPR across all fusion weights.
+6
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+Table 4: Consistency probe separation by attack type and stage. AUC-ROC, one-sided (lower = more suspicious).
+Text attacks: C5-Ph1 CoT corpus (N=300/cond.); vision attacks: DT episodes. Detected? = AUC>0.7 and
+TPR@10%>50%.
+Attack
+Stage
+AUC
+TPR@5% TPR@10% Detected?
+Entity swap
+Text
+0.996
+100.0%
+100.0%
+✓
+Adaptive stealth
+Text
+0.493
+1.7%
+6.7%
+×
+Adaptive full
+Text
+0.259
+1.3%
+1.3%
+×
+Garbled 100%
+Text
+0.999
+100.0%
+100.0%
+✓
+Garbled 50%
+Text
+0.788
+—
+59.5%
+✓
+Shuffled
+Text
+0.498
+10.0%
+10.0%
+×
+FGSM ε=2/255
+Vision 0.673
+—
+28.0%
+×
+FGSM ε=4/255
+Vision 0.617
+—
+24.0%
+×
+FGSM ε=8/255
+Vision 0.551
+—
+19.0%
+×
+FGSM ε=16/255 Vision 0.692
+—
+36.0%
+×
+FGSM ε=32/255 Vision 0.637
+—
+38.0%
+×
+Gaussian σ=0.05
+Vision 0.625
+—
+20.0%
+×
+Gaussian σ=0.2
+Vision 0.463
+—
+8.5%
+×
+5.1
+Adaptive consistency-probe ceiling
+The plan–action consistency probe (text CoT only) scores plan–instruction agreement on the CoT:
+s = weSentity + wdSdirection + wgSgripper + wpSparse,
+(2)
+with Sentity scoring the match between the CoT’s object reference and the instruction’s, Sdirection the motion direction,
+Sgripper the grasp state, and Sparse syntactic well-formedness. Form and weights (0.5, 0.2, 0.15, 0.15) follow Trinh et al.
+[44]: weights are not load-bearing because the entity term carries the signal (matching details: App. B; per-component
+AUCs across the ladder: App. C). Following Carlini et al. [12], the probe is evaluated against an attacker who knows it
+and adapts. The ladder uses the same entity-swap corruption at every rung but varies what the attacker hides from the
+probe: (i) naive (no evasion); (ii) direction-fix (corrects parse and direction features); (iii) stealth entity re-injection
+(reinserts the instruction’s true entity into the corrupted CoT); (iv) full adaptive (both). All four rungs produce the same
+task disruption; only AUC shifts. We treat the probe diagnostically, not as a proposed defense.
+The probe’s AUC against naive entity-swap is 0.996. It collapses to 0.493 (chance) under stealth entity re-injection and
+to 0.259 under full adaptive (Table 4). In a live end-to-end run, stealth disrupts the task as much as naive entity swap
+(−8 pp SR) but is essentially invisible to the probe: its flag rate falls from 98.9% to 5.5%, indistinguishable from the
+6.3% clean false-positive rate (FPR). We read this as an empirical ceiling for entity-matching probes, not a structural
+no-go theorem for consistency-based detection. Vision-stage attacks need no adaptive ladder to defeat the probe:
+detection AUC is already near chance under static FGSM and Gaussian noise (AUC ≤0.692 across all FGSM levels;
+AUC = 0.463 for Gaussian σ=0.2; Table 4). The reason is structural: vision-stage perturbations enter both branches
+through the same perturbed latent, so a consistency probe sees both shift coherently. The clean-vs-attacked mean
+separation is bounded above by 1 −¯ϕclean (formal statement: App. B). Empirically, ¯ϕclean=0.867±0.025 on N=200
+DT episodes (bound 1 −¯ϕclean=0.133), and the clean-vs-attacked shift in mean is ≤0.022 across all FGSM/Gaussian
+levels, well inside the bound (per-suite bootstrap in App. B).
+5.2
+Stage-fused monitor ceiling under matched FPR
+The consistency probe alone is bounded by the coherent-shift mechanism (Obs. 1). Under a vision-stage attack, the
+consistency signal and the action drift together. We therefore add an action-stage signal. The guard scores each step
+st = α (1 −ϕt) + (1 −α) ψt,
+α ∈[0, 1],
+(3)
+where ϕt is the consistency probe (Eq. 2) and ψt ∈[0, 1] is the empirical-CDF rank of the Mahalanobis distance dk(at)
+among clean rollouts for task k. A step is flagged when st > τ. The threshold τ is calibrated leave-one-seed-out to an
+8% clean episode-level false-positive rate, identically at every α in the sweep. Evaluation runs post hoc on the existing
+trajectory corpus under an abstain-on-flag rule, so defended SR is bounded above by undefended SR by construction.
+Even without an attack the bound is active: at α=0.5 the guard abstains on enough successful clean rollouts to cost
+∼8 pp of clean task success on average (10.7 and 10.0 pp on libero_object and libero_spatial; App. E).
+The matched-FPR sweep maps the ceiling along the fusion-weight axis. Defended task success stays below undefended
+at every α (Table 5; per-suite and bootstrap CIs in App. E). The calibrated text-only baseline (α=1) recovers 48.8%
+mean defended SR. The calibrated stage-fused monitor (α=0.5) recovers 42.2%. Fusion is worse than its own text-only
+7
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+Table 5: Pooled α-sweep of the stage-fused monitor on DeepThinkVLA (4 LIBERO suites, N=600 per cell, PGD-10
+ε=8/255). Threshold τ calibrated leave-one-seed-out to a target 8% clean FPR (realized shown). Under abstain-on-
+flag, Defended SR counts task success with no flag, so Defended SR ≤Raw SR. ∆= Defended −Raw (pp), 95%
+paired-bootstrap CI (n=10000). Bold: best-case setting (α=1, text-only). Underline: the stage-fused monitor (α=0.5).
+Per-suite and Gaussian breakdowns in App. E.
+Clean
+PGD-10 (ε=8/255)
+α
+FPR (%)
+Raw SR (%)
+Defended SR (%)
+∆(pp)
+Trigger (%)
+0
+3.5
+49.8
+42.2
+−7.7 [−9.8, −5.7]
+19.8
+0.25
+9.5
+49.8
+36.7
+−13.2 [−16.0, −10.5]
+40.8
+0.5
+8.5
+49.8
+42.2
+−7.7 [−9.8, −5.7]
+27.7
+0.75
+9.0
+49.8
+42.8
+−7.0 [−9.2, −5.0]
+23.7
+1
+3.7
+49.8
+48.8
+−1.0 [−1.8, −0.3]
+4.2
+ablation. The action-only component (α=0) flags every white-box PGD-10 episode on RD-VLA, but RD-VLA’s
+undefended SR is already 0%. Detection transfers across architectures, but task utility does not. This is an α-axis
+ceiling: no convex combination of these two probe families raises defended SR above undefended SR under fair-FPR
+calibration on this threat model.
+Without matched-FPR calibration, the same monitor pair gives the opposite result. With τ=0.7 on the text-only baseline
+and no leave-one-seed-out calibration, the fused monitor at α=0.5 shows a +24.6 pp pooled improvement. The τ=0.7
+baseline abstains on 40–67% of clean episodes, five to eight times the 8% target. The +24.6 pp gap is the baseline’s
+miscalibration, not the fused monitor’s contribution. We exclude this comparison from the headline.
+0 1
+10
+0.5
+0.6
+0.7
+0.8
+0.9
+1.0
+AUC
+chance
+object
+spatial
+0 1
+10
+40
+50
+60
+70
+Defended SR (\%)
+Figure 4: Stage-fused guard (α=0.5) under checker-aware
+adaptive PGD-10 (ε=8/255).
+As the action-anomaly
+penalty weight λ increases, both detection AUC (left)
+and defended SR (right) drop on libero_object and
+libero_spatial. Numerical values: App. D.
+An adaptive attacker drives defended SR lower still. We
+attack the guard with a checker-aware PGD-10 whose
+loss adds a differentiable penalty −λ dk(ˆat)2 on a soft-
+argmax estimate of the predicted action, swept over λ ∈
+{0, 1, 10}. Both detection AUC and defended SR fall as
+λ increases (Figure 4). Worst-case defended SR drops to
+46.0% on object and 50.7% on spatial, both well below
+undefended on the same attack. The attack is white-
+box on the action-anomaly signal only. Jointly adapting
+against the text-consistency term would loosen the bound
+further (§7). Transfer to OpenVLA-OFT is future work,
+as the available rollouts store only aggregate outcomes,
+not the per-step ψt the guard requires. Runtime cost is
+∼0.01 ms per control step, negligible against per-step
+VLA inference.
+6
+Discussion and conclusion
+We do not propose a defense. Our results establish a
+ceiling for two widely-studied behavioral post-hoc probe
+families (text-consistency on the reasoning stage, Mahalanobis action-anomaly on the action stage): under Carlini-
+standard adaptive attack and fair-FPR calibration, no convex fusion raises defended task success above undefended
+success on any PGD-10 cell (§5.2). We characterize this ceiling along two axes (probe family, fusion weight) and view
+it as a precondition for defense work — not a no-go theorem. Both probes read stage outputs. Three directions lie
+beyond the scope we tested: probes that access intermediate representations rather than their outputs, training-time
+interventions on the reasoning stage, and threat models that exclude white-box vision-stage attack. Whether any of
+these directions breaks the documented ceiling is an open question.
+Two architecture-specific observations follow. (1) RD-VLA, our latent-iterative model, is the most vulnerable of the
+three: the largest amplification (−74pp under Gaussian) and no inspectable plan a text-based monitor could read. This
+amplifier reading is specific to perturbation classes that engage the recurrence: on LIBERO-Plus’s robot-initial-state
+factor all three models degrade comparably and the RD-vs-OFT gap collapses to +9.6pp (§4.3, App. O). Plausible
+mitigations (convergence monitoring; learned latent-trajectory probes) need within-paradigm replication to move
+beyond conjecture. (2) Text CoT’s measurable contribution to safety is inspectability: the probe in §5.1 exists because
+there is a plan to read. A noise-filtering contribution is below our power threshold (N=12, minimum detectable effect
+8
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+d≈0.85); the natural test is a higher-N replication. We claim inspectability is the measurable contribution, not the
+primary one. Across our three models, what separates them under cross-stage attack is how the reasoning stage is built,
+not whether one is present.
+7
+Limitations
+Our findings come with three limitations that open avenues for future work. Each reasoning paradigm is represented by
+a single model (N=3), so backbone, scale, training data, and action head are confounded with reasoning family. Every
+paradigm-level statement is therefore a model-level observation, and within-paradigm replication is a natural extension
+(App. P). Consistent with this, the LIBERO-Plus cross-class consistency check (§4.3) bounds the structural-amplifier
+reading at the robot-initial-state factor. All experiments are simulation on LIBERO plus a single-architecture SimplerEnv
+sanity check. Sim-to-real transfer is open, under the class-level analog assumptions in §3.2. The stage-fused guard (§5.2)
+is evaluated post hoc under an abstain-on-flag rule. Its adaptive evaluation covers an attacker against the action-anomaly
+term, not jointly with the text-consistency term. Future work can expand to closed-loop deployment and jointly adaptive
+evaluation.
+References
+[1] A. Brohan, N. Brown, J. Carbajal, Y. Chebotar, J. Dabis, C. Finn, K. Gopalakrishnan, K. Hausman, A. Herzog,
+J. Hsu, J. Ibarz, B. Ichter, A. Irpan, N. J. Joshi, S. Levine, Y. Lu, V. Murali, I. Mordatch, S. Nair, K. Pertsch,
+K. Quiambao, K. Rao, M. Ryoo, G. Salazar, P. Sankeeti, P. Sermanet, J. Singh, A. Singh, R. Soricut, H. Tran,
+V. Vanhoucke, F. Xia, T. Xiao, P. Xu, S. Xu, T. Yu, and B. Zitkovich. RT-2: Vision-language-action models
+transfer web knowledge to robotic control. arXiv preprint arXiv:2307.15818, 2023.
+[2] M. J. Kim, K. Pertsch, S. Karamcheti, T. Xiao, A. Balakrishna, S. Nair, R. Rafailov, E. P. Foster, G. Lam, P. R.
+Sanketi, Q. Vuong, T. Kollar, B. Burchfiel, R. Tedrake, D. Sadigh, S. Levine, P. Liang, and C. Finn. OpenVLA:
+An open-source vision-language-action model. In Proceedings of the Conference on Robot Learning (CoRL),
+2024. arXiv:2406.09246.
+[3] K. Black, N. Brown, D. Driess, A. Esmail, M. Equi, C. Finn, N. Fusai, L. Groom, K. Hausman, B. Ichter,
+S. Jakubczak, T. Jones, L. Ke, S. Levine, A. Li-Bell, M. Mothukuri, S. Nair, K. Pertsch, L. X. Shi, J. Tanner,
+Q. Vuong, A. Walling, H. Wang, and U. Zhilinsky. π0: A vision-language-action flow model for general robot
+control. arXiv preprint arXiv:2410.24164, 2024. Robotics: Science and Systems (RSS) 2025.
+[4] M. Zawalski, W. Chen, K. Pertsch, O. Mees, C. Finn, and S. Levine. Robotic control via embodied chain-of-thought
+reasoning. In Conference on Robot Learning (CoRL), 2024. arXiv:2407.08693.
+[5] C. Yin, Y. Lin, W. Xu, S. Tam, X. Zeng, Z. Liu, and Z. Yin. DeepThinkVLA: Enhancing reasoning capability of
+vision-language-action models. arXiv preprint arXiv:2511.15669, 2025.
+[6] Y. Tur, J. Naghiyev, H. Fang, W.-C. Tsai, J. Duan, D. Fox, and R. Krishna. Recurrent-depth VLA: Implicit test-time
+compute scaling of vision-language-action models via latent iterative reasoning. arXiv preprint arXiv:2602.07845,
+2026.
+[7] S. Fei, Wang, Shi, Dai, Cai, Qian, Ji, He, Zhang, Fei, Fu, Gong, and Qiu. LIBERO-Plus: In-depth robustness
+analysis of vision-language-action models. arXiv preprint arXiv:2510.13626, 2025.
+[8] M. J. Kim, C. Finn, and P. Liang. Fine-tuning vision-language-action models: Optimizing speed and success.
+arXiv preprint arXiv:2502.19645, 2025. Robotics: Science and Systems (RSS) 2025.
+[9] A. Madry, A. Makelov, L. Schmidt, D. Tsipras, and A. Vladu. Towards deep learning models resistant to
+adversarial attacks. In International Conference on Learning Representations (ICLR), 2018.
+[10] B. Liu, Y. Zhu, C. Gao, Y. Feng, Q. Liu, Y. Zhu, and P. Stone. LIBERO: Benchmarking knowledge transfer for
+lifelong robot learning. In Advances in Neural Information Processing Systems (NeurIPS), volume 36, 2023.
+arXiv:2306.03310.
+[11] X. Li, K. Hsu, J. Gu, K. Pertsch, O. Mees, H. R. Walke, C. Fu, I. Lunawat, I. Sieh, S. Kirmani, S. Levine, J. Wu,
+C. Finn, H. Su, Q. Vuong, and T. Xiao. Evaluating real-world robot manipulation policies in simulation. arXiv
+preprint arXiv:2405.05941, 2024.
+[12] N. Carlini, A. Athalye, N. Papernot, W. Brendel, J. Rauber, D. Tsipras, I. Goodfellow, A. Madry, and A. Kurakin.
+On evaluating adversarial robustness. arXiv preprint arXiv:1902.06705, 2019.
+[13] A. Brohan, N. Brown, J. Carbajal, Y. Chebotar, et al. RT-1: Robotics transformer for real-world control at scale.
+In Robotics: Science and Systems (RSS), 2023.
+9
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+[14] K. Black et al.
+π0.5: A vision-language-action model with open-world generalization.
+arXiv preprint
+arXiv:2504.16054, 2025.
+[15] K. Pertsch, K. Stachowicz, B. Ichter, D. Driess, et al. FAST: Efficient action tokenization for vision-language-
+action models. arXiv preprint arXiv:2501.09747, 2025.
+[16] S. Karamcheti, S. Nair, A. Balakrishna, P. Liang, T. Kollar, and D. Sadigh. Prismatic VLMs: Investigating the
+design space of visually-conditioned language models. In International Conference on Machine Learning (ICML),
+2024.
+[17] S. Liu, L. Wu, B. Li, H. Tan, H. Chen, Z. Wang, K. Xu, H. Su, and J. Zhu. RDT-1B: a diffusion foundation model
+for bimanual manipulation. arXiv preprint arXiv:2410.07864, 2024.
+[18] Octo Model Team, D. Ghosh, H. Walke, K. Pertsch, et al. Octo: An open-source generalist robot policy. arXiv
+preprint arXiv:2405.12213, 2024.
+[19] T. Z. Zhao, V. Kumar, S. Levine, and C. Finn. Learning fine-grained bimanual manipulation with low-cost
+hardware. In Robotics: Science and Systems (RSS), 2023.
+[20] C. Chi, Z. Xu, S. Feng, E. Cousineau, Y. Du, B. Burchfiel, R. Tedrake, and S. Song. Diffusion policy: Visuomotor
+policy learning via action diffusion. The International Journal of Robotics Research, 2025.
+[21] H. Walke, K. Black, A. Lee, M. J. Kim, M. Du, et al. BridgeData V2: A dataset for robot learning at scale. In
+Conference on Robot Learning (CoRL), 2023.
+[22] Open X-Embodiment Collaboration, A. Padalkar, et al. Open X-embodiment: Robotic learning datasets and RT-X
+models. In IEEE International Conference on Robotics and Automation (ICRA), 2024.
+[23] A. Khazatsky, K. Pertsch, S. Nair, et al. DROID: A large-scale in-the-wild robot manipulation dataset. arXiv
+preprint arXiv:2403.12945, 2024.
+[24] O. Mees, L. Hermann, E. Rosete-Beas, and W. Burgard. CALVIN: A benchmark for language-conditioned
+policy learning for long-horizon robot manipulation tasks. IEEE Robotics and Automation Letters (RA-L), 7(3):
+7327–7334, 2022.
+[25] S. James, Z. Ma, D. R. Arrojo, and A. J. Davison. RLBench: The robot learning benchmark & learning
+environment. IEEE Robotics and Automation Letters (RA-L), 5(2):3019–3026, 2020.
+[26] S. Nasiriany, A. Maddukuri, L. Zhang, A. Parikh, A. Lo, A. Joshi, A. Mandlekar, and Y. Zhu. RoboCasa:
+Large-scale simulation of everyday tasks for generalist robots. In Robotics: Science and Systems (RSS), 2024.
+[27] W. Chen, S. Belkhale, S. Mirchandani, O. Mees, D. Driess, K. Pertsch, and S. Levine. Training strategies for
+efficient embodied reasoning. arXiv preprint arXiv:2505.08243, 2025.
+[28] Q. Zhao, Y. Lu, M. J. Kim, Z. Fu, Z. Zhang, Y. Wu, Z. Li, Q. Ma, S. Han, C. Finn, A. Handa, M.-Y. Liu, D. Xiang,
+G. Wetzstein, and T.-Y. Lin. CoT-VLA: Visual chain-of-thought reasoning for vision-language-action models. In
+IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), 2025. arXiv:2503.22020.
+[29] J. Wei, X. Wang, D. Schuurmans, M. Bosma, B. Ichter, F. Xia, E. H. Chi, Q. V. Le, and D. Zhou. Chain-of-thought
+prompting elicits reasoning in large language models. In Advances in Neural Information Processing Systems
+(NeurIPS), volume 35, 2022.
+[30] S. Schulhoff, J. Pinto, A. Khan, L.-F. Bouchard, C. Si, S. Anati, V. Tagliabue, A. L. Kost, C. Carnahan, and
+J. Boyd-Graber. Ignore this title and HackAPrompt: Exposing systemic vulnerabilities of LLMs through a global
+scale prompt hacking competition. arXiv preprint arXiv:2311.16119, 2023.
+[31] A. Wei, N. Haghtalab, and J. Steinhardt. Jailbroken: How does LLM safety training fail? In Advances in Neural
+Information Processing Systems (NeurIPS), volume 36, 2023.
+[32] A. Zou, Z. Wang, N. Carlini, M. Nasr, J. Z. Kolter, and M. Fredrikson. Universal and transferable adversarial
+attacks on aligned language models. arXiv preprint arXiv:2307.15043, 2023.
+[33] Z. Xiang, F. Jiang, Z. Xiong, B. Ramasubramanian, R. Poovendran, and B. Li. BadChain: Backdoor chain-of-
+thought prompting for large language models. In International Conference on Learning Representations (ICLR),
+2024. arXiv:2401.12242.
+[34] F. Jiang, Z. Xu, Y. Li, L. Niu, Z. Xiang, B. Li, B. Y. Lin, and R. Poovendran. SafeChain: Safety of language
+models with long chain-of-thought reasoning capabilities. In Annual Meeting of the Association for Computational
+Linguistics (ACL), 2025. arXiv:2502.12025.
+[35] M. Turpin, J. Michael, E. Perez, and S. R. Bowman. Language models don’t always say what they think: Unfaithful
+explanations in chain-of-thought prompting. In Advances in Neural Information Processing Systems (NeurIPS),
+volume 36, 2023.
+10
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+[36] Q. Lyu, S. Havaldar, A. Stein, L. Zhang, D. Rao, E. Wong, M. Apidianaki, and C. Callison-Burch. Faithful
+chain-of-thought reasoning. In IJCNLP-AACL, 2023.
+[37] X. Wang, J. Wei, D. Schuurmans, Q. V. Le, E. H. Chi, S. Narang, A. Chowdhery, and D. Zhou. Self-consistency
+improves chain of thought reasoning in language models. In International Conference on Learning Representations
+(ICLR), 2023.
+[38] Q. Gu, Y. Ju, S. Sun, I. Gilitschenski, H. Nishimura, M. Itkina, and F. Shkurti. SAFE: Multitask failure detection
+for vision-language-action models. arXiv preprint arXiv:2506.09937, 2025.
+[39] Y. Wu, A. Li, T. Hermans, F. Ramos, A. Bajcsy, and C. Pérez-D’Arpino. Do what you say: Steering vision-
+language-action models via runtime reasoning-action alignment verification. arXiv preprint arXiv:2510.16281,
+2025.
+[40] X. Li, R. Mao, Y. Zhang, R. Lou, C. Wu, and J. Wang. Chain-of-scrutiny: Detecting backdoor attacks for large
+language models. arXiv preprint arXiv:2406.05948, 2024.
+[41] Z. Huang, W. Zhu, H. Qiu, X. Ji, and W. Xu. TRAP: Hijacking VLA CoT-reasoning via adversarial patches.
+arXiv preprint arXiv:2603.23117, 2026.
+[42] T. Wang, C. Han, J. C. Liang, W. Yang, D. Liu, L. X. Zhang, Q. Wang, J. Luo, and R. Tang. Exploring
+the adversarial vulnerabilities of vision-language-action models in robotics. In Proceedings of the IEEE/CVF
+International Conference on Computer Vision (ICCV), 2025. arXiv:2411.13587.
+[43] J. Guo, Z. Wu, C. Tu, Y. Ma, X. Kong, Z. Liu, J. Ji, S. Zhang, Y. Chen, K. Chen, Q. Dou, Y. Yang, X. Liu,
+H. Zhao, W. Lv, and S. Li. On robustness of vision-language-action model against multi-modal perturbations.
+arXiv preprint arXiv:2510.00037, 2025.
+[44] T. D. Trinh, N. Akhtar, and B. Azam. Altered thoughts, altered actions: Probing chain-of-thought vulnerabilities
+in VLA robotic manipulation. arXiv preprint arXiv:2603.12717, 2026.
+[45] C. Szegedy, W. Zaremba, I. Sutskever, J. Bruna, D. Erhan, I. Goodfellow, and R. Fergus. Intriguing properties of
+neural networks. arXiv preprint arXiv:1312.6199, 2014. ICLR 2014.
+[46] I. J. Goodfellow, J. Shlens, and C. Szegedy. Explaining and harnessing adversarial examples. In International
+Conference on Learning Representations (ICLR), 2015.
+[47] A. Kurakin, I. Goodfellow, and S. Bengio. Adversarial examples in the physical world. In ICLR Workshop, 2017.
+[48] N. Carlini and D. Wagner. Towards evaluating the robustness of neural networks. In IEEE Symposium on Security
+and Privacy (SP), 2017.
+[49] T. B. Brown, D. Mane, A. Roy, M. Abadi, and J. Gilmer. Adversarial patch. arXiv preprint arXiv:1712.09665,
+2017.
+[50] A. Athalye, N. Carlini, and D. Wagner. Obfuscated gradients give a false sense of security: Circumventing
+defenses to adversarial examples. In International Conference on Machine Learning (ICML), 2018.
+[51] F. Tramèr, N. Carlini, W. Brendel, and A. Madry. On adaptive attacks to adversarial example defenses. In
+Advances in Neural Information Processing Systems (NeurIPS), 2020.
+[52] M. Andriushchenko, F. Croce, N. Flammarion, and M. Hein. Square attack: a query-efficient black-box adversarial
+attack via random search. In European Conference on Computer Vision (ECCV), pages 484–501. Springer, 2020.
+[53] N. Papernot, P. McDaniel, and I. Goodfellow. Transferability in machine learning: from phenomena to black-box
+attacks using adversarial samples. arXiv preprint arXiv:1605.07277, 2016.
+[54] F. Tramèr, N. Papernot, I. Goodfellow, D. Boneh, and P. McDaniel. The space of transferable adversarial examples.
+arXiv preprint arXiv:1704.03453, 2017.
+[55] F. Croce and M. Hein. Reliable evaluation of adversarial robustness with an ensemble of diverse parameter-free
+attacks. In International Conference on Machine Learning (ICML), 2020.
+[56] K. Eykholt, I. Evtimov, E. Fernandes, B. Li, A. Rahmati, C. Xiao, A. Prakash, T. Kohno, and D. Song. Robust
+physical-world attacks on deep learning visual classification. In IEEE Conference on Computer Vision and Pattern
+Recognition (CVPR), 2018.
+[57] Y. Zhao, T. Pang, C. Du, X. Yang, C. Li, N.-M. Cheung, and M. Lin. On evaluating adversarial robustness of large
+vision-language models. In Advances in Neural Information Processing Systems (NeurIPS), 2023.
+[58] C. Schlarmann and M. Hein. On the adversarial robustness of multi-modal foundation models. In ICCV Workshop
+on Adversarial Robustness in the Real World, 2023.
+11
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+[59] M. Fazlyab, A. Robey, H. Hassani, M. Morari, and G. J. Pappas. Efficient and accurate estimation of Lipschitz
+constants for deep neural networks. In Advances in Neural Information Processing Systems (NeurIPS), volume 32,
+2019.
+[60] T.-W. Weng, H. Zhang, H. Chen, Z. Song, C.-J. Hsieh, D. S. Boning, L. Daniel, and I. S. Dhillon. Towards
+fast computation of certified robustness for ReLU networks. In International Conference on Machine Learning
+(ICML), 2018.
+[61] J. M. Cohen, E. Rosenfeld, and J. Z. Kolter. Certified adversarial robustness via randomized smoothing. In
+International Conference on Machine Learning (ICML), 2019.
+[62] E. Wong and J. Z. Kolter. Provable defenses against adversarial examples via the convex outer adversarial polytope.
+In International Conference on Machine Learning (ICML), 2018.
+[63] P. Henderson, R. Islam, P. Bachman, J. Pineau, D. Precup, and D. Meger. Deep reinforcement learning that matters.
+Proceedings of the AAAI Conference on Artificial Intelligence, 2018.
+[64] R. Agarwal, M. Schwarzer, P. S. Castro, A. Courville, and M. G. Bellemare. Deep reinforcement learning at the
+edge of the statistical precipice. In Advances in Neural Information Processing Systems (NeurIPS), 2021.
+[65] D. Hendrycks and T. G. Dietterich. Benchmarking neural network robustness to common corruptions and
+perturbations. In International Conference on Learning Representations (ICLR), 2019.
+[66] J. Tobin, R. Fong, A. Ray, J. Schneider, W. Zaremba, and P. Abbeel. Domain randomization for transferring deep
+neural networks from simulation to the real world. In IEEE/RSJ International Conference on Intelligent Robots
+and Systems (IROS), 2017.
+[67] X. B. Peng, M. Andrychowicz, W. Zaremba, and P. Abbeel. Sim-to-real transfer of robotic control with dynamics
+randomization. In IEEE International Conference on Robotics and Automation (ICRA), 2018.
+[68] Y. Belinkov and Y. Bisk. Synthetic and natural noise both break neural machine translation. In International
+Conference on Learning Representations (ICLR), 2018.
+[69] D. Lakens. Equivalence tests: A practical primer for t-tests, correlations, and meta-analyses. Social Psychological
+and Personality Science, 8(4):355–362, 2018.
+12
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+Supplementary Material
+A
+Extended experimental details
+Compute.
+All experiments were conducted on A100 GPUs. Total compute: approximately 635 GPU-hours across 909
+experiments (0 failures). FGSM gradient computation takes ∼2.5× longer than clean inference per episode; PGD-10
+takes ∼10× longer. PGD-10 (Session 2c, 84 additional jobs) adds ∼35 GPU-hours. SimplerEnv cross-benchmark
+adversarial validation (Section 4.3; 120 jobs, OpenVLA-7B on 4 Google-Robot tasks × 3 seeds × 20 episodes
+across Gaussian, FGSM, PGD-10, and action-Gaussian attack families) adds ∼40 GPU-hours; the 660 prior LIBERO
+experiments account for the remaining ∼520 GPU-hours. Code for the gradient-checkpoint white-box PGD-10 attack
+through the K=12 latent recurrence, the EOT mechanism test, the consistency probe and adaptive evaluation harness,
+the K-sweep falsifier, and the LIBERO-90 within-paradigm sensitivity check will be released upon publication.
+Evaluation protocol.
+Each condition was evaluated on all 4 LIBERO suites (10 tasks each) across 3 random seeds
+(42, 123, 456), yielding N=12 data points per condition. Each task was run for 5 episodes per seed, with a maximum
+of 300 steps per episode. Success was determined by LIBERO’s built-in task completion check.
+Model details.
+OpenVLA-OFT uses a Prismatic backbone with fine-tuned adapters and an MLPResNet action head
+(4 layers: 28672 →4096 →4096 →4096 →7). DeepThinkVLA uses PaliGemma as its VLM backbone with a
+discrete action tokenizer (2,048 bins per dimension in [−1, 1]); CoT is generated via the language model head and
+action tokens are decoded by the same model in “predict action from CoT” mode. RD-VLA uses a Prismatic VLM
+backbone with 12 weight-tied recurrent transformer layers and a linear output projection (7 × 896).
+OpenVLA-family checkpoint disambiguation.
+Two distinct checkpoints of the OpenVLA architectural family
+appear in the paper; their absolute clean SRs are on different benchmarks and are not directly comparable. Table 6
+records the mapping; cross-benchmark verdicts (§4.3) are read off ∆SR within each row, not absolute SR across rows.
+Table 6: OpenVLA-family checkpoints used in the paper.
+Label
+LIBERO FT
+Used in
+Clean SR
+HuggingFace weights
+OpenVLA-OFT
+yes
+Tab. 2, Fig. 1, §4.1
+96.5% (LIBERO, N=12)
+moojink/openvla-7b-oft-f
+inetuned-libero-spatial-
+object-goal-10
+OpenVLA-7B
+no
+§4.3
+55.0% (SimplerEnv non-floor, N=9)
+openvla/openvla-7b
+FGSM implementation.
+For DeepThinkVLA, FGSM gradients are computed through the full vision-language
+pipeline. Because DeepThinkVLA emits discrete action tokens (2,048 bins per DOF), the attack loss is the cross-
+entropy between the model’s action-token logits on the perturbed image and its clean greedy action-token prediction
+(used as a fixed target); maximizing this loss by gradient ascent on the image drives the predicted action tokens away
+from their clean values. The clean CoT is generated once and held fixed as prompt context while the perturbation is
+computed, then the full pipeline (including CoT re-generation) is re-run with the perturbed image.
+ε-standardized cross-architecture comparison.
+Table 7 pivots the existing white-box evaluations into a single
+budget-matched view: each row gives one architecture’s clean SR plus FGSM and PGD-10 SR at ε ∈{4/255, 8/255},
+all averaged over the same N=12 (4 suites × 3 seeds, 50 episodes/cell) protocol used in Table 2. The ε=8/255 column
+reproduces the headline-table numbers; the ε=4/255 column is what justifies, with evidence rather than prose, our
+reporting at the canonical 8/255 operating point. Three patterns hold at both budgets, ruling out a ε-specific artifact:
+(i) under FGSM, OFT is more robust than DT (83.8% vs. 75.0% at 4/255; 83.5% vs. 55.8% at 8/255), consistent with
+single-step gradient being too weak to expose the MLPResNet head; (ii) under PGD-10, OFT collapses far below DT
+already at ε=4/255 (35.2% vs. 75.5%, a ≈40 pp gap with non-overlapping 95% CIs), and the gap widens at 8/255
+(18.2% vs. 49.8%); (iii) under white-box PGD-10, RD-VLA collapses to 0.0% at both ε=4/255 and ε=8/255 across 4
+suites × 3 seeds, decisively below OFT and DT and confirming that the architectural ranking under PGD-10 is DT >
+OFT > RD-VLA at every budget tested. The RD-VLA FGSM cells in this table remain DT→RD-VLA transfer lower
+bounds (white-box FGSM on RD-VLA was not run because PGD-10 strictly dominates it); the white-box PGD-10 row
+is what fixes the cross-architecture ranking at the canonical operating points.
+13
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+Table 7: ε-standardized vision robustness across the three architectures. Cells report mean LIBERO success rate (%)
+± half the 95% bootstrap CI across N=12 (4 suites × 3 seeds, 50 episodes/cell). ε values are matched across models
+within each column. RD-VLA PGD-10 cells are white-box via gradient checkpointing through the K=12 recurrence
+(§3.2); RD-VLA FGSM cells (†) are DT→RD-VLA transfer attacks providing a lower bound on white-box vulnerability
+(white-box FGSM was not run since PGD-10 strictly dominates it as the stronger attack on the same model).
+FGSM
+PGD-10
+Model
+Clean
+ε=4/255
+ε=8/255
+ε=4/255
+ε=8/255
+OpenVLA-OFT
+96.5 ± 1.5
+83.8 ± 12.4
+83.5 ± 13.2
+35.2 ± 12.0
+18.2 ± 9.1
+DeepThinkVLA
+93.0 ± 4.2
+75.0 ± 8.3
+55.8 ± 12.5
+75.5 ± 9.3
+49.8 ± 11.2
+RD-VLA
+89.2 ± 5.7
+87.7† ± 6.8
+65.2† ± 20.5
+0.0 ± 0.0
+0.0 ± 0.0
+Table 8: Continuous severity metrics for RD-VLA under white-box PGD-10 at the SR= 0 floor. Mean per-step ∥∆a∥2,
+max per-step ∥∆a∥2, and cumulative end-effector drift over the episode are computed on paired clean–PGD trajectories
+and aggregated across N=12 cells (4 suites × 3 seeds, 50 episodes per cell). Both budgets produce SR= 0, but the
+action-deviation magnitude is invariant to ε in [4, 8]/255 (≤2% relative change, well within SE), consistent with the
+recurrence’s output collapsing to an ε-insensitive attractor: ε=4/255 is therefore well past the collapse threshold rather
+than marginal.
+ε
+SR (%)
+∥∆a∥2
+max ∥∆a∥2
+Cum. EEF drift (m)
+4/255
+0.0
+1.510 ± 0.016
+2.566 ± 0.027
+73.75 ± 13.96
+8/255
+0.0
+1.536 ± 0.009
+2.591 ± 0.028
+74.51 ± 13.60
+Continuous severity metric at the SR= 0 floor.
+The two RD-VLA white-box PGD-10 cells in Table 7 both
+report 0.0% SR, leaving open whether ε=4/255 is just past the collapse threshold or already deeply saturated. To
+disambiguate, we compute three continuous severity metrics on the same 24 cells (no new GPU work) directly from the
+paired clean–PGD trajectories: mean per-step ∥∆a∥2, max per-step ∥∆a∥2, and cumulative end-effector drift (Table 8).
+All three metrics are statistically indistinguishable between ε=4/255 and ε=8/255 (relative change ≤2%, within
+±1 SE across N=12 cells), so ε=4/255 is not a marginal collapse but already at the same saturated regime as ε=8/255.
+This is consistent with the structural-amplification view of §4.1 (Prop. 1): once perturbation magnitude exceeds the
+recurrence’s basin of attraction, the per-iteration map drives outputs toward an ε-insensitive attractor, so the per-step
+action deviation ρ · ε does not continue to scale with ε in this range. Beyond closing the SR= 0-vs-SR= 0 ambiguity,
+this also bounds the diagnostic ceiling of any defense that monitors ∥∆a∥2: at and above ε=4/255, action-magnitude
+alone cannot rank attack severity, so consistency-style probes (§5.1) that look at semantic alignment rather than action
+magnitude become the only remaining handle.
+B
+Consistency checker details
+The consistency checker operates on a per-timestep basis and averages scores across the episode. Entity extraction uses
+the full LIBERO object vocabulary (29 objects) with longest-first substring matching. Directional keywords include:
+left, right, up, down, forward, backward, toward, away. Gripper intent is detected via keywords: open, close, grasp,
+release, grip, pick, place. Parseability is a binary check for sentence structure and minimum token count.
+The threshold τ=0.7 was selected from the threshold sweep: τ=0.5 yields 84% TPR / 0% FPR; τ=0.6 yields 93% /
+0%; τ=0.7 yields 100% / 0%; τ=0.8 yields 100% / 3%; τ=0.9 yields 100% / 95%.
+Coherent-perturbation bound (formal statement).
+Observation 1 (Empirical separation bound on probe means, descriptive). Let ϕ(CoT, a) ∈[0, 1] be any consistency
+probe scoring plan-action agreement, and let ¯ϕclean :=E[ϕ(fr(z, ℓ), fa(fr(z, ℓ)))] measure its mean clean-data faithful-
+ness. Vision-stage perturbations enter both branches through the shared perturbed latent ˜zt = fv(˜ot), so g
+CoT and ˜a are
+produced by the same composed map evaluated on ˜zt. The mean clean-versus-attacked separation is bounded above by
+1 −¯ϕclean. The bound is on means, not ROC; the empirical AUC numbers in Table 4 are the operative quantities.
+Bootstrap CI on ¯ϕclean and Obs. 1 sensitivity.
+The headline bound in §5.1 uses the canonical N=200 clean-
+DT corpus from the vision-defense evaluation (defense_vision_evaluation.json: libero_object seed ∈
+{42, 123, 456} + libero_spatial seed= 42): ¯ϕclean=0.867 ± 0.025, 95% bootstrap CI [0.863, 0.870] (10,000
+14
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+resamples), bound 1 −¯ϕclean=0.133 (95% CI [0.130, 0.137]). To check the bound is not an artifact of those four condi-
+tions we additionally bootstrap on a broader N=300 pooled set covering all four LIBERO suites (Table 9); the per-suite
+bounds range from 0.116 to 0.145, and the maximum measured clean-vs-attacked shift across our FGSM/Gaussian
+sweep (0.022, at FGSM ε=16/255) sits inside the 95% CI of the bound for every suite individually.
+Table 9: Per-suite bootstrap of ¯ϕclean and the implied empirical bound 1−¯ϕclean (Obs. 1) on the broader N=300 pooled
+corpus. All bounds exceed the maximum measured |E[ϕ] −E[˜ϕ]|=0.022 across the FGSM/Gaussian vision-attack
+sweep.
+Suite
+N episodes
+¯ϕclean (95% CI)
+1 −¯ϕclean (95% CI)
+libero_spatial
+50
+0.855 [0.826, 0.884]
+0.145 [0.116, 0.174]
+libero_object
+100
+0.875 [0.860, 0.889]
+0.125 [0.111, 0.140]
+libero_goal
+100
+0.864 [0.843, 0.883]
+0.136 [0.117, 0.157]
+libero_10
+50
+0.884 [0.861, 0.905]
+0.116 [0.095, 0.139]
+Pooled (broad)
+300
+0.869 [0.859, 0.879]
+0.131 [0.121, 0.141]
+Canonical defense-eval
+200
+0.867 [0.863, 0.870]
+0.133 [0.130, 0.137]
+C
+Adaptive attack implementation
+Four adaptive attack variants of increasing sophistication:
+1. Standard entity swap: Replace CoT object mentions with random alternatives from the LIBERO vocabulary.
+2. Direction-adaptive: Entity swap + match directional language in the CoT to the actual action vector direction (e.g.,
+if action moves right, ensure CoT says “right”).
+3. Stealth: Entity swap + re-inject the original instruction objects into the corrupted CoT, fooling the entity-matching
+component.
+4. Full adaptive: Combine direction fix and entity re-injection.
+The stealth variant reduces the entity component AUC from 1.000 to 0.492, demonstrating that entity re-injection alone
+is sufficient for complete evasion. Per-component AUC decomposition (Table 10) confirms all detection power resides
+in the entity component.
+Table 10: Per-component AUC decomposition under adaptive attacks.
+Attack
+Entity
+Direction
+Gripper
+Parse
+Overall
+Standard entity swap
+1.000
+0.500
+0.500
+0.500
+0.996
+Direction-adaptive
+1.000
+0.223
+0.500
+0.500
+0.991
+Stealth
+0.492
+0.500
+0.500
+0.482
+0.493
+Full adaptive
+0.492
+0.223
+0.500
+0.482
+0.259
+D
+Intervention I3: adaptive checker-aware PGD numerical table
+Numerical values plotted in Figure 4 (§5.2). Table 11 reports per-cell raw success rate (undefended), defended success
+rate (abstain-on-flag), trigger rate, and leave-one-seed-out detection AUC; n=150 episodes per cell (3 seeds × 10 tasks
+× 5 episodes/task).
+15
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+Table 11: Stage-fused guard (α=0.5) under checker-aware adaptive PGD-10 (ε=8/255): numerical values for Figure 4.
+λ weights a differentiable action-anomaly penalty on the soft-argmaxed predicted action (λ=0 reproduces standard PGD-
+10). DT on libero_object and libero_spatial; n=150 episodes per cell (3 seeds × 10 tasks × 5 episodes/task);
+AUC is leave-one-seed-out detection AUC vs clean. “Raw SR” is undefended task success; “Def. SR” applies the
+abstain-on-flag rule; “Trig.” is the episode-level flag rate.
+Suite
+λ
+Raw SR (%)
+Def. SR (%)
+Trig. (%)
+AUC
+Object
+0.0
+68.0±7.3
+59.3±8.0
+14.0±5.7
+0.895
+Object
+1.0
+48.7±8.0
+46.0±8.0
+10.7±5.0
+0.717
+Object
+10.0
+50.7±8.0
+46.0±8.0
+7.3±4.3
+0.669
+Spatial
+0.0
+64.7±7.7
+55.3±8.0
+28.0±7.3
+0.903
+Spatial
+1.0
+64.0±8.0
+56.7±8.0
+22.0±6.7
+0.794
+Spatial
+10.0
+60.7±8.0
+50.7±8.0
+30.7±7.3
+0.790
+E
+Stage-fused α-sweep: per-suite breakdown
+The pooled α-sweep (Table 5) is broken down per suite in Table 12. The pooled 95% CIs in Table 5 are paired bootstraps
+(n=10,000 resamples, seed 0) over the reconstructed per-episode Defended−Raw difference vector across all four
+suites (N=600). Per cell this difference is −1 exactly when a successful episode is flagged, so ∆≤0 deterministically
+and the interval quantifies the magnitude of the shortfall. The clean and Gaussian rows show the abstain cost is present
+off the PGD-10 condition as well.
+16
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+Table 12: Per-suite ∆= Defended SR −Raw SR (pp) under the α-sweep, with paired-difference SE in subscript
+(N=150 per cell). Defended SR is bounded above by Raw SR under abstain-on-flag, so ∆≤0 deterministically; values
+reported in pp. Trigger rates and per-cell Defended SR available in the auto-generated per-α tables I2_alpha_*.tex.
+Suite
+Attack
+Raw SR (%)
+α=0
+α=0.25
+α=0.5
+α=0.75
+α=1
+Long
+PGD-10 ε=8/255
+18.0
+−1.3±0.9
+−4.7±1.7
+−2.7±1.3
+−1.3±0.9
+−0.7±0.7
+Goal
+51.3
+−9.3±2.4
+−6.7±2.0
+−2.7±1.3
+−2.0±1.1
+−0.7±0.7
+Object
+66.7
+−9.3±2.4
+−16.0±3.0
+−11.3±2.6
+−11.3±2.6
++0.0±0.0
+Spatial
+63.3
+−10.7±2.5
+−25.3±3.6
+−14.0±2.8
+−13.3±2.8
+−2.7±1.3
+Long
+Gaussian σ=0.2
+84.0
+−4.7±1.7
+−7.3±2.1
+−7.3±2.1
+−8.7±2.3
+−3.3±1.5
+Goal
+94.0
+−3.3±1.5
+−5.3±1.8
+−4.0±1.6
+−4.0±1.6
+−0.7±0.7
+Object
+96.7
+−4.0±1.6
+−8.0±2.2
+−8.7±2.3
+−10.0±2.4
++0.0±0.0
+Spatial
+96.0
+−5.3±1.8
+−10.7±2.5
+−6.7±2.0
+−9.3±2.4
+−6.0±1.9
+Long
+Clean
+80.7
+−0.7±0.7
+−8.0±2.2
+−6.7±2.0
+−6.7±2.0
+−2.0±1.1
+Goal
+96.0
+−1.3±0.9
+−6.7±2.0
+−4.0±1.6
+−2.7±1.3
+−2.0±1.1
+Object
+98.7
+−4.0±1.6
+−10.0±2.4
+−10.7±2.5
+−10.7±2.5
++0.0±0.0
+Spatial
+96.7
+−5.3±1.8
+−9.3±2.4
+−10.0±2.4
+−11.3±2.6
+−8.7±2.3
+F
+Lipschitz analysis details
+Spectral norm computation.
+Action head weights were extracted from model checkpoints and spectral norms
+computed via power iteration (100 iterations). For OFT’s MLPResNet, the product-of-spectral-norms upper bound is:
+Laction = σ(fc1) · (1 + σ(res0)) · (1 + σ(res1)) · σ(fc2) = 22.67 × 9.00 × 9.15 × 0.46 = 855.8
+(4)
+This is a loose worst-case bound; the empirical end-to-end Lipschitz is only 0.56.
+Per-iteration Lipschitz derivation: back-solve and direct K-sweep test.
+From the empirical amplification data
+(Session 2f Phase F paired sweep), LRD-VLA
+reasoning/LOFT
+reasoning = 4.61/0.56 = 8.22. Since OFT has no reasoning stage
+(LOFT
+reasoning = 1.0; its Le2e = 0.56 reflects preprocessing attenuation in Lvision · Laction), if the recurrence amplifies
+multiplicatively then LRD-VLA
+reasoning = 8.22 = ˆL12
+iter, giving ˆLiter = 8.221/12 ≈1.192 (∼19.2% per iteration, compounding
+to 8.22× at K=12). This back-solve is a one-parameter fit at a single K and does not test the LK
+iter form. We
+test it directly with an inference-time K-sweep on RD-VLA white-box PGD-10 at ε=8/255, varying K∈{4, 8, 12}
+via the recurrence’s num_iter flag (no retraining; 4 LIBERO suites × 3 seeds × 3 K values = 36 cells, each
+paired with a clean baseline at the same K). Per-step amplification ρ(K) = ∥∆a∥2/ε is computed by pairing the
+clean and PGD trajectories within each (suite, seed, K) cell. Results (Table 3, Figure 5): ρ(K=4)=48.68 ± 0.62,
+ρ(K=8)=48.70 ± 0.41, ρ(K=12)=48.96 ± 0.30. The pairwise ratio ρ(K=12)/ρ(K=8)=1.005 (in-distribution K
+values: clean SR 89% vs. 88%) is inconsistent with the ˆLiter=1.192 prediction of 1.1924≈2.02. A free-intercept log-
+linear fit gives ˆLiter=1.0007, mean abs. frac. error 0.1%. The K=4 cell carries an OOD-K caveat (clean SR 72.8% vs.
+89% at K=12, since the model is trained at K=12 stochastic-recurrence-mean), but the K∈{8, 12} comparison alone
+is sufficient to rule out the multiplicative-per-iteration form on its own. Refined positive mechanism: the architectural
+∼49× amplification under PGD is real, K-invariant, and consistent with the cross-architecture amplification ordering
+OFT<DT<RD-VLA; the data localize the amplification to the encoder + first recurrence pass / fixed-point output, an
+interpretation consistent with the recurrence converging quickly to a fixed point such that further iterations neither add
+nor remove sensitivity. This is a sharper mechanistic claim than the original back-solve and identifies a more concrete
+intervention surface (smooth the encoder / fixed-point output) than reducing recurrence depth.
+17
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+4
+6
+8
+10
+12
+Recurrence depth K
+101
+2 × 101
+3 × 101
+4 × 101
+6 × 101
+Amplification 
+=
+a 2/
+RD-VLA K-sweep: Hypothesis 1 (
+LK
+iter)
+free fit: Liter = 1.001
+1.192K slope (anchored at Kmax)
+observed (K)
+Figure 5: RD-VLA K-sweep at ε=8/255 (N=12 per K). Observed amplification ρ(K) is statistically flat (slope gives
+ˆLiter=1.0007, free-intercept fit), inconsistent with the back-solved Liter=1.192 prediction (dotted line, anchored at
+K=12). The data positively identify a K-invariant ∼49× structural amplification rather than per-iteration compounding.
+K=4 is out-of-distribution for this model (clean SR 72.8% vs. 89% at training K=12); the multiplicative-per-
+iteration form is ruled out by the in-distribution K∈{8, 12} comparison alone.
+G
+Statistical tests
+Table 13 reports the full set of cross-model and within-model significance tests used in Section 4.1. We use Shapiro–Wilk
+to select between parametric (paired t / Welch’s t) and non-parametric (Wilcoxon signed-rank / Mann–Whitney U) tests,
+and apply Holm–Bonferroni correction within this 13-test family (α=0.05). Effect sizes are Cohen’s d (parametric) and
+Cliff’s δ (rank-based). Sample size N=12 corresponds to 4 LIBERO suites × 3 seeds, with each data point being the
+mean SR across 50 episodes (10 tasks × 5 trials). OFT-row data are sourced from the Session 2f authors-eval-script v2
+sweep; DT and RD-VLA rows are unchanged.
+The DT vs. OFT comparison under Gaussian σ=0.2 is not significant after correction (p=0.30, d=0.87): the pp-level
+gap (3.7) is small and within seed-to-seed variance for DT. The full three-tier ordering is nevertheless preserved with
+high confidence by joint bootstrap (P(DT > OFT > RD-VLA)= 0.997 over 10,000 resamples), driven by the consistent
+direction of the small DT–OFT gap and the very large gap to RD-VLA. The headline OFT-specific findings—FGSM
+resistance (d=0.12 at ε=2/255, d=0.68 at ε=8/255) versus PGD-10 vulnerability (d=6.43 at ε=8/255, p<0.01
+corrected) and the FGSM-vs-PGD-10 gap (d=2.90, p<0.01 corrected)—survive correction with very large effect sizes.
+18
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+Table 13: Statistical significance tests for key cross-model and within-model comparisons (Session 2f, OFT v2 corrected).
+The three cross-model Gaussian σ=0.2 contrasts are paired by (suite, seed) cell (matched 4 × 3 design); for every
+paired test the parametric/non-parametric choice is Shapiro–Wilk-selected on the paired differences. Holm–Bonferroni
+corrected within this 13-test family. Cohen’s d and Cliff’s δ effect sizes reported. ∗: p < 0.05; ∗∗: p < 0.01; ∗∗∗:
+p < 0.001. Auto-generated by scripts/build_statistical_tests_table.py; do not hand-edit.
+Comparison
+N
+Mean A
+Mean B
+Test
+p (corr.)
+Cohen’s d
+Cliff’s δ
+DT vs OFT, Gauss σ=0.2
+12
+92.7
+89.0
+Wilcoxon
+0.3047
+0.87
+0.50
+OFT vs RD-VLA, Gauss σ=0.2
+12
+89.0
+14.8
+Wilcoxon
+0.0049**
+6.58
+1.00
+DT vs RD-VLA, Gauss σ=0.2
+12
+92.7
+14.8
+paired t
+<0.001***
+6.50
+1.00
+DT clean vs Gauss σ=0.2
+13
+93.1
+93.2
+paired t
+0.8858
+−0.02
+0.07
+RD clean vs Gauss σ=0.2
+12
+89.2
+14.8
+Wilcoxon
+0.0044**
+5.52
+1.00
+OFT clean vs Gauss σ=0.2
+12
+96.5
+89.0
+Wilcoxon
+0.0039**
+3.65
+1.00
+DT action σ=0.1 vs 0.5
+12
+86.7
+8.0
+paired t
+<0.001***
+7.09
+1.00
+RD action σ=0.1 vs 0.5
+12
+76.2
+8.7
+paired t
+<0.001***
+4.92
+1.00
+OFT action σ=0.1 vs 0.5
+12
+80.5
+0.0
+Wilcoxon
+0.0034**
+12.78
+1.00
+OFT clean vs FGSM ε=2/255
+12
+96.5
+96.2
+paired t
+1.0000
+0.12
+0.08
+OFT clean vs FGSM ε=8/255
+12
+96.5
+83.5
+Wilcoxon
+0.0078**
+0.68
+0.52
+OFT clean vs PGD-10 ε=8/255
+12
+96.5
+18.2
+Wilcoxon
+0.0029**
+6.43
+1.00
+OFT FGSM vs PGD-10 ε=8/255
+12
+83.5
+18.2
+Wilcoxon
+0.0049**
+2.90
+0.83
+H
+Per-suite breakdown
+Table 14 gives the full cross-stage SR profile (mean±SE per model and attack), and the cross-model and within-model
+significance tests behind §4.1 are reported in App. G. Under Gaussian noise at σ=0.2, the three-tier pattern is consistent
+across all suites, with amplified contrast on libero_object:
+RD-VLA achieves 0% SR across all 3 seeds on libero_object, the most extreme demonstration of latent reasoning
+amplification.
+19
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+Table 14: Cross-stage vulnerability profile. SR (%) mean ± SE across 4 LIBERO suites and 3 seeds (N=12). FGSM:
+DT white-box; OFT white-box (Session 2b); RD-VLA via DT→RD-VLA transfer (lower bound, t). Reasoning-stage
+attacks (entity-swap CoT) apply to DT only: RD-VLA has no text CoT and OFT has no reasoning module, so the
+corresponding cells are structurally N/A and not a coverage gap.
+Stage
+Attack
+OpenVLA-OFT
+DeepThinkVLA
+RD-VLA
+—
+Clean
+96.5 ± 0.8
+93.0 ± 2.1
+89.2 ± 2.9
+Vision
+Gaussian σ=0.01
+97.0 ± 0.3
+91.5 ± 2.2
+87.5 ± 4.4
+Vision
+Gaussian σ=0.05
+90.2 ± 5.3
+93.3 ± 1.8
+73.8 ± 8.4
+Vision
+Gaussian σ=0.1
+96.0 ± 0.4
+93.3 ± 2.4
+54.2 ± 8.9
+Vision
+Gaussian σ=0.2
+89.0 ± 0.3
+92.7 ± 1.6
+14.8 ± 4.4
+Vision
+FGSM ε=2/255
+96.2 ± 0.9
+86.2 ± 3.1
+88.0 ± 3.9t
+Vision
+FGSM ε=4/255
+83.8 ± 7.1
+75.0 ± 4.3
+87.7 ± 3.5t
+Vision
+FGSM ε=8/255
+83.5 ± 7.8
+55.8 ± 6.4
+65.2 ± 10.8t
+Vision
+FGSM ε=16/255
+84.5 ± 2.9
+41.5 ± 5.4
+36.2 ± 6.7t
+Vision
+FGSM ε=32/255
+78.8 ± 3.6
+25.8 ± 4.3
+7.3 ± 2.3t
+Action
+Action σ=0.01
+96.0 ± 0.6
+92.2 ± 2.4
+86.7 ± 4.0
+Action
+Action σ=0.05
+91.5 ± 1.5
+90.8 ± 2.7
+86.7 ± 4.3
+Action
+Action σ=0.1
+80.5 ± 2.5
+86.7 ± 3.8
+76.2 ± 4.9
+Action
+Action σ=0.5
+0.0 ± 0.0
+8.0 ± 2.0
+8.7 ± 2.3
+Action
+Action σ=1.0
+1.5 ± 0.8
+0.8 ± 0.4
+1.0 ± 0.6
+Reasoning
+Entity swap (CoT)
+N/A
+87.0
+N/A
+Reasoning
+Shuffled (CoT)
+N/A
+95.5
+N/A
+Table 15: Per-suite SR (%) under Gaussian noise σ=0.2 (mean of 3 seeds).
+Model
+Object
+Spatial
+Goal
+Long
+Overall
+DeepThinkVLA
+96.7
+92.0
+92.7
+89.3
+92.7
+RD-VLA
+0.0
+19.3
+22.0
+18.0
+14.8
+OpenVLA-OFT
+90.0
+88.0
+88.0
+90.0
+89.0
+I
+Confound analysis (extended)
+The three models under study differ in multiple dimensions beyond reasoning type, and we must carefully assess which
+observed effects are attributable to reasoning versus other architectural factors.
+Confounding variables.
+Four factors vary across our models: (1) backbone: Prismatic (OpenVLA-OFT, RD-VLA) vs.
+PaliGemma (DeepThinkVLA); (2) parameter count: ∼7B vs. ∼3B vs. 0.5B; (3) action head: MLPResNet vs. discrete
+tokens (2,048 bins) vs. linear projection; (4) training data: different fine-tuning procedures and data augmentation.
+Partial backbone control.
+RD-VLA and OFT share the Prismatic VLM backbone family, isolating reasoning type
+(latent iterative vs. none) from backbone effects. Under Gaussian σ=0.2, OFT degrades −7.5pp while RD-VLA
+collapses −74.3pp—a 9.9× ratio that cannot be explained by backbone differences. In normalized terms (controlling
+for different clean baselines), relative SR drops are 7.8% (OFT) vs. 83.9% (RD-VLA), confirming the effect survives
+baseline normalization.
+Parameter count as potential confounder.
+The most vulnerable model (RD-VLA, 0.5B) is also the smallest;
+amplification could partially reflect scale-dependent representation fragility rather than reasoning alone. However,
+the 7B OFT model (14× larger) shows intermediate SR-vulnerability but lowest amplification ratio (0.56), with its
+preprocessing attenuating Gaussian noise more than DT (1.84) or RD-VLA (4.61). DT (3B, intermediate scale) shows
+the least SR vulnerability despite intermediate amplification—because its CoT reasoning provides semantic error
+correction. The SR-vulnerability ordering (DT < OFT < RD-VLA) does not align with either the parameter ordering
+(RD-VLA < DT < OFT) or the amplification ordering (OFT < DT < RD-VLA), suggesting that reasoning type
+(specifically, the combination of spatial attenuation and semantic correction) is the dominant factor, not model scale.
+Action head effects.
+RD-VLA’s linear output projection is a contraction (σ1=0.091), ruling out the action head as
+the amplifier. DT’s discrete tokenization provides an implicit quantization barrier. The amplification originates in the
+recurrent reasoning layers, not downstream.
+20
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+Direct ablation: CoT-disabled DT.
+We run DT with its reasoning chain suppressed (zero tokens between <think>
+and </think>), holding backbone, scale, action head, and training constant (full results in Fig. 8 and Tab. 19, App. M).
+Under σ=0.2 noise, CoT-disabled degrades by 1.5 pp (92.7%→91.2%) while CoT-enabled degrades by only 0.3 pp;
+the gap is in the expected direction but does not reach significance at N=12: a paired t gives p=0.35 (the value cited in
+the main text) and the Shapiro–Wilk-selected Wilcoxon signed-rank test on the same non-normal paired differences
+gives p=0.59 (d=0.28); both agree the CoT-on advantage is undetected at this sample size. Clean SR is unchanged
+(p=0.81, d=0.07). Power analysis: at N=12 with α=0.05 and 80% power, the minimum detectable effect size is
+d≈0.85 (Cohen’s d, two-sample t). The observed d=0.28 falls below this detection threshold; an N≥120 design would
+be required to detect the observed effect at standard power. Following Lakens [69], two complementary null-bounding
+analyses are appropriate here. (i) A TOST equivalence test at ±5pp boundaries on ∆CoT at σ=0.2 confirms equivalence
+at α=0.05 (pTOST=0.021 for Gaussian, pTOST=0.003 for clean). (ii) The JZS Bayes factor under a default Cauchy
+prior (scale 0.707) gives BF01=2.32 (Gaussian) and BF01=3.39 (clean), anecdotal-to-substantial evidence for the
+null. Per-episode pairing of the existing trajectories (suite×seed×task×episode-index, N=700 paired episodes for
+Gaussian, N=650 for clean) shrinks the minimum detectable effect from Cohen d=0.85 to Cohen h=0.106 (roughly
+a 5pp difference in raw SR), with TOST ±5pp confirmed at p<0.001 for both conditions, ∆SR=+1.43pp [95% CI
+−0.59, +3.45] for Gaussian, and a McNemar discordant count of b=31/c=21 (p=0.21, two-sided exact). We therefore
+frame the result as: at this power level we cannot detect a CoT contribution to noise robustness; we do not claim CoT
+contributes nothing, and the equivalence/Bayes-factor reanalyses will bound how large any undetected effect can be.
+J
+EOT mechanism check (full table)
+Table 16 reports the EOT T=2 result discussed in §4.1: EOT narrows the FGSM-vs-PGD-10 gap to ≤4pp on 3/4
+LIBERO suites, and across suites strengthens PGD-10 on average (∆PGD=−1.7pp), ruling out gradient masking as the
+explanation for the within-OFT FGSM-vs-PGD asymmetry.
+21
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+Table 16: EOT (T=2) mechanism test on OFT (LIBERO-fine-tuned OpenVLA-OFT). Each cell is mean SR % ±
+SE over 3 seeds × 50 episodes. Augmentation set: T=2 samples per gradient step with ±2 px translation jitter
+and ±0.02 brightness perturbation. Headline (ε=8/255): FGSM-EOT vs. FGSM and PGD-10-EOT vs. PGD-10
+deltas. Mean ∆PGD=−1.7pp across all 4 suites; |∆|≤4pp on 3/4 suites for both attacks; gradient masking is refuted
+at the canonical operating point. Descriptive (ε=16/255): EOT and PGD-10-EOT supplementary measurements;
+PGD-10-EOT saturates to 0.0% on all 4 LIBERO suites, consistent with the recurrence-saturation regime of App. A.
+The libero_10 FGSM cell at ε=8/255 has σ=49pp on n=3 (one seed flip); the PGD-10-EOT delta on the same suite
+(−4.0pp) is clean and consistent with the other three suites, and is what carries the per-suite verdict.
+Headline (ε=8/255)
+Descriptive (ε=16/255)
+Suite
+FGSM
+FGSM-EOT
+PGD-10
+PGD-10-EOT
+FGSM-EOT
+PGD-10-EOT
+libero_object
+99.3 ± 1.2
+98.0 ± 2.0
+40.0 ± 24.6
+40.7 ± 1.2
+96.7 ± 1.2
+0.0 ± 0.0
+libero_spatial
+86.7 ± 2.3
+82.7 ± 1.2
+10.0 ± 2.0
+8.0 ± 3.5
+83.3 ± 1.2
+0.0 ± 0.0
+libero_goal
+91.3 ± 4.2
+94.0 ± 4.0
+11.3 ± 5.0
+10.0 ± 5.3
+85.3 ± 3.1
+0.0 ± 0.0
+libero_10
+56.7 ± 49.1†
+86.0 ± 5.3
+11.3 ± 2.3
+7.3 ± 1.2
+78.7 ± 4.2
+0.0 ± 0.0
+∆(mean)
+—
++6.7†
+—
+−1.7
+—
+—
+†libero_10 FGSM at ε=8/255: σ=49pp on n=3 seeds (one seed-flip outlier dominates the mean); the PGD-10-EOT ∆=−4.0pp
+on the same suite is clean and consistent with the other three suites, and is the per-suite signal we read mechanism off. Excluding
+libero_10 FGSM, mean ∆FGSM=−0.9pp across the 3 clean suites.
+K
+Amplification analysis: full results
+Table 17 reports per-model, per-attack amplification ratios alongside CoT divergence, and Figure 6 visualizes the full
+cascade.
+22
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+Table 17: Amplification analysis across models and attack types. Amplification ratio = mean action deviation / perturba-
+tion magnitude. CoT divergence measured for DeepThinkVLA under FGSM (text reasoning enables measurement). SR
+↔action deviation correlation across all episodes.
+Model
+Attack
+Amp. Ratio
+Action Dev
+CoT Edit Dist
+Sem. Cosine
+SR↓
+OpenVLA-OFT
+Gauss σ=0.2
+0.56 ± 0.19
+0.112
+—
+—
+89.0%*
+DeepThinkVLA
+Gauss σ=0.2
+1.84 ± 1.14
+0.368
+—
+—
+92.7%
+RD-VLA
+Gauss σ=0.2
+4.61 ± 1.55
+0.922
+—
+—
+14.8%
+DeepThinkVLA
+FGSM ε=2/255
+66.58
+0.522
+0.366
+0.918
+86.2%
+DeepThinkVLA
+FGSM ε=4/255
+41.45
+0.650
+0.378
+0.916
+75.0%
+DeepThinkVLA
+FGSM ε=8/255
+26.21
+0.822
+0.401
+0.910
+55.8%
+DeepThinkVLA
+FGSM ε=16/255
+14.84
+0.931
+0.415
+0.906
+41.5%
+DeepThinkVLA
+FGSM ε=32/255
+8.21
+1.030
+0.429
+0.903
+25.8%
+SR ↔action deviation: Pearson r = −0.668, p < 0.0001 (N = 7752)
+*OFT SR from Session 2f v2 sweep (authors’ original eval script; 50 ep/condition)
+DeepThinkVLA
+OpenVLA-OFT
+RD-VLA
+0
+1
+2
+3
+4
+5
+6
+Amplification Ratio
+(mean action deviation / )
+1.84
+3.53
+4.61
+Vision Perturbation Amplification (Gaussian =0.2)
+(a)
+Amplification
+ratios
+at
+σ=0.2
+0.06
+0.08
+0.10
+0.12
+0.14
+0.16
+0.18
+0.20
+Gaussian Noise 
+0.3
+0.4
+0.5
+0.6
+0.7
+0.8
+0.9
+Mean Action Deviation (L2)
+Action Deviation vs. Gaussian Noise
+DeepThinkVLA
+RD-VLA
+OpenVLA-OFT
+0.02
+0.04
+0.06
+0.08
+0.10
+0.12
+FGSM 
+0.5
+0.6
+0.7
+0.8
+0.9
+1.0
+Mean Action Deviation (L2)
+Action Deviation vs. FGSM 
+DeepThinkVLA
+(b) SR dose-response
+0.15
+0.20
+0.25
+0.30
+0.35
+0.40
+0.45
+0.50
+0.55
+Mean Normalized Edit Distance (CoT)
+0.25
+0.50
+0.75
+1.00
+1.25
+1.50
+1.75
+Mean Action Deviation (L2)
+CoT Divergence vs. Action Deviation
+=0.0078
+=0.0157
+=0.0314
+=0.0628
+=0.1255
+0.800
+0.825
+0.850
+0.875
+0.900
+0.925
+0.950
+0.975
+Mean Semantic Cosine Similarity (CoT)
+0.25
+0.50
+0.75
+1.00
+1.25
+1.50
+1.75
+Mean Action Deviation (L2)
+Semantic Similarity vs. Action Deviation
+=0.0078
+=0.0157
+=0.0314
+=0.0628
+=0.1255
+(c) CoT cascade (r=+0.44)
+0
+50
+100
+150
+200
+250
+300
+Episode Step
+0
+20
+40
+60
+80
+Cumulative EEF Position Drift (m)
+Trajectory Drift: Clean vs. Perturbed
+DeepThinkVLA (gaussian_noise s0.2)
+DeepThinkVLA (fgsm e0.03137)
+RD-VLA (gaussian_noise s0.2)
+OpenVLA-OFT (gaussian_noise s0.2)
+(d) Trajectory drift
+Figure 6: Amplification cascade (7,752 paired clean–perturbed episode records). OFT attenuates (ρOFT≈0.56), DT
+amplifies moderately (ρDT≈1.84), RD-VLA amplifies strongly (ρRD-VLA≈4.61, 2.5× DT). The recurrent reasoning
+stage is the structural multiplier (8.22× over the no-reasoning baseline; K-invariant per Prop. 1).
+L
+Per-stage propagation bounds
+Formal definitions.
+The end-to-end amplification ratio is
+ρ = ∥apert −aclean∥2
+ε
+,
+(5)
+the per-step action deviation per unit input perturbation under a stage-wise perturbation (§3.1). The Lipschitz upper
+bound on end-to-end deviation through the three-stage pipeline (Eq. 1) is
+∥δa∥2 ≤Laction · Lreasoning · Lvision · ∥δv∥2,
+(6)
+and for weight-tied recurrence fr = g◦K the multiplicative hypothesis specialises Lreasoning = LK
+iter. Figure 7 summarizes
+the per-stage spectral norms and end-to-end bound, Table 18 the per-stage Lipschitz estimates and bound tightness, and
+the full spectral-norm computation and back-solve are in App. F.
+23
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+10
+1
+6 × 10
+2
+2 × 10
+1
+Gaussian noise 
+2
+4
+6
+8
+10
+End-to-end Lipschitz estimate
+(mean action dev / )
+(a) Empirical Lipschitz by noise level
+DeepThinkVLA
+RD-VLA
+OpenVLA-OFT
+RD-VLA
+(output_proj)
+OFT
+(MLP product)
+DT
+(bin spacing)
+0
+100
+200
+300
+400
+500
+600
+700
+800
+L_action
+0.0908
+855.7955
+0.0010
+(b) Action head Lipschitz constants
+DT
+OFT
+RD-VLA
+0
+1
+2
+3
+4
+Amplification ratio
+1.8×
+3.5×
+4.6×
+1.3×
+(c) Observed vs theoretical
+amplification (Gaussian =0.2)
+Observed ratio
+L_iter^12 (L_iter=1.023)
+Figure 7: Perturbation amplification analysis. Left: per-stage spectral norms—RD-VLA’s output projection is a
+contraction (σ1=0.091); amplification occurs upstream in recurrent layers. Center: end-to-end amplification at σ=0.2.
+Right: the K-sweep test at K∈{4, 8, 12} (Figure 5, Table 3) finds ρ(K) statistically flat (ˆLiter≈1.0): the architectural
+∼49× amplification is positively identified as K-invariant and structural (encoder + fixed-point recurrence output).
+The back-solved ˆLiter ≈1.192 (from the observed K=12 ratio LRD-VLA
+reasoning/LOFT
+reasoning ≈8.22) implies a multiplicative-per-
+iteration form that the K-sweep rules out.
+Table 18: Per-stage Lipschitz estimates and bound tightness under Gaussian noise (σ=0.2). Laction is computed
+via spectral norm for continuous action heads (RD-VLA output projection, OFT MLP) or bin spacing for discrete
+tokenization (DT). Lreasoning is estimated empirically relative to OFT (no reasoning baseline). ˆLiter is the per-iteration
+Lipschitz constant derived from the compound analysis ˆL12
+iter = Lreasoning.
+Model
+Reasoning
+Laction
+Lreasoning
+ˆLiter
+Le2e
+Obs. ¯δa
+Amp. ratio
+OpenVLA-OFT
+None
+855.80c
+< 1.0e
+—
+0.56
+0.112
+0.56
+DeepThinkVLA
+Text CoT
+0.0010a
+≈1.0b
+—
+1.84
+0.368
+1.84
+RD-VLA
+Recurrent (12×)
+0.0908d
+8.22
+1.192
+4.61
+0.922
+4.61
+aDiscrete action tokenization with 2048 bins; spacing = max per-DOF change from 1-bin shift.
+bText CoT acts as stochastic denoiser under Gaussian noise (observed ∆SR ≈0pp).
+cProduct of per-layer spectral norms through MLPResNet:
+σ(fc1) = 22.67 × (1 + σ(res0)) = 9.00 × (1 + σ(res1)) = 9.15 × σ(fc2) = 0.46.
+dSpectral norm of final linear projection (7×896 matrix).
+eOFT’s dual-backbone preprocessing (SigLIP + DINOv2) attenuates Gaussian noise: Le2e = 0.56 < 1. LRD-VLA
+reasoning is estimated as
+LRD-VLA
+e2e
+/LOFT
+e2e = 4.61/0.56 = 8.22 (Phase F paired sweep, 1,800 episode records).
+M
+CoT-disabled ablation: full results
+24
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+Clean
+Gaussian 
+= 0.2
+0
+20
+40
+60
+80
+100
+Success rate (%)
+Abs. drop CoT-on: +0.3pp
+Abs. drop CoT-off: +1.5pp
+Gap: +1.2pp
+DeepThinkVLA 
+ CoT ablation
+CoT-enabled
+CoT-disabled (cot_empty)
+Figure 8: CoT-disabled ablation on DeepThinkVLA (N=12 suite/seed pairs). Bars show mean SR (±SE) under clean
+and Gaussian σ=0.2 conditions. CoT-enabled drops 0.3 pp under noise; CoT-disabled drops 1.5 pp (gap +1.2 pp;
+Shapiro-selected Wilcoxon p=0.59, paired t p=0.35, both non-significant; d=0.28). Clean SR is indistinguishable
+(p=0.81). Results indicate backbone-driven robustness, not CoT-driven denoising.
+Table 19: CoT-disabled ablation on DeepThinkVLA (LIBERO, N=12 paired suite/seed pairs). Success rates (%, mean
+± SE) under clean and Gaussian σ=0.2 vision perturbation. “CoT-disabled” replaces the reasoning chain with empty
+CoT. The gap column is the difference in absolute drop between the two variants; a positive value means removing
+CoT increases noise sensitivity. Paired Wilcoxon signed-rank test on the Gaussian condition (Shapiro-selected for
+the non-normal paired differences): p=0.5938; a paired t on the same differences gives p=0.35, both non-significant.
+Paired Cohen’s d=0.28.
+Variant
+Clean SR
+Gauss σ=0.2 SR
+Absolute drop
+CoT-enabled
+93.0 ± 2.2
+92.7 ± 1.7
++0.3 pp
+CoT-disabled (empty CoT)
+92.7 ± 1.9
+91.2 ± 2.8
++1.5 pp
+Gap (disabled −enabled)
+—
+—
++1.2 pp
+N
+SimplerEnv cross-benchmark: per-task details and degenerate case
+Setup.
+We use OpenVLA-7B [2] (no-reasoning, OpenVLA class) evaluated via its publicly-released checkpoint with-
+out fine-tuning. We evaluate four Google-Robot tasks (google_robot_pick_coke_can, move_near, open_drawer,
+close_drawer) at 3 seeds × 20 episodes per condition, using fractal20220817_data action normalization. Wid-
+owX excluded (∼1% clean SR). ECoT-Bridge [4] was attempted but lacks the required normalization key and achieves
+0% on WidowX with ∼300s/episode, making comparative evaluation infeasible.
+Per-task FGSM heterogeneity.
+FGSM ε=8/255 ∆SR by task: close_drawer −5pp, move_near +6.7pp,
+open_drawer −35pp. PGD-10 is uniformly severe: −20, −20, −45pp respectively. The PGD>FGSM ordering
+holds on every individual task.
+Floor-dominated case: pick_coke_can.
+This task achieves only 10% clean SR (vs. published 30–60% [11]),
+indicating a systematic failure mode in the public OpenVLA-7B checkpoint. For floor-dominated baselines, adversarial
+attacks paradoxically increase SR (+28pp under FGSM, +33pp under PGD-10) by disrupting the failure mode—a
+known property of adversarial examples near the performance floor. We exclude it from cross-benchmark comparisons.
+O
+LIBERO-Plus naturalistic-perturbation cross-benchmark: per-(model, factor) details
+This appendix gives the full per-(model, factor) breakdown behind the main-text cross-class corroboration (§4.3); the
+pre-registered 16-task task selection is the canonical sample, and the 64-task layout supplementary is parallel evidence
+on task-selection sensitivity rather than a replacement of the canonical cell.
+25
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+Setup.
+We evaluate the three reasoning paradigms (DT, RD-VLA, OpenVLA-OFT) on LIBERO-Plus [7]’s seven
+naturalistic-perturbation factors. The pre-registered task set (experiments/libero_plus/tasks.json; numpy
+seed=0 for the original four factors, per-factor seeds {1, 2, 3} for the Amendment-1 additions) draws 16 tasks per
+factor, stratified across the four LIBERO suites. Each (model, factor) cell pools 3 seeds × 16 tasks × 5 episodes
+(n=240). All three models use their LIBERO-fine-tuned checkpoints from the main paper (§3.1); LIBERO-Plus applies
+its naturalistic perturbations upstream of the model adapters, so all three see identical perturbations within a factor.
+Table 20: LIBERO-Plus [7] per-(model, factor) success rate (%) and paired RD-VLA-vs-{DT, OFT} ∆SR gap.
+Each cell pools 3 seeds × 16 tasks × 5 episodes (n=240) except the supplementary objects-layout row at n=960 (3
+seeds × 64 tasks × 5 ep). Pre-registered task lists at experiments/libero_plus/tasks.json; the supplementary
+layout sample at layout_supplementary_tasks.json (independent numpy seed=42). Paired-gap columns are
+∆SRRD−VLA −∆SRother with ∆SR measured against the same-model clean-baseline row. The RD-vs-OFT gap
+clears 30 pp on six of seven factors (the 64-task supplementary entry resolves the 16-task layout sampling artifact, §4.3);
+robot-initial-state is the exception at +9.6 pp.
+factor
+DT
+OFT
+RD-VLA
+gap RD-DT
+gap RD-OFT
+clean baseline (factor=none)
+96.2
+95.0
+92.5
+—
+—
+camera viewpoint
+76.2
+57.5
+13.8
++58.8
++41.2
+robot initial state
+47.5
+37.5
+25.4
++18.3
++9.6
+sensor noise
+88.8
+78.8
+15.0
++70.0
++61.2
+language instructions
+72.5
+85.0
+25.4
++43.3
++57.1
+objects layout (16-task primary)
+60.0
+46.2
+20.0
++36.2
++23.8
+objects layout (64-task suppl.)
+72.8
+66.2
+25.3
++43.8
++38.4
+light conditions
+90.0
+97.5
+41.7
++44.6
++53.3
+background textures
+76.2
+77.5
+12.1
++60.4
++62.9
+Per-factor pattern.
+The RD-VLA-vs-{DT, OFT} paired ∆SR gap exceeds 30 pp on both contrasts for camera
+viewpoint, sensor noise, language instructions, light conditions, background textures, and (via the 64-task supplementary)
+objects layout—six of seven factors. The exception is robot initial state, where the RD-vs-OFT gap is only +9.6 pp:
+under starting-state variance OFT drops from 95.0% clean to 37.5% while RD-VLA drops from 92.5% to 25.4%. The
+recurrence-driven amplifier story (§4.2, Prop. 1) does not extend to initial-state perturbations: starting-state variance mis-
+grounds all three policies’ visual–object correspondence approximately equally, leaving little headroom for RD-VLA’s
+K=12 recurrence to differentially amplify. The OFT anchor against LIBERO-Plus’s published leaderboard passes
+the pre-registered ±10 pp tolerance on 4 of 5 high-severity factors (camera −2.2, robot init +0.3, sensor noise +2.0,
+language +3.5 pp); objects layout is the single anchor failure (−30.9 pp on the 16-task primary sample), diagnosed
+below.
+Objects-layout selection-bias diagnostic.
+The pre-registered 16-task objects-layout sub-sample is bimodally dis-
+tributed: 8 of 16 sampled tasks score OFT=0% and 6 of 16 score 100%, with mean per-task difficulty 3.25 vs the
+LIBERO-Plus pool mean 2.89 (the seed=1 stratified draw oversampled difficulty levels 3–5). An independently-seeded
+64-task supplementary (experiments/libero_plus/layout_supplementary_tasks.json; numpy seed=42;
+n=960 episodes per model) at a pool-matched difficulty distribution (mean 2.92) produced OFT = 66.2% (16-
+task primary: 46.2%; LIBERO-Plus published 250-task aggregate: 77.1%), closing the anchor gap from −30.9 to
+−10.9 pp and the paired RD-vs-OFT gap from +23.8 to +38.4 pp. The remaining 11 pp deficit vs the published
+250-task aggregate is consistent with the supplementary sample still being smaller than the full pool. The supplementary
+is reported as parallel evidence on layout-factor task-selection sensitivity; the pre-registered 16-task results in Tab. 20
+are unmodified, and the cross-stage two-tier ordering on layout follows the supplementary numbers (gap RD-vs-OFT
++38.4 pp ≥30 pp); for the layout factor, the pre-registered 16-task cell is canonical and the 64-task supplementary is
+reported as parallel evidence on layout-factor task-selection sensitivity, not as a re-classification of the pre-registered
+result. Per-cell raw data: code/data/libero_plus_full_aggregate.csv.
+26
+Reasoning as a Double-Edged Sword in VLAs
+A PREPRINT
+P
+Limitations (extended)
+We deliberately focus on a precise, controlled comparison across three representative reasoning-architecture models
+(text CoT, latent iterative, none; one per family) on a single well-established manipulation benchmark; this scope makes
+within-benchmark statistical comparisons well-powered (N=12 paired suite/seed cells; N≥650 paired episodes for the
+within-DT CoT-disabled ablation) but bounds the immediate generalization claims, which are model-level observations
+rather than paradigm-level claims. (1) We study two reasoning-architecture families with a single model each; visual
+reasoning VLAs (e.g., image-plan-predicting models) are an interesting third axis we do not yet cover. (2) SimplerEnv
+(§4.3) replicates the FGSM/PGD asymmetry on a different robot. (3) The consistency probe uses keyword-level
+entity matching; semantic-level analysis would shift but not eliminate the structural coherently-wrong gap (Obs. 1).
+(4) RD-VLA PGD-10 is white-box via gradient checkpointing through the K=12 recurrence and Prismatic LLM (peak
+3.5 GB at K=12 on A100-40GB; §3.2); RD-VLA FGSM is by DT→RD-VLA transfer (a lower bound) since PGD-10
+strictly subsumes FGSM as the stronger attack on the same model; black-box Square Attack on RD-VLA directly
+serves as a gradient-free cross-check. (5) Baseline performance varies across architectures (93%/89%/96.5%); we
+emphasize relative degradation alongside absolute comparisons. (6) We attempted to add a second text-CoT VLA
+(ECoT [4]) via LoRA fine-tuning of the public ECoT-bridge checkpoint on 2,000 LIBERO trajectories; despite fixing
+three inference bugs and an upstream LoRA-scaling clamp (lora_alpha=min(rank,16) giving scaling= 0.25 vs
+the standard 1–2), three orthogonal recipe interventions (12K-step training, 8× LoRA scaling, 50× action-token loss
+reweighting) all converged to the same ≈0.45 action-accuracy plateau and 0% smoke SR. We diagnose this as a
+representational-capacity limit of LoRA on the Bridge-pretrained base under Bridge→LIBERO action distribution
+shift. Full fine-tune [27] (76.6% on LIBERO-90) exceeds our ∼100 GPU-hours/run budget plus the attack sweep.
+The architectural CoT-vs-no-reasoning contrast is independently corroborated by the latent-vs-no-reasoning contrast
+within our three-model panel. The within-DT CoT-disabled ablation’s control sets the reasoning text to zero tokens,
+off-manifold relative to an in-distribution skip-CoT comparator, so its ±5pp equivalence bound is a conservative reading
+of the CoT effect rather than a tight one (full ablation in App. I).
+Three narrower limitations are deferred here from the main text. Reasoning-stage corruption is text-CoT-only by
+architectural availability: latent reasoning (RD-VLA) has no addressable reasoning surface and single-pass (OFT)
+has no reasoning stage, so the reasoning-stage column of the cross-stage matrix has a single populated cell. The probe
+evaluation covers a single probe class: the adaptive consistency-probe evaluation tests entity-matching plan-action
+consistency on text CoT; other probe classes (sentence-embedding similarity, learned consistency classifiers, semantic-
+role parsers) might shift the AUC ceiling but are not evaluated here. The EOT mechanism test uses T=2: the test ruling
+out gradient masking for OFT’s FGSM/PGD asymmetry uses T=2 stochastic augmentations per gradient step, below
+the literature norm T ∈{8, 16}; the curvature-on-the-action-head conclusion is cross-checked with the gradient-free
+Square Attack at 100 queries but is not airtight against obfuscated-gradient skepticism, and a higher-T EOT run plus
+direct Hessian-trace measurement (E21) are deferred.
+27

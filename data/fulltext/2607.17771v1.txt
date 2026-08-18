@@ -1,0 +1,1588 @@
+Polar Coordinate-based Differential Evolution for Moving Target
+Search Using Vision Sensor on Unmanned Aerial Vehicles
+Thu Hang Khuat
+1, Duy-Nam Bui
+1, Thuy Ngan Duong
+2, Manh Duong Phung
+3*
+1VNU University of Engineering and Technology, Vietnam National University, Hanoi, Vietnam.
+2Department of Electrical Engineering, Ulsan National Institute of Science and Technology, Ulsan,
+Korea.
+3College of Engineering and Computer Science and Smart Green Transformation Center (GREEN-X),
+VinUniversity, Hanoi, Vietnam.
+*Corresponding author(s). E-mail(s): duong.pm@vinuni.edu.vn;
+Abstract
+In search and rescue operations, there is a period known as the “golden time” during which the probability of finding
+the target alive is highest. The objective of this work is to propose a new search algorithm for unmanned aerial
+vehicles (UAVs) with a focus on improving the detection probability and execution time. We approach this problem
+by first modeling target dynamics as a Markov process and the detection likelihood as a function of image quality
+and the observer’s vision. We then employ Bayesian theory to derive a fitness function representing the probability
+distribution of the target’s location over the search area. Finally, we introduce a new algorithm named Polar
+coordinate-based Differential Evolution (PDE) to generate a UAV search path that maximizes this fitness function.
+The PDE algorithm utilizes polar coordinates to incorporate kinematic constraints and maneuver properties of the
+UAV, allowing for better exploration of the solution space. A series of simulations and comparative analyses have
+been conducted to evaluate the performance of the proposed algorithm. Experiments involving a real UAV have
+also been conducted. Results demonstrate that the PDE algorithm outperforms state-of-the-art algorithms in terms
+of detection probability and execution time across diverse search scenarios while remaining practical for real-world
+applications. The source code of the algorithm is available at https://github.com/thuhangkhuat/PDE target search.
+Keywords: Optimal search, unmanned aerial vehicle, differential evolution, swarm intelligence
+1 Introduction
+Search and rescue operations involve locating and assist-
+ing missing persons in open environments, such as
+disaster zones, wilderness areas, or urban settings. Tra-
+ditional methods often rely on ground-based teams
+and manned aircraft, which have limitations in flex-
+ibility and safety. Recently, unmanned aerial vehicles
+(UAVs) have emerged as a new means to overcome
+those limitations due to their ability to access remote
+and hazardous areas, gather real-time data, and pro-
+vide aerial surveillance [1–5]. Figure 1 illustrates the
+use of UAVs to search for moving targets. As time
+progresses, the probability of the target being found
+becomes smaller due to the degradation in initial infor-
+mation and the effect of external variables such as envi-
+ronmental conditions [6,7], terrain characteristics and
+target movement. Hence, the goal of using UAVs to look
+for a lost target involves determining a flight path that
+has the highest probability of finding the target given
+Search area
+Moving target
+UAV
+Fig. 1: Moving target search problem
+initial information on the target’s location and search
+conditions [8,9].
+To address the optimal search problem, probabilis-
+tic approaches that incorporate uncertainties associated
+with initial search conditions, belief map generation,
+1
+arXiv:2607.17771v1  [cs.RO]  20 Jul 2026
+and sensor models [10, 11] are often used. They rely
+on the Bayesian framework to formulate objective func-
+tions, which are then used to evaluate the optimality
+of the solution [12, 13]. To represent the initial search
+map, a multivariate normal distribution with parame-
+ters calculated based on the available information on the
+target’s location is used [12,14]. Since the number of fea-
+sible solutions grows exponentially with respect to the
+search time and space [15], the resulting search problem
+is NP-hard. Consequently, obtaining an exact solution
+using classical optimization techniques such as differen-
+tial calculus is impractical. Instead, approximation and
+metaheuristic methods including greedy algorithms [16],
+gradient-based methods [17], ant colony optimization
+(ACO) [13], particle swarm optimization (PSO) [12],
+and Bayesian optimization approaches (BOA) [18] are
+commonly employed.
+At a high level, compared with other contemporary
+paradigms (e.g., deterministic optimization or learning-
+based approaches), metaheuristic methods offer a favor-
+able balance between computational efficiency, flexibility
+in integrating complex constraints, and applicability
+under limited prior information. Table 1 summarizes
+and compares the key characteristics of representative
+metaheuristic methods as discussed below.
+The target can be static or dynamic. In [17], the
+static model is used to simplify the planning process.
+On the other hand, the target is considered dynamic
+in [12, 13, 16, 18] and modeled as a Markovian process.
+This model is more practical due to the moving nature of
+targets, e.g., human, and the influence of environmental
+factors such as wind or ocean waves.
+The sensor can be modeled in different ways depend-
+ing on the actual sensor used. In [17, 19], the range
+model, where the detection likelihood is a function of
+the distance between the sensor and target positions, is
+used. Other works focus on vision sensors with binary
+outputs [12,13,16,18]. Vision sensors provide rich infor-
+mation of the search area but are affected by external
+factors such as lighting conditions and noise. Those fac-
+tors should be taken into account when developing the
+target detection model.
+The environment can be modeled as a continuous
+world with piece-wise linear control actions or a dis-
+crete world with a discrete set of actions. In [12,13,18],
+the search environment is represented as a grid-based
+discrete environment so that the movements of the
+target can be simplified to eight main directions. Stud-
+ies in [17, 19], on the other hand, consider continuous
+space and model the target via transition probability
+functions. The use of continuous space is more generic
+and overcomes the limitations related to resolution and
+scalability.
+Constraints are often added to the target model
+to reduce uncertainty in their dynamics. In some works,
+the Markovian process is used to represent the move-
+ment of the target so that its next state only depends
+on its current state [10, 12]. The works in [12, 13] fur-
+ther constrains the target to a deterministic Markovian
+process such that its trajectory can be determined if the
+initial location is known. Other works limit the target’s
+movement to certain directions through the modeling of
+external factors that influence its movement such as wind
+and ocean currents [9,18]. Constraints are necessary for
+dynamic target search since they reduce the complexity
+of the search problem.
+The search model is classified into two main cate-
+gories, minimum time search (mTS) [13,18,19] and max-
+imum detection probability (MDP) [12, 16, 17]. While
+mTS and MDP are different, there is a correlation
+between them so that obtaining one goal also leads to a
+good result for the other goal.
+Apart from the above algorithms, differential evolu-
+tion (DE) is a metaheuristic algorithm widely used for
+solving optimization problems [20,21]. It is particularly
+effective in continuous, multi-dimensional search spaces.
+One of the main advantages of DE is its computational
+efficiency in arithmetic operations to create new can-
+didate solutions. DE also exhibits strong global search
+capabilities through the differential mutation process,
+enabling it to escape local optima and converge towards
+the global optimum [22,23]. Additionally, DE is not sen-
+sitive to parameter settings, making it more versatile
+compared to other optimization algorithms [24,25].
+In this study, we propose a new algorithm for the
+optimal search problem that exploits the DE algo-
+rithm in polar coordinates to maximize the probability
+of finding a moving target. The probability of find-
+ing the target is modeled based on the analysis of the
+characteristics of the visual sensor, its footprint and
+the human vision model. The proposed algorithm also
+considers the constraints imposed by the UAV’s kine-
+matics and the target’s dynamics. The results from a
+number of comparisons and experiments show that the
+proposed algorithm outperforms other state-of-the-art
+algorithms in both detection probability and search time
+while remaining computationally efficient. Our contri-
+butions in this work are threefold: (i) formulating the
+search problem as an optimization problem that consid-
+ers practical aspects of the search problem including the
+search space, target dynamics, sensor models and ini-
+tially available information; (ii) developing a new polar
+coordinate-based DE algorithm (PDE) that incorporates
+kinematic constraints to narrow the search space and
+exploits maneuver characteristics of the UAV to miti-
+gate local optima and achieve improved convergence; (iii)
+evaluating the practicability of the proposed method via
+experimental search scenarios with real UAVs.
+The remaining sections of this paper are organized
+as follows. Section 2 describes the process of deriving an
+objective function for the visual search problem. Section
+3 introduces the proposed polar coordinate-based Dif-
+ferential Evolution (PDE) algorithm. Section 4 presents
+comparison and experiment results. The paper ends with
+conclusions drawn in Section 5.
+2
+Table 1: Comparison among the search methods
+Work
+Method
+Target
+Sensor
+Env.
+Constrained
+Search model
+[12]
+PSO
+Dynamic
+Binary
+D
+✓
+MDP
+[13]
+ACO
+Dynamic
+Binary
+D
+✓
+mTS
+[19]
+Lagrange
+Static
+Stochastic
+D/C
+mTS
+[18]
+BOA
+Dynamic
+Binary
+D
+✓
+mTS
+[17]
+Gradient descent
+Static
+Stochastic
+D
+MDP
+[16]
+Greedy
+Dynamic
+Binary
+D
+✓
+MDP
+Ours
+DE
+Dynamic
+Stochastic
+C
+✓
+MDP
+2 Problem Formulation
+The problem of searching for a lost target is formulated
+via the modeling of the camera, moving target and belief
+map with details as follows.
+2.1 Moving target model
+Consider a target t moving in the environment with its
+location represented by ξt
+k. Initially, a belief map is used
+to model the probability of the target location based on
+the available information. This belief map is described
+by a Gaussian distribution centered at the target’s last
+known location, ξt
+0 [10]. A location sk in the belief map
+then has the probability of being the target’s location at
+time k given by:
+p (sk) =
+1
+2πσ2
+k
+e
+−∥sk −ξt
+k∥2
+2σ2
+k
+,
+(1)
+where σk is the standard deviation of the Gaussian
+distribution.
+In moving target search, a Markov process is often
+used to model the target dynamics so that its present
+location ξt
+k only depends on its previous location, ξt
+k−1 [9,
+10,12]. In this work, we consider the target dynamics as a
+deterministic Markov process where the transition func-
+tion, p(ξt
+k|ξt
+k−1), representing the probability that the
+target moves from ξt
+k−1 to ξt
+k, is known. As a result, the
+trajectory of target ξt can be determined if its exact ini-
+tial location is known. This assumption is reasonable in
+several real-world scenarios, such as a floating survivor
+at sea, where the target dynamics can be approximated
+as deterministic given known ocean conditions. In more
+general cases, uncertainty in the target’s motion is par-
+tially captured by the Gaussian belief map defined in
+(1), where the standard deviation σk reflects uncertainty
+in the target’s location. In this model, the uncertainty
+σk is assumed to be constant over time according to
+the Steady State framework [26,27]. Consequently, this
+modeling assumption has been widely adopted in prior
+studies [13,28–30].
+2.2 Target detection model
+In this work, an RGB camera is used to detect the tar-
+get. The camera is attached to the center O(x, y, z) of
+the UAV via a three-axis gimbal. The gimbal controls
+the camera to point downward at a fixed angle ϕ. Denote
+α and β respectively as the horizontal and vertical view
+angles of the camera, ψ as the heading angle of the
+UAV, and h as the flight altitude. The footprint of the
+camera then can be computed as illustrated in Figure
+2. Specifically, the camera’s looking angle ϕ is equal to
+∠EOH, where H is the projection of the UAV’s center
+on the ground plane, and E is the center of the cam-
+era’s footprint, i.e., E = AC ∩BD. Denote A, B, C,
+and D respectively as four vertices of the camera’s foot-
+print representing the detection area. Denote J and K
+as the midpoints of AD and BC, respectively. Accord-
+ing to Figure 2a, distances from H to each parallel side
+of the trapezoid ABCD are computed as:
+d1 = h tan (ϕ −β/2)
+d2 = h tan (ϕ + β/2)
+(2)
+The length of the parallel sides, AD and BC, are then
+given by:
+w1 = 2h tan (α/2)
+cos (ϕ −β/2),
+w2 = 2h tan (α/2)
+cos (ϕ + β/2)
+(3)
+Finally, four vertices, A, B, C, and D are obtained as
+follows:
+xA = x + w1 cos(ψ −δ1)
+2 sin δ1
+, yA = y + w1 sin(ψ −δ1)
+2 sin δ1
+;
+xB = x + w2 cos(ψ −δ2)
+2 sin δ2
+, yB = y + w2 sin(ψ −δ2)
+2 sin δ2
+;
+xC = x + w2 cos(ψ + δ2)
+2 sin δ2
+, yC = y + w2 sin(ψ + δ2)
+2 sin δ2
+;
+xD = x + w1 cos(ψ + δ1)
+2 sin δ1
+, yD = y + w1 sin(ψ + δ1)
+2 sin δ1
+;
+(4)
+3
+(a) Side view
+(b) Top view
+(c) 3D view
+Fig. 2: The camera footprint in global coordination IXY Z
+where δ1 and δ2 are the two angles shown in Figure 2b
+and computed as follows:
+δ1 = tan−1
+ w1
+2d1
+
+δ2 = tan−1
+ w2
+2d2
+
+.
+(5)
+In the algorithmic implementation, these angles are
+evaluated using the two-argument arctangent function,
+atan2(·, ·), to ensure numerical stability.
+During operation, the image obtained from the cam-
+era is transmitted to the base station, where an observer
+analyzes it to identify the target. Denote p (Dk|ξt
+k) as the
+probability that the observer finds the target at time k.
+This probability can be estimated using NVESD [31], a
+reliable model to evaluate the probability of target obser-
+vation. This model works on the principle that the target
+detection performance depends on the image quality and
+the observer’s vision. Denote TTP as the target tracking
+performance. It relates to the image uniformity and the
+observer’s viewing threshold as follows [31]:
+TTP =
+fmax
+Z
+fmin
+s
+Ctgt
+CTF(f)df,
+(6)
+where f is the spatial frequency, CTF is the contrast
+threshold function, and Ctgt is the target contrast. CTF
+is the quantification of the observer’s vision defined as
+in [31]. The target contrast (Ctgt) represents the ratio
+of the mean and standard deviation of the target to the
+mean of the scene in the image obtained from the camera
+on the UAV [32]. By applying the NVESD model, the
+likelihood of target detection is given as follows:
+p
+ Dk|ξt
+k
+
+=
+ Vk
+V50
+γ
+1 +
+ Vk
+V50
+γ ,
+(7)
+4
+where
+γ = 1.51 + 0.24
+ Vk
+V50
+
+,
+(8)
+Vk = TTP
+v
+u
+u
+tSt
+k cos2 ϕ tan α
+2 g(ϕ, β)
+Sfp
+k
+,
+(9)
+g(ϕ, β) = [tan (ϕ + β/2) −tan (ϕ −β/2)] ×
+
+1
+cos (ϕ + β/2) −
+1
+cos (ϕ −β/2)
+
+,
+(10)
+with V50 is the critical period so that the probability
+of detecting the target is 0.5 [33], St
+k is the area of the
+target, and Sfp
+k = SABCD is the camera footprint. The
+coefficients 1.51 and 0.24 in (8) are empirical constants
+of the NVESD model obtained from regression fitting to
+human observer detection data, where 1.51 defines the
+baseline slope of the detection curve and 0.24 accounts
+for the increased steepness as target visibility improves.
+From (7), the likelihood of not detecting the target at
+time k is given by:
+p
+  ¯Dk|ξt
+k
+
+= 1 −p
+ Dk|ξt
+k
+
+.
+(11)
+2.3 Estimation of the target’s location
+The estimation of the target’s location is carried out
+recursively via two phases, prediction and update, based
+on the Bayesian theory as follows.
+2.3.1 Prediction phase
+Denote p(ξt
+k|ζ1:k−1) as the probability that the target
+is located at ξt
+k given all observations from ζ1 to ζk−1.
+As the estimation process is recursive with the initial
+belief map defined by (1), we assume that at time k,
+p(ξt
+k−1|ζ1:k−1) from the previous time step is available.
+The predicted location of the target then can
+be obtained from the following Chapman-Kolmogorov
+equation [9]:
+p(ξt
+k|ζ1:k−1) =
+Z
+S
+p(ξt
+k|ξt
+k−1)p(ξt
+k−1|ζ1:k−1)dξt
+k−1,
+(12)
+where p(ξt
+k|ξt
+k−1) is the transition probability obtained
+from the Markov process representing the target’s
+motion.
+For a deterministic process without noise, the tar-
+get location ξt
+k = [xt
+k, yt
+k]T is updated via the following
+kinematic function:
+xt
+k = xt
+k−1 + vk−1∆t cos θk−1
+yt
+k = yt
+k−1 + vk−1∆t sin θk−1,
+(13)
+where vk−1 is the speed, θk−1 is the heading angle,
+and
+∆t
+is
+the
+time
+step
+interval.
+Let
+vk−1
+=
+[vk−1 cos θk−1, vk−1 sin θk−1]T represent the velocity vec-
+tor. The transition probability p(ξt
+k|ξt
+k−1) is then repre-
+sented by a Dirac delta function δ rather than a Gaussian
+distribution. The probability is 1 if the target moves
+exactly according to the kinematic equation and 0 every-
+where else. Therefore, the practical form of the transition
+function is expressed as:
+p(ξt
+k | ξt
+k−1) = δ
+ ξt
+k −(ξt
+k−1 + vk−1∆t)
+
+.
+(14)
+2.3.2 Update phase
+The updated location of the target at time k is computed
+based on the Bayes rule when observation ζk becomes
+available. It is performed by multiplying the predicted
+location in (12) by the new conditional observation
+likelihood p(ζk|ξt
+k) as follows:
+p(ξt
+k|ζ1:k) = Kp(ξt
+k|ζ1:k−1)p(ζk|ξt
+k),
+(15)
+where K is the normalization factor given by:
+K = 1/
+Z
+p(ξt
+k|ζ1:k−1)p(ζk|ξt
+k)dξt
+k.
+(16)
+2.4 Visual search fitness function
+Let rk = p( ¯Dk|ζ1:k−1) be the probability that the tar-
+get does not get detected at time k. According to the
+Bayesian theory, rk depends on two factors: (i) the likeli-
+hood of no detection described in (11), and (ii) the latest
+prediction of the target’s location expressed in (12). That
+probability is given by:
+rk =
+Z
+S
+p( ¯Dk|ξt
+k)p(ξt
+k|ζ1:k−1)dξt
+k,
+(17)
+where S is the searching area. Observe that when there
+is a “no detection” event (ζk = ¯Dk), the value of rk
+becomes precisely the inverse of the normalization factor
+K from (16), i.e., rk = 1/K, and consequently, it is less
+than 1. Let Rk = p( ¯D1:k) be the joint probability of not
+detecting the target from time 1 to k. We can obtain Rk
+by multiplying the probability that the target does not
+get detected at each time step over time:
+Rk =
+k
+Y
+i=1
+ri = Rk−1rk.
+(18)
+Let pk be the probability that the target gets detected
+at time k. It can be calculated as:
+pk =
+k−1
+Y
+i=1
+ri (1 −rk) = Rk−1 (1 −rk)
+(19)
+The cumulative probability that the target gets
+detected in k steps can be computed by adding pk over
+k steps:
+Pk =
+k
+X
+i=1
+pi = Pk−1 + pk
+(20)
+It can be seen from (19) and (20) that the probability of
+detecting the target for the first time pk decreases over
+time because the chance that the target gets detected in
+5
+previous steps becomes larger. The cumulative probabil-
+ity Pk is therefore bounded and goes toward one as time
+k tends to infinity.
+In practice, the search time is finite, i.e., k
+∈
+{1, · · · , N}, where N is the maximum search time. The
+objective J of the search strategy is therefore to find a
+flight path that maximizes the cumulative probability
+PN within that given search time. The fitness function
+for the search problem then can be defined as:
+J = PN =
+N
+X
+k=1
+pk.
+(21)
+Equation (21) turns the search problem into an NP-
+hard optimization problem where the number of possible
+solutions increases exponentially with respect to the
+search time and space [15]. Hence, traditional methods to
+find the exact solution such as differential calculus can-
+not solve it in polynomial time. Instead, meta-heuristic
+algorithms are often used [34].
+3 Polar coordinate-based
+Differential Evolution algorithm
+Among meta-heuristic search algorithms, DE is one of
+the most popular algorithms with the capability to
+solve challenging optimization problems [21,24,35] while
+maintaining computational efficiency [36]. This study
+proposes an improved DE algorithm for moving target
+search with details as follows.
+3.1 Standard differential evolution
+algorithm
+The
+differential
+evolution
+(DE)
+algorithm
+is
+a
+population-based optimization method that belongs
+to the class of evolutionary algorithms [23]. It oper-
+ates based on three computational operators named
+mutation, crossover and selection.
+The mutation operator forms new candidate solu-
+tions by adding the difference between two individuals
+to an existing individual. For each individual uij in the
+j-th generation, a mutant solution xij is generated as:
+xij = uij + F (un1,j −un2,j) ,
+(22)
+where i ∈{1, 2, · · · , Np} is the individual index; n1 and
+n2 are random indexes selected from {1, 2, · · · , Np} so
+that n1̸ = n2̸ = i; F > 0 is a weight factor.
+The crossover operator combines the mutant solu-
+tions with the existing solutions to form trial solutions
+as follows:
+oij =
+(
+xij
+if randi (0, 1) ≤pCr
+uij
+otherwise
+(23)
+where oij is a trial solution, pCr ∈[0, 1] is a predeter-
+mined crossover probability.
+The selection operator selects better individuals
+between the trial and existing solutions based on a fitness
+function f. It is carried out as follows:
+ui,j+1 =
+(
+oij
+if f (oij) > f (uij)
+uij
+otherwise
+(24)
+Those three operators enable the algorithm to
+improve its solution through each generation and gradu-
+ally converge to the optimal one. However, the standard
+DE algorithm was originally developed for generic opti-
+mization problems with the objective of minimizing a
+cost function [23]. As a result, it does not exploit UAV-
+specific characteristics to improve exploration of the
+solution space. More critically, it fails to account for
+UAV kinematic and physical constraints, such as turn-
+ing angles and speed limits, resulting in infeasible paths
+that the UAV cannot follow to find its target. To over-
+come these limitations, we propose a polar-based DE
+algorithm designed specifically for UAV path planning.
+3.2 The polar coordinate-based DE
+algorithm
+When using the DE algorithm for the search problem,
+each individual in the population represents a candi-
+date solution, which is a flight path. This flight path
+is described by a set of waypoints or nodes that the
+UAV needs to travel through. Let ξk = [xk, yk, zk]T be
+waypoint k. A flight path ξ with N waypoints can be
+represented as:
+ξ = (x1, y1, z1, ..., xN, yN, zN)
+(25)
+As the UAV movement is characterized by its kine-
+matic parameters such as yaw angle, using Cartesian
+coordinates makes the algorithm unable to deal with the
+UAV’s related constraints due to the lack of a direct
+relationship between the Cartesian coordinates and kine-
+matic parameters. In this work, we propose to use polar
+coordinates to overcome those limitations. Consider the
+discrete-time UAV kinematics as follows:
+xk+1 = xk + ρk cos θk cos ψk
+yk+1 = yk + ρk cos θk sin ψk
+zk+1 = zk + ρk sin θk,
+(26)
+where ρk is the step length between waypoint k and k+1,
+and θk and ψk are respectively the pitch and yaw angles
+of the UAV. Since the UAV flies at a constant altitude
+during operation [37], the climbing angle θk is negligible.
+The step length ρk and yaw angle ψk are constrained to
+the range ρmin ≤ρk ≤ρmax and ψmin ≤ψk ≤ψmax
+due to physical limits such as velocities of the UAV. We
+incorporate those constraints via the use of polar coor-
+dinates. Specifically, we encode each path as a set of
+line segments. Each segment represents the movement of
+the UAV from one waypoint to another and thus can be
+described by a vector. The vector is represented in the
+6
+polar coordinate system with two elements, magnitude
+ρk ∈(0, ρmax) and angle ψk ∈(−π, π). A flight path U
+in the polar coordinate system is represented as:
+U = (ρ1, ψ1, ..., ρk, ψk, ..., ρN, ψN) .
+(27)
+The mutation of the PDE algorithm then can be
+implemented as follows:
+Xij = Uij + F(Un1,j −Un2,j),
+(28)
+where Xij is a mutant individual, i is the individual
+index, and j is the generation index. The crossover
+operator Oij of the PDE can be obtained as follows:
+Oij =
+(
+Xij
+if randi (0, 1) ≤pCr
+Uij
+otherwise
+(29)
+To calculate the value of the fitness function f in
+(21), it is necessary to convert a flight path U in the
+polar coordinate system to its correspondence ξ in the
+Cartesian coordinate. Each waypoint in the path can be
+converted as follows:
+ξk+1 = ξk +
+
+
+ρk cos ψk
+ρk sin ψk
+0
+
+=
+
+
+xk+1
+yk+1
+h
+
+
+(30)
+Denote the mapping in (30) as f : U →ξ. The selec-
+tion operator Ui,j+1 then can be expressed through the
+fitness function in (21) as:
+Ui,j+1 =
+(
+Oij
+if J (f(Oij)) > J (f(Uij))
+Uij
+otherwise
+(31)
+In this new implementation, constraints on the kine-
+matics of the UAV can be directly integrated into the
+PDE by limiting the range of polar variables, i.e., ρmin ≤
+ρk ≤ρmax and ψmin ≤ψk ≤ψmax. As a result, the search
+space is narrowed down to give a higher probability of
+finding the optimal solution in a shorter time. The direct
+relationship between the magnitude and angle compo-
+nents of polar coordinates and the velocity and yaw angle
+of the UAV enables the PDE to search for solutions in
+the configuration space to achieve better results. Most
+importantly, the integration of kinematic constraints and
+physical limits into the PDE ensures that the generated
+paths are feasible for the UAV to follow.
+The implementation of the PDE together with the
+equations used are presented in Algorithm 1. It has a
+similar structure to the standard DE such as parame-
+ter initialization, individual generation, and population
+evolution. It, however, differs in the representation of
+individuals, mapping from the polar to Cartesian coor-
+dinates, and evaluating equations.
+Algorithm 1: Pseudocode of the PDE algo-
+rithm
+/* Initialization
+*/
+1 Get target dynamics and initial location data;
+2 Create belief map;
+3 Initialize population parameters Np, F, pCr;
+4 foreach individual i in population do
+5
+Create random polar coordinate paths Ui;
+/* Evolutions
+*/
+6 for j ←1 to max iterations do
+7
+foreach individual i in population do
+8
+Select n1, n2 ∈[1, ..., Np], n1̸ = n2̸ = i;
+9
+Create Xij using mutation operator;
+/* Mutation - Eq.28 */
+10
+Create Oij using crossover operator;
+/* Crossover - Eq.29 */
+11
+Convert Oij →ξij;
+/* Eq.30 */
+12
+Update fitness value of ξij; /* Eq.21 */
+13
+Evaluate Ui,j+1 and perform selection
+operation;
+/* Selection - Eq.31 */
+14
+Update maximum cost value Jmax;
+4 Results
+To evaluate the performance of the proposed PDE
+algorithm, a number of simulations, comparisons and
+experiments have been conducted with details described
+as follows.
+4.1 Scenarios setup
+Since the detection probability accumulates as the UAV
+scans the search area, it is proportional to the path
+length and the UAV’s execution time. These factors vary
+depending on the type of UAV used, such as fixed-wing
+or quadcopter, and its capabilities, including battery
+life and flight speed. We account for these variations
+by evaluating the algorithm across multiple scenarios
+with different map sizes, and numbers of search steps.
+Specifically, the evaluation scenarios are designed with
+parameters as follows:
+i. The search map has the size from 500 m × 500 m
+to 2000 m × 2000 m to measure the search capacity
+of the algorithm, especially when dealing with large
+search areas.
+ii. The number of search steps is chosen as 30, 60,
+100, and 200 nodes, respectively, to evaluate the
+scalability and processing time of the algorithm.
+iii. The initial position and moving direction of the
+target are set to different values to evaluate the
+adaptability of the algorithm.
+Six scenarios were created from the above parame-
+ters representing different search situations as shown in
+Figure 3, where the green square symbol indicates the
+initial location of the UAV, the red circle represents the
+center of the target’s probability density function (PDF),
+7
+(a) Scenario 1 - 600 m × 600 m
+(b) Scenario 2 - 600 m × 600 m
+(c) Scenario 3 - 800 m × 800 m
+(d) Scenario 4 - 800 m × 800 m
+(e) Scenario 5 - 1500 m × 1500 m
+(f) Scenario 6 - 2000 m × 2000 m
+Fig. 3: Arrangement of the UAV location and target movement in evaluating scenarios
+8
+and the white arrow represents the direction of the tar-
+get’s movement. Detailed parameters for each scenario
+are given as follows:
+Scenario 1 (Figure 3a): the map size is 600 m ×
+600 m, the search path includes 30 waypoints, the target
+moves in the −π/2 direction, and the flight altitude is
+10 m.
+Scenario 2 (Figure 3b): the map size is 600 m ×
+600 m, the search path includes 30 waypoints, the target
+moves in the π direction, and the flight altitude is 10 m.
+Scenario 3 (Figure 3c): the map size is 800 m ×
+800 m, the search path includes 60 waypoints, the target
+moves in the −2.7π/4 direction, and the flight altitude
+is 10 m.
+Scenario 4 (Figure 3d): the map size is 800 m ×
+800 m, the search path includes 60 waypoints, the target
+moves in the 3π/4 direction, and the flight altitude is
+10 m.
+Scenario 5 (Figure 3e): the map size is 1500 m ×
+1500 m, the search path includes 100 waypoints, the tar-
+get moves in the π direction, and the flight altitude is
+15 m.
+Scenario 6 (Figure 3f): the map size is 2000 m ×
+2000 m, the search path includes 200 waypoints, the tar-
+get moves in the π/4 direction, and the flight altitude is
+15 m.
+In our evaluations, the scaling factor F is randomly
+sampled from the interval [0.1, 0.4] at each iteration.
+This range is smaller than the commonly used interval
+F ∈[0, 1] in standard DE [23] and was selected to pro-
+vide better exploitation performance in practice. Other
+parameters of the PDE and the camera are chosen as
+follows: the crossover probability pCr = 0.9; the popula-
+tion size Np = 500; the number of iterations is 100; the
+camera’s angles of view α = 80◦and β = 60◦; and the
+pointing angle ϕ = 30◦.
+4.2 Results
+The search paths generated for the UAV in 6 scenarios
+are depicted in Figure 4. The camera’s footprints dur-
+ing the search are described as trapezoidal blocks with
+yellow borders. It can be seen that those flight paths
+guide the UAV to the area with the highest probability
+of the target’s location. For instance, in Figure 4f, the
+target moves towards the north of the map and the flight
+path gradually changes its direction at time k = 60 to
+track the target’s movement. The algorithm is thus well
+adapted to the target’s movement. Figure 4 also shows
+that the algorithm is scalable in the sense that the paths
+always reach the areas with the highest probability of
+the target’s location regardless of the size of the map
+and the number of waypoints. The algorithm therefore
+is sufficient for large-scale search operations.
+In another evaluation, we examined the detection
+sensitivity with respect to uncertainty in the initial infor-
+mation. Three levels of uncertainty were considered with
+σ0 set to 10%, 25%, and 50% of the map size. The results
+in Table 2 show a consistent trend across all scenar-
+ios: the detection probability decreases as σ0 increases.
+This outcome is expected since greater uncertainty in
+the target’s initial location spreads the belief over a
+larger area, thereby reducing the likelihood of detection.
+These results further support the validity of the proposed
+method.
+4.3 Comparison with other algorithms
+To
+further
+evaluate
+the
+performance
+of
+the
+pro-
+posed algorithm, we conducted comparisons with other
+state-of-the-art metaheuristic algorithms including the
+standard differential evolution (DE) [38, 39], genetic
+algorithm (GA) [40, 41], particle swarm optimization
+(PSO) [42, 43], grey wolf optimization (GWO) [44, 45],
+and gaining-sharing knowledge algorithm (GSK) [46].
+The evaluation metrics used for comparison include: (i)
+the fitness value, which represents the cumulative prob-
+ability of finding the target as defined in (21), and (ii)
+the execution time, which reflects the algorithm’s effi-
+ciency. Table 3 lists the parameter settings used for each
+algorithm. For a fair comparison, all metaheuristic meth-
+ods were implemented using the same population size
+and maximum number of iterations as those used for the
+proposed PDE. Due to the stochastic nature of those
+methods, each method is executed 10 times, and the
+average values are used for comparison.
+Table 4 shows the fitness values obtained by the algo-
+rithms. It can be seen that the PDE outperforms other
+algorithms in detection probability with the best results
+in 5 out of 6 scenarios. In Scenario 4, where the GSK
+achieves the best result, its performance is only 0.2%
+better than that of the PDE, and thus does not indicate
+a decline in the PDE’s performance because the PDE
+still outperforms all other algorithms. Instead, this sug-
+gests that the knowledge-sharing mechanism in GSK is
+particularly effective at this specific scale. The original
+DE, on the other hand, performs poorly in most scenar-
+ios due to its use of the Cartesian coordinate. Especially,
+it is trapped at local optima in scenarios 3 and 4 with
+low fitness values as shown in figures 5c and 5d. The
+results thus show that the use of the polar coordinate sig-
+nificantly improves the search performance of the PDE
+algorithm.
+Table 4 also shows a clear trend that the detec-
+tion probability decreases as the map size increases.
+This result is expected because enlarging the search area
+spreads the target belief over a larger region, thereby
+reducing the probability of detection within any given
+area. These results highlight the need for multiple coor-
+dinated UAVs to enable scalable target detection in large
+environments.
+In another evaluation, Table 5 shows the execution
+time of the algorithms on the same hardware with an
+Intel Core i7-8565U, 1.8GHz processor. It can be seen
+that the PDE is fastest in 5 out of 6 scenarios. To under-
+stand this efficiency gain, it is necessary to examine the
+computational complexity of the search process. In all
+9
+(a) Scenario 1: J = 0.5291
+(b) Scenario 2: J = 0.5009
+(c) Scenario 3: J = 0.3086
+(d) Scenario 4: J = 0.3209
+(e) Scenario 5: J = 0.1257
+(f) Scenario 6: J = 0.1064
+Fig. 4: Search paths generated by the proposed algorithm for each scenario
+tested algorithms, the dominant computational cost is
+the fitness evaluation J, which requires updating the
+Bayesian belief map over a discrete search grid. For a
+search map discretized into M × M cells and a path
+containing N waypoints, evaluating the fitness of a sin-
+gle candidate path carries a complexity of O(N · M2).
+Given a population size of Np = 500 and 100 itera-
+tions, the fitness function is called 50, 000 times per run.
+Because both the standard Cartesian DE and the pro-
+posed PDE perform this dominant operation an identical
+number of times, the observed difference in execution
+time originates from the per-call candidate generation
+and constraint handling overhead.
+10
+Table 2: Detection probability under different levels of initial uncertainty
+Initial
+Uncertainty
+(σ0)
+Scenario
+1
+Scenario
+2
+Scenario
+3
+Scenario
+4
+Scenario
+5
+Scenario
+6
+10% of map size
+0.9031
+0.8637
+0.8075
+0.7288
+0.5623
+0.4916
+25% of map size
+0.7507
+0.7434
+0.6066
+0.6209
+0.4475
+0.3802
+50% of map size
+0.5291
+0.5009
+0.3086
+0.3209
+0.1257
+0.1041
+Table 3: Algorithm parameter settings
+Algorithm
+Parameter
+Value
+GA
+Crossover Percentage (pc)
+0.4
+Mutation Percentage (pm)
+0.15
+PSO
+Inertia weight (w)
+1
+Inertia Weight Damping Ratio (wdamp)
+0.9
+Personal Learning Coefficient (c1)
+1.0
+Global Learning Coefficient (c2)
+1.0
+GWO
+Convergence parameter (a)
+2 →0
+GSK
+Knowledge factor (kf)
+0.5
+Knowledge ratio (kr)
+0.5
+Dimension Junior (D)
+100
+In the Cartesian DE, formulating the camera foot-
+print requires extracting the UAV’s heading angle ψ and
+step length ρ from raw (x, y) coordinates. This process
+requires computationally expensive trigonometric func-
+tions (e.g., atan2) and square root operations at every
+node. Furthermore, handling physical kinematic bounds
+such as maximum velocity or turning limits in Cartesian
+space requires complex constraint calculations. Across
+50, 000 evaluations of an N-node path (e.g., N = 200
+in Scenario 6), this introduces tens of millions of redun-
+dant trigonometric operations. In contrast, the proposed
+PDE natively represents candidate paths using ρ and
+ψ. Kinematic constraints are enforced via simple scalar
+clamping, ρ ∈[ρmin, ρmax], and the heading angle is
+passed directly to the footprint evaluation without con-
+version. while the heading angle is used directly in the
+footprint evaluation without requiring additional coordi-
+nate conversion. This design helps reduce computational
+overhead and explains the faster execution time of the
+PDE compared with Cartesian-based algorithms.
+4.4 Validation on a real UAV platform
+To evaluate the validity of the proposed PDE algorithm
+for real UAVs, we have carried out experiments with
+details as follows.
+4.4.1 Experimental setup
+The experiment is conducted within an area of 80 m ×
+80 m. A 3DR Solo drone, which can be controlled via
+a ground control station (GCS) software named Mission
+Planner, is used as depicted in Figure 6a. The drone is
+equipped with a Hero 4 camera functioning as a visual
+sensor. Its horizontal and vertical angles of view are
+α = 80◦and β = 60◦, respectively. A three-axis gim-
+bal is used to stabilize and control the camera to look
+downward at a fixed angle of ϕ = 30◦. When the UAV
+operates, the video captured by the camera is streamed
+to the GCS for target detection. The detection is carried
+out by an observer having the target task performance
+TTP = 47.327 [32] and the critical period V50 = 2.7 [33].
+The target is a pedestrian moving in the southern direc-
+tion at a speed of around 1.5 m/s. Her last known
+location is at a latitude of 21.0528321 and a longitude
+of 105.7764591, which is then used as the input to cre-
+ate an initial belief map. In this map’s coordinate, the
+initial position of the UAV is (10, 10) (green square) and
+the last known location of the target is set to (50, 70),
+as shown in Figure 6b.
+During experiments, the maximum speed of the
+drone is set to 5 m/s and the flight altitude is 6.5 m above
+the ground. At this altitude, the footprint of the camera
+covers an area of 30.42 m2, which is suitable for the rel-
+atively small search area designated for this experiment.
+Detailed parameters for experiments are summarized in
+Table 6.
+4.4.2 Experimental results
+Figure 7a shows the search path consisting a sequence of
+waypoints generated by the PDE algorithm implemented
+in MATLAB. This path is subsequently converted into
+geographic coordinates and uploaded to the UAV using
+Mission Planner software. The UAV flight controller
+then smooths the path to satisfy kinematic constraints,
+such as the mininum turning radius, before passing it
+to the low-level tracking controller. Figure 7b shows
+the planned (yellow) and the actual (violet) flight paths
+recorded through Mission Planner. The path of the tar-
+get is depicted by the red line. The overlap between the
+actual and the planned paths means that the path gen-
+erated by the PDE is feasible for the UAV to follow. It
+also can be seen that the UAV approaches the target at
+(21.0527534, 105.7764597) when it is within the camera’s
+11
+(a) Scenario 1
+(b) Scenario 2
+(c) Scenario 3
+(d) Scenario 4
+(e) Scenario 5
+(f) Scenario 6
+Fig. 5: Fitness values of the PDE and other metaheuristic algorithms on the six benchmark scenarios
+field of view. Figure 8 shows the target and its appear-
+ance in the photo captured by the UAV. Note that the
+detection event happened in this experiment is due to
+the alignment of our setup with the assumptions used
+in theory, e.g., the target actually started at the last
+known location and then moved along the predetermined
+direction. In reality, this may not be the case and hence
+there is no guarantee that the UAV will find the target.
+Nevertheless, the experimental results confirmed the fea-
+sibility of the generated path for the UAV to follow and
+the validity of the proposed approach in maximizing the
+probability of finding the target.
+12
+Table 4: Comparison on the fitness (Eq. 21)
+Scen.
+PDE
+PSO
+GA
+GWO
+GSK
+DE
+1
+0.5291 ± 0.001
+0.4365 ± 0.006
+0.4561 ± 0.015
+0.4852 ± 0.014
+0.4672 ± 0.014
+0.4103 ± 0.010
+2
+0.5009 ± 0.014
+0.4335 ± 0.002
+0.4461 ± 0.009
+0.4756 ± 0.012
+0.4233 ± 0.036
+0.4016 ± 0.007
+3
+0.3086 ± 0.003
+0.2797 ± 0.005
+0.2766 ± 0.003
+0.2818 ± 0.004
+0.2996 ± 0.023
+0.2130 ± 0.016
+4
+0.3209 ± 0.001
+0.2732 ± 0.001
+0.2815 ± 0.002
+0.3157 ± 0.007
+0.3215 ± 0.011
+0.2228 ± 0.005
+5
+0.1257 ± 0.007
+0.0937 ± 0.002
+0.0964 ± 0.003
+0.1020 ± 0.006
+0.1211 ± 0.015
+0.1050 ± 0.003
+6
+0.1041 ± 0.002
+0.0912 ± 0.001
+0.0798 ± 0.007
+0.0830 ± 0.007
+0.0867 ± 003
+0.0841 ± 0.008
+Table 5: Comparison on the execution time (unit: seconds)
+Scen.
+PDE
+PSO
+GA
+GWO
+GSK
+DE
+1
+246 ± 16
+269 ± 21
+249 ± 33
+276 ± 47
+564 ± 74
+299 ± 20
+2
+234 ± 28
+252 ± 19
+241 ± 9
+237 ± 24
+714 ± 72
+307 ± 11
+3
+516 ± 8
+494 ± 23
+505 ± 11
+469 ± 24
+1467 ± 36
+501 ± 34
+4
+523 ± 43
+736 ± 65
+561 ± 34
+576 ± 62
+1791 ± 59
+607 ± 28
+5
+907 ± 85
+1066 ± 95
+956 ± 57
+1007 ± 112
+2841 ± 43
+1005 ± 58
+6
+1668 ± 83
+1760± 70
+1677 ± 71
+1702 ± 39
+2944 ± 29
+1754 ± 63
+Table 6: Parameters used in experiments
+Parameter
+Notation
+Value
+Horizontal angles
+α
+80◦
+Vertical angles
+β
+60◦
+Gimbal angle
+ϕ
+30◦
+Flight height
+h
+6.5 m
+Target tracking performance
+TTP
+47.327
+Critical period
+V50
+2.7
+Area of target
+St
+0.25 m2
+Speed of target
+1.5 m/s
+UAV maximum speed
+ρmax
+5 m/s
+5 Conclusion
+In this work, we have presented a polar coordinate-
+based differential evolution (PDE) algorithm for the
+search problem with a focus on increasing the proba-
+bility of finding a dynamic target and reducing com-
+putation time. The proposed algorithm estimates the
+target’s location based on a geometric analysis of the
+camera’s field of view and the target’s observation prob-
+ability. It incorporates constraints associated with the
+UAV kinematics and target dynamics to narrow the
+search space and generate feasible solutions. The use of
+polar coordinates enhances the algorithm’s robustness
+to local optima and leads to improved solution qual-
+ity. The Gaussian belief map combined with Bayesian
+updates mitigates motion uncertainty and measurement
+noise, while the NVESD metric quantifies target visibil-
+ity under non-ideal sensing conditions. The effectiveness
+of the PDE algorithm is evaluated through simulations
+and comparisons in various search scenarios. Experi-
+ments have also been conducted to confirm the practical
+use of the algorithm. Due to physical limitations, such
+as battery capacity and allowable path length, a single
+UAV can only cover a limited area within a given time
+horizon, which in turn limits the probability of detec-
+tion. To address this limitation, future work will focus on
+extending the proposed framework to coordinated multi-
+UAV systems for target search in large-scale dynamic
+environments.
+Acknowledgment
+Thu Hang Khuat was funded by the Master, PhD Schol-
+arship Programme of Vingroup Innovation Foundation
+(VINIF), code VINIF.2024.Ths.16.
+References
+[1] M. Boulares and A. Barnawi, “A novel UAV path
+planning algorithm to search for floating objects on
+the ocean surface based on object’s trajectory pre-
+diction by regression,” Robotics and Autonomous
+Systems, vol. 135, p. 103673, 2021.
+[2] J.-H. Lee, G.-H. Gwon, I.-H. Kim, and H.-J. Jung,
+“A motion deblurring network for enhancing uav
+13
+3DR Solo Drone
+Mission Planner
+Hero 4 Camera
+Remote
+Controller
+Streaming
+Monitor
+(a) The 3DR Solo Drone and its flight controller
+(b) The initial belief map
+Fig. 6: Experimental setup
+(a) The planned search path in the belief map
+Waypoints
+UAV
+trajectory
+Start
+Planned
+path
+End
+Moving target
+trajectory
+(b) The planned (yellow) and actual (violet) flight paths
+together with the target’s moving path (red)
+Fig. 7: Experimental results
+image quality in bridge inspection,” Drones, vol. 7,
+no. 11, p. 657, 2023.
+[3] V. T. Hoang, M. D. Phung, T. H. Dinh, and
+Q. P. Ha, “System architecture for real-time sur-
+face inspection using multiple uavs,” IEEE Systems
+Journal, vol. 14, no. 2, pp. 2925–2936, 2020.
+[4] L.
+Bauersfeld
+and
+D.
+Scaramuzza,
+“Range,
+endurance, and optimal speed estimates for multi-
+copters,” IEEE Robotics and Automation Letters,
+vol. 7, no. 2, pp. 2953–2960, 2022.
+[5] M. D. Phung, C. H. Quach, T. H. Dinh, and
+Q. Ha, “Enhanced discrete particle swarm opti-
+mization path planning for uav vision-based surface
+inspection,” Automation in Construction, vol. 81,
+pp. 25–33, 2017.
+[6] M. Kamari and J. Kim, “Wind-induced motion blur
+and 3d digital twinning: Challenges in uav visual
+data collection on construction sites,” in Comput-
+ing in Civil Engineering 2025: Computational and
+Intelligent Technologies, pp. 858–866.
+[7] C. I¸silak and H. Oktal, “A multi-sensor approach for
+precision uav landing on dynamic platforms under
+challenging conditions,” The Aeronautical Journal,
+vol. 130, no. 1344, pp. 526–552, 2026.
+[8] J. Foraker, J. O. Royset, and I. Kaminer, “Search-
+trajectory optimization: Part i, formulation and
+theory,” Journal of Optimization Theory and Appli-
+cations, vol. 169, pp. 530–549, June 2015.
+[9] F. Bourgault, T. Furukawa, and H. F. Durrant-
+Whyte, “Optimal search for a lost target in a
+14
+Fig. 8: The target within the camera’s field of view
+bayesian world,” in Springer Tracts in Advanced
+Robotics, pp. 209–222, Springer Berlin Heidelberg,
+2006.
+[10] T.
+Furukawa,
+F.
+Bourgault,
+B.
+Lavis,
+and
+H. Durrant-Whyte, “Recursive bayesian search-and-
+tracking using coordinated UAVs for lost targets,”
+in Proceedings 2006 IEEE International Conference
+on Robotics and Automation, 2006. ICRA 2006.,
+pp. 2521–2526, 2006.
+[11] M.
+Raap,
+S.
+Meyer-Nieberg,
+S.
+Pickl,
+and
+M. Zsifkovits, “Aerial vehicle search-path optimiza-
+tion: A novel method for emergency operations,”
+Journal of Optimization Theory and Applications,
+vol. 172, pp. 965–983, Sept. 2016.
+[12] M. D. Phung and Q. P. Ha, “Motion-encoded par-
+ticle swarm optimization for moving target search
+using UAVs,” Applied Soft Computing, vol. 97,
+p. 106705, 2020.
+[13] S. Perez-Carabaza, E. Besada-Portas, J. A. Lopez-
+Orozco, and J. M. de la Cruz, “Ant colony optimiza-
+tion for multi-UAV minimum time search in uncer-
+tain domains,” Applied Soft Computing, vol. 62,
+pp. 789–806, 2018.
+[14] S. MahmoudZadeh, A. Yazdani, K. Sammut, and
+D. Powers, “Online path planning for AUV ren-
+dezvous in dynamic cluttered undersea environment
+using evolutionary algorithms,” Applied Soft Com-
+puting, vol. 70, pp. 929–945, Sept. 2018.
+[15] D. S. Bernstein, R. Givan, N. Immerman, and
+S. Zilberstein, “The complexity of decentralized
+control of markov decision processes,” Mathematics
+of Operations Research, vol. 27, pp. 819–840, Nov.
+2002.
+[16] F. Delavernhe, P. Jaillet, A. Rossi, and M. Sevaux,
+“Planning a multi-sensors search for a moving tar-
+get considering traveling costs,” European Journal
+of Operational Research, vol. 292, no. 2, pp. 469–
+482, 2021.
+[17] S. K. Gan and S. Sukkarieh, “Multi-UAV target
+search using explicit decentralized gradient-based
+negotiation,” in 2011 IEEE International Confer-
+ence on Robotics and Automation, pp. 751–756,
+2011.
+[18] P. Lanillos, J. Ya˜nez Zuluaga, J. J. Ruz, and
+E. Besada-Portas, “A bayesian approach for con-
+strained multi-agent minimum time search in uncer-
+tain dynamic domains,” in Proceedings of the 15th
+Annual Conference on Genetic and Evolutionary
+Computation, GECCO ’13, (New York, NY, USA),
+p. 391–398, Association for Computing Machinery,
+2013.
+[19] B.
+O.
+Koopman,
+“Theory
+of
+optimal
+search
+(lawrence d. stone),” SIAM Review, vol. 19, no. 2,
+pp. 361–364, 1977.
+[20] J. Kennedy, R. C. Eberhart, and Y. Shi, Swarm
+Intelligence. Elsevier, 2001.
+[21] M. F. Ahmad, N. A. M. Isa, W. H. Lim, and K. M.
+Ang, “Differential evolution: A recent review based
+on state-of-the-art works,” Alexandria Engineering
+Journal, vol. 61, pp. 3831–3872, May 2022.
+[22] W. Deng, S. Shang, X. Cai, H. Zhao, Y. Song, and
+J. Xu, “An improved differential evolution algo-
+rithm and its application in optimization problem,”
+Soft Computing, vol. 25, pp. 5277–5298, Jan. 2021.
+15
+[23] K. Price, R. M. Storn, and J. A. Lampinen, Dif-
+ferential evolution: a practical approach to global
+optimization. Springer Science & Business Media,
+2006.
+[24] P. Civicioglu and E. Besdok, “Bernstain-search dif-
+ferential evolution algorithm for numerical function
+optimization,” Expert Systems with Applications,
+vol. 138, p. 112831, Dec. 2019.
+[25] A. P. Piotrowski, J. J. Napiorkowski, and A. E.
+Piotrowska, “Particle swarm optimization or dif-
+ferential evolution—a comparison,” Engineering
+Applications of Artificial Intelligence, vol. 121,
+p. 106008, May 2023.
+[26] S. Thrun, “Probabilistic robotics,” Communications
+of the ACM, vol. 45, no. 3, pp. 52–57, 2002.
+[27] S. Akhlaghi, N. Zhou, and Z. Huang, “Adaptive
+adjustment of noise covariance in kalman filter for
+dynamic state estimation,” in 2017 IEEE power &
+energy society general meeting, pp. 1–5, IEEE, 2017.
+[28] K. Iida, R. Hohzaki, and K. Inada, “Optimal sur-
+vivor search for a target with conditionally deter-
+ministic motion under reward criterion,” Journal of
+the Operations Research Society of Japan, vol. 41,
+no. 2, pp. 246–260, 1998.
+[29] S. P´erez-Carabaza, J. Scherer, B. Rinner, J. A.
+L´opez-Orozco, and E. Besada-Portas, “Uav tra-
+jectory optimization for minimum time search
+with communication constraints and collision avoid-
+ance,” Engineering Applications of Artificial Intel-
+ligence, vol. 85, pp. 357–371, 2019.
+[30] M.
+Raap,
+S.
+Meyer-Nieberg,
+S.
+Pickl,
+and
+M. Zsifkovits, “Aerial vehicle search-path optimiza-
+tion: A novel method for emergency operations,”
+Journal of optimization theory and applications,
+vol. 172, no. 3, pp. 965–983, 2017.
+[31] J. G. Hixson, E. L. Jacobs, and R. H. Vollmer-
+hausen, “Target detection cycle criteria when using
+the targeting task performance metric,” in SPIE
+Proceedings (R. G. Driggers and D. A. Huckridge,
+eds.), vol. 5612, pp. 275–283, SPIE, Dec. 2004.
+[32] R. H. Vollmerhausen, E. Jacobs, and R. G. Drig-
+gers, “New metric for predicting target acquisition
+performance,” Optical Engineering, vol. 43, no. 11,
+pp. 2806–2818, 2004.
+[33] R. L. Espinola, E. L. Jacobs, C. E. Halford,
+R. Vollmerhausen, and D. H. Tofsted, “Model-
+ing the target acquisition performance of active
+imaging systems,” Optics express, vol. 15, no. 7,
+pp. 3816–3832, 2007.
+[34] K. Rajwar, K. Deep, and S. Das, “An exhaustive
+review of the metaheuristic algorithms for search
+and optimization: taxonomy, applications, and open
+challenges,” Artificial Intelligence Review, vol. 56,
+p. 13187–13257, Apr. 2023.
+[35] S. Gao, Y. Yu, Y. Wang, J. Wang, J. Cheng,
+and M. Zhou, “Chaotic local search-based differen-
+tial evolution algorithms for optimization,” IEEE
+Transactions on Systems, Man, and Cybernetics:
+Systems, vol. 51, no. 6, pp. 3954–3967, 2021.
+[36] S. Das and P. N. Suganthan, “Differential evo-
+lution: A survey of the state-of-the-art,” IEEE
+Transactions on Evolutionary Computation, vol. 15,
+pp. 4–31, Feb. 2011.
+[37] A. Alc´antara, J. Capit´an, R. Cunha, and A. Ollero,
+“Optimal trajectory planning for cinematography
+with multiple unmanned aerial vehicles,” Robotics
+and Autonomous Systems, vol. 140, p. 103778, June
+2021.
+[38] R. Storn and K. Price, “Differential evolution – a
+simple and efficient heuristic for global optimiza-
+tion over continuous spaces,” Journal of Global
+Optimization, vol. 11, no. 4, p. 341–359, 1997.
+[39] Bilal, M. Pant, H. Zaheer, L. Garcia-Hernandez,
+and A. Abraham, “Differential evolution: A review
+of more than two decades of research,” Engineer-
+ing Applications of Artificial Intelligence, vol. 90,
+p. 103479, Apr. 2020.
+[40] K. Man, K. Tang, and S. Kwong, “Genetic algo-
+rithms: concepts and applications [in engineering
+design],” IEEE Transactions on Industrial Electron-
+ics, vol. 43, no. 5, pp. 519–534, 1996.
+[41] S. Katoch, S. S. Chauhan, and V. Kumar, “A
+review on genetic algorithm: past, present, and
+future,” Multimedia Tools and Applications, vol. 80,
+p. 8091–8126, Oct. 2020.
+[42] J. Kennedy and R. Eberhart, “Particle swarm
+optimization,” in Proceedings of ICNN’95 - Inter-
+national Conference on Neural Networks, vol. 4,
+pp. 1942–1948 vol.4, 1995.
+[43] A. G. Gad, “Particle swarm optimization algorithm
+and its applications: A systematic review,” Archives
+of Computational Methods in Engineering, vol. 29,
+p. 2531–2561, Apr. 2022.
+[44] S. Mirjalili, S. M. Mirjalili, and A. Lewis, “Grey
+wolf optimizer,” Advances in Engineering Software,
+vol. 69, pp. 46–61, Mar. 2014.
+[45] M. H. Nadimi-Shahraki, S. Taghian, and S. Mir-
+jalili, “An improved grey wolf optimizer for solving
+engineering problems,” Expert Systems with Appli-
+cations, vol. 166, p. 113917, Mar. 2021.
+[46] A.
+W.
+Mohamed,
+A.
+A.
+Hadi,
+and
+A.
+K.
+Mohamed, “Gaining-sharing knowledge based algo-
+rithm for solving optimization problems: a novel
+nature-inspired algorithm,” International Journal
+of Machine Learning and Cybernetics, vol. 11,
+pp. 1501–1529, Dec. 2019.
+16

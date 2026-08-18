@@ -1,0 +1,1922 @@
+Enhanced Dynamic Beamwidth Selection-based THz MAC Protocol
+for Wireless Data Center Networks⋆
+Muhammad Absaruddina,∗, Saim Ghafoora and Mubashir Husain Rehmanib
+aDepartment of Computing, Atlantic Technological University, Donegal, Ireland
+bDepartment of Computer Science, Munster Technological University, Cork, Ireland
+A R T I C L E I N F O
+Keywords:
+Beamwidth
+Dynamic beamwidth
+Medium Access Control (MAC) proto-
+col
+Terahertz
+Wireless Data Center
+A B S T R A C T
+Terahertz (THz) wireless communication oﬀers a promising alternative to traditional wired links in
+data centres (DCs), enabling ultra-high data rates, low latency, and greater scalability. However, THz
+signals suﬀer from high path loss, necessitating the use of directional antennas (DAs). While DAs
+enhance signal strength, they introduce challenges such as deafness and synchronisation, typically
+addressed through receiver-initiated MAC protocols. Most existing THz MAC protocols use ﬁxed
+beamwidths, which results in a key performance trade-oﬀ: narrow beams improve gain for long-range
+links but reduce throughput for short distances due to increased alignment overhead, while wide beams
+beneﬁt short links but degrade performance over longer distances. To overcome this limitation, we
+propose DBS-ADAPT, a dynamic beamwidth selection-based MAC protocol that adjusts the antenna
+beamwidth according to the distance between nodes, maximising throughput without compromising
+link range. We also introduce an enhanced version, EDBS-ADAPT, which further reduces beamwidth
+switching and control overhead while preserving throughput gains. Both protocols are evaluated using
+the NS-3 THz module. Simulation results show that DBS-ADAPT improves average throughput by
+up to 22% and reduces delay up to 10% compared to the baseline ADAPT-3 protocol. EDBS-ADAPT
+further cuts beamwidth switching overhead by 95%, making it more eﬃcient for scalable and high-
+performance wireless DC environments.
+1. Introduction
+Data centre (DC) traﬃc has been growing exponentially,
+driving an urgent need for higher bandwidth and more eﬃ-
+cient data transmission [2]. Traditional wired infrastructure
+and network topologies struggle to keep pace with these
+demands due to their high deployment and maintenance
+costs, physical space requirements, and limited ﬂexibility in
+reconﬁguration. In contrast, wireless communication tech-
+nologies oﬀer a more ﬂexible, scalable, and cost-eﬀective
+alternative. They also enable dynamic resource allocation
+and improved adaptability compared to ﬁxed wired links [3],
+[4].
+Several wireless technologies have been explored for
+DC applications, including millimeter-wave (mmWave) [5],
+optical wireless communication (OWC)[6], and Terahertz
+(THz) communication [3]]. Among these, THz communi-
+cation stands out as a highly promising candidate due to its
+ability to support ultra-high data rates and wide bandwidth,
+while oﬀering enhanced physical-layer security compared to
+mmWave. Unlike OWC, THz communication experiences
+lower beam spreading and penetration losses, and requires
+less precise alignment, making it more robust to beam mis-
+alignment and tracking errors, which are key considerations
+in dynamic DC environments. Moreover, OWC systems are
+⋆A preliminary version of this paper has been published in 20th
+International Conference on Wireless and Mobile Computing, Networking
+and Communications (WiMob 2024) Paris, France, October 2024 [1].
+This research was supported by Presidents Research Bursary Scholar-
+ship Award oﬀered by Atlantic Technological University, Donegal, Ireland.
+∗Corresponding author
+L00177821@atu.ie (M. Absaruddin)
+ORCID(s): 0000-0001-6569-6430 (M. Absaruddin)
+more vulnerable to environmental challenges such as at-
+mospheric absorption, turbulence, scintillation, and ambient
+light interference, which can signiﬁcantly impair perfor-
+mance in practical settings [7], [8], [9], [10].
+Terahertz wireless links in data centres enable terabit-
+per-second (Tbps) data rates, ultra-high throughput, and low
+latency [9], [11]. They also support ﬂexible, energy-eﬃcient
+topologies that reduce deployment costs [12], [13], [14]. In
+DC environments, THz links can be used for both inter-rack
+(between Top-of-Rack switches) and intra-rack (within a
+rack) communication [15]. However, THz bands suﬀer from
+severe path losses, up to 82 dB at 300 GHz over just 1 meter,
+with losses increasing at higher frequencies and distances
+[9]. These losses can be mitigated using highly directional
+antennas (DAs) at both transmitter and receiver ends [8],
+[16], [17]. Directional antennas are essential in THz commu-
+nication due to their ability to provide high antenna gain, im-
+prove signal-to-noise ratio, and reduce interference through
+spatially conﬁned beams [3]. These beneﬁts enhance link
+reliability, spectral eﬃciency, and energy eﬃciency while
+supporting secure and high-capacity communication.
+While essential for overcoming high path loss, DAs
+introduce several challenges. These include beam misalign-
+ment, directional deafness, and high overhead for beam
+training and tracking in static as well as dynamic and mobile
+scenarios [18], [13], [9]. Directional THz links are also
+highly susceptible to blockage and require precise synchro-
+nisation between nodes, complicating medium access con-
+trol (MAC) and increasing protocol complexity in dense
+networks. These issues necessitate redesigning link-layer
+protocols to ensure robust and low-latency communication.
+Although rotating directional antennas can help address
+M. Absaruddin et al.: Preprint submitted to Elsevier
+Page 1 of 17
+arXiv:2607.17996v1  [cs.NI]  20 Jul 2026
+Enhanced Dynamic Beamwidth Selection-based THz MAC Protocol for Wireless Data Center Networks
+some of the challenges while increasing the beneﬁts and
+usage. They introduced challenges such as frequent beam
+misalignment, increased overhead of beam tracking and
+switching, synchronisation diﬃculties, link stability, beam
+adjustment for coverage, and beam parameters optimisation.
+These trade-oﬀs require careful protocol design to balance
+improved coverage and ﬂexibility against increased com-
+plexity and energy consumption [19], [20], [9], [13].
+Traditionally, MAC protocol design has concentrated on
+managing contention among nodes competing for channel
+access. However, in terahertz communications, the emphasis
+shifts toward MAC protocols that incorporate scheduling
+and coordination [13], [14]. In THz communication, we
+mainly have a transmitter (Tx) and a receiver (Rx) initiated
+MAC protocols [13]. Tx-initiated THz MAC protocols de-
+pend on the sender to start communication, which can cause
+higher collision rates in highly directional environments. In
+contrast, receiver-initiated protocols improve coordination
+and reduce unnecessary transmissions by having the receiver
+manage link establishment, helping address beam alignment
+and deafness challenges [13].
+The existing receiver-initiated THz MAC protocols [21],
+[18], [22], [23], [24] predominantly use ﬁxed beamwidth
+antennas, without accounting for beamwidth dynamics.
+However, beamwidth selection presents important trade-
+oﬀs: wider beams oﬀer higher throughput and lower delay
+but at the expense of reduced range, whereas narrower
+beams provide longer range but result in lower throughput
+and higher delay [25]. Using a ﬁxed beamwidth limits the
+ability of nodes to adapt to varying distances, leading to
+suboptimal performance, particularly in terms of throughput
+and latency. To communicate eﬃciently, nodes should dy-
+namically adjust their beamwidth based on distance; yet, cur-
+rent receiver-initiated protocols do not incorporate distance-
+aware beamwidth adaptation. A balanced strategy is needed
+for beamwidth selection during the initial (discovery) and
+transmission stage [25].
+To enable dynamic beamwidth selection, we previously
+proposed a protocol called Dynamic Beamwidth Selection-
+based THz MAC protocol (DBS-ADAPT) [1], designed to
+enhance the performance of the existing receiver-initiated
+THz MAC protocol, ADAPT. DBS-ADAPT demonstrated
+improved average throughput and reduced average delay
+by allowing both client and Access Point (AP) nodes to
+use wider beamwidths during the data transmission phase
+[1]. Despite its advantages, DBS-ADAPT has certain lim-
+itations: it incurs signiﬁcant overhead due to frequent an-
+tenna beamwidth switching and control packets transmis-
+sion and involves repeated beamwidth selection processes.
+In this paper, we present an enhanced version of DBS-
+ADAPT, called EDBS-ADAPT, which signiﬁcantly reduces
+beamwidth switching and control overhead while maintain-
+ing the throughput and delay beneﬁts of the original proto-
+col. In our earlier work, a bit error rate (BER) of 10−6 was
+assumed, which negatively impacted the overall reliability
+and Quality of Service (QoS) for data centres. Furthermore,
+the protocol was based on physical layer parameters from the
+now-outdated IEEE 802.15.3e-2017 THz standard, and its
+performance was not evaluated under realistic, bursty traﬃc
+patterns typically observed in DC environments.
+1.1. Contributions
+The main contributions of our work are summarised as
+follows:
+1. Dynamic Beamwidth Selection protocol: In this
+work, we propose a dynamic beamwidth selection pro-
+tocol for terahertz (THz)-based data center networks,
+referred to as DBS-ADAPT. This protocol is designed
+to enhance link performance by adaptively adjusting
+the beamwidth according to the distance between
+nodes. The foundational version of this protocol was
+initially introduced in [1], where its core mechanisms
+and preliminary results were discussed.
+2. Proposal of EDBS-ADAPT for Improved Eﬃciency:
+To address the limitations identiﬁed in DBS-ADAPT,
+we propose an Enhanced Dynamic Beamwidth Selection-
+based THz MAC protocol (EDBS-ADAPT). Designed
+speciﬁcally for DC environments, EDBS-ADAPT
+signiﬁcantly reduces antenna beamwidth switching
+and control overhead by eliminating the repetition
+of the beamwidth selection process, while preserving
+the throughput and delay advantages of the original
+protocol.
+3. Extension of DBS-ADAPT with Realistic Param-
+eters: We extend our previously proposed Dynamic
+Beamwidth Selection-based THz MAC protocol [1]
+by incorporating more realistic system-level parame-
+ters. Speciﬁcally, we adopt a BER of 10−12, aligning
+with ITU technical speciﬁcations, ETSI recommenda-
+tions, and IEEE standards for THz data centre require-
+ments [26], [27], to ensure ultra-reliable and eﬃcient
+communication where data integrity is critical.
+4. Adoption of the Latest Standard and Modulation
+Schemes: The performance of DBS-ADAPT is fur-
+ther evaluated using physical layer parameters based
+on the most recent IEEE 802.15.3-2023 THz standard.
+This includes the integration of higher-order modula-
+tion schemes such as 16-APSK and 32-APSK, allow-
+ing for improved data rates and spectral eﬃciency.
+5. Scalability Analysis: The scalability analysis is con-
+ducted for the proposed protocols by evaluating with
+a larger data-center topology of twenty ﬁve nodes.
+6. Evaluation with Realistic Traﬃc Models: The pro-
+tocol is assessed under a Poisson traﬃc model as well
+as a realistic data centre traﬃc pattern characterised by
+bursty traﬃc. This ensures a more accurate represen-
+tation of actual DC network conditions and validates
+protocol performance under practical load variations.
+The structure of the paper is as follows: Section 2 re-
+views related work on THz MAC protocols. Section 3 in-
+troduces the system preliminaries. Section 4 describes the
+DBS-ADAPT protocol and its operational details. Section
+5 presents the EDBS-ADAPT protocol, including its al-
+gorithmic implementation and design. Section 6 outlines
+M. Absaruddin et al.: Preprint submitted to Elsevier
+Page 2 of 17
+Enhanced Dynamic Beamwidth Selection-based THz MAC Protocol for Wireless Data Center Networks
+Ref Tx/Rx ini-
+tiated
+Beamwidth
+Manage-
+ment
+Distance
+aware
+Technique/Features
+Channel Ac-
+cess Method
+Strength
+Limitations
+[28] Tx
+initiated
+Adaptive
+No
+Beam
+switching,
+En-
+ergy
+control,
+TDMA
+scheduling
+TDMA
+Energy-eﬃcient, beam
+ﬂexibility
+Not suitable for bursty DC traﬃc
+due to ﬁxed TDMA slots, synchro-
+nisation issues
+[29] Tx
+initiated
+Adaptive
+Yes
+Assisted beamforming;
+optimal
+beamwidth
+calculated from signal
+quality and distance
+Dual radio
+Improved beam align-
+ment, throughput
+Increased hardware cost, dual-radio
+coordination complexity, high
+antennas switching delays, large
+message overhead led to lower
+transmission speed and an increase
+in overall latency. Present chip
+architecture and the standards
+does not support coordination
+between the two radios
+[30] Tx
+initiated
+Fixed
+beamwidth
+Yes
+Distance-based
+power
+allocation
+Dual
+Radio
+and CSMA
+Optimises power con-
+sumption
+[31] Tx
+initiated
+Adaptive
+beamwidth
+No
+Beam
+parameters
+ad-
+justed
+based
+on
+ex-
+changed beamwidth in-
+formation
+Dual
+radio
+and CSMA
+Enhanced throughput,
+dynamic adaptability
+[21] Rx
+initiated
+Fixed
+beamwidth
+No
+Receiver initiated align-
+ment,
+synchronization
+improvements
+CSMA
+Overcomes
+deafness
+and
+synchronization
+issues eﬀectively
+Fixed beamwidth: Wider beams
+reduce range; narrow beams limit
+throughput.
+[22] Rx
+initiated
+Fixed
+beamwidth
+No
+Enhanced node rotation
+capability, extended link
+discovery
+CSMA
+Increased
+ﬂexibility,
+improved client node
+alignment
+Still limited by ﬁxed beamwidth is-
+sues (range-throughput trade-oﬀ)
+[24] Rx
+initiated
+Fixed
+beamwidth
+No
+Limited
+data
+center
+speciﬁc optimizations
+CSMA/TDMAQoS support
+Insuﬃciently
+detailed
+MAC
+at-
+tributes, ﬁxed beamwidth limita-
+tions remain
+Table 1
+THz MAC protocols related Works with techniques, strengths and limitations.
+the simulation setup, including parameters, implementation
+details, and the performance metrics used for evaluation.
+Section 7 discusses the simulation results, comparing DBS-
+ADAPT and EDBS-ADAPT with the ADAPT-3 THz MAC
+protocol. Finally, Section 8 concludes the paper and presents
+the future work.
+2. Related Works
+In this section, we review related work on THz MAC
+protocols, with a particular focus on dynamic beamwidth
+selection strategies for data centre networks. Existing THz
+MAC protocols are primarily categorised into Tx-initiated
+and Rx-initiated approaches [13]. In Tx-initiated protocols,
+the transmitter node initiates communication either by di-
+rectly sending the data packet in a 0-way handshake or by
+ﬁrst sending a control packet (e.g., Request to Send, RTS)
+in a 2-way handshake. Conversely, Rx-initiated protocols
+involve the receiver node initiating the communication by
+broadcasting a control packet indicating its readiness to
+receive data. The transmitter then responds by sending the
+data packet. This mechanism is particularly relevant in cen-
+tralised network architectures typical of data centres, where
+the receiver acts as an Access Point (AP) and the transmitters
+are client nodes [13].
+Several transmitter-initiated THz MAC protocols have
+been proposed that employ dual-radio designs or assisted
+beamforming to address challenges such as beam alignment
+and deafness in directional communication. TAB-MAC [29]
+introduces an assisted beamforming MAC protocol that uses
+a lower-frequency control plane to aid beam alignment in
+the THz band. While it improves beamforming accuracy
+and reduces setup delay, it relies on dual-radio hardware,
+which is not supported in current chip architectures and adds
+complexity [32]. MBPA-MAC [30] proposes a multi-beam,
+on-demand power allocation MAC protocol for MIMO-
+based THz networks. It enhances spatial reuse and energy ef-
+ﬁciency through adaptive power control across beams, but it
+inherits similar limitations due to its dependence on dual ra-
+dios. DRA-MAC [31] presents a Dual-Radio-Assisted MAC
+protocol tailored for distributed THz networks, aiming to
+support robust MAC operations via cross-band commu-
+nication. However, hardware cost, coordination challenges
+between radios, and antenna switching delays remain major
+concerns, especially for high-performance data centre envi-
+ronments [13]. RS-MAC [33] enhances link reliability using
+an intelligent reﬂecting surface (IRS)-based relay selection
+mechanism in a dual-channel MAC design, but it incurs
+high control overhead and added latency due to reliance on
+a separate low-frequency channel, limiting its scalability.
+These protocols oﬀer innovative solutions to key MAC-layer
+issues but face limitations such as hardware incompatibility,
+increased cost, and higher latency, making them less suitable
+for ultra-fast, low-latency data centre applications.
+Several Rx-initiated THz MAC protocols ([21], [18],
+[22], [23], [24]) have been proposed for centralised net-
+works, where the receiver (AP) starts communication by
+M. Absaruddin et al.: Preprint submitted to Elsevier
+Page 3 of 17
+Enhanced Dynamic Beamwidth Selection-based THz MAC Protocol for Wireless Data Center Networks
+broadcasting a control packet, prompting the client transmit-
+ter to send data. In [18], a receiver-initiated MAC and link-
+layer synchronisation protocol for THz networks to mitigate
+deafness and improve timing coordination is proposed. The
+protocol assumes ﬁxed beamwidths and ideal beam align-
+ment, lacking adaptability for varying link distances and spa-
+tial conditions in data centres. In [21], the ADAPT protocol
+is introduced, which is an adaptive directional antenna MAC
+protocol that dynamically manages directional scheduling in
+THz links. ADAPT does not support dynamic beamwidth
+adjustment, which can limit performance in dense environ-
+ments where adaptive spatial coverage is critical. In [22],
+an extension of the NS-3 simulator with THz link discov-
+ery capabilities, enabling simulation of Rx-initiated MAC
+behaviour, is presented. Focused on simulation infrastruc-
+ture; does not propose or evaluate new MAC strategies or
+beam adaptation mechanisms. [23] further enhances ns-3’s
+Terasim module to enable TCP communication over THz
+links, addressing transport-layer challenges. Concentrates
+on transport-layer support without incorporating adaptive
+MAC-layer techniques or dynamic beamwidth considera-
+tions. In [24], eﬃcient synchronous MAC protocols for
+THz wireless data centres are proposed, aiming to reduce
+latency and improve throughput using coordinated schedul-
+ing. While tailored for data centres, the approach does not
+explicitly address dynamic beamwidth control or physical-
+layer variations such as real-time BER adaptation.
+ADAPT-1 and ADAPT-3 are receiver-initiated THz
+MAC protocols designed for short-range applications like
+WPAN and WLAN to achieve link-layer synchronisation
+[21]. ADAPT-1 uses a 1-way handshake and is an extension
+of the LLS-MAC protocol [18], while ADAPT-3 uses a 3-
+way handshake and has been enhanced for node discovery
+[22] and downlink communication [23]. Both protocols
+use ﬁxed beamwidths, where wider beams reduce range
+and narrower beams limit throughput. Previous studies [14]
+compared these protocols for wireless data centres, and
+further analysis [25] highlighted the trade-oﬀs involved
+in antenna beamwidth selection. In [28], a PLBS-MAC,
+which is a pulse-level beam switching scheme with adap-
+tive beamwidth, is presented. However, its contention-free
+TDMA approach struggles to handle the bursty traﬃc com-
+mon in data centres. The THz MAC protocols proposed for
+other applications include TAN-MAC for airborne networks
+[34], which is for long-range covering a 500-meter distance,
+and CSMA-IIOT for industrial internet of things [35].
+Recent studies ([18], [21]) show that receiver-initiated
+protocols achieve higher throughput and better synchroni-
+sation than transmitter-initiated ones. This is mainly due
+to improved coordination, which is crucial when using di-
+rectional antennas at both ends to address high path loss
+in THz communication. The limitations of these works in-
+clude reliance on ﬁxed beamwidths and a lack of dynamic
+beam adaptation, which reduces eﬃciency in varying link
+conditions typical of data centres. Additionally, some focus
+primarily on simulation or transport-layer aspects without
+Figure 1: Centralized wireless DC topology with AP and client
+nodes as ToR THz nodes.
+fully addressing MAC-layer challenges like real-time coor-
+dination, control overhead, and bursty traﬃc handling. The
+shortcomings found in these MAC protocols are mentioned
+in Table 1.
+This work proposes a novel THz MAC protocol for data
+centres that dynamically selects antenna beamwidth based
+on the distance between nodes, enhancing communication
+reliability and eﬃciency. It introduces the ﬁrst distance-
+aware, dynamic beamwidth selection algorithm within a
+receiver-initiated THz MAC protocol, ensuring all nodes are
+discovered and communication links are quickly established.
+By using a single THz radio, the protocol achieves ultra-high
+throughput and reduced delay, making it well-suited for next-
+generation data centre environments.
+3. System Preliminaries
+In this section, the system model with the channel model
+is presented.
+3.1. System Model
+We consider a wireless data centre network composed
+of a single access point (AP) and 14 client nodes, each
+equipped with a single THz transceiver and a steerable
+directional antenna. As illustrated in Figure 1,, the topology
+comprises of three rows of racks with ﬁve racks per row,
+totaling 15 racks. Each rack is equipped with a single THz
+transceiver and a steerable directional antenna (ToR), and
+the focus of this simulation is on inter-rack communication.
+The horizontal distance between adjacent racks within a row
+is 1.2 meters, while each rack measures 0.58 meters in width
+and 0.67 meters in depth. In this topology, a THz access
+point is centrally located at the ToR of one rack, with the
+assumption that no client node resides in the same rack as
+the AP. Nodes are deployed in a top-of-rack conﬁguration
+and are static. Each node performs a 360-degree sweep to
+discover and align with intended communication partners
+[36].
+M. Absaruddin et al.: Preprint submitted to Elsevier
+Page 4 of 17
+Enhanced Dynamic Beamwidth Selection-based THz MAC Protocol for Wireless Data Center Networks
+3.1.1. Assumptions
+To design and evaluate the proposed DBS-ADAPT and
+EDBS-ADAPT protocols, we base our model on the follow-
+ing realistic and practical assumptions:
+• Directional Antenna Deployment: Both the access
+point and all client nodes are equipped with steerable
+directional antennas mounted at the top-of-rack level.
+These antennas are capable of beam rotation and dy-
+namic beamwidth adjustment based on node distance.
+• Receiver-Initiated Medium Access: The protocol em-
+ploys a receiver-initiated three-way handshake using
+CTA (Call-to-Access), RTS (Request to Send), and
+CTS (Clear to Send) frames. This handshake mech-
+anism ensures that only one node is granted transmis-
+sion access per time slot, eliminating contention and
+avoiding simultaneous transmissions from multiple
+clients.
+• Exclusive Time Slot Allocation: After the AP sends
+a CTS to a selected client, all other client nodes are
+restricted from transmitting until the time slot ends.
+This guarantees exclusive use of the wireless channel,
+thereby preventing beam overlap and co-channel in-
+terference.
+• Distance-Aware Beamwidth Control: Beamwidth is
+dynamically adapted based on the estimated distance
+between communicating nodes. This limits unneces-
+sary spatial coverage and further minimises the prob-
+ability of unintended signal reception.
+• Static Node Placement: All nodes are assumed to be
+static, which is typical in data centre environments.
+This assumption simpliﬁes beam tracking and align-
+ment, as node positions do not change over time. It
+is assumed that the nodes are already aware of their
+perfect coordinates.
+• Line-of-Sight (LoS) Availability: The propagation en-
+vironment is assumed to provide clear LoS paths be-
+tween racks, which is a reasonable assumption given
+the structured and obstruction-free layout of modern
+data centres.
+• Interference Negligibility: The combination of direc-
+tional antennas, exclusive time slot access, and dy-
+namic beamwidth control ensures that interference is
+minimal, and spatial reuse is eﬃciently managed.
+• Single-Radio Architecture: Each node, including the
+AP, operates with a single THz radio, eliminating
+the need for additional hardware and maintaining low
+system complexity.
+• Synchronised Network Operation: All nodes are time-
+synchronised to a global clock, allowing precise coor-
+dination of access slots and handshake operations.
+Figure 2: Mechanism of DBS-ADAPT in which both AP and
+client nodes changes beamwidth during data transmission.
+3.2. THz Channel Model
+In this work, we adopt the THz channel model presented
+in [37], which accounts for two key propagation phenomena:
+free-space spreading loss and molecular absorption loss
+[[37], [9], [8]].
+The received power is calculated as [37]:
+𝑃𝑜𝑤𝑒𝑟𝑟(𝑑) = ∫𝐵
+𝑃𝐷𝑡(𝑓)|𝐿𝑐(𝑓, 𝑑)|2𝐺𝑎𝑖𝑛𝑡(𝑓)𝐺𝑎𝑖𝑛𝑟(𝑓)𝑑𝑓,
+(1)
+where 𝐿𝑐(𝑓, 𝑑), the channel frequency response, is de-
+termined based on the losses, 𝐺𝑎𝑖𝑛𝑡, 𝐺𝑎𝑖𝑛𝑟represent the
+transmitter and receiver antenna gains, respectively, and
+𝑃𝐷𝑡denotes the one-sided power spectral density of the
+transmitted signal.
+4. Dynamic Beamwidth Selection-based THz
+MAC Protocol (DBS-ADAPT)
+The DBS-ADAPT [1] THz MAC protocol is an en-
+hancement of the ADAPT-3 protocol, speciﬁcally designed
+for wireless data centre environments. It is a receiver-
+initiated MAC protocol that overcomes the limitations of
+ﬁxed beamwidth antennas by dynamically adjusting the
+antenna beamwidth at both the Access Point and client
+nodes during the data transmission phase. Initially, narrow
+beams are employed during link discovery to maximise node
+detection and alignment accuracy. After successful link es-
+tablishment and control packet exchange, the AP calculates
+the distance to the client node and instructs both nodes to
+adapt their beamwidths dynamically, widening the beam for
+data transmission if the distance is within range constraints.
+This distance-aware beamwidth adaptation balances com-
+munication range and throughput, enabling eﬃcient, high-
+speed data transfer without compromising link reliability.1
+4.1. Protocol description and ﬂow
+In DBS-ADAPT, each client node transmits its positional
+coordinates to the AP during the handshake phase. Using
+1We presented a preliminary version of DBS-ADAPT in WiMob 2024
+[1], this article introduces a fully extended and reﬁned version.
+M. Absaruddin et al.: Preprint submitted to Elsevier
+Page 5 of 17
+Enhanced Dynamic Beamwidth Selection-based THz MAC Protocol for Wireless Data Center Networks
+Figure 3: Antenna beamwidth inversely proportional to virtual
+antenna sectors and gain.
+this information, the AP calculates the distance, and both the
+AP and client dynamically adjust their beamwidths based
+on that distance. Designed for static wireless data centre
+topologies, DBS-ADAPT accommodates clients positioned
+at varying distances from the AP, as shown Table 2. The
+detailed procedure is outlined in Algorithm 1.
+The DBS-ADAPT protocol operates in four distinct
+stages, each described below. An overview of the DBS-
+ADAPT mechanism is illustrated in Figure 2.
+1. Stage 1: Discovery Stage and Initial Link Estab-
+lishment Communication begins with the Access
+Point initiating the discovery process by broadcast-
+ing a Call-to-Access (CTA) packet while sweeping
+its directional antenna. To maximise communication
+range, the AP initially uses a narrow beamwidth of
+6◦, which provides higher antenna gain. At this stage,
+client nodes are unaware of the AP’s location. As the
+AP sweeps, any client node that receives the CTA
+packet aligns its antenna toward the direction of the
+AP using the same ﬁxed narrow beamwidth of 6◦
+for accurate and long-range detection. This ensures
+reliable initial link establishment between the AP and
+client nodes.
+A wider beamwidth cannot reach distant nodes ef-
+fectively due to lower antenna gain, while using an
+extremely narrow beamwidth, such as 3◦, signiﬁcantly
+increases the time required for a full 360◦sweep.
+Therefore, a 6◦beamwidth is chosen as an optimal
+balance, narrow enough to maintain suﬃcient gain
+for reaching the farthest node in the network, yet
+wide enough to complete discovery eﬃciently without
+missing any client nodes. This eﬀect is also illustrated
+in Figure 3 and Table 2.
+2. Stage 2: Exchange of Positional Information and
+Distance Calculation Once a client node aligns its
+antenna toward the AP and has data to transmit, it
+initiates the handshake process by sending a Request
+to Send (RTS) packet using a narrow 6◦beamwidth.
+The RTS packet includes the client’s positional coor-
+dinates. Upon receiving the RTS, the AP extracts the
+coordinates and computes the Euclidean distance to
+Algorithm 1: Algorithm of DBS-ADAPT [1]
+1 Input: Δ𝜃(Beamwidth), 𝑅(𝜙) (Range), Φ - Diﬀerent
+beamwidths, 3◦,6◦,9◦,12◦,15◦,18◦,21◦...
+2 Output: Δ𝜃dynamic
+1: Let Δ𝜃= {Φ1, Φ2, … , Φ𝑛}
+2: Δ𝜃narrow ←Narrower beamwidth
+3: Δ𝜃wider ←Wider beamwidth
+4: (1) CN and AP operations using Δ𝜃narrow
+5: Set initial Δ𝜃= min{Φ} for CN and AP during discovery
+6: AP sending the broadcast CTA packet
+for each sector in AP coverage area do
+7:
+Broadcast CTA →Δ𝜃narrow
+8: end for
+9: CN Operation of discovering the AP
+for each CN do
+10:
+if RECEIVE(CTA) then
+11:
+ALIGNANTENNA(towards AP)
+12: end if
+13: end for
+14: CN sending RTS to AP by including its position
+for each RTS sent by CN do
+15:
+Include position in RTS packet ←(𝑥𝑛, 𝑦𝑛)
+16: end for
+17: (2) AP operation, it calculates distance based on position
+of CN, and mentions in CTS packet
+for each RTS received by AP node do
+18:
+Calculate 𝑑between AP and CN.
+19: AP coordinates ←(𝑥𝐴𝑃, 𝑦𝐴𝑃)
+20: X ←𝑥𝐴𝑃−𝑥𝑛, Y ←𝑦𝐴𝑃−𝑦𝑛
+21: 𝑑(distance) ←
+√
+X2 + Y2
+22: Select Δ𝜃dynamic = max{Φ} while ensuring 𝑑≤𝑅(𝜙)
+23: Set AP Δ𝜃= Δ𝜃dynamic
+24: end for
+for each CTS sent by AP node do
+25:
+IncludeΔ𝜃dynamic in CTS.
+26: end for
+27: (3) CN Δ𝜃→Δ𝜃wider as mentioned by AP
+for each CTS received by client node do
+28:
+Extract CTS
+29: Set CN Δ𝜃= Δ𝜃dynamic for data transmission
+30: end for
+the client node using Equation (5), as shown in Line
+21 of Algorithm 1.
+𝑑=
+√
+(𝑥AP −𝑥𝑛)2 + (𝑦AP −𝑦𝑛)2
+(2)
+where 𝑑is the Distance in meters (m), (𝑥𝐴𝑃, 𝑦𝐴𝑃) are
+AP coordinates, and (𝑥𝑛, 𝑦𝑛) are Client node coordi-
+nates.
+This distance is then used to determine the appropriate
+beamwidth for eﬃcient data transmission.
+3. Stage 3: Dynamic Beamwidth Selection for AP
+and Client Nodes Based on the calculated distance,
+M. Absaruddin et al.: Preprint submitted to Elsevier
+Page 6 of 17
+Enhanced Dynamic Beamwidth Selection-based THz MAC Protocol for Wireless Data Center Networks
+Client node ID
+Node
+1
+Node
+2
+Node
+3
+Node
+4
+Node
+5
+Node
+6
+Node
+7
+Node
+8
+Node
+9
+Node
+10
+Node
+11
+Node
+12
+Node
+13
+Node
+14
+Distance to AP
+2.2𝑚
+1.95𝑚1.86𝑚1.95𝑚2.2𝑚
+1.16𝑚0.58𝑚0.58𝑚1.16𝑚2.2𝑚
+1.95𝑚1.86𝑚1.95𝑚2.2𝑚
+BPSK selected Δ𝜃
+24◦
+24◦
+24◦
+24◦
+24◦
+30◦
+48◦
+48◦
+30◦
+24◦
+24◦
+24◦
+24◦
+24◦
+QPSK selected Δ𝜃
+18◦
+18◦
+18◦
+18◦
+18◦
+24◦
+42◦
+42◦
+24◦
+18◦
+18◦
+18◦
+18◦
+18◦
+8PSK selected Δ𝜃
+12◦
+12◦
+12◦
+12◦
+12◦
+18◦
+30◦
+30◦
+18◦
+12◦
+12◦
+12◦
+12◦
+12◦
+16QAM selected Δ𝜃
+12◦
+12◦
+12◦
+12◦
+12◦
+18◦
+24◦
+24◦
+18◦
+12◦
+12◦
+12◦
+12◦
+12◦
+16APSK selected Δ𝜃
+12◦
+12◦
+12◦
+12◦
+12◦
+18◦
+24◦
+24◦
+18◦
+12◦
+12◦
+12◦
+12◦
+12◦
+32APSK selected Δ𝜃
+12◦
+12◦
+12◦
+12◦
+12◦
+12◦
+18◦
+18◦
+12◦
+12◦
+12◦
+12◦
+12◦
+12◦
+Table 2
+Details of beamwidth Δ𝜃selected by each of the client nodes concerning their distance and diﬀerent modulation and coding
+schemes for DBS-ADAPT and EDBS-ADAPT THz MAC protocol.
+the AP selects an optimal beamwidth that guaran-
+tees the communication range exceeds the required
+distance, as implemented in Line 22 of Algorithm
+1. This ensures reliable connectivity while allow-
+ing faster antenna rotation, which contributes to im-
+proved throughput. The AP then includes the selected
+beamwidth in the Clear to Send (CTS) packet sent to
+the client node. Upon receiving the CTS, the client
+adjusts its antenna beamwidth to match the value
+speciﬁed by the AP. As a result, both the AP and
+client operate using the same dynamically selected
+beamwidth. The speciﬁc beamwidth values corre-
+sponding to various distances and Modulation and
+Coding Schemes (MCS) are detailed in Table 2.
+4. Stage 4: Data Transmission with Adjusted Beamwidth
+For data transmission, the client node uses the newly
+adjusted beamwidth determined during the handshake
+phase. Once the AP successfully receives the data
+packet, it responds with an acknowledgement (ACK)
+packet. By using dynamically selected beamwidths,
+both the AP and client can rotate their antennas more
+quickly, leading to faster link alignment, increased
+communication opportunities, reduced transmission
+delay, and overall improved throughput.
+The protocol begins with a narrow beamwidth during
+link discovery to ensure all nodes, regardless of distance,
+can establish connections while maximising communication
+range. Then, during control packet exchange, the AP selects
+an optimal beamwidth based on the client’s distance, and the
+client adjusts accordingly, repeating this process for every
+data transmission to maintain eﬃciency.
+DBS-ADAPT improves performance primarily through
+dynamic beamwidth adjustment. In this protocol, the access
+point determines the appropriate beamwidth based on the
+distance to the target client node. The client then adjusts its
+beamwidth according to the value received from the AP. This
+adjustment occurs for every data packet transmission, lead-
+ing to frequent beamwidth switching and increased control
+overhead. While DBS-ADAPT achieves better throughput
+and delay performance, it does so at the cost of higher
+overhead. To mitigate this issue, an improved version called
+Enhanced DBS-ADAPT is proposed.
+5. Enhanced Dynamic Beamwidth
+Selection-based THz MAC Protocol
+(EDBS-ADAPT)
+We propose an enhancement to DBS-ADAPT called En-
+hanced DBS-ADAPT (EDBS-ADAPT), a receiver-initiated
+THz MAC protocol speciﬁcally designed for wireless data
+centres. EDBS-ADAPT follows the same core mechanism
+as DBS-ADAPT, with one key diﬀerence: in DBS-ADAPT,
+beamwidth calculation is included in every control packet
+exchange, causing it to be repeated for each data packet
+transmission. This results in frequent beamwidth switching
+and increased overhead. In contrast, EDBS-ADAPT selects
+the beamwidth only once at the start of communication,
+maintaining it throughout the session. This signiﬁcantly
+reduces beamwidth switching overhead. Figure 2, also rep-
+resents the EDBS-ADAPT mechanism the only diﬀerence is
+that both client and AP nodes selects the beamwidth only
+once, and maintains it throughout the session.
+5.1. Protocol description and ﬂow
+To illustrate the decision-making process of the EDBS-
+ADAPT THz MAC protocol, Algorithm 2 outlines the de-
+tailed steps. The protocol’s operation is divided into several
+stages, as described below.
+1. Stage 1: Initial link establishment with narrow
+beams
+The access point initiates communication
+using a ﬁxed beamwidth of 6◦, broadcasting CTA
+packets while rotating through all sectors to signal its
+readiness to receive data. Since client nodes are ini-
+tially unaware of the AP’s location, each client enters
+a discovery phase. During this phase, the client uses
+the same ﬁxed beamwidth and performs exhaustive
+scanning by rotating its antenna across all sectors,
+pausing in each one to listen for a CTA packet. When
+a client detects a CTA packet in a particular sector, it
+stops scanning, aligns its antenna in that direction, and
+transitions to the communication phase to begin data
+exchange with the AP.
+2. Stage 2: RTS transmission and position exchange
+The client node generates an RTS packet that includes
+its position as coordinates (𝑥𝐴𝑃, 𝑦𝐴𝑃). Upon receiving
+M. Absaruddin et al.: Preprint submitted to Elsevier
+Page 7 of 17
+Enhanced Dynamic Beamwidth Selection-based THz MAC Protocol for Wireless Data Center Networks
+Algorithm 2: Algorithm of EDBS-ADAPT
+1 Input: Δ𝜃(Beamwidth), 𝑅(𝜙) (Range), Φ - Diﬀerent Δ𝜃
+2 Output: Δ𝜃dynamic
+1: Let Δ𝜃= {Φ1, Φ2, … , Φ𝑛}
+2: Δ𝜃narrow ←Narrower beamwidth, Δ𝜃wider ←Wider beamwidth
+3: (1) CN and AP operations using Δ𝜃narrow
+4: Set initial Δ𝜃= min{Φ} for CN and AP during discovery
+5: AP sending the broadcast CTA packet
+for each sector in AP coverage area do
+6:
+Broadcast CTA →Δ𝜃narrow
+7: end for
+8: CN Operation of discovering the AP
+for each CN do
+9:
+if RECEIVE(CTA) then
+10:
+ALIGNANTENNA(towards AP)
+11: end if
+12: end for
+13: CN sending RTS to AP by including its position
+for each RTS sent by CN do
+14:
+Include position in RTS packet ←(𝑥𝑛, 𝑦𝑛)
+15: end for
+16: (2) Beamwidth Learning and One-Time Switching (at AP)
+for each RTS received by the AP node do
+17:
+Calculate 𝑑between AP and CN.
+18: AP coordinates ←(𝑥𝐴𝑃, 𝑦𝐴𝑃)
+19: X ←𝑥𝐴𝑃−𝑥𝑛, Y ←𝑦𝐴𝑃−𝑦𝑛𝑑(distance) ←
+√
+X2 + Y2
+20: AP checks if a beamwidth is already stored for this Client:
+21: If no beamwidth is stored for this Client:
+• AP selects Δ𝜃dynamic = max{Φ} while ensuring
+𝑑≤𝑅(𝜙)
+• Set AP Δ𝜃= Δ𝜃dynamic
+• AP stores Δ𝜃∗
+AP,Client ←Δ𝜃∗for this client in a table.
+22: end for
+23: If beamwidth already stored for this Client:
+• AP retrieves Δ𝜃∗
+AP,Client from the table.
+24: AP includes Δ𝜃∗
+AP,Client in the CTS reply to Client.
+AP switches beamwidth for this Client only once at ﬁrst
+data exchange; subsequent transmissions reuse stored value.
+25: (3) Beamwidth Switching at Client (One-Time)
+• Upon receiving CTS, reads the Δ𝜃∗
+Client (from CTS).
+• If the Client has not switched beamwidth before:
+– Client switches its antenna to Δ𝜃∗
+Client.
+– Client marks "beamwidth switched" (ﬂag); future
+data exchanges use the same beamwidth.
+• If already switched, continue using stored beamwidth.
+26: (4) Data Transmission (No Further Switching)
+• Data and ACK packets are exchanged using the Δ𝜃=
+Δ𝜃dynamic optimal beamwidth.
+• No further beamwidth changes are performed for either
+the AP or the Client node
+the RTS packet, the AP extracts the client’s coordi-
+nates and calculates the distance to the client node.
+3. Stage 3: AP learning and beamwidth assignment
+The AP consults its beamwidth mapping table to de-
+termine whether an optimal beamwidth for the client
+has already been established:
+• If not previously learned: The AP selects an
+appropriate beamwidth based on the client’s dis-
+tance and link quality, then stores this informa-
+tion in the mapping table.
+• If already learned: The AP retrieves the previ-
+ously stored beamwidth value for the client.
+The AP then sends a Clear-To-Send packet to the
+client, including the assigned beamwidth value.
+4. Stage 4: One-time beamwidth adjustment Upon
+receiving the CTS packet, the client extracts the as-
+signed dynamic beamwidth and immediately adjusts
+its antenna to this value for all future data transmis-
+sions to the AP. It also sets a beamwidth adjustment
+ﬂag to prevent further changes during the session.
+Similarly, before receiving the ﬁrst DATA packet from
+the client, the AP switches its antenna to the selected
+dynamic beamwidth for that speciﬁc client and sets
+a corresponding per-client adjustment ﬂag. The dy-
+namic beamwidth values selected based on distance
+and various modulation and coding schemes are de-
+tailed in Table 2.
+6. Simulation details
+In this section, we describe our simulation setup, param-
+eters, implementation details, and performance metrics. The
+simulations are conducted using Terasim, an open-source
+THz network simulator built as an extension of NS3 [38].
+The speciﬁc simulation parameters are listed in Table 3.
+Packet arrivals are modelled using a Poisson process [21],
+chosen for its eﬀectiveness in representing random traﬃc
+patterns. A log-normal traﬃc model is also used for bursty
+traﬃc. All simulation results presented in Section 7 are
+reported with a 95% conﬁdence interval.
+6.1. Simulation Parameters
+The performance evaluation uses various modulation
+and coding schemes deﬁned in the recent THz standard IEEE
+802.15.3-2023. These include Binary Phase Shift Keying
+(BPSK), Quadrature Phase Shift Keying (QPSK), 8-Phase
+Shift Keying (8-PSK), 16-Quadrature Amplitude Modula-
+tion (16-QAM), 16-Amplitude and Phase Shift Keying (16-
+APSK), and 32-Amplitude and Phase Shift Keying (32-
+APSK) [39]. For data centre applications, a bit error rate
+(BER) of 10−12 is adopted, as recommended by the IEEE
+standard, ITU technical parameters, and ETSI guidelines
+[27], [26] [13] [40]. Additionally, the performance is eval-
+uated by varying interarrival times to analyse how the proto-
+col behaves under diﬀerent traﬃc loads, reﬂecting the high
+variability typical of data centre traﬃc [41]. The interarrival
+time is calculated as described in Equation 6.
+M. Absaruddin et al.: Preprint submitted to Elsevier
+Page 8 of 17
+Enhanced Dynamic Beamwidth Selection-based THz MAC Protocol for Wireless Data Center Networks
+Description
+Value
+Simulator
+Terasim - NS3 [38]
+Technology
+IEEE 802.15.3-2023 [39]
+Frequency Range
+252.72 321.84 GHz [39]
+Central Frequency
+287.28 GHz [39]
+Channel bandwidth
+69.12 GHz [39]
+Transmission power
+10dBm [27]
+Bit error rate (BER)
+10−12 [26], [27], [13]
+Simulation time for each
+run
+0.01 seconds
+Simulation Runs
+20
+Noise ﬁgure
+7dB
+Data Packet Size
+65 kB
+Retry limit
+5
+Traﬃc Model
+Poisson [21], Log Normal
+Modulation
+and
+Coding
+Schemes
+BPSK,
+QPSK,
+8PSK,
+16QAM,
+16APSK,
+and
+32APSK [39].
+Table 3
+Simulation Parameters
+𝑃= 𝑇
+𝐼
+(3)
+where 𝑃is number of data packets, 𝑇is the simulation
+duration (in seconds), and 𝐼is the inter-arrival time (in
+seconds).
+Another important parameter in the evaluation is the
+antenna turning speed, which depends on the beamwidth
+and the time required to cover a sector. The turning speed
+refers to how quickly the antenna completes a full 360◦rota-
+tion. This speed inﬂuences how fast the antenna can sweep
+its coverage area, directly impacting throughput and delay.
+The antenna turning speed increases proportionally with the
+beamwidth. In other words, antennas with wider beamwidths
+rotate faster than those with narrower beamwidths, allowing
+nodes to complete rotations more quickly.
+The antenna turning speed is calculated using the follow-
+ing expression:
+𝜔=
+1
+𝑇circle
+(4)
+where 𝜔is the Antenna turning speed measured in
+rotations per second (degrees/sec), 𝑇circle is the total time
+for one complete antenna rotation, measured in seconds. The
+total rotation time 𝑇circle can be calculated as:
+𝑇circle = 𝑇sector ⋅𝑁sector
+(5)
+where 𝑇sector is calculated as the sum of control packets
+duration, propagation time, SIFS, maximum backoﬀtime,
+data transmission time, and 𝑁sector is calculated as
+360
+beamwidth.
+6.2. Implementation Details
+For DBS-ADAPT, the Terasim simulator was modiﬁed
+to include client node position information in the RTS con-
+trol packet header. Speciﬁcally, additional ﬁelds were added
+Figure 4: Centralized wireless DC topology with AP and client
+nodes as ToR THz nodes.
+to the RTS packet to store the client’s 𝑥−𝑦coordinates.
+This allows the AP to calculate the distance to the client
+node. Similarly, the CTS packet was updated with a new
+ﬁeld to carry the beamwidth information, which is sent back
+to the client. A new mechanism was implemented at the
+MAC layer to enable dynamic beamwidth selection during
+data transmission. Additionally, the antenna module was
+modiﬁed to update the beamwidth, recalculate antenna gain
+whenever the Tx or Rx changes beamwidth, and adjust the
+antenna turning speed accordingly.
+For EDBS-ADAPT, we modiﬁed the NS3 THz MAC
+modules for both AP and client nodes to implement a low-
+overhead beamwidth switching mechanism. Unlike previ-
+ous approaches that adjusted beamwidth frequently, our
+design ensures that both AP and clients switch their an-
+tenna beamwidth only once per communication session.
+Speciﬁcally, after receiving the CTS packet with the op-
+timal beamwidth, the client sets its antenna accordingly
+and maintains this setting throughout the session. This one-
+time adjustment is enforced in the client’s MAC module,
+signiﬁcantly reducing protocol overhead.
+On the AP side, the protocol is optimised by maintaining
+a mapping between each client’s address and its learned
+optimal beamwidth. When an RTS packet is received, the
+AP either retrieves the stored beamwidth for that client or
+calculates a new one based on the client’s position and
+distance. This beamwidth is sent to the client via the CTS
+packet. After the ﬁrst data transmission, the AP saves the
+beamwidth for future use, avoiding repeated adjustments. A
+per-client ﬂag ensures that the AP switches beamwidth only
+once per communication session.
+6.3. Performance Metrics
+The performance of our proposed DBS-ADAPT and
+EDBS-ADAPT THz MAC protocols is evaluated using
+three key metrics: average throughput, average delay, and
+beamwidth switching overhead, as described below.
+1. Average throughput: This metric measures the ef-
+fectiveness of data delivery. It represents the rate at
+M. Absaruddin et al.: Preprint submitted to Elsevier
+Page 9 of 17
+Enhanced Dynamic Beamwidth Selection-based THz MAC Protocol for Wireless Data Center Networks
+Interarrival
+Time
+(𝜇s)
+10
+100
+200
+300
+400
+500
+600
+800
+1000
+No
+of
+data
+pack-
+ets
+1000
+100
+50
+33
+25
+20
+16
+12
+10
+Table 4
+Number of packets sent against each selected inter-arrival
+time.
+which data packets are successfully transmitted by
+each client node. Average throughput is calculated
+by averaging the throughput of all individual client
+nodes, reﬂecting the overall eﬃciency of data trans-
+mission. It is typically measured in bits per second
+(bps) [25].
+The average throughput is calculated as follows [25]:
+𝑇avg = 1
+𝑁
+𝑁
+∑
+𝑛=1
+𝐿𝑛
+𝑡𝑛
+(6)
+Where 𝑇avg is the average throughput (in bps or Gbps),
+𝑁is the total number of client nodes, 𝐿𝑛is the total
+size of packets transmitted by node 𝑛(in bits), and 𝑡𝑛
+is the total transmission time for node 𝑛(in seconds).
+2. Average delay: This metric is measured from the mo-
+ment a packet is queued for transmission until it is suc-
+cessfully received by the destination node. It accounts
+for transmission time, queuing delays, MAC protocol
+processing time, and propagation delay. Average delay
+is a key indicator of the protocol’s eﬃciency and QoS
+in THz communication systems [42].
+The average delay is calculated as follows [42]:
+𝐷avg = 1
+𝑁
+𝑁
+∑
+𝑖=1
+(𝑇end,𝑖−𝑇start,𝑖
+)
+(7)
+where 𝐷avg is the average delay measured in millisec-
+onds (ms), 𝑇end,𝑖is the time when the transmission of
+the 𝑖-th packet is completed.
+3. Beamwidth switching overhead: This metric repre-
+sents the total number of times a node changes its
+beamwidth during communication.
+7. Simulation Results
+In this section, we present the performance results of
+DBS-ADAPT and EDBS-ADAPT compared to the baseline
+THz MAC protocol, ADAPT-3 [21], under both Poisson and
+bursty traﬃc models.
+7.1. Simulation Results with Poisson Traﬃc Model
+DBS-ADAPT is evaluated against ADAPT-3 [21] using
+modulation and coding schemes (Section 5.3) and a BER
+of 10−12, as speciﬁed in the latest IEEE 802.15.3-2023
+standard. This comparison demonstrates the eﬀectiveness of
+DBS-ADAPT under realistic THz communication param-
+eters for data centres. EDBS-ADAPT is further compared
+(a) Average throughput with BPSK, QPSK, and 8PSK MCS.
+(b) Average delay with BPSK, QPSK, and 8PSK MCS.
+Figure 5: EDBS-ADAPT 14 nodes case with varying inter-
+arrival time.
+against both DBS-ADAPT and ADAPT-3. The proposed
+protocols are analysed based on varying interarrival times,
+number of nodes, and modulation schemes. In ADAPT-3, a
+ﬁxed beamwidth of 6 degrees is used for both the discovery
+and data transmission phases. This beamwidth was chosen
+based on evaluations within a data centre topology, oﬀering
+a balance between range and antenna gain to mitigate high
+path loss and ensure stable performance.
+7.1.1. EDBS-ADAPT, and DBS-ADAPT with varying
+inter-arrival times and modulation schemes
+EDBS-ADAPT and DBS-ADAPT are evaluated under
+varying interarrival times and modulation schemes to assess
+their performance under diﬀerent traﬃc loads. Interarrival
+times, ranging from 10 to 1000 𝜇s, follow an exponential
+distribution and represent the time between the arrivals of
+two consecutive packets at a node. This variation helps
+capture the random and highly variable nature of data centre
+traﬃc [41]. For analysis, traﬃc is categorised into high and
+low traﬃc scenarios: high traﬃc corresponds to interarrival
+times between 1-299 𝜇s, while low traﬃc ranges from 300-
+1000 𝜇s. Table 4 presents the number of data packets sent
+by each client based on these interarrival times.
+M. Absaruddin et al.: Preprint submitted to Elsevier
+Page 10 of 17
+Enhanced Dynamic Beamwidth Selection-based THz MAC Protocol for Wireless Data Center Networks
+In addition to traﬃc variability, performance is eval-
+uated across six modulation and coding schemes (MCS):
+BPSK, QPSK, 8-PSK, 16-QAM, 16-APSK, and 32-APSK.
+These MCSs are essential for enabling eﬃcient and ﬂexible
+communication in THz networks. Their varying encoding
+capabilities directly inﬂuence key performance metrics such
+as average throughput and delay. Higher-order modulation
+schemes, such as 16-QAM, 16-APSK, and 32-APSK, are
+particularly important for achieving the ultra-high through-
+put and low latency required in data centre environments.
+Average Throughput and delay with varying inter-
+arrival times and modulation schemes: Figures 5(a),
+5(b), 6(a), and 6(b) present the average throughput and de-
+lay results for EDBS-ADAPT, DBS-ADAPT, and ADAPT-
+3 under a ﬁxed 14-node setup with varying interarrival
+times. In scenarios using the low modulation scheme BPSK,
+EDBS-ADAPT and DBS-ADAPT consistently outperforms
+ADAPT-3 in terms of average throughput. For instance,
+under low traﬃc conditions with an interarrival time of 1000
+𝜇s, EDBS-ADAPT and DBS-ADAPT achieves an average
+throughput of 32 Gbps, compared to 28 Gbps for ADAPT-
+3, an improvement of approximately 15%. When the inter-
+arrival time is reduced to 500 𝜇s, throughput for EDBS-
+ADAPT and DBS-ADAPT is 26 Gbps versus 23 Gbps for
+ADAPT-3, marking a 13% gain.
+Even under high traﬃc conditions, where the interar-
+rival time is as low as 10 𝜇s, EDBS-ADAPT and DBS-
+ADAPT maintains better performance. In this worst-case
+scenario, EDBS-ADAPT and DBS-ADAPT achieves an av-
+erage throughput of 0.65 Gbps, compared to 0.63 Gbps
+for ADAPT-3, representing a 3% improvement. These re-
+sults demonstrates EDBS-ADAPT and DBS-ADAPT supe-
+rior ability to handle varying traﬃc loads, particularly in
+maintaining higher throughput under both light and heavy
+conditions.
+The average delay results for EDBS-ADAPT and DBS-
+ADAPT, is shown in Figure 5(b), indicate a consistent re-
+duction compared to the ADAPT-3 THz MAC protocol
+when using the BPSK modulation scheme. Under low traﬃc
+conditions with an interarrival time of 1000 𝜇s, EDBS-
+ADAPT and DBS-ADAPT achieves an average delay of 26
+ms, compared to 29 ms for ADAPT-3, a reduction of approx-
+imately 10%. With an interarrival time of 500 𝜇s, EDBS-
+ADAPT and DBS-ADAPT records a delay of 29 ms, while
+ADAPT-3 has 32 ms, showing a 10% improvement. Even
+under high traﬃc conditions (interarrival time of 10 𝜇s),
+EDBS-ADAPT and DBS-ADAPT reduces average delay by
+9% compared to ADAPT-3.
+This trend continues across higher modulation schemes,
+as illustrated in Figures 6(a) and 6(b). In both high and low
+traﬃc scenarios, EDBS-ADAPT and DBS-ADAPT consis-
+tently outperforms ADAPT-3 in terms of average throughput
+and delay. These results demonstrate EDBS-ADAPT and
+DBS-ADAPT eﬀectiveness in improving communication
+eﬃciency, particularly in reducing latency and maintaining
+(a) Average throughput with 16QAM, 16APSK, and
+32APSK MCS.
+(b)
+Average
+delay
+OF
+DBS-ADAPT
+with
+16QAM,
+16APSK, and 32APSK MCS.
+Figure 6: EDBS-ADAPT 14 nodes case with varying inter-
+arrival time.
+performance across a range of traﬃc loads and modulation
+settings.
+EDBS-ADAPT and DBS-ADAPT consistently outper-
+forms ADAPT-3 across all evaluated modulation schemes,
+BPSK, QPSK, 8-PSK, 16-QAM, 16-APSK, and 32-APSK,
+showing both higher average throughput and lower average
+delay. This performance holds across varying traﬃc loads,
+from low to high. The consistent improvement demonstrates
+that EDBS-ADAPT and DBS-ADAPT eﬀectively addresses
+the unique challenges of diﬀerent modulation levels: provid-
+ing robustness for lower-order schemes and maintaining pre-
+cision and eﬃciency for higher-order schemes. This adapt-
+ability makes EDBS-ADAPT and DBS-ADAPT well-suited
+for diverse communication requirements in THz-based data
+centre environments.
+Beamwidth switching overhead with varying inter-
+arrival times and modulation schemes: Table 5 presents
+the beamwidth switching overhead for EDBS-ADAPT, DBS-
+ADAPT, and ADAPT-3 under a ﬁxed 14-node setup with
+varying interarrival times. ADAPT-3 overhead is 0 for all
+the scenarios as it uses the ﬁxed beamwidth. While, EDBS-
+ADAPT beamwidth switching overhead is minimised by
+M. Absaruddin et al.: Preprint submitted to Elsevier
+Page 11 of 17
+Enhanced Dynamic Beamwidth Selection-based THz MAC Protocol for Wireless Data Center Networks
+(a) Average throughput with BPSK, QPSK and 8PSK MCS
+(b) Average delay with BPSK, QPSK and 8PSK MCS
+Figure 7: EDBS-ADAPT with varying nodes case and interar-
+rival time 500 𝜇s
+upto 95% for both the AP and client nodes for all the case
+as compared to DBS-ADAPT which have high beamwidth
+switching overhead.
+7.1.2. EDBS-ADAPT, and DBS-ADAPT with varying
+number of nodes and modulation schemes
+The performance of the EDBS-ADAPT and DBS-ADAPT
+THz MAC protocols is evaluated by varying the number
+of nodes and applying diﬀerent modulation and coding
+schemes, as detailed in Table 3. The number of nodes ranges
+from 2 to 14, while six MCS conﬁgurations are considered.
+For this evaluation, the interarrival time is ﬁxed at 500 𝜇s,
+corresponding to a traﬃc load of 20 packets transmitted
+by each client node. The resulting average throughput and
+average delay for each protocol, across diﬀerent node counts,
+are presented in Figures 7 and 8.
+Average Throughput and delay with varying nodes
+and modulation schemes In the 2-node scenario us-
+ing the lowest modulation scheme (BPSK), both EDBS-
+ADAPT and DBS-ADAPT achieved an average throughput
+of approximately 34 Gbps, while ADAPT-3 reached only
+28 Gbps, as illustrated in Fig. 7(a). This represents a 21%
+increase in throughput for EDBS-ADAPT and DBS-ADAPT
+(a) Average throughput with 16QAM, 16APSK, and
+32APSK MCS.
+(b) Average delay with 16QAM, 16APSK, and 32APSK
+MCS.
+Figure 8: EDBS-ADAPT with varying nodes case and interar-
+rival time 500 𝜇s.
+compared to ADAPT-3. While the average delay reduced by
+6% compared to ADAPT-3 as shown in Fig.7(b). Similarly
+for the 10 nodes scenario, Additionally, these protocols
+reduced the average delay by about 5% as shown in Fig. 7(b).
+Similarly, in the 10-node scenario, EDBS-ADAPT and
+DBS-ADAPT demonstrated a 15% improvement in average
+throughput and a 7% reduction in average delay compared to
+ADAPT-3.
+In the 2-node scenario using the highest modulation
+scheme (32-APSK), EDBS-ADAPT and DBS-ADAPT achieved
+an average throughput of approximately 148 Gbps, while
+ADAPT-3 reached 137 Gbps, as shown in Fig. 8(a). This cor-
+responds to a 8% cincrease in throughput for EDBS-ADAPT
+and DBS-ADAPT compared to ADAPT-3. Additionally, the
+average delay was reduced by about 4% as illustrated in
+Fig.8(b).
+A similar trend was observed in the 10-node scenario,
+where EDBS-ADAPT and DBS-ADAPT maintained a 5%
+higher average throughput and a 4% lower average delay
+compared to ADAPT-3.
+M. Absaruddin et al.: Preprint submitted to Elsevier
+Page 12 of 17
+Enhanced Dynamic Beamwidth Selection-based THz MAC Protocol for Wireless Data Center Networks
+Table 5
+Beamwidth-Switching Overhead 14 nodes case with varying inter-arrival time
+Interarrival Time 𝜇s
+DBS-ADAPT
+client
+node overhead
+EDBS-ADAPT client
+node
+overhead
+per
+node
+EDBS-ADAPT
+AP
+node overhead
+EDBS-ADAPT
+AP
+node
+overhead
+per
+node
+10
+210
+1
+210
+1
+100
+90
+1
+90
+1
+200
+47
+1
+47
+1
+300
+31
+1
+31
+1
+400
+24
+1
+24
+1
+500
+19
+1
+19
+1
+600
+16
+1
+16
+1
+800
+12
+1
+12
+1
+1000
+10
+1
+10
+1
+Note:
+• DBS-ADAPT: DBS-ADAPT overhead is for both AP and client node and it is the average adjustment per node.
+• EDBS-ADAPT: Overhead is for per client node.
+• ADAPT-3: AP overhead = 0, Client overhead = 0 (constant for all interarrival times).
+Table 6
+Beamwidth-Switching Overhead with varying nodes case and interarrival time 500 𝜇s
+Name
+AP node overhead
+Client node overhead
+Details
+EDBS-ADAPT
+1
+1 (Per Client Node)
+Each client node and the AP node adjust their
+beamwidth only once per node.
+DBS-ADAPT
+19 (Avg adjustment per node)
+19 (Avg adjustment per node)
+Both the AP and each client node adjusted
+their beamwidth multiple times. Here 19 is
+the average number of adjustments per node.
+ADAPT-3 [21]
+0
+0
+Both AP and client nodes use a ﬁxed
+beamwidth.
+Beamwidth switching overhead for varying nodes and
+modulation schemes: Table 6 compares the beamwidth
+switching overhead of EDBS-ADAPT, DBS-ADAPT, and
+ADAPT-3 in a ﬁxed 14-node setup with varying interar-
+rival times. ADAPT-3 incurs no overhead due to its ﬁxed
+beamwidth, while EDBS-ADAPT reduces switching over-
+head by up to 94.74% for both AP and client nodes compared
+to the higher overhead of DBS-ADAPT.
+Figures 7 and 8 show that EDBS-ADAPT and DBS-
+ADAPT consistently achieve higher average throughput and
+lower average delay than ADAPT-3 across all tested modu-
+lation schemes (BPSK to 32-APSK) and node counts from 2
+to 14.
+7.1.3. Scalability Analysis
+The performance of the EDBS-ADAPT and DBS-ADAPT
+THz MAC protocols is evaluated by increasing the number
+of nodes to 25 as shown in Fig. 9. In this scenario, there
+are 24 client nodes and 1 AP node. In this evaluation,
+the interarrival time is ﬁxed at 500 𝜇s. This evaluation is
+conducted to determine if the expected throughput gains are
+sustained at a larger scale.
+The resulting average throughput and average delay for
+each protocol are presented in Figures 10(a) and 10(b). In
+Figure 9: Topology for 25-node scalability scenario.
+this scenario, EDBS-ADAPT and DBS-ADAPT maintained
+a higher average throughput and a lower average delay
+compared to ADAPT-3. The results shows the advantages
+of the proposed protocol even in the case of scalability when
+the number of node increases.
+M. Absaruddin et al.: Preprint submitted to Elsevier
+Page 13 of 17
+Enhanced Dynamic Beamwidth Selection-based THz MAC Protocol for Wireless Data Center Networks
+0
+100
+200
+300
+400
+500
+600
+700
+800
+900
+1000
+10
+20
+30
+40
+50
+60
+70
+(a) Average throughput with 16QAM, 16APSK, and
+32APSK MCS.
+0
+100
+200
+300
+400
+500
+600
+700
+800
+900
+1000
+10 2
+10 3
+(b) Average delay with 16QAM, 16APSK, and 32APSK
+MCS.
+Figure 10: EDBS-ADAPT, DBS-ADAPT and ADAPT-3 per-
+formance in the 25-node scalability scenario.
+7.1.4. Discussion on Improved Performance
+The increased average throughput of EDBS-ADAPT and
+DBS-ADAPT is primarily due to its dynamic beamwidth se-
+lection during data transmission. By using a wider beamwidth,
+the number of sectors decreases, allowing the antenna
+to rotate faster and create more frequent communication
+opportunities between the AP and client nodes. This faster
+sector scanning reduces waiting times and delays, leading
+to higher throughput. The key factor driving this improve-
+ment is the antennas turning speed, which depends on the
+beamwidth and sector timing. Since turning speed is directly
+proportional to beamwidth (as shown in Fig. 4), wider
+beams enable quicker coverage of the communication area,
+positively impacting both throughput and delay.
+Higher-order modulation schemes achieve greater aver-
+age throughput compared to lower-order schemes, mainly
+due to their higher physical layer data rates. For example, 32-
+APSK yields the highest throughput, followed by 16-APSK,
+16-QAM, 8-PSK, QPSK, and BPSK. This is because higher-
+order modulations encode more bits per symbol, allowing
+more data to be transmitted within the same time frame.
+Conversely, lower-order schemes like BPSK carry fewer
+bits, resulting in lower throughput despite their robustness.
+ADAPT-3 achieves lower average throughput compared
+to DBS-ADAPT and EDBS-ADAPT due to its use of a ﬁxed
+beamwidth. Fixed beamwidth prevents nodes from adapting
+to varying distances, wider beams are better for nearby nodes
+to reduce delay, while narrower beams are ideal for distant
+nodes to maintain connectivity. This lack of adaptability
+leads to reduced throughput and increased delay, which is
+the primary cause of ADAPT-3’s performance decline in the
+THz MAC protocol.
+Overall, our detailed evaluations under varying inter-
+arrival time and varying nodes clearly shows that EDBS-
+ADAPT achieves higher throughput and less delay while
+EDBS-ADAPT achieves identical throughput and delay
+to DBS-ADAPT as it follows the same core mechanism
+as DBS-ADAPT. However, the advantage of our EDBS-
+ADAPT lies in substantially reduced antenna beamwidth
+switching overhead, while preserving the throughput and
+delay advantages of the original protocol.
+7.2. Simulation Results with Bursty Traﬃc
+Data center traﬃc is often bursty, with periods of in-
+tense activity followed by idle intervals [43]. This burstiness
+impacts the performance of THz MAC protocols, which
+depend on precise timing and coordination between nodes.
+To simulate such traﬃc, the NS-3 Terasim simulator was
+modiﬁed to use a log-normal distribution in the traﬃc gen-
+erator, accurately modeling the bursty behavior observed
+in data centers. The traﬃc generator class was speciﬁcally
+extended to produce packets based on this distribution [44].
+In our simulation, the log-normal distribution parame-
+ters were set to (𝜇) = 5 and (𝜎) = 1, reﬂecting typical bursty
+traﬃc patterns observed in data center studies [43]. These
+values were chosen to capture moderate average interarrival
+times (𝜇) and high variability (𝜎), eﬀectively modeling the
+unpredictable nature of data center traﬃc with bursts of high
+packet arrivals followed by idle periods [43]. Additionally,
+in the bursty traﬃc scenario we evaluated with 15 nodes
+scenario, in which there are 14 client nodes.
+Using the lowest modulation scheme (BPSK), EDBS-
+ADAPT and DBS-ADAPT consistently outperformed ADAPT-
+3 in both throughput and delay. In the 2-node scenario, they
+achieved approximately 33 Gbps compared to ADAPT-3’s
+27 Gbps, a 22% increase. For 10 nodes, the throughput gain
+was around 22% (28 Gbps vs. 23 Gbps). In terms of delay,
+EDBS-ADAPT and DBS-ADAPT reduced average latency
+by 9% in the 2-node case and by 10% in the 10-node case, as
+shown in Figures 11(a) and 11(b).
+At the highest modulation scheme (32-APSK), EDBS-
+ADAPT and DBS-ADAPT outperformed ADAPT-3 in both
+throughput and delay. In the 2-node scenario, they achieved
+approximately 144 Gbps, about 6% higher than ADAPT-3’s
+136 Gbps, with an 4% reduction in average delay, as shown in
+Figures 12(a) and 12(b). For 10 nodes, throughput improved
+by 7%, and delay was reduced by 6% compared to ADAPT-3.
+In scenarios with varying numbers of nodes, average
+throughput remains stable due to the heavy-tailed nature of
+the log-normal distribution, which generates bursts of high
+M. Absaruddin et al.: Preprint submitted to Elsevier
+Page 14 of 17
+Enhanced Dynamic Beamwidth Selection-based THz MAC Protocol for Wireless Data Center Networks
+Description
+Value
+Traﬃc Model
+Log normal (bursty) [44]
+Simulation time for each
+run
+0.01 seconds
+Simulation Runs
+20
+Log-Normal (𝜇)
+5
+Log-Normal (𝜎)
+1 [43]
+Table 7
+Summary of Log-normal bursty-traﬃc Parameters used in the simulation
+(a) Average throughput with BPSK, QPSK and 8PSK MCS.
+(b) Average delay with BPSK, QPSK and 8PSK MCS.
+Figure 11: EDBS-ADAPT, DBS-ADAPT and ADAPT-3 with
+varying nodes case and bursty traﬃc.
+activity followed by extended silent periods. This allows
+nodes to transmit packets quickly and then remain silent for
+a while. As the number of nodes increases, the likelihood
+of all nodes transmitting simultaneously stays low, reducing
+channel contention and maintaining throughput stability.
+Figures 11 and 12 show that EDBS-ADAPT and DBS-
+ADAPT consistently achieve higher throughput and lower
+delay than ADAPT-3 across all modulation schemes (BPSK
+to 32-APSK) and node counts from 2 to 14. This perfor-
+mance improvement is attributed to their dynamic beamwidth
+adjustment, unlike ADAPT-3’s ﬁxed beamwidth approach.
+(a) Average throughput with 16QAM, 16APSK, and
+32APSK MCS.
+(b) Average delay with 16QAM, 16APSK, and 32APSK
+MCS.
+Figure 12: EDBS-ADAPT, DBS-ADAPT and ADAPT-3 with
+varying nodes case and bursty traﬃc.
+8. Conclusion
+This paper proposes DBS-ADAPT, a dynamic beamwidth
+selection-based THz MAC protocol for wireless data cen-
+tres, along with its enhanced version, EDBS-ADAPT. Both
+protocols overcome the limitations of ﬁxed beamwidth by
+dynamically selecting the optimal beamwidth based on node
+distance, which improves throughput and reduces delay. By
+exchanging node position information, the protocols ensure
+that the chosen beamwidth maintains communication range
+without compromise, enhancing overall protocol eﬃciency.
+M. Absaruddin et al.: Preprint submitted to Elsevier
+Page 15 of 17
+Enhanced Dynamic Beamwidth Selection-based THz MAC Protocol for Wireless Data Center Networks
+The performance of DBS-ADAPT and EDBS-ADAPT was
+evaluated through simulations using the Terasim (NS3)
+THz simulator with realistic data centre parameters. The
+results demonstrate that both protocols achieve higher av-
+erage throughput and lower delay compared to the baseline
+ADAPT protocol across various traﬃc loads, node counts,
+and modulation schemes. Additionally, EDBS-ADAPT re-
+duces antenna overhead compared to DBS-ADAPT.
+Future work will focus on scaling the evaluation to
+larger data centre environments with multiple APs to test
+the protocols’ scalability and robustness. Additionally, we
+plan to extend our approach by incorporating an adaptive,
+distance-aware power allocation strategy to improve energy
+eﬃciency.
+References
+[1] M. Absaruddin, S. Ghafoor, M. H. Rehmani, Dynamic beamwidth
+selection-based thz mac protocol for wireless data center networks,
+in: 20th International Conference on Wireless and Mobile Computing,
+Networking and Communications (WiMob), 2024, pp. 526–531. doi:
+{https://doi.org/10.1109/WiMob61911.2024.10770372}.
+[2] K. Geresu, H. Gu, M. Fadhel, W. Wei, X. Yu, Odrad: An optical
+wireless dcn dynamic-bandwidth reconﬁguration with awgr and deep
+reinforcement learning, Optical Switching and Networking 52 (2024)
+100771. doi:https://doi.org/10.1016/j.osn.2024.100771.
+[3] J. M. Eckhardt, T. Doeker, T. Kürner, Channel measurements at 300
+ghz for low terahertz links in a data center, IEEE Open Journal
+of Antennas and Propagation (2024). doi:https://doi.org/10.1109/
+OJAP.2024.3391798.
+[4] C. Castro, R. Elschner, T. Merkle, F. Rodrigues, J. Machado, A. Teix-
+eira, C. Schubert, Thz communications: Paving the way towards
+wireless tbps, THz Communications. Springer (2022) 417–421doi:
+https://doi.org/10.1007/978-3-030-73738-2.
+[5] C. Terzi, I. Korpeoglu, 60 ghz wireless data center networks: A
+survey, Computer Networks 185 (2021) 107730.
+doi:https://doi.
+org/10.1016/j.comnet.2020.107730.
+[6] S. Zhang, R. Kraemer, X. Xue, N. Tessema, H. Freire Santana,
+E. Tangdiongga, N. Calabretta, Photonic integrated multicast switch-
+based optical wireless data center network, Journal of Optical Com-
+munications and Networking 15 (7) (2023) C54–C62.
+doi:https:
+//doi.org/10.1364/JOCN.484675.
+[7] S. Aboagye, M. A. Saeidi, H. Tabassum, Y. Tayyar, E. Hossain, H.-C.
+Yang, M.-S. Alouini, Multi-band wireless communication networks:
+Fundamentals, challenges, and resource allocation, IEEE Transac-
+tions on Communications (2024).
+doi:https://doi.org/10.1109/
+TCOMM.2024.3366816.
+[8] H. Elayan, O. Amin, B. Shihada, R. M. Shubair, M.-S. Alouini, Ter-
+ahertz band: The last piece of rf spectrum puzzle for communication
+systems, IEEE Open Journal of the Communications Society 1 (2019)
+1–32. doi:https://doi.org/10.1109/OJCOMS.2019.2953633.
+[9] I. F. Akyildiz, C. Han, Z. Hu, S. Nie, J. M. Jornet, Terahertz band
+communication: An old problem revisited and research directions for
+the next decade, IEEE Transactions on Communications 70 (6) (2022)
+4250–4285. doi:https://doi.org/10.1109/TCOMM.2022.3171800.
+[10] A. J. Alqaraghuli, J. V. Siles, J. M. Jornet, The road to high data
+rates in space: Terahertz versus optical wireless communication, IEEE
+Aerospace and Electronic Systems Magazine 38 (6) (2023) 4–13.
+doi:https://doi.org/10.1109/MAES.2023.3243584.
+[11] J. M. Jornet, V. Petrov, H. Wang, Z. Popović, D. Shakya, J. V. Siles,
+T. S. Rappaport, The evolution of applications, hardware design,
+and channel modeling for terahertz (thz) band communications and
+sensing: Ready for 6g?, Proceedings of the IEEE (2024). doi:https:
+//doi.org/10.1109/JPROC.2024.3412828.
+[12] S. Ghafoor, M. H. Rehmani, A. Davy, Next Generation Wireless
+Terahertz Communication Networks, CRC press, 2021. doi:https:
+//doi.org/10.1201/9781003001140.
+[13] S. Ghafoor, N. Boujnah, M. H. Rehmani, A. Davy, Mac protocols for
+terahertz communication: A comprehensive survey, IEEE Communi-
+cations Surveys & Tutorials 22 (4) (2020) 2236–2282.
+doi:https:
+//doi.org/10.1109/COMST.2020.3017393.
+[14] M. Absaruddin, S. Ghafoor, M. H. Rehmani, Comparative analysis
+of terahertz mac protocols for wireless data center, in: International
+Wireless Internet Conference, Springer, 2023, pp. 125–138.
+doi:
+https://doi.org/10.1007/978-3-031-58053-6_9.
+[15] C.-L. Cheng, A. Zajić, Characterization of propagation phenomena
+relevant for 300 ghz wireless data center links, IEEE Transactions
+on Antennas and Propagation 68 (2) (2019) 1074–1087. doi:https:
+//doi.org/10.1109/TAP.2019.2949135.
+[16] A.-A. A. Boulogeorgos, J. M. Jornet, A. Alexiou, Directional terahertz
+communication systems for 6g: Fact check, IEEE Vehicular Technol-
+ogy Magazine 16 (4) (2021) 68–77.
+doi:https://doi.org/10.1109/
+MVT.2021.3113883.
+[17] V. Petrov, H. Guerboukha, A. Singh, J. M. Jornet, Wavefront hopping
+for physical layer security in 6g and beyond near-ﬁeld thz communi-
+cations, IEEE Transactions on Communications (2024). doi:https:
+//doi.org/10.1109/TCOMM.2024.3484937.
+[18] Q. Xia, Z. Hossain, M. Medley, J. M. Jornet, A link-layer syn-
+chronization and medium access control protocol for terahertz-band
+communication networks, IEEE Transactions on Mobile Computing
+20 (1) (2019) 2–18. doi:https://doi.org/10.1109/TMC.2019.2940441.
+[19] I. F. Akyildiz, J. M. Jornet, Realizing ultra-massive mimo (1024×
+1024) communication in the (0.06–10) terahertz band, Nano Com-
+munication Networks 8 (2016) 46–54.
+[20] I. F. Akyildiz, J. M. Jornet, C. Han, Terahertz band: Next frontier for
+wireless communications, Physical Communication 12 (2014) 16–32.
+doi:https://doi.org/10.1016/j.phycom.2014.01.006.
+[21] D. Morales, J. M. Jornet, Adapt: An adaptive directional antenna
+protocol for medium access control in terahertz communication net-
+works, Ad Hoc Networks 119 (2021) 102540. doi:https://doi.org/
+10.1016/j.adhoc.2021.102540.
+[22] F. Siddiqui, B. Mazumdar, Link discovery extension to ns-3s terahertz
+communication module, in: Proceedings of the 2023 Workshop on ns-
+3, 2023, pp. 52–59. doi:https://doi.org/10.1145/3592149.3592153.
+[23] F. Siddiqui, Enabling tcp communication over terahertz links: An
+extension to ns-3’s terasim module, in: Proceedings of the 3rd ACM
+Workshop on 5G and Beyond Network Measurements, Modeling, and
+Use Cases, 2023, pp. 28–33. doi:https://doi.org/10.1145/3609382.
+3610513.
+[24] T. Wang, X. Shi, J. Tao, X. Wang, B. Han, Eﬃcient synchronous mac
+protocols for terahertz networking in wireless data center, in: IEEE
+Conference on Computer Communications Workshops (INFOCOM
+WKSHPS), IEEE, 2022, pp. 1–6.
+doi:https://doi.org/10.1109/
+INFOCOMWKSHPS54753.2022.9798122.
+[25] M. Absaruddin, S. Ghafoor, M. H. Rehmani, Beamwidth trade-
+oﬀs analysis of thz mac protocols for wireless data center, in:
+2024 International Wireless Communications and Mobile Computing
+(IWCMC), IEEE, 2024, pp. 1345–1350.
+doi:https://doi.org/10.
+1109/IWCMC61514.2024.10592466.
+[26] Etsi gr thz 001 v1.1.11 (2024-01), identiﬁcation of use cases
+for thz communication systems, https://www.etsi.org/deliver/etsi_
+gr/THz/001_099/001/01.01.01_60/gr_THz001v010101p.pdf, accessed on
+15.10.2025 (2024).
+[27] ITU, Itu-r m.2417-1: Technical and operational characteristics of
+land-mobile service applications in the frequency range 275-450 ghz
+(2022).
+URL
+https://www.itu.int/dms_pub/itu-r/opb/rep/R-REP-M.
+2417-1-2022-PDF-E.pdf
+[28] J. Lin, M. A. Weitnauer, Pulse-level beam-switching for terahertz
+networks, Wireless Networks 25 (6) (2019) 3047–3062. doi:https:
+//doi.org/10.1007/s11276-018-1702-7.
+[29] X.-W. Yao, J. M. Jornet, Tab-mac: Assisted beamforming mac pro-
+tocol for terahertz communication networks, Nano Communication
+Networks 9 (2016) 36–42.
+doi:https://doi.org/10.1016/j.nancom.
+M. Absaruddin et al.: Preprint submitted to Elsevier
+Page 16 of 17
+Enhanced Dynamic Beamwidth Selection-based THz MAC Protocol for Wireless Data Center Networks
+2016.07.003.
+[30] X.-W. Yao, F.-Z. Ni, C.-C. Wang, Multi-beam on-demand power allo-
+cation mac protocol for mimo terahertz communication networks, in:
+IEEE/CIC International Conference on Communications Workshops
+in China (ICCC Workshops), IEEE, 2019, pp. 158–163. doi:https:
+//doi.org/10.1109/ICCChinaW.2019.8849973.
+[31] X. Zhang, C. Han, X. Wang, Dual-radio-assisted (dra) mac protocols
+for distributed terahertz networks, IEEE Open Journal of Vehicular
+Technology 2 (2021) 111–124.
+doi:https://doi.org/10.1109/OJVT.
+2021.3049969.
+[32] C. DAndrea, J. M. Jornet, A. Singh, P. Sen, Z. Ghassemlooy,
+S. Zvanovec, S. R. Teli, A. Gholami, C. DAndrea, J. M. Jornet,
+et al., 6g wireless technologies, in: The Road towards 6G: Oppor-
+tunities, Challenges, and Applications: A Comprehensive View of
+the Enabling Technologies, Springer, 2024, pp. 51–114. doi:https:
+//doi.org/10.1007/978-3-031-42567-7_3.
+[33] J. Zhai, N. Ma, S. Liu, S. Zheng, A dual channel mac protocol with irs
+relay selection mechanism for terahertz communication, in: 2023 9th
+International Conference on Computer and Communications (ICCC),
+IEEE, 2023, pp. 321–326. doi:https://doi.org/10.1109/ICCC59590.
+2023.10507253.
+[34] L. He, F. Hu, Z. Chu, J. Zhao, Y. Sagduyu, N. Thawdar, S. Kumar,
+Intelligent terahertz medium access control (mac) for highly dynamic
+airborne networks, IEEE Transactions on Aerospace and Electronic
+Systems 59 (3) (2022) 2494–2512.
+doi:https://doi.org/10.1109/
+TAES.2022.3215464.
+[35] S. Cavallero, C. Buratti, A. Tsarev, G. Cuozzo, E. Khayrov,
+Y. Gaidamaka, R. Verdone, Applying carrier sense multiple access to
+industrial iot at terahertz frequencies, IEEE Internet of Things Journal
+(2023). doi:https://doi.org/10.1109/JIOT.2023.3334514.
+[36] A. AlGhadhban, F4tele: Fso for data center network management and
+packet telemetry, Computer Networks 186 (2021) 107711. doi:https:
+//doi.org/10.1016/j.comnet.2020.107711.
+[37] J. M. Jornet, I. F. Akyildiz, Channel modeling and capacity analysis
+for electromagnetic wireless nanonetworks in the terahertz band,
+IEEE Transactions on Wireless Communications 10 (10) (2011)
+3211–3221. doi:10.1109/TWC.2011.081011.100545.
+[38] Z. Hossain, Q. Xia, J. M. Jornet, Terasim: An ns-3 extension to sim-
+ulate terahertz-band communication networks, Nano Communication
+Networks 17 (2018) 36–44. doi:https://doi.org/10.1016/j.nancom.
+2018.08.001.
+[39] IEEE, Ieee standard for wireless multimedia networks, IEEE Std
+802.15.3-2023 (Revision of IEEE Std 802.15.3-2016) (2024) 1–
+684doi:10.1109/IEEESTD.2024.10443750.
+[40] M. Absaruddin, S. Ghafoor, M. H. Rehmani, Performance evaluation
+of THz physical layer parameters based on ieee 802.15.3-2023, in:
+Irish Signals and Systems Conference (ISSC), IEEE, 2026, pp. 1–6,
+(Accepted for publication).
+[41] J. Hu, C. Zeng, Z. Wang, J. Zhang, K. Guo, H. Xu, J. Huang, K. Chen,
+Load balancing with multi-level signals for lossless datacenter net-
+works, IEEE/ACM Transactions on Networking (2024). doi:https:
+//doi.org/10.1109/TNET.2024.3366336.
+[42] N. Boujnah, S. Ghafoor, et al., Final dll layer model and simulator:
+Terahertz based ultra high bandwidth wireless access networks, de-
+liverable ID: D5.4, Milestone: Final proposed (October 2020).
+URL https://www.terapod-project.eu/
+[43] K. Zhao, P. Goyal, M. Alizadeh, T. E. Anderson, Scalable tail latency
+estimation for data center networks, in: 20th USENIX Symposium on
+Networked Systems Design and Implementation (NSDI 23), USENIX
+Association, Boston, MA, 2023, pp. 685–702.
+[44] ns-3
+Consortium,
+ns-3
+lognormalvariable
+class
+reference,
+https://www.nsnam.org/docs/release/3.17/doxygen/classns3_1_1_
+log_normal_variable.html, accessed: 2025-05-7 (2013).
+M. Absaruddin et al.: Preprint submitted to Elsevier
+Page 17 of 17

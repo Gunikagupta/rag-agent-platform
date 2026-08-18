@@ -1,0 +1,1049 @@
+BCover: An Electronic Structure-Based Scoring
+Suite for Reaction-Aware Covalent Docking
+Emil Zak∗and Micha l Szczepanik
+BEIT sp. z o.o., Wadowicka 8A, 30-415 Krak´ow, Poland
+E-mail: emil@beit.tech
+Abstract
+Covalent virtual screening requires ranking compounds according to both nonco-
+valent recognition and their ability to adopt a reaction-competent geometry with an
+appropriately reactive warhead. Here, we introduce BCover, a reaction-aware scoring
+suite that combines pre-reactive docking with quantum-chemistry-derived ligand reac-
+tivity descriptors, the electrostatic properties of the protein pocket. Quantum-chemical
+descriptors are aggregated using a nonlinear tree-based scoring model.
+BCover was evaluated retrospectively on the COValid benchmark, comprising nine
+targets and ten reactive sites, and compared with AutoDock, DOCK6, DOCKovalent,
+AlphaFold3 with Rosetta rescoring, and AlphaFold3 confidence-based ranking. BCover
+achieved an average adjusted LogAUC of 31% (57% max), an average ROC-AUC of
+0.88 (0.96 max), an average EF1 of 18 (33 max). Its average LogAUC exceeded those
+of the classical docking methods and AlphaFold3-Rosetta, although AlphaFold3-mPAE
+provided the strongest overall enrichment. At an average runtime of about 10 s per
+ligand, BCover was approximately 25-fold faster than the evaluated AlphaFold3 work-
+flows and achieved the highest average time-adjusted virtual-screening productivity
+index. Redocking experiments further showed that the method recovered near-native
+ligand conformations.
+1
+arXiv:2607.18177v1  [physics.chem-ph]  20 Jul 2026
+These results demonstrate that combining docking-derived geometry with ligand lo-
+cal electronic reactivity and pocket electrostatics provides an efficient and interpretable
+strategy for covalent ligand prioritization. BCover is intended as a high-throughput
+screening method that complements more computationally demanding QM/MM and
+free-energy calculations during subsequent lead optimization.
+Introduction
+Covalent inhibitors are increasingly important in drug discovery because they can combine
+target recognition and selectivity with long residence times.1–3 Covalent ligand discovery
+requires simultaneous satisfaction of noncovalent recognition, i.e. molecular docking of the
+ligand molecule in the target, reaction-enabling geometry, and environment-modulated chem-
+ical reactivity.4–10
+Pose reproduction alone is not sufficient for covalent docking. A near-native pose does not
+guarantee useful ranking in retrospective or prospective screening.4–6 Prior covalent docking
+approaches primarily estimate noncovalent interaction energy and steric complementarity.
+Tethered or constrained covalent docking can improve geometry, but a geometrically plausi-
+ble pose does not establish that the warhead is sufficiently electrophilic (reactive) or that the
+receptor environment favors charge transfer and bond formation.11–16 Tools based on chem-
+ical reactivity of the ligand alone often combine global and local ligand reactivity indices.
+Those that use global ligand descriptors, such as ionization energy, electron affinity, chemical
+hardness, and global electrophilicity, can characterize intrinsic molecular reactivity but do
+not identify the reactive atom or account for the particular protein pocket. Conversely, local
+geometry-dependent electronic reactivity terms depend on the selected pose but generally
+omit the electronic polarization imposed by the receptor. Finally, tools based on ligand
+reactivity alone lack appropriate pre-reactive complex generation penalty contributions.
+The practical gap addressed in this work is a fast, automated scoring tool that keeps the
+interpretability of physics-inspired scoring and provides a sufficiently high ligand enrichment
+2
+power in covalent inhibitors screening. By forming descriptors that combine local ligand re-
+sponse functions with a spatially resolved receptor potential and pre-complex pose optimiza-
+tion, our model can differentiate candidate poses and ligands that are similar according to
+docking energy or global electrophilicity but differ in (i) localization of electrophilic response
+at the warhead, (ii) electrostatic activation or deactivation by the pocket, (iii) reaction-center
+geometry, and (iv) conformational preorganization at the noncovalent docking stage.
+In this work, we present BCover, a fast, automated, reaction-aware covalent docking and
+scoring suite that improves retrospective covalent virtual-screening performance by combin-
+ing pre-reactive docking with pose scoring based on quantum-chemical electronic structure
+calculations. Our contributions are as follows. We introduce a new scoring formula based on
+reactivity descriptors that combine Fukui-function-based reactivity and quantum-chemically
+calculated electrostatic information about the pocket encoded in electrostatic potential. Our
+method enables pocket detection, reactive residue detection, warhead detection, pocket-
+ligand interaction profiling, pre-reactive molecular docking with quantum-inspired solver,
+and pose scoring. We carried out retrospective benchmarking on the COValid benchmark
+set,10 which contains nine protein targets and ten target-residue sites, and compared BCover
+with widely used tools for covalent virtual screening, including AutoDock,17 DOCK6,18
+DOCKovalent,19 CarsiDock-Cov,20 and AlphaFold3.21 All the benchmarked tools are open
+source.
+BCover demonstrated ligand-ranking capability that outperformed available open-source
+and commercial physics-based scoring approaches, while matching the accuracy of AlphaFold3
+with Rosetta rescoring,21,22 as measured by adjusted LogAUC, BEDROC, enrichment fac-
+tor at 1% (EF1), and ROC-AUC. Although BCover achieved lower ranking metrics than
+AlphaFold3 using the predicted aligned error matrix metric (AF3-mPAE),10 it was approxi-
+mately 25-fold faster on average. BCover therefore operates in a runtime regime comparable
+to lightweight tools such as AutoDock and DOCK6, while offering an efficient multi-CPU
+parallelization for pre-reactive docking stage based on simulated annealing of a cost function
+3
+based on classical MMFF94 force field and LM5 entropy model and multi-GPU parallelization
+of selected modes in the quantum-computational stage of our workflow, making it suitable
+for high-throughput covalent virtual screening.
+Methods
+Overview of the BCover Workflow
+The main contribution of this work is discussed in sec. , where we present details of our
+quantum pose scoring function. In this section, we briefly discuss key stages of our design,
+which overall represents a beginning-to-end pipeline, which we refer to as BCover.
+BCover is a computer code implementing an automated pipeline for reaction-aware virtual
+screening of covalent inhibitors. Starting from a protein structure and a ligand library, the
+code identifies candidate reactive sites and lignd warheads, generates pre-reactive ligand
+poses, evaluates their geometric and quantum-chemical compatibility with covalent bond
+formation, and returns a ranked list of ligands together with interpretable score components
+(Fig. 1).
+Input.
+The required input consists of (i) a protein structure in PDB format, (ii) a ligand
+database provided as SDF, MOL2 or SMILES, and optionally (iii) user-defined binding-site
+identifier (reactive residue ID) or reaction-specific geometric constrains for residue-warhead
+near-attack orientation. If no constraints are supplied, all subsequent stages are performed
+automatically.
+Preprocessing.
+Potential ligand-binding pockets are identified using FPocket.23 Alter-
+natively, the user may directly specify the binding pocket by residue identifiers. For every
+detected pocket, BCover identifies aminoacid residues capable of forming covalent bonds with
+electrophilic ligands. The current implementation supports the most common nucleophilic
+4
+residues exploited in covalent drug discovery, including cysteine, serine, lysine, tyrosine, histi-
+dine and threonine. Each residue is represented by one or more reactive atoms corresponding
+to the expected nucleophilic center (e.g. Sγ for cysteine, Oγ for serine, Nζ for lysine and Oη
+for tyrosine).
+The docking simulation box is subsequently generated automatically. Its center can be
+defined by the reactive atom, the geometric center of the detected pocket, or the center of
+a co-crystallized ligand when available. The box size is determined from the ligand library
+according to L = α maxi (maxa,b∈i ∥ra −rb∥), where L denotes the cubic box length, α = 2 by
+default is a scaling factor, and the inner maximum corresponds to the largest intramolecular
+atomic distance for ligand i.
+This procedure ensures that all candidate ligands can be
+sampled without artificial steric truncation.
+Ligands are simultaneously analyzed for the presence of reactive warheads using SMARTS-
+based substructure recognition.
+The current implementation recognizes several clinically
+relevant electrophilic warhead classes including nitriles, acrylamides and related Michael
+acceptors.
+Pre-reactive docking.
+Ligand conformations are generated using the BDocker docking
+engine based on simulated annealing.24 During docking a cost function is minimized, which
+combines ligands’ internal potential energy and non-covalent ligand-pocket interaction terms.
+During the optimization, ligand internal energy is described by a MMFF94 force field includ-
+ing bond stretching, angle bending, torsional, stretch-bend coupling, while the ligand-pocket
+interaction model contains electrostatic and van der Waals interactions together with an
+implicit desolvation and hydrogen-bonding contributions.
+Unlike conventional non-covalent docking, BCover explicitly biases sampling toward reaction-
+competent geometries through a physically motivated confining potential similar in spirit to
+previously proposed two-step covalent docking approaches.5,11,12 The restraint acts only on
+the reactive center and guides the electrophilic warhead toward the nucleophilic residue
+5
+while preserving full conformational flexibility of the remaining ligand. The modification to
+the force field includes additional harmonic potential confining terms, which ensure residue-
+warhead orientation in a near-attack conformation (NAC) geometry, derived from quantum-
+chemical calculations. These calculations are carried per chemical reaction. For the case of
+Michael addition benchmarked in this work we used DFT with ωB97X-D3BJ functional and
+the aug-cc-pvdz basis set, to obtain the NAC geometry used to parameterize the geometric
+restraints employed during docking.
+For each ligand, the code returns an ensemble of low-energy pre-reactive poses. Depend-
+ing on the application, either the lowest-energy pose or a Boltzmann-weighted ensemble may
+be propagated to the scoring stage. A schematic of the adopted model is presented in Fig. 1.
+Pose scoring.
+Each pose is evaluated using a multi-component scoring function, which
+accounts for electronic reactivity, pose-penalty from the pre-reactive stage and entropic con-
+tributions. Electronic reactivity is characterized using quantum-chemistry-derived descrip-
+tors including Fukui functions and related electrophilicity measures.7,8,25 These descriptors
+are described in detail in sec. . The final score additionally incorporates the LM5 entropy
+model26 to estimate conformational entropy losses associated with ligand binding.
+Output.
+For every ligand, BCover returns ranked poses, overall scores, decomposition
+into individual score components, and execution metadata including runtime and statistics.
+These outputs provide both high-throughput virtual-screening capability and physically in-
+terpretable information suitable for a follow-up analysis.
+Reaction-aware quantum-chemical pose scoring
+Ligand poses are scored with a function that can be expressed as follows:
+SBCover = f(Sdock, Sint, Sreact, Sent).
+(1)
+6
+Figure 1: Schematic of the BCover pipeline.
+7
+where Sdock captures noncovalent recognition and pose penalty, Sint describes electrophile-
+nucleophile compatibility using Fukui-function-derived descriptors7,8,25 as well as molecular-
+potential contributions,27–29Sreact captures intrinsic pose reactivity using quantum-chemistry-
+derived descriptors27–29 and Sent: accounts for entropy-related penalties using the LM5 en-
+tropy model.26
+The set of calculated reactivity descriptors Sreact consists of ionization energy I, electron
+affinity A, chemical potential µ ≈1
+2(I + A), hardness η ≈1
+2(I −A) and global electrophilic
+index GEI = µ2
+2η. Global descriptors such as GEI have been shown to correlate with exper-
+imental data on covalent inhibitors on certain datasets.8,30 However, these quantities lack
+any information about the target protein or local reactivity of the ligand. We solve this by
+introducing another set of descriptors Sint quantifying the interaction between the ligand
+and the pocket. The information about local reactivity of the ligand is included using Fukui
+function, which can be expressed31
+f (+)(r) ≈ρN+1(r) −ρN(r)
+f (−)(r) ≈ρN(r) −ρN−1(r)
+(2)
+where ρN(r) denotes electron density corresponding to N electron system. Function f (+)(r)
+describes reactivity towards nucleophiles, while f (−)(r) describes reactivity towards elec-
+trophiles. One can also assign a Fukui index to each atom using
+f +
+k (r) = qk(N) −qk(N + 1)
+f −
+k (r) = qk(N −1) −qk(N)
+(3)
+where qk(N) is an atomic charge of k-th atom obtained from methods such as Mulliken
+or L¨owdin population analysis. To incorporate information about the target, the calculated
+descriptors also depend on the external potential experienced by the ligand within the binding
+8
+pocket, which within DFT framework can be expressed as32
+Vpoc(r) = −
+Npoc
+X
+k=1
+Zk
+|r −Rk| +
+Z
+dr′ ρpoc(r′)
+|r −r′| + vXC(r)
+(4)
+where Zk and RA denote the atomic number and the position of k-nuclei, Npoc is the total
+number of atoms in the pocket, ρpoc(r′) is electronic density inside the pocket and vXC(r)
+is the exchange correlation potential. Based on eqs 2,3 we introduce the following derived
+descriptors:
+F = µ
+η
+X
+k∈Warhead
+f (+)
+k
+(5)
+Ef =
+Z
+drf (+)(r)Vpoc(r)
+(6)
+C(2)
+cov = µ
+η Ef
+C(3)
+cov = 1
+2ηE2
+F
+(7)
+Those quantities are inspired by an approximate expression for covalent contribution to the
+binding energy32
+Ecov =
+h
+µlig −µpoc +
+R
+drf (+)
+lig (r)Vpoc(r) −
+R
+drf (−)
+poc (r)Vlig(r)
+i2
+2(ηlig + ηpoc)
+(8)
+where Vlig(r) and Vpoc(r) are molecular electrostatic potentials generated by the ligand and
+the receptor, respectively. Based on eq. 8 we define a related quantity
+Ccov =
+h
+µlig +
+R
+drf (+)
+lig (r)Vpoc(r)
+i2
+2ηlig
+= GEI + C(1)
+cov + C(2)
+cov
+(9)
+Descriptors C(1)
+cov and C(2)
+cov can therefore be interpreted as corrections to GEI, which include
+local reactivity information via f +(r) and receptor information via Vpoc(r). An example
+isosurface plot of the Fukui function for a representative ligand from the Covalid dataset is
+9
+displayed in Fig. 2.
+To reduce the runtime of the calculation one can use the following approximation to the
+interaction term Ef
+Ef ≈E(atomic)
+f
+=
+Nlig
+X
+k=1
+f (+)
+k
+Vpoc(rk)
+(10)
+where rk denotes the position of k-th atom and Nlig is the total number of atoms in the
+ligand. Our initial tests showed that such an approach does not results in significant loss of
+accuracy on considered datasets, as seen in Table ?? in Supporting Information.
+Our final scoring function given in eq. 1 was obtained by training a model, which takes
+calculated molecular descriptors as input and outputs the score SBCover ∈[0, 1], which can
+be interpreted as a predicted probability that a given ligand is an active binder. We utilized
+the extreme gradient boosting (XGB)33 model, which is a variant of tree-based classifica-
+tion method.
+Binary decision trees are non-parametric supervised learning method that
+recursively partition the data by selecting, at each node, the split that minimizes a cost
+function measuring the impurity of the resulting child nodes.34 While simple decision trees
+have several advantages, such as interpretability and the ability to model complex nonlinear
+relationships, they also suffer from several limitations, including poor generalization and a
+tendency to overfit. To address these shortcomings, several ensemble methods have been
+proposed, including the Random Forest algorithm35 and gradient boosting techniques.36 In
+particular, gradient boosting works by iteratively building multiple trees, such that every
+new tree is trained to correct the mistakes of previews ones. XGB is a highly optimized
+implementation of the gradient boosting algorithm, known for its speed, efficiency and scal-
+ability.37
+The final model used in BCover was trained on the COValid dataset. For each target,
+the set of ligands was partitioned into training and test data with equal sizes and the same
+active to decoy ratio. As described in Supporting information, we found the optimal set of
+input descriptors for the model to be X = {C(1)
+cov, µ, F, GEI, η, Sent}, where Ebinding is the
+binding affinity estimated during non-covalent docking stage.
+10
+Figure 2: A representation of the target pocket with covalently bound ligand. Shown is also
+isosurface representing the Fukui function near the warhead region.
+11
+Quantum chemical calculations
+We implement two methods of calculating quantum-mechanical descriptors described in the
+previous section: density functional theory (DFT) and extended tight binding (xTB). For
+DFT we rely on the PySCF38 implementation, while xTB calculations were performed using
+the xtb program package developed by the Grimme group.39 Evaluating descriptors such
+as the chemical potential or the Fukui functions requires three separate electronic structure
+calculations for each ligand, corresponding to the neutral, cationic, and anionic states. To
+reduce the computational cost of the DFT calculations, we also implemented an additional
+execution mode based on frozen orbital approximation, which we denote DFT(frozen). This
+allows one to express all descriptors in terms of properties related only to the neutral species:
+I ≈−ϵHOMO
+A ≈−ϵLUMO
+f +(r) ≈|ψLUMO|2
+f (−)(r) ≈|ψHOMO|2
+(11)
+where ϵHOMO, ϵLUMO denote orbital energies on Highest Occupied Molecular Orbital (HOMO)
+and Lowest Unoccupied Molecular Orbital (LUMO) respectively and ψHOMO, ψLUMO are
+the corresponding wavefunctions. Table ?? in Supporting Information shows the compari-
+son between DFT, xTB and DFT with frozen orbital approximation. Due to the favorable
+computational cost, we focus on the xTB implementation in the rest of this paper.
+Benchmark Dataset
+We used COValid as the primary retrospective benchmark for evaluating covalent virtual-
+screening performance.10 COValid was selected because it was designed specifically for cova-
+lent enrichment analysis rather than only pose reproduction, and therefore provides a suitable
+test of whether a scoring function can prioritize active covalent ligands over property-matched
+decoys. The benchmark was interpreted in the context of prior covalent-docking benchmark
+studies, which report that structure curation is important as well as pose and reactivity
+evaluation beyond simple redocking success.4–6,40
+12
+The COValid set contains nine protein targets and ten annotated nucleophilic attach-
+ment sites. The benchmark focuses on cysteine-targeting acrylamide ligands, dominated
+by cysteine-directed covalent inhibitors and providing a chemically controlled setting for
+comparing enrichment performance.
+For each active ligand, COValid includes a set of
+property-matched decoy protomers generated by removing and reinstalling an acrylamide
+electrophile on topologically dissimilar noncovalent analogues. This design reduces trivial
+property-based separation between actives and decoys while retaining chemically plausible
+covalent warheads. In total, the benchmark contains 874 active protomers and 37,919 decoy
+protomers distributed across the ten target sites.
+Active labels in COValid are derived from experimental activity annotations curated
+from BindingDB and ChEMBL,41,42 with filtering steps intended to enrich for compounds
+acting through a covalent cysteine-targeting mechanism.10 Because decoys are not neces-
+sarily experimentally confirmed inactives, we treat COValid as a retrospective enrichment
+benchmark rather than a direct estimate of absolute biochemical classification accuracy.
+Accordingly, our analysis includes comparing relative ranking metrics, including adjusted
+LogAUC, BEDROC, EF1, ROC-AUC, and time-adjusted screening productivity, which we
+define further on.
+For each target site, we retained the COValid annotations of the reactive residue, target
+identity, active and decoy protomer counts, and associated structural references. Where pose-
+level analysis was possible, predicted poses were compared to the corresponding experimental
+covalent reference structures using pocket-aligned ligand RMSD.
+An example output including target name, active/decoy annotations, protomer ID, de-
+scriptors and final BCover score is reported in the Supporting Information. This per-target
+reporting is important because covalent virtual-screening performance can vary substantially
+with target family, reactive-site location, ligand chemotype distribution, and the quality of
+active/decoy annotations.
+13
+Comparator Tools
+BCover was benchmarked against representative state-of-the-art methods for covalent vir-
+tual screening, including AutoDock4,17 DOCK6,18 DOCKovalent,19 CarsiDock-Cov,20 Al-
+phaFold3 with both the predicted aligned error (AF3-mPAE) ranking and Rosetta rescoring
+(AF3–Rosetta).21,22 These methods span classical force-field docking plus covalent docking
+heuristics, deep-learning-based structure prediction, and hybrid structure-prediction/rescoring
+workflows. AutoDock4, DOCK6, and DOCKovalent are physics-based docking tools that
+generate covalent or covalent-like ligand poses in a mostly fixed receptor structure and rank
+them with empirical or grid-based interaction scores.
+AutoDock treats covalent docking
+through constrained ligand placement and torsional sampling, DOCK6 uses an attach-and-
+grow strategy to construct the ligand from the reactive site, and DOCKovalent samples
+ligand conformations under idealized covalent bond-length and bond-angle constraints. AF3-
+Rosetta separates structure prediction from energetic rescoring: AlphaFold3 first predicts the
+covalent protein-ligand complex, after which Rosetta minimization and scoring are used to
+rank the resulting structures. AF3-mPAE instead uses AlphaFold3’s predicted aligned error
+metric directly as a confidence-based ranking score, rather than an explicit physical interac-
+tion energy. A tool available through Rowan30 is treated here as a fast quantum/reactivity-
+oriented baseline that estimates covalent ligand suitability from electronic structure features
+rather than from full protein-ligand pose optimization.
+Whenever possible, all methods were evaluated using identical input data, including the
+same receptor structures, ligand libraries, protonation states, stereochemistry assignments,
+active/decoy annotations, and performance metrics.
+Key metrics
+The receiver operating characteristic (ROC) curve is obtained by plotting the true positive
+rate (TPR) as a function of the false positive rate (FPR) over all possible decision thresh-
+14
+Table 1: Comparison of tools used in the Covalid benchmark and this work.
+Method
+Covalent-aware
+Physics-based
+ML-based
+Open source
+AutoDock4
+No
+Yes
+No
+Yes
+DOCK6
+Partial
+Yes
+No
+Academic
+DOCKovalent
+Yes
+Yes
+No
+Yes
+CarsiDock-Cov
+Yes
+Partial
+Yes
+Yes
+AF3-mPAE
+Partial
+No
+Yes
+No
+AF3-Rosetta
+Partial
+Partial
+Yes
+Partial
+BCover
+Yes
+Yes
+Partial
+No
+olds.43 The area under the ROC curve (ROC-AUC) is defined as44
+ROC-AUC =
+Z 1
+0
+dxTPR(x)
+(12)
+where x = FPR. To place greater emphasis on early enrichment (i.e., small FPR values),
+the ROC curve can instead be parameterized by log(FPR).45 The resulting metric is
+logAUC(a) =
+Z 1
+a
+d(log x)TPR(x) =
+Z 1
+a
+dxTPR(x)
+x
+(13)
+where 0 < a < 1 is a small positive constant introduced to avoid the singularity at x = 0.
+Throughout this work, we use a = 0.001, following common practice.10,46–48 One can also
+define an adjusted logAUC(a), which we simply denote by logAUC, by subtracting the
+expected value for a random classifier,
+logAUC = logAUC(a) −logAUCrand(a).
+(14)
+Note that this metric still implicitly depend on the free parameter a.
+A similar idea of assigning higher importance to early recognition is used in the definition
+of the Robust Initial Enhancement (RIE) metric,49 which introduces an explicit exponential
+weighting of the ranked list:
+RIE(α) = α
+NA
+PNA
+i=1 e−α ri
+N
+1 −e−α
+,
+(15)
+15
+where ri denotes the rank of the i-th active ligand, NA is the total number of active ligands,
+N is the total number of ranked compounds, and α is a parameter controlling the strength of
+the weighting towards the top of the ranking list. A disadvantage of RIE is that its minimum
+and maximum achievable values depend on the particular dataset and the number of active
+compounds. Therefore, the Boltzmann-enhanced discrimination of the receiver operating
+characteristic (BEDROC) metric is commonly used, which corresponds to a normalized
+version of RIE:45
+BEDROC(α) =
+RIE(α) −RIEmin(α)
+RIEmax(α) −RIEmin(α).
+(16)
+Throughout this work, we use the values of α = 80.5.
+Another important metric is the enrichment factor (EF), which quantifies the improve-
+ment in the fraction of active compounds retrieved at the top of a ranked list compared to
+a random classifier. It is defined as45
+EF(η) = Nactive(η)/(ηN)
+Nactive/N
+= Nactive(η)
+ηNactive
+,
+(17)
+where η denotes the fraction of compounds considered at the top of the ranking list, N is the
+total number of compounds, Nactive(η) is the number of active compounds within the top η
+fraction of the ranked list, and Nactive is the total number of active compounds in the dataset.
+An EF(η) value greater than one indicates enrichment relative to a random classifier. In this
+work, we mostly focus on cases of η = 0.01 and η = 0.05 and we denote the corresponding
+metrics as EF1 and EF5.
+Results
+Below we report benchmark calculations results carried out on the COValid dataset. For
+BCover, a single pre-reactive pose was retained for each ligand after docking and propa-
+gated to the scoring stage. During pose generation, the reactive geometry was guided by
+16
+a harmonic confining potential acting on the electrophile-nucleophile pair. For acrylamide
+warheads reacting with cysteine residues, the equilibrium sulfur-Cβ distance was set to 2.3 ˚A
+with a force constant of kr = 100 kcal mol−1 ˚A−2. An additional angular restraint favored a
+Cβ-Sγ-CCys angle of 90◦, corresponding to the preferred near-attack geometry for Michael ad-
+dition. These parameters were derived from density-functional calculations of representative
+model reactions and were kept fixed throughout all benchmark calculations.
+All ligand-
+specific descriptors were computed using the GFN2-xTB method,50 as implemented in the
+xTB package.39 The approximation given by Eq. 10 was employed throughout.
+Atomic
+Fukui indices were calculated using Mulliken population analysis. The external potential
+Vpot(rk) evaluated at the positions rk of the ligand atoms, was computed using DFT with
+the B3LYP exchange-correlation functional and the 6-31G* basis set, employing the density
+fitting approximation. The integration required to evaluate the electron contribution to ex-
+ternal potential was performed using df.incore.aux e2 function implemented in PySCF.
+All parameters unspecified it the text were kept at default values.
+Retrospective Screening Performance
+Per-target adjusted LogAUC values for BCover and the comparator methods are shown in
+Fig. 3, while the corresponding average values across the COValid benchmark are summarized
+in Fig. 4.
+An overall comparison of the evaluated methods, including virtual-screening
+accuracy and computational cost, is presented in Supplementary information. To jointly
+assess screening performance and computational efficiency, we introduce the virtual-screening
+productivity index (VSPI), defined as VSPI =
+LogAUC
+τ 1/2
+, where τ =
+t
+t0 is the normalized
+computational cost per ligand, t is the average runtime expressed in CPU equivalents on a
+standard 32-core processor, and t0 = 60 s is the reference execution time. The square-root
+dependence quantifies the influence of runtime while still favoring computationally efficient
+methods, reflecting the practical observation that reducing execution time from minutes to
+seconds is generally more valuable than achieving an equivalent proportional speedup for
+17
+already fast methods. Per-target VSPI values are presented in Fig. 5, whereas the average
+VSPI over the complete COValid benchmark is shown in Fig. 6. In evaluating execution time
+BCover’s performance was tested on possibly reproducing computing resources conditions
+as reported in .10
+Table 2: Average retrospective screening performance across the nine COValid targets. Run-
+time is reported as average time per ligand.
+Method
+logAUC (%)
+Time per ligand (s)
+Rowan30
+-6.0
+60.0
+DOCKovalent
+12.0
+8.4
+DOCK6
+16.8
+7.0
+AutoDock
+7.0
+6.7
+AF3-mPAE
+72.0
+280.0
+AF3-Rosetta
+28.0
+280.0
+BCover
+31.0
+10.2
+Table 3: Performance on the best-performing COValid target for BCover: KRasG12C. Run-
+time is reported as average time per ligand.
+Method
+logAUC (%)
+Time per ligand (s)
+DOCKovalent
+0.0
+8.4
+DOCK6
+0.0
+7.0
+AutoDock
+9.0
+6.7
+AF3-mPAE
+74.0
+280.0
+AF3–Rosetta
+30.0
+280.0
+BCover
+59.0
+10.2
+The benchmark results indicate that BCover provides a favorable balance between en-
+richment quality and computational cost. Across the nine COValid targets, BCover achieves
+an average logAUC of 31%, outperforming other physics-based docking tools DOCKova-
+lent, DOCK6, AutoDock, and Rowan, while remaining much faster than AlphaFold3-based
+methods. Although AF3-mPAE gives the strongest average enrichment, it requires substan-
+tially longer runtime per ligand; in contrast, BCover operates in the same practical runtime
+regime as lightweight docking tools while delivering markedly stronger ranking performance.
+This tradeoff is captured by the VSPI analysis (cf. Fig ??, where BCover shows one of the
+18
+Table 4: Performance on the hardest COValid target for BCover: FGFR4 Cys552. Runtime
+is reported as average time per ligand.
+Method
+logAUC (%)
+Time per ligand (s)
+DOCKovalent
+7.0
+8.4
+DOCK6
+52.9
+7.0
+AutoDock
+-3.8
+6.7
+AF3-mPAE
+82.2
+280.0
+AF3–Rosetta
+47.1
+280.0
+BCover
+13.1
+10.2
+Table 5: Summary of BCover performance metrics across COValid.
+Metric
+Value
+Average AUC
+0.88
+Maximum AUC
+0.96
+Average logAUC (%)
+31.0
+Maximum logAUC (%)
+57.0
+Average EF1
+18.0
+Maximum EF1
+33.0
+Average BEDROC
+0.39
+Maximum BEDROC
+0.83
+Time per ligand (s)
+10.2
+19
+strongest time-adjusted screening profiles among the tested methods. Explicit values for
+logAUC and execution times are compared in Table 2.
+The target-level results further illustrate the practical value of BCover. On KRAS, shown
+in Table 3, BCover reaches a logAUC of 59%, substantially exceeding AF3-Rosetta21,22 and
+all other docking packages, and approaching the enrichment obtained by AF3-mPAE at a
+fraction of the computational cost. The harder FGFR4 Cys552 case highlights that perfor-
+mance remains target dependent, but even there BCover provides a useful enrichment tool,
+consistently outpeforming open source, Rowan, Carsi-dock, AutoDock17 and DOCKovalent.
+Lower logAUC values are a diagnostic for identifying target classes or pocket geometries
+where additional calibration may be needed.
+In Table 5 we summarize the BCover-only metrics, which show an encouraging average
+AUC of 0.89, maximum AUC of 0.96, average EF1 of 18, maximum EF1 of 36, and average
+BEDROC of 0.39, indicating that the method is not only separating actives from decoys
+globally, but also enriching active compounds early in the ranked list. Overall, these results
+support BCover as a scorer that improves over conventional covalent docking scores while
+retaining throughput suitable for prospective virtual screening.
+Figure 3: Per-target retrospective virtual-screening performance on COValid. Bars show
+adjusted logAUC values for each target site and method. Average adjusted logAUC values
+across targets are shown in the legend.
+20
+Figure 4: Average adjusted logAUC across COValid target sites. Bars compare AutoDock,
+DOCK6, DOCKovalent, AF3-Rosetta, BCover, and AF3-mPAE.
+Figure 5: Per-target virtual-screening productivity index (VSPI) on COValid. Bars show
+VSPI values for each target site and method. Average VSPI values across targets are shown
+in the legend.
+21
+Figure 6: Average virtual-screening productivity index (VSPI) across COValid target sites.
+Bars compare the time-adjusted screening productivity of each method.
+Pose Quality
+Although the primary objective of BCover is ligand ranking for covalent virtual screening,
+pose quality provides an important complementary diagnostic. A highly ranked ligand should
+not only receive a favorable score, but should also adopt a geometrically plausible binding
+mode in the vicinity of the reactive residue. We therefore evaluated the top-ranked redocked
+poses using ligand heavy-atom RMSD. This analysis complements the adjusted LogAUC,
+BEDROC, EF1, and ROC-AUC metrics, because successful enrichment does not necessarily
+imply accurate recovery of the experimental binding geometry.
+For BCover, redocking was completed successfully for nine of the ten investigated refer-
+ence complexes; preprocessing failed for PDB entry 6MZW, which was therefore excluded
+from the RMSD analysis. Pose accuracy was quantified using two related measures. First,
+the ligand heavy-atom RMSD was calculated after optimal superposition of the predicted and
+crystallographic ligand conformations. Second, an unaligned RMSD was calculated in the
+receptor coordinate frame, thereby retaining differences in ligand translation and orientation
+22
+Figure 7: Redocking comparison for target 5P9J. The co-crystallized ligand pose is shown
+in green, and the redocked pose is shown in purple. The overlay illustrates the agreement
+between the experimentally observed binding geometry and the pose recovered by the docking
+protocol.
+within the binding pocket.
+After optimal ligand alignment, BCover achieved a mean RMSD of 1.28 ˚A and a median
+RMSD of 1.46 ˚A (Table 6). All nine successfully processed complexes had aligned RMSD
+values below 2.0 ˚A, and three of nine complexes (33.3%) were below 1.0 ˚A. The corresponding
+unaligned RMSDs were higher, with a mean of 3.71 ˚A and a median of 3.27 ˚A. Two of nine
+poses (22.2%) had unaligned RMSD values below 2.0 ˚A, and one pose (11.1%) was below
+1.0 ˚A.
+The COValid study focused primarily on virtual-screening enrichment rather than on
+systematic redocking across all comparator methods, but it reported several useful pose-
+quality reference values.10 In their study AlphaFold3 achieved a 78.5% success rate on a
+covalent-complex benchmark when a successful prediction was defined as a pocket-aligned
+ligand RMSD below 2 ˚A, following the AlphaFold3 benchmark protocol.10,21 Selected COV-
+alid examples included a pocket-aligned RMSD of 0.45 ˚A for the KRAS G12C complex PDB
+7O70, 0.67 ˚A for an EGFR complex, and 0.84-1.33 ˚A for MAP3K7 covalent complexes.10
+These results indicate that BCover consistently recovered ligand conformations similar
+to those observed crystallographically, whereas the absolute translation and orientation of
+the ligand within the binding pocket were less accurate for several systems. The strongest
+23
+pose recovery was obtained for PDB entries 5P9J and 5JH6, with unaligned RMSDs of 0.61
+and 1.19 ˚A, respectively. By contrast, larger discrepancies between aligned and unaligned
+RMSDs for 5HG5, 6IUO, 6NVG, 8B78, and 8X2A indicate that the dominant error in these
+cases arose from ligand placement within the pocket rather than from the internal ligand
+conformation. Pose quality could be improved by refining the confining function for the NAC
+geometry constraint (cf. Fig. 7).
+Overall, the results support the use of BCover for generating near-native ligand confor-
+mations with a reasonable quality, yet lower than AF3, marking the pre-reactive docking
+stage for further improvement.
+Table 6: Redocking pose accuracy of BCover on the COValid reference structures. The
+aligned RMSD was calculated after optimal ligand superposition, whereas the unaligned
+RMSD retains the ligand translation and orientation in the receptor coordinate frame.
+RMSDs were calculated over ligand heavy atoms.
+PDB entry 6MZW was excluded be-
+cause preprocessing did not complete successfully.
+PDB entry
+Aligned RMSD (˚
+A)
+Unaligned RMSD (˚
+A)
+4HCU
+1.69
+2.39
+4QPS
+1.63
+3.18
+5HG5
+1.46
+5.31
+5JH6
+0.72
+1.19
+5P9J
+0.61
+0.61
+6IUO
+1.15
+5.35
+6NVG
+1.94
+4.90
+8B78
+0.85
+3.27
+8X2A
+1.46
+7.16
+Mean
+1.28
+3.71
+Median
+1.46
+3.27
+Compared with classical covalent docking tools such as AutoDock, DOCK6, and DOCK-
+ovalent, BCover is designed to make pose quality and reaction geometry explicit components
+of the scoring function rather than treating pose generation and ligand ranking as sepa-
+rable steps.17–19 This distinction is important because COValid demonstrates that strong
+enrichment and accurate pose recapitulation can be separate objectives.10 A method can
+rank actives well while still producing local covalent geometries that require correction, and
+24
+conversely, a near-native pose does not guarantee useful early enrichment.
+Ablation of Scoring Terms
+We carried out an ablation study to quantify the contribution of individual components of
+the BCover scoring model. In particular, we compared the full BCover score against several
+reduced variants: pre-reactive docking-only, full score without Fukui-function terms, no-
+molecular-potential, and no-entropy models. Our objective was to test whether the Fukui-
+function and related reaction-aware terms improve ranking beyond docking and reactive
+geometry alone.
+The pre-reactive docking-only variant uses only the quality of the non-covalent near-
+attack complex, without any explicit reactivity correction. The geometry-only variant retains
+local near-attack descriptors, such as the warhead-nucleophile distance and approach geom-
+etry, but removes electronic and thermodynamic terms. The no-Fukui and no-molecular-
+potential variants selectively remove the terms describing, respectively, the electrophilic re-
+activity of the warhead and the electrostatic organization of the protein pocket. Finally, the
+no-entropy variant removes the correction associated with conformational preorganization
+and hindered flexibility of the reactive complex.
+The ablation results show that no single geometric descriptor is sufficient to recover the
+performance of the full model. Docking-only and geometry-only variants retain some early
+enrichment, confirming that formation of a plausible pre-reactive complex is a necessary
+condition for productive covalent binding. However, their performance is consistently lower
+than that of the full BCover model, indicating that pose quality alone does not fully deter-
+mine covalent reactivity. This is expected for covalent virtual screening: a ligand may adopt
+a geometrically plausible near-attack pose while still being electronically poorly activated,
+incorrectly polarized by the pocket, or entropically disfavoured.
+The largest degradation was observed upon removing the entropic contributions, later
+the Fukui-function and molecular-potential terms. Removing the Fukui-function contribu-
+25
+tion alone reduced the LogAUC from 31.5 to 28.3. This indicates that the model benefits
+from explicitly resolving the electronic compatibility between the warhead and the reactive
+residue. The Fukui-function term captures the intrinsic local susceptibility of the ligand to
+nucleophilic attack, whereas the molecular-potential term captures how the protein environ-
+ment stabilizes, polarizes, or destabilizes the pre-reactive charge distribution. Their removal
+therefore eliminates two complementary sources of information: ligand-local reactivity and
+pocket-induced electrostatic activation.
+Removing the entropy term produced a 22.6 %
+decrease in performance. This suggests that conformational preorganization significantly
+contributes to ranking too.
+Overall, the ablation study supports the central design of BCover: accurate covalent rank-
+ing requires combining three distinct layers of information. First, docking and near-attack
+geometry identify ligands capable of forming a plausible pre-reactive complex. Second, elec-
+tronic descriptors, especially Fukui-function and pocket electrostatic-potential terms, iden-
+tify complexes in which the warhead is chemically activated toward covalent bond formation.
+Third, entropy-related terms penalize poses that require excessive preorganization. The full
+model outperforms all reduced variants.
+Discussion
+BCover was designed as a practical scoring model for covalent virtual screening, with the goal
+of improving early enrichment beyond docking-only or geometry-only ranking approaches.9,51–53
+The results of this study indicate that improved ranking requires the simultaneous inclu-
+sion of three complementary components: a warhead-reactivity descriptor, pocket-specific
+electrostatic information, and pre-reactive pose optimization. In the present implementa-
+tion, warhead reactivity is represented by descriptors derived from the Fukui function,7,8,25
+whereas the protein environment is described through the electrostatic potential of the bind-
+ing pocket and an entropy model resolving torsional degrees of freedom. These physically
+26
+interpretable quantities are combined in a regression-tree model, which provided the best
+overall performance among the tested scoring variants.
+The strongest conclusion supported by our results is that electronic reactivity descrip-
+tors improve retrospective covalent-screening performance when they are used together with
+docking-derived pose information and local near-attack geometry constraints. The Fukui-
+function terms provide information about the intrinsic susceptibility of the warhead to nu-
+cleophilic attack, while the pocket electrostatic-potential terms describe how the protein
+environment modulates this reactivity. The entropy term provides an additional correction
+for conformational preorganization, helping to penalize poses that are geometrically plausible
+but unlikely to persist in a reactive configuration. Thus, BCover should not be interpreted as
+a purely electronic reactivity model or as a conventional docking rescoring function. Rather,
+it combines geometric, electronic, and thermodynamic information into a single ranking for
+covalent ligand prioritization.
+The present results suggest that BCover is particularly well suited to kinase-focused co-
+valent virtual screening, as supported by its performance on the Covalid Benchmark. The
+high enrichment observed for KRAS targets further suggests that the model can be useful in
+settings where productive covalent binding depends on a combination of precise near-attack
+geometry and warhead activation by the local pocket environment. At the same time, com-
+parisons to experimental Ki, kinact, or kinact/Ki values should be made only for datasets in
+which assay conditions, kinetic protocols, and compound annotations are sufficiently consis-
+tent and curated.3,54 In its current form, BCover is best viewed as a prioritization tool for
+virtual screening and hit triage. The highest-ranked compounds can then be advanced to
+more expensive and higher-fidelity calculations, including QM/MM and free-energy meth-
+ods.55
+Several limitations should be noted. First, receptor flexibility and induced-fit effects are
+only approximately captured. Although docking and local geometry terms account for some
+aspects of pocket organization, large-scale conformational rearrangements, cryptic-pocket
+27
+formation, and slow protein motions may require explicit ensemble or molecular-dynamics
+treatment. Second, protonation and tautomeric states can strongly affect computed reactiv-
+ity descriptors and electrostatic potentials. These states must therefore be treated carefully
+during dataset preparation, especially for warheads and nearby catalytic residues. Third, the
+transferability of the model across warhead classes remains to be established. The present
+benchmark primarily supports conclusions for the reaction classes and target families repre-
+sented in the benchmarked data; broader validation will be required before generalizing the
+model to substantially different electrophiles, nucleophiles, or reaction mechanisms.
+Future work will focus on prospective experimental validation and on extending the
+benchmark to additional target families, broader kinetic datasets, and other warhead and
+reaction classes. We also plan to integrate BCover with high-accuracy QM/MM free-energy
+methods,55 enabling a tiered strategy in which BCover provides rapid enrichment during
+early screening, while more rigorous free-energy and reaction-barrier calculations are applied
+during lead optimization.51,56,57
+Conclusions
+We have presented BCover, a reaction-aware scoring tool for covalent virtual screening that
+combines classical docking terms with quantum-chemistry-derived reactivity descriptors. In
+contrast to conventional docking scores, the proposed method explicitly accounts for the
+interplay between electrophile reactivity, the local electrostatic environment of the protein
+pocket, and the geometry of the pre-reactive complex. The resulting scoring function re-
+mains computationally efficient while maintaining physically interpretable quantities directly
+related to covalent bond formation.
+Retrospective evaluation on the COValid benchmark demonstrated that BCover achieves
+competitive or superior enrichment compared with existing covalent docking approaches
+while maintaining throughput suitable for large-scale virtual screening. The modular design
+28
+of the scoring function also allows straightforward extension to additional warhead types,
+reactive residues, and descriptor sets. We anticipate that BCover will prove to be a practical
+tool for early-stage prioritization in covalent drug discovery, complementing more computa-
+tionally demanding QM/MM and free-energy methods used in later-stage lead optimization.
+Acknowledgments
+We thank Jan Tulowiecki, Linn Evenseth and the rest of BEIT team for their support during
+the preparation of this manuscript.
+References
+(1) Powers, J. C.; Asgian, J. L.; Ekici, O. D.; James, K. E. Irreversible Inhibitors of Serine,
+Cysteine, and Threonine Proteases. Chemical Reviews 2002, 102, 4639–4750.
+(2) Backus, K. M.; Correia, B. E.; Lum, K. M.; Forli, S.; Horning, B. D.; Gonzalez-
+Paez, G. E.; Chatterjee, S.; Lanning, B. R.; Teijaro, J. R.; Olson, A. J.; Wolan, D. W.;
+Cravatt, B. F. Proteome-Wide Covalent Ligand Discovery in Native Biological Systems.
+Nature 2016, 534, 570–574.
+(3) Flanagan, M. E. et al. Chemical and Computational Methods for the Characterization of
+Covalent Reactive Groups for the Prospective Design of Irreversible Inhibitors. Journal
+of Medicinal Chemistry 2014, 57, 10072–10079.
+(4) Scarpino, A.; Ferenczy, G. G.; Keseru, G. M. Comparative Evaluation of Covalent
+Docking Tools. Journal of Chemical Information and Modeling 2018, 58, 1441–1458.
+(5) Goullieux, M.; Zoete, V.; Roehrig, U. F. Two-Step Covalent Docking with Attracting
+Cavities. Journal of Chemical Information and Modeling 2023, 63, 7729–7741.
+29
+(6) Peng, C.; others CovDocker: Benchmarking Covalent Drug Design with Tasks, Datasets
+and Solutions. Proceedings of the ACM Conference on Bioinformatics, Computational
+Biology, and Health Informatics. 2025.
+(7) Palazzesi, F.; Grundl, M. A.; Pautsch, A.; Weber, A.; Tautermann, C. S. A Fast Ab
+Initio Predictor Tool for Covalent Reactivity Estimation of Acrylamides. Journal of
+Chemical Information and Modeling 2019, 59, 3565–3571.
+(8) Hermann, M. R.; Pautsch, A.; Tautermann, C. S. Covalent Inhibitor Reactivity Pre-
+diction by the Electrophilicity Index–In and Out of Scope. Journal of Computer-Aided
+Molecular Design 2020, 34, 1197–1210.
+(9) Yu, H.; others Toward Atomistic Modeling of Irreversible Covalent Inhibitor Binding
+Kinetics. Journal of Chemical Information and Modeling 2019, 59, 3955–3967.
+(10) Shamir, Y.; Gabizon, R.; Rogel, A.; Lin, D. Y.-W.; Andreotti, A. H.; London, N.
+Discovery of Covalent Ligands with AlphaFold3. Journal of the American Chemical
+Society 2026, 148, 13043–13054.
+(11) Ouyang, X.; Zhou, S.; Su, C. T.-T.; Ge, Z.; Li, R.; Kwoh, C.-K. CovalentDock: Au-
+tomated Covalent Docking with Parameterized Covalent Linkage Energy Estimation
+and Molecular Geometry Constraints. Journal of Computational Chemistry 2013, 34,
+326–336.
+(12) Zhu, K.; Borrelli, K. W.; Greenwood, J. R.; Day, T.; Abel, R.; Farid, R. S.; Harder, E.
+Docking Covalent Inhibitors: A Parameter Free Approach to Pose Prediction and Scor-
+ing. Journal of Chemical Information and Modeling 2014, 54, 1932–1940.
+(13) Scarpino, A.; Petri, L.; Knez, D.; Imre, T.; Abranyi-Balogh, P.; Ferenczy, G. G.;
+Gobec, S.; Keseru, G. M. WIDOCK: A Reactive Docking Protocol for Virtual Screen-
+ing of Covalent Inhibitors. Journal of Computer-Aided Molecular Design 2021, 35,
+223–244.
+30
+(14) Wu, Q.; Huang, S.-Y. HCovDock: An Efficient Docking Method for Modeling Covalent
+Protein–Ligand Interactions. Briefings in Bioinformatics 2023, 24, bbac559.
+(15) Yu, W.; Weber, D. J.; MacKerell, A. D. Integrated Covalent Drug Design Workflow Us-
+ing Site Identification by Ligand Competitive Saturation. Journal of Chemical Theory
+and Computation 2023, 19, 3007–3021.
+(16) Goullieux, M.; Zoete, V.; Roehrig, U. F. Hybrid Quantum/Classical Docking of Cova-
+lent and Non-Covalent Ligands with Attracting Cavities. Scientific Reports 2025, 15,
+42271.
+(17) Morris, G. M.; Huey, R.; Lindstrom, W.; Sanner, M. F.; Belew, R. K.; Goodsell, D. S.;
+Olson, A. J. AutoDock4 and AutoDockTools4: Automated Docking with Selective Re-
+ceptor Flexibility. Journal of Computational Chemistry 2009, 30, 2785–2791.
+(18) Allen, W. J.; Balius, T. E.; Mukherjee, S.; Brozell, S. R.; Moustakas, D. T.; Lang, P. T.;
+Case, D. A.; Kuntz, I. D.; Rizzo, R. C. DOCK 6: Impact of New Features and Current
+Docking Performance. Journal of Computational Chemistry 2015, 36, 1132–1156.
+(19) London, N.; Miller, R. M.; Krishnan, S.; Uchida, K.; Irwin, J. J.; Eidam, O.; Gibold, L.;
+Cimermancic, P.; Bonnet, R.; Shoichet, B. K.; Taunton, J. Covalent Docking of Large
+Libraries for the Discovery of Chemical Probes. Nature Chemical Biology 2014, 10,
+1066–1072.
+(20) Shen, C.; Du, H.; Zhang, X.; Gu, S.; Cai, H.; Kang, Y.; Pan, P.; Zhao, Q.; Hou, T.
+CarsiDock-Cov: A Deep Learning-Guided Approach for Automated Covalent Docking
+and Screening. Acta Pharmaceutica Sinica B 2025, 15, 5758–5771.
+(21) Abramson, J.; Adler, J.; Dunger, J.; Evans, R.; Green, T.; Pritzel, A.; Ronneberger, O.;
+Willmore, L.; Ballard, A. J.; Bambrick, J.; others Accurate Structure Prediction of
+Biomolecular Interactions with AlphaFold 3. Nature 2024, 630, 493–500.
+31
+(22) Davis, I. W.; Baker, D. RosettaLigand Docking with Full Ligand and Receptor Flexi-
+bility. Journal of Molecular Biology 2009, 385, 381–392.
+(23) Le Guilloux, V.; Schmidtke, P.; Tuffery, P. Fpocket: An Open Source Platform for
+Ligand Pocket Detection. BMC Bioinformatics 2009, 10, 168.
+(24) BEIT Unpublished.
+(25) Lonsdale, R.; Burgess, J.; Colclough, N.; Davies, N. L.; Orton, A. L.; Ward, R. A.
+Expanding the Armory: Predicting and Tuning Covalent Warhead Reactivity. Journal
+of Chemical Information and Modeling 2017, 57, 3124–3137.
+(26) Chan, L.; Morris, G. M.; Hutchison, G. R. Understanding Conformational Entropy in
+Small Molecules. Journal of Chemical Theory and Computation 2021, 17, 2099–2106.
+(27) Lepsik, M.; others The Semiempirical Quantum Mechanical Scoring Function for In
+Silico Drug Design. ChemPlusChem 2013, 78, 921–931.
+(28) Smith, J. M.; Rowley, C. N. Range-Separated DFT Functionals Are Necessary to Model
+Thio-Michael Additions. Journal of Chemical Theory and Computation 2013, 9, 5454–
+5460.
+(29) Smith, J. M.; Rowley, C. N. Automated Computational Screening of the Thiol Reac-
+tivity of Substituted Alkenes. Journal of Computer-Aided Molecular Design 2015, 29,
+725–735.
+(30) Rowan Scientific Rowan Scientific. https://www.rowansci.com, 2026; Accessed: 2026-
+07-08.
+(31) Geerlings, P. From Density Functional Theory to Conceptual Density Functional The-
+ory and Biosystems. Pharmaceuticals 2022, 15.
+(32) Morell, C.; Grand, A.; Toro-Labb´e, A. New Dual Descriptor for Chemical Reactivity.
+The Journal of Physical Chemistry A 2004, 109, 205–212.
+32
+(33) Chen, T.; Guestrin, C. XGBoost: A Scalable Tree Boosting System. Proceedings of
+the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data
+Mining. 2016; p 785–794.
+(34) Loh, W. Classification and regression trees. WIREs Data Mining and Knowledge Dis-
+covery 2011, 1, 14–23.
+(35) Breiman, L. Random Forests. Machine Learning 2001, 45, 5–32.
+(36) Friedman, J. H. Greedy Function Approximation: A Gradient Boosting Machine. The
+Annals of Statistics 2001, 29, 1189–1232.
+(37) Chen, T.; Guestrin, C. XGBoost: A Scalable Tree Boosting System. Proceedings of
+the 22nd ACM SIGKDD International Conference on Knowledge Discovery and Data
+Mining. New York, NY, USA, 2016; pp 785–794.
+(38) Sun, Q.; Berkelbach, T. C.; Blunt, N. S.; Booth, G. H.; Guo, S.; Li, Z.; Liu, J.;
+McClain, J. D.;
+Sayfutyarova, E. R.;
+Sharma, S.;
+Wouters, S.;
+Chan, G. K.
+P¡scp¿y¡/scp¿SCF: the Python-based simulations of chemistry framework. WIREs
+Computational Molecular Science 2017, 8.
+(39) Bannwarth, C.; Caldeweyher, E.; Ehlert, S.; Hansen, A.; Pracht, P.; Seibert, J.;
+Spicher, S.; Grimme, S. Extended ¡scp¿tight-binding¡/scp¿ quantum chemistry meth-
+ods. WIREs Computational Molecular Science 2020, 11.
+(40) Singh, S.; others Covalent Docking Software Landscape: Features and Applications in
+Supporting Early Drug Discovery. Briefings in Bioinformatics 2025, 26, bbaf697.
+(41) Gilson, M. K.; Liu, T.; Baitaluk, M.; Nicola, G.; Hwang, L.; Chong, J. BindingDB
+in 2015: A Public Database for Medicinal Chemistry, Computational Chemistry and
+Systems Pharmacology. Nucleic Acids Research 2016, 44, D1045–D1053.
+33
+(42) Dallago, C.; Mendez, D.; others ChEMBL 34: An Enhanced Platform for Drug Discov-
+ery Data. Nucleic Acids Research 2024, 52, D1383–D1392.
+(43) Fawcett, T. An introduction to ROC analysis. Pattern Recognition Letters 2006, 27,
+861–874.
+(44) Hanley, J. A.; McNeil, B. J. The meaning and use of the area under a receiver operating
+characteristic (ROC) curve. Radiology 1982, 143, 29–36.
+(45) Truchon, J.-F.; Bayly, C. I. Evaluating Virtual Screening Methods: Good and Bad
+Metrics for the “Early Recognition” Problem. Journal of Chemical Information and
+Modeling 2007, 47, 488–508.
+(46) Mysinger, M. M.; Shoichet, B. K. Rapid Context-Dependent Ligand Desolvation
+in Molecular Docking. Journal of Chemical Information and Modeling 2010, 50,
+1561–1573.
+(47) Mysinger, M. M.; Carchia, M.; Irwin, J. J.; Shoichet, B. K. Directory of Useful Decoys,
+Enhanced (DUD-E): Better Ligands and Decoys for Better Benchmarking. Journal of
+Medicinal Chemistry 2012, 55, 6582–6594.
+(48) Bender, B. J.; Gahbauer, S.; Luttens, A.; Lyu, J.; Webb, C. M.; Stein, R. M.;
+Fink, E. A.; Balius, T. E.; Carlsson, J.; Irwin, J. J.; Shoichet, B. K. A practical guide
+to large-scale docking. Nature Protocols 2021, 16, 4799–4832.
+(49) Sheridan, R. P.; Singh, S. B.; Fluder, E. M.; Kearsley, S. K. Protocols for Bridging the
+Peptide to Nonpeptide Gap in Topological Similarity Searches. Journal of Chemical
+Information and Computer Sciences 2001, 41, 1395–1406.
+(50) Bannwarth, C.;
+Ehlert, S.;
+Grimme, S. GFN2-xTB—An Accurate and Broadly
+Parametrized Self-Consistent Tight-Binding Quantum Chemical Method with Multi-
+34
+pole Electrostatics and Density-Dependent Dispersion Contributions. Journal of Chem-
+ical Theory and Computation 2019, 15, 1652–1671.
+(51) Mihalovits, L. M.; Ferenczy, G. G.; Keseru, G. M. Affinity and Selectivity Assessment
+of Covalent Inhibitors by Free Energy Calculations. Journal of Chemical Information
+and Modeling 2020, 60, 6579–6594.
+(52) Awoonor-Williams, E.; Rowley, C. N. Modeling the Binding and Conformational Ener-
+getics of a Targeted Covalent Inhibitor Binding to Bruton’s Tyrosine Kinase. Journal
+of Chemical Information and Modeling 2021, 61, 5638–5650.
+(53) Voice, A. T.; Tresadern, G.; Twidale, R. M.; van Vlijmen, H.; Mulholland, A. J.
+Mechanism of Covalent Binding of Ibrutinib to Bruton’s Tyrosine Kinase Revealed
+by QM/MM Calculations. Chemical Science 2021, 12, 5511–5516.
+(54) Mader, L. K.; Borean, J. E.; Keillor, J. W. A Practical Guide for the Assay-Dependent
+Characterisation of Irreversible Inhibitors. RSC Medicinal Chemistry 2025, 16, 63–76.
+(55) Evenseth, L.; Galewski, K.; Jarnicki, W.; Lafiosca, P.; Patel, V. N.; Rajchel-
+Mieldzio´c, G.; ˇSimka, M.; Szczepanik, M.; ˙Zak, E. CovAngelo: A hybrid quantum-
+classical computing platform for accurate and scalable drug discovery. 2026; https:
+//arxiv.org/abs/2604.10487.
+(56) Chatterjee, P.; Zhang, H.; others Can Relative Binding Free Energy Predict Selectivity
+of Reversible Covalent Inhibitors? Journal of the American Chemical Society 2017,
+(57) Zhang, H.; Jiang, W.; Chatterjee, P.; Luo, Y. Ranking Reversible Covalent Drugs: From
+Free Energy Perturbation to Fragment Docking. Journal of Chemical Information and
+Modeling 2019, 59, 2093–2102.
+35

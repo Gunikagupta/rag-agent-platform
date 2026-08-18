@@ -1,0 +1,1366 @@
+Value-Aware Prediction for Robust Multi-Agent Coordination Under
+Communication Loss
+Kemal Devrim Kafadar1∗, Eren ¨Ozaltun2∗, Mahmud Efnan S¸anlı3, Feyza Orak3, Emirhan Gazi3,
+Kubilay Ka˘gan K¨om¨urc¨u3, Nazım Kemal ¨Ure4
+Abstract— Robust multi-agent coordination relies heavily
+on inter-agent communication, which is frequently disrupted
+by physical and environmental constraints in real-world de-
+ployments. To maintain operation during these intermittent
+communication failures, agents can employ internal prediction
+models to estimate missing shared state information. However,
+predictors trained with standard reconstruction objectives treat
+all transitions equally. In a Reinforcement Learning context,
+this forces the model to waste capacity learning stochastic
+exploration noise and the outdated dynamics of suboptimal
+policies. In this paper, we propose a value-aware extension
+of Multi-Agent Observation Sharing under Communication
+Dropout (MARO) to patch communication gaps; we refer to this
+method as Value-Aware MARO. By dynamically weighting the
+predictor’s loss function using advantage estimates derived from
+the underlying actor-critic architecture, our objective explicitly
+couples the predictor’s learning process to the policy’s evolution.
+This formulation focuses the model’s capacity on the intentional,
+high-return dynamics actively reinforced by the agents. We
+evaluate our framework on several tasks within the Multi-Agent
+Particle Environment under varying communication reliability
+levels. Experimental results demonstrate that our approach
+maintains performance under declining communication reli-
+ability, particularly below 40%. While our method performs
+comparably in tasks where the baseline already maintains high
+coordination, our value-aware weighting effectively prevents the
+performance collapse observed in the standard predictor during
+high-attrition scenarios. In these environments, our method
+achieves an average improvement in mean returns of more than
+20% and reduces performance variance by a mean of 64.7%
+compared to the standard unweighted baseline.
+I. INTRODUCTION
+The successful deployment of Multi-Agent Reinforcement
+Learning (MARL) in cooperative tasks is primarily depen-
+dent on robust inter-agent coordination. Since individual
+agents typically operate under partial observability, they
+∗Equal Contribution
+1Department of Computer Engineering, Istanbul Technical University,
+Istanbul, T¨urkiye. kafadar19@itu.edu.tr
+2Department of Computer Science, University of Stuttgart, Stuttgart,
+Germany. st201002@stud.uni-stuttgart.de,
+3Istanbul Technical University Artificial Intelligence and Data Sci-
+ence Application and Research Center, Istanbul, T¨urkiye. {sanli21,
+orakf20, gazi20, komurcu17}@itu.edu.tr
+4Department of Aeronautics and Astronautics, Stanford University, Stan-
+ford, CA 94305, U.S.A. ure@stanford.edu
+Source
+code
+is
+available
+at:
+https://github.com/robust-comm-marl-
+IROS2026/Value-Aware-Prediction-Under-Communication-Loss
+This work was supported in part by the Scientific and Technological
+Research Council of T¨urkiye (T ¨UB˙ITAK) through the 2210-A Scholarship
+Program awarded to K. D. Kafadar.
+© 2026 IEEE. Personal use of this
+material is permitted. Permission from IEEE must be obtained for all other uses, in any
+current or future media, including reprinting/republishing this material for advertising
+or promotional purposes, creating new collective works, for resale or redistribution to
+servers or lists, or reuse of any copyrighted component of this work in other works.
+historically rely on persistent communication to share local
+sensory data and approximate a cohesive global state [1], [2].
+Although Reinforcement Learning (RL) provides a pow-
+erful, data-driven paradigm for sequential decision-making
+in uncertain environments [3], the assumption of perfect
+connectivity is unrealistic in practical systems such as au-
+tonomous swarms, where signal obstruction or bandwidth
+constraints lead to intermittent connectivity and risk mis-
+sion failure [4]–[6]. Therefore, a resilient control strat-
+egy must handle communication losses gracefully to avoid
+catastrophic performance degradation [7]–[9], particularly in
+aerial robotics, where RL has already demonstrated effective-
+ness in managing complex kinematics and momentum [10],
+[11].
+To address this challenge, researchers have explored in-
+ternal state predictors that allow agents to estimate miss-
+ing shared information during communication gaps. Typi-
+cally, these predictors are trained using standard supervised
+learning objectives to model the system dynamics [5]–[9].
+However, this methodology is fundamentally misaligned with
+the agents’ learning process. It treats all transitions during
+RL training with the same importance regardless of their
+relevance to the evolving policies of the agents. By failing
+to prioritize intentional dynamics, we argue that standard pre-
+dictors often waste capacity modeling stochastic exploration
+noise or behaviors that the RL agents have already learned
+to discard. Building on Multi-Agent Observation Sharing
+under Communication Dropout (MARO) [8], we propose
+a value-weighted predictor objective that leverages the RL
+agent’s internal success signals to emphasize these critical
+transitions, ensuring reliable estimates when coordination is
+most vital. We refer to this method as Value-Aware MARO.
+Our primary contributions in this work are:
+• A Value-Aware Predictor with an RL-synchronized
+training flow that utilizes importance weights to prior-
+itize high-consequence transitions over stochastic envi-
+ronment noise.
+• A coordination framework that patches communication
+gaps with value-prioritized estimates, allowing decen-
+tralized policies to function even under total signal loss.
+• Empirical validation against a strong baseline in five
+tasks, demonstrating significant improvements in ro-
+bustness under severe communication loss.
+II. RELATED WORK
+MARL has achieved remarkable success in complex co-
+operative settings. To address foundational challenges like
+arXiv:2607.17914v1  [cs.MA]  20 Jul 2026
+non-stationarity and partial observability, the Centralized
+Training with Decentralized Execution (CTDE) framework
+has become the standard. CTDE leverages global information
+during training via centralized critics or value factorization to
+enable scalable, decentralized execution [12]–[15]. However,
+while these methods excel under ideal conditions, sustain-
+ing robust coordination under communication uncertainty
+remains a critical open challenge.
+Recent works propose differentiable communication learn-
+ing mechanisms to enhance coordination. Methods such as
+gradient-based protocols [2], attention-based selective com-
+munication [16], and targeted message passing [1] demon-
+strate that structured information exchange improves coop-
+erative behavior. However, most assume reliable commu-
+nication during execution. In practical multi-agent systems
+such as UAV swarms, robotic teams, or distributed sensor
+networks, communication can be intermittent, delayed, or
+lost due to environmental or hardware constraints.
+A growing body of literature studies MARL under com-
+munication constraints. Approaches include stochastic mes-
+sage dropout during training [4], recurrent policy networks
+to maintain memory of past observations [17], and adap-
+tive coordination strategies for heterogeneous systems [18].
+Although these methods improve robustness against commu-
+nication degradation, they generally do not explicitly recon-
+struct missing global information and often rely on structured
+or periodic assumptions about communication patterns.
+To directly address missing information, several works
+incorporate predictive modeling. Methods include employ-
+ing Adaptive Predictive Variational Autoencoders [6] and
+intention-sharing frameworks that encode predicted future
+trajectories [19]. More directly related to communication
+loss, Centralized Training with Hybrid Execution (CTHE)
+via Predictive Observation Imputation [8] imputes missing
+observations during decentralized execution using a predic-
+tor trained with centralized information. Collectively, these
+studies establish the importance of predictive reconstruction
+mechanisms; however, they primarily rely on standard recon-
+struction objectives that treat all state transitions with equal
+importance during training.
+Taken together, these studies motivate a next step that not
+only reconstructs missing information, but also emphasizes
+robustness where coordination is most critical. Our approach
+follows this direction by incorporating value awareness into
+predictive imputation.
+III. BACKGROUND
+A. Problem Formulation: H-POMDP
+We model the multi-agent coordination problem un-
+der intermittent communication using the Hybrid Partially
+Observable Markov Decision Process (H-POMDP) frame-
+work introduced by Santos et al. [8]. Operating over dis-
+crete time steps t ∈N, an H-POMDP extends the stan-
+dard Decentralized POMDP (Dec-POMDP) via the tuple
+([n], S, A, P, r, γ, Ω, O, C). These components govern the n
+agents, state space S, joint actions A, transition probabilities
+P, rewards r, and discount factor γ ∈[0, 1). The joint
+observation space is denoted by Ω, with the observation
+probability function formalized as O(o|s, a). Crucially, at
+any step t, the joint observation ot ∈Ωis the concatenation
+of all individual local observations, ot = {o1
+t, ..., on
+t }.
+The defining feature of this formulation is the n × n
+communication matrix C. At any time step t, the matrix
+entry [C]i,j
+=
+pi,j denotes the probability of agent i
+successfully receiving agent j’s local observation oj
+t. In a
+physical robotics context, this localized payload oj
+t typically
+contains agent j’s immediate sensor readouts, such as its
+spatial coordinates, velocities, or detected target landmarks,
+as in our experimental tasks. By varying C, this framework
+naturally interpolates between fully decentralized (C = I)
+and fully centralized execution.
+In our target-search scenarios, agents face an unknown
+communication matrix C sampled from a distribution µ
+during execution. We specifically focus on a probabilistic
+failure model where shared connections drop with probability
+1 −p. Consequently, an agent i either receives the joint
+observation ot or falls back to a partial local view.
+B. Actor-Critic Architecture in MARL
+CTDE bridges the gap between the necessity of decentral-
+ized execution, dictated by the H-POMDP’s communication
+constraints, and sample-efficient learning. Our framework
+builds upon the Proximal Policy Optimization (PPO) algo-
+rithm [3], specifically its multi-agent extensions: Independent
+PPO (IPPO) and Multi-Agent PPO (MAPPO) [20].
+Both algorithms utilize an actor-critic architecture. The
+actor networks, πi
+θ(ai
+t|oi
+t), represent decentralized policies
+mapping local observations to actions. The critic network,
+Vω(·), evaluates the quality of these actions by computing an
+advantage estimate ˆAt, typically via Generalized Advantage
+Estimation (GAE) [21]. The critic differs by algorithm:
+MAPPO conditions on joint information with a single global
+network, while IPPO uses each agent’s local observation
+with separate networks. GAE computes the exponentially
+weighted sum of temporal difference (TD) errors, as defined
+in (1):
+ˆAt =
+∞
+X
+l=0
+(γλ)lδt+l
+(1)
+where δt = rt + γVω(ot+1) −Vω(ot) is the TD error, γ is
+the discount factor, and λ is a hyperparameter controlling the
+bias-variance tradeoff. This advantage quantifies how much
+better a taken action was compared to the policy’s average
+expectation.
+C. Observation Imputation
+To overcome the intermittent communication failures de-
+fined by the H-POMDP, our work builds upon the MARO
+architecture [8]. MARO is designed for hybrid execution in
+MARL, enabling cooperative agents to operate effectively
+under arbitrary and dynamic communication levels by em-
+ploying an autoregressive predictive model that estimates
+missing information from prior observations.
+During the centralized training phase, a Long Short-Term
+Memory (LSTM)-based transition model is trained to predict
+next-step observation deltas, denoted as ∆ot, given the
+current joint observations ot and a recurrent history state ht.
+The parameters of this predictive model, ϕ, are optimized
+via supervised learning by minimizing the negative log-
+likelihood (NLL) of the target next-step deltas across all
+agents, as formulated in (2):
+LMARO(ϕ) = −
+n
+X
+i=1
+log pϕ(∆oi
+t|ot, ht)
+(2)
+During decentralized execution, each agent i maintains
+an independent instance of this predictive model to impute
+any dropped observations from teammates. This preserves a
+stable, estimated joint-observation state for the policy to act
+upon.
+While MARO provides a robust architectural founda-
+tion for patching missing data, its standard NLL objective
+treats all observed transitions equally. Section IV details
+our proposed framework to directly address this fundamental
+misalignment.
+IV. METHODOLOGY
+In this section, we present a control framework designed
+to sustain multi-agent coordination under varying degrees of
+communication failure. We adopt a CTDE architecture where
+agents rely on local sensor data and intermittent shared state
+information from allies. To bridge the informational gaps
+caused by signal loss, we integrate a standalone prediction
+model that imputes the missing parts of the shared informa-
+tion and operates in parallel with the policy network.
+Unlike standard approaches that treat all state dynamics
+equally, as discussed in previous sections, our framework
+introduces a value-aware training objective. This mechanism
+couples the predictor’s learning process directly to the pol-
+icy’s evolution, ensuring that the generated state estimates
+during communication blackouts are optimized to maintain
+cooperative performance rather than minimizing generic re-
+construction error.
+Operating within the H-POMDP framework detailed in
+Section III, our system actively mitigates the performance
+degradation caused by probabilistic signal drops. We achieve
+this by predicting the missing shared information, enabling
+the decentralized policy πi
+θ(ai
+t|ˆot) to act on an approximated
+joint observation and preserve swarm coordination despite
+severe communication loss. We detail the prediction archi-
+tecture and derive our proposed objective in the remainder
+of this section.
+A. Observation Prediction under Signal Loss
+The employed prediction model, pϕ(∆ot|ot), is tasked
+with estimating the evolution of the environment dynamics.
+Rather than predicting the next full observation directly,
+the model learns to predict the change in observations,
+denoted as ∆ot = ot+1 −ot. During execution, the predictor
+intercepts the raw sensory stream before it reaches the
+policy network and continuously models the environment
+in parallel, following the system architecture illustrated in
+Fig. 1.
+At each step, it utilizes the available joint observation from
+the previous timestep, ot−1, to estimate the forward transition
+ˆ∆ot−1 ∼pϕ(∆ot−1|ot−1), computing an expected current
+full observation ˆot ≈ot−1 + ˆ∆ot−1.
+The predictor then evaluates the integrity of the com-
+munication link. If the signal is fully intact, the policy
+receives the ground-truth observation. However, upon detect-
+ing signal loss with an agent, the predictor estimates the
+missing communicated components in the agent’s current
+partial observation. This reconstructed observation is then
+passed to the policy πθ, which processes it as an imitation
+of the real observation, allowing the agent to continue its
+cooperative task without explicit awareness of the underlying
+communication failure.
+B. Value-Aware Predictor Objective
+We formalize the Value-Aware objective illustrated in
+Fig. 2, which addresses the equal-weighting limitation of
+the existing methods discussed in Sec. III by scaling each
+transition’s contribution using the critic’s advantage estimate,
+focusing learning on intentional, high-return dynamics.
+In practice, this objective serves as the empirical loss
+that is minimized during the predictor’s optimization step.
+Formally, our proposed objective for the prediction model
+over a batch of transitions is defined in (3):
+J′
+batch(ϕ) = Et [wt (−log pϕ(∆ot|ot))]
+(3)
+where the normalized advantage-based importance weight
+wt = ˜wt / Et′[ ˜wt′] with ˜wt = ReLU(1 + λ ˆAt) is derived
+directly from the critic’s advantage estimate ˆAt, and λ ≥0
+is a scaling hyperparameter.
+To obtain our objective, we derive the predictor’s loss
+evolution with respect to the policy’s parameter updates.
+The objective function of the predictor model for a single
+transition (o, ∆o) is defined as the NLL of the observed
+changes in (4):
+J(ϕ) = −log pϕ(∆o|o)
+(4)
+where ∆o = T (a, o) −o represents the change in ob-
+servations. Here, T is the environment’s transition function,
+and the joint action a is sampled from the joint policy
+a ∼πθ(a|o) = Qn
+i=1 πi
+θ(ai|oi). For notational simplicity
+in the following derivation, we treat the decentralized multi-
+agent system as a single coordinated entity and derive the
+objective with respect to the joint policy parameters θ.
+Substituting these into (4), we obtain (5):
+J(ϕ) = −log pϕ(T (a, o) −o|o)
+(5)
+To understand how the predictor’s loss changes as the
+policy parameters θ evolve, we consider the first-order Taylor
+expansion of (5) with respect to θ, as formulated in (6):
+J′(ϕ) ≈J(ϕ) + ∆J(ϕ) ≈J(ϕ) + ∇θJ(ϕ)T ∆θ
+(6)
+The gradient ∇θJ(ϕ) describes how an infinitesimal
+change in the policy’s action selection affects the resulting
+Policy
+𝝅𝜽
+𝒊(𝒂𝒕|𝒐𝒕)
+𝒐𝒕−𝟏
+𝟎
+…
+𝒐𝒕−𝟏
+𝒊
+…
+𝒐𝒕−𝟏
+𝒏
+Value-Aware MARO
+𝑝φ(𝛥𝑜𝑡|𝑜𝑡)
+𝒐𝒕
+𝟎𝒐𝒕
+𝟏𝒐𝒕
+𝟐Ø … Ø … 𝒐𝒕
+𝒏
+ô𝒕
+𝟎
+… ô𝒕
+𝒊
+… ô𝒕
+𝒏
+ℎ𝑡−1
++
+෡∆𝒐𝒕−𝟏
+𝟎
+…
+෡∆𝒐𝒕−𝟏
+𝒊
+…
+෡∆𝒐𝒕−𝟏
+𝒏
+…
+…
+𝐴𝑔𝑒𝑛𝑡𝑖
+𝐴𝑔𝑒𝑛𝑡𝑛
+𝐴𝑔𝑒𝑛𝑡0
+Communicated Observation:
+𝒂𝒕
+𝒊
+Fig. 1: MARLxPredictor Integration During Execution:
+The predictor intercepts local observations to patch missing
+shared data during communication failures, providing a re-
+constructed state to the policy where oi
+t is local observation
+of agent i at time t and ht−1 is the hidden state of the
+LSTM-based predictor network.
+PPO TRAINING
+PREDICTOR TRAINING
+Critic Model
+𝑉𝜔(𝑜𝑡)
+Value Loss
+ℒ𝑉(𝜔)
+Policy Loss
+ℒ𝑐𝑙𝑖𝑝(θ)
+Actor Model
+𝜋𝜃(𝑎𝑡|𝑜𝑡)
+Predictor
+Network
+𝑝φ(𝛥𝑜𝑡|𝑜𝑡)
+Advantage 
+Weighted 
+NLL Loss
+Update
+Update
+Advantage Â𝑡
+detach(Â𝑡)
+Update
+Fig. 2: Value-Aware Training Pipeline: The RL training
+phase generates advantage estimates ˆAt, which are detached
+and used as importance weights for the predictor’s Advan-
+tage Weighted NLL Loss (formally defined as J′
+batch(ϕ)),
+ensuring focus on intentional dynamics.
+predictor loss. We derive this relationship in (7) by using the
+log-derivative trick:
+∇θJ(ϕ) = ∇θ
+Z
+πθ(a|o)[−log pϕ(∆o|o)] da
+=
+Z
+πθ(a|o)∇θ log πθ(a|o)[−log pϕ(∆o|o)] da
+= Ea∼πθ [∇θ log πθ(a|o) (−log pϕ(∆o|o))]
+(7)
+In PPO, the policy parameters are updated to maximize
+a clipped surrogate objective, which prevents excessively
+large policy updates. For a given state-action pair (o, a), the
+objective is defined in (8):
+LCLIP (θ) = Et
+h
+min
+
+rt(θ) ˆAt, clip(rt(θ), 1 −ϵ, 1 + ϵ) ˆAt
+i
+(8)
+where rt(θ) =
+πθ(at|ot)
+πθold(at|ot) is the probability ratio. To de-
+termine the update direction ∆θ, we consider the gradient
+of this objective. Within the trust region, the gradient with
+respect to θ is evaluated in (9):
+∇θLCLIP (θ) ≈Et
+∇θπθ(at|ot)
+πθold(at|ot)
+ˆAt
+
+= Et
+ πθ(at|ot)
+πθold(at|ot)∇θ log πθ(at|ot) ˆAt
+
+(9)
+Evaluating this gradient at θ = θold simplifies the ratio
+rt(θ) to unity. The resulting parameter update ∆θ for a
+single transition is proportional to this stochastic gradient,
+as formulated in (10):
+∆θ ∝α ˆA∇θ log πθ(a|o)
+(10)
+where α is a positive constant. This term represents the di-
+rection in the parameter space that most efficiently increases
+the expected advantage for the current transition. To motivate
+our surrogate predictor objective J′(ϕ), we substitute the
+expression for ∇θJ(ϕ) from (7) for a single transition, and
+the policy parameter update ∆θ from (10) into the first-order
+Taylor expansion in (6), yielding (11):
+J′(ϕ) ≈J(ϕ) + ∇θJ(ϕ)T ∆θ
+≈J(ϕ) + (∇θ log πθ(a|o)[−log pϕ(∆o|o)])T
+·
+
+α ˆA∇θ log πθ(a|o)
+
+= J(ϕ) + α ˆA∥∇θ log πθ(a|o)∥2[−log pϕ(∆o|o)]
+(11)
+The term ∥∇θ log πθ(a|o)∥2 in (11) represents the squared
+magnitude of the policy gradient for the given transition.
+While this magnitude varies per sample, it is a strictly non-
+negative scaling factor that does not change the direction
+of the advantage signal. To formulate a practical surrogate
+objective, we employ a heuristic approximation: we treat
+the product of the constant α and this varying magnitude
+as a single constant hyperparameter λ ≥0. This greatly
+simplifies optimization and reduces computational overhead
+during training. Substituting J(ϕ) = −log pϕ(∆o|o) back
+into the expression, we obtain the heuristically weighted loss
+in (12):
+J′(ϕ) ≈[−log pϕ(∆o|o)] + λ ˆA[−log pϕ(∆o|o)]
+= (1 + λ ˆA)[−log pϕ(∆o|o)]
+(12)
+This formulation effectively weights the predictor’s loss
+based on the advantage ˆA calculated by the RL agent. It
+ensures that the model prioritizes learning from transitions
+that contribute most significantly to the policy update.
+While the previous theoretical motivation focuses on the
+point-wise impact of a single transition, our final surrogate
+objective must operate over mini-batches sampled from a
+replay buffer. To transition to a stable, implementable em-
+pirical loss, we first define the unnormalized importance
+weights as ˜wt = ReLU(1 + λ ˆAt). The ReLU operator
+ensures non-negativity, preventing gradient inversion from
+highly negative advantages and the resulting destabilization
+of training. We then normalize these weights across the mini-
+batch to yield wt, stabilizing the effective update scale as
+advantage magnitudes fluctuate during training. This results
+in our final, batch-level surrogate objective function for the
+prediction model, shown in (13):
+J′
+batch(ϕ) = Et [wt (−log pϕ(∆ot|ot))]
+(13)
+Ultimately, the proposed objective J′
+batch(ϕ) in (13) acts
+as a value-aware surrogate loss. By dynamically weighting
+the predictor’s NLL, the model explicitly filters stochastic
+exploration noise and prioritizes transitions that align with
+the current cooperative strategy. This ensures the predictor’s
+capacity is dedicated to modeling the intentional dynamics
+that generate high returns, naturally tracking shifts in behav-
+ior as the policy evolves. This formulation serves as the core
+predictive objective utilized throughout our experiments.
+V. EXPERIMENTS
+A. Experimental Setup
+The performance of Value-Aware MARO is evaluated
+across five multi-agent coordination tasks. These tasks, de-
+rived from the benchmark suite proposed by Santos et
+al. [8], are designed as H-POMDPs to emphasize the ne-
+cessity of inter-agent information sharing. The information
+exchanged in these tasks, such as ally and target coordi-
+nates, mirrors what a physical swarm can share and lose
+under degraded communication. They utilize the Multi-Agent
+Particle Environment (MPE) physics engine [22], incorpo-
+rating continuous-space kinematics, inertia, and friction to
+simulate realistic multi-agent interactions where agents try
+to reach targets and avoid collisions by communicating.
+Detailed physical dynamics for the environment are provided
+in Appendix I with illustrations in Fig. 5. The tasks used are:
+• HearSee (HS): A heterogeneous task where the “Hear”
+agent observes the target landmark but does not know its
+own coordinates, while the “See” agent observes agent
+coordinates but not the target.
+• SpeakerListener (SL): A stationary “Speaker” ob-
+serves a target and must guide a mobile “Listener” who
+is blind to the goal.
+• SimpleSpreadXY-2 & SimpleSpreadXY-4 (SXY-2 &
+SXY-4): Navigation tasks with 2 or 4 agents where they
+observe only one axis (x or y) and must communicate
+to resolve the full joint observation.
+• SpreadBlindfold (SBF): A three-agent task where local
+observations are restricted to an agent’s own state,
+requiring communication to localize peers.
+As established in our H-POMDP formalization (Sec.
+III), we model communication failures probabilistically.
+We evaluate the system across connectivity levels p ∈
+{1.0, 0.8, 0.6, 0.4, 0.2, 0.0}, representing transitions from full
+centralization to total communication blackout.
+1) Training and Evaluation Protocol:
+Following the
+CTHE paradigm, we utilize MAPPO as the underlying RL
+algorithm. To isolate the impact of our proposed objective,
+we compare the baseline MARO against our Value-Aware
+MARO. Tables II and III in Appendix II show details about
+the configuration for RL and predictive models. Note that
+all models were trained with a p = 1.0 sampling scheme
+for communication to ensure the availability of ground-truth
+signals for the advantage-weighted objective.
+B. Results and Analysis
+The training results for the HS task through training are
+shown in Fig. 3. In the extreme case of total communication
+loss (p = 0.0), the baseline MARO fails to converge to a
+coordinated policy, resulting in a significantly lower average
+return. In contrast, the Value-Aware objective allows the
+agents to reconstruct the specific observation deltas that
+correlate with high-advantage states. This focused prediction
+enables the swarm to maintain an effective estimation of the
+observations, leading to a higher and more stable reward
+trajectory throughout the training process. We also provide
+all training curves for the remaining tasks for MAPPO and
+also IPPO to show generalization across algorithms in Figs.
+6 and 7 in Appendix III.
+-1.5
+-1
+-0.5
+0
+p=1.0
+-2
+-1.5
+-1
+-0.5
+0
+p=0.8
+-1.5
+-1
+-0.5
+p=0.6
+0.0
+0.8
+1.6
+-1.5
+-1
+-0.5
+p=0.4
+0.0
+0.8
+1.6
+Training step (×106)
+-1.5
+-1
+-0.5
+p=0.2
+0.0
+0.8
+1.6
+-2
+-1
+0
+p=0.0
+Average return (×102)
+MARO
+Value-Aware MARO
+Fig. 3: MAPPOxMARO comparisons between performances
+of evaluations throughout training in the HS environment. We
+evaluate the average return across various levels of commu-
+nication constraints (p ∈{1.0, 0.8, 0.6, 0.4, 0.2, 0.0}). The
+plots demonstrate that our proposed Value-Aware MARO
+method maintains higher performance compared to the base-
+line MARO, particularly as communication bandwidth be-
+comes increasingly restricted.
+The converged performance metrics across all five tasks
+are summarized in Table I. While the baseline MARO’s
+performance drops drastically as communication levels de-
+crease, our advantage-weighted objective improves it sig-
+nificantly across every task where the baseline experiences
+performance loss, and also decreases the standard deviation.
+This indicates that the advantage-based weighting prevents
+the predictor from being distracted by observation noise
+during RL training.
+Finally, Fig. 4 illustrates the performances of the con-
+verged policies under all communication levels for the tasks
+Environment
+Predictor
+No Comm (p = 0.0)
+Low Comm (p = 0.2)
+Full Comm (p = 1.0)
+HS
+Baseline
+−102.6 ± 26.9
+−35.9 ± 4.4
+−24.4 ± 0.7
+Value-Aware
+−37.5 ± 2.9
+−26.3 ± 1.2
+−24.3 ± 1.2
+SXY-4
+Baseline
+−1264.4 ± 19.9
+−981.7 ± 17.6
+−834.4 ± 11.4
+Value-Aware
+−1133.6 ± 9.3
+−937.0 ± 15.8
+−834.4 ± 11.4
+SXY-2
+Baseline
+−213.8 ± 20.6
+−171.4 ± 6.5
+−153.8 ± 0.7
+Value-Aware
+−188.9 ± 2.6
+−163.5 ± 1.6
+−153.8 ± 0.7
+SBF
+Baseline
+−422.0 ± 3.9
+−421.5 ± 5.1
+−423.4 ± 2.5
+Value-Aware
+−424.6 ± 2.9
+−423.5 ± 4.5
+−423.4 ± 4.3
+SL
+Baseline
+−27.0 ± 3.5
+−26.6 ± 1.1
+−27.2 ± 2.2
+Value-Aware
+−27.4 ± 0.9
+−29.0 ± 0.2
+−27.2 ± 1.0
+TABLE I. Average evaluation returns after training. Our
+Value-Aware objective prevents the performance collapse seen in
+the baseline as communication probability p decreases.
+0.0 0.2 0.4 0.6 0.8 1.0
+Comm. prob. (p)
+−1200
+−1000
+−800
+SXY-4
+0.0 0.2 0.4 0.6 0.8 1.0
+Comm. prob. (p)
+−225
+−200
+−175
+−150
+SXY-2
+0.0 0.2 0.4 0.6 0.8 1.0
+Comm. prob. (p)
+−100
+−50
+HS
+Final Average Return
+MARO
+Value-Aware MARO
+Fig. 4: Robustness profile across three coordination tasks:
+SXY-4, SXY-2, and HS. The plots illustrate the average
+return as a function of communication probability p ∈[0, 1],
+highlighting the performance of Value-Aware MARO com-
+pared to the baseline under varying degrees of connectivity.
+in which the baseline MARO has drastic performance drops.
+While the baseline MARO exhibits a sharp performance col-
+lapse as p drops below 0.4, Value-Aware MARO maintains
+a much higher performance. The overlap in performance at
+p = 1.0 confirms that both methods start with the same RL
+performance, ensuring that the comparisons are fair. This
+shows that any performance gaps at lower communication
+levels are caused solely by the predictors , not by differences
+in the underlying policy. This effect is further amplified
+as p decreases, where predicted observations increasingly
+dominate the agent’s input; consequently, the quality of those
+predictions has a compounding effect on policy performance,
+making the value-aware prioritization of high-consequence
+transitions progressively more critical.
+VI. CONCLUSION
+In this study, we introduced an objective that prioritizes
+the policy’s learning signals for prediction models in hybrid
+execution settings for MARL systems operating under unre-
+liable communication. By weighting the predictor’s loss with
+the RL advantage signal, our framework ensures that models
+track the intentional dynamics of the cooperative strategy
+rather than environment noise. Our results across five tasks
+show that our approach improves performance, particularly
+in high communication loss scenarios.
+The current study evaluates up to four agents on MPE
+tasks under a probabilistic communication dropout model.
+Extending the framework to larger teams, temporally corre-
+lated or bandwidth-limited communication, and more com-
+plex environments remains an open direction. Ultimately,
+deployment on physical drone swarms is a natural next step
+toward real-world applicability.
+REFERENCES
+[1] A. Das, T. Gervet, J. Romoff, D. Batra, D. Parikh, M. Rabbat,
+and J. Pineau, “Tarmac: Targeted multi-agent communication,” in
+International Conference on machine learning.
+PMLR, 2019, pp.
+1538–1546.
+[2] J. Foerster, I. A. Assael, N. De Freitas, and S. Whiteson, “Learning to
+communicate with deep multi-agent reinforcement learning,” Advances
+in neural information processing systems, vol. 29, 2016.
+[3] J. Schulman, F. Wolski, P. Dhariwal, A. Radford, and O. Klimov,
+“Proximal
+policy
+optimization
+algorithms,”
+arXiv
+preprint
+arXiv:1707.06347, 2017.
+[4] W. Kim, M. Cho, and Y. Sung, “Message-dropout: An efficient training
+method for multi-agent deep reinforcement learning,” in Proceedings
+of the AAAI conference on artificial intelligence, vol. 33, no. 01, 2019,
+pp. 6079–6086.
+[5] R. Zhang, J. Wang, J. Ge, and Q. Huang, “Multiagent cooperative
+search learning with intermittent communication,” IEEE Intelligent
+Systems, vol. 39, no. 2, pp. 11–20, 2024.
+[6] L. Fu, J. Wang, and H. Luo, “Multi-agent reinforcement learning for
+cooperative search under aperiodically intermittent communication,”
+Expert Systems with Applications, vol. 280, p. 127526, 2025.
+[7] J. Bloom, P. Paliwal, A. Mukherjee, and C. Pinciroli, “Decentralized
+multi-agent reinforcement learning with global state prediction,” in
+2023 IEEE/RSJ International Conference on Intelligent Robots and
+Systems (IROS).
+IEEE, 2023, pp. 8854–8861.
+[8] P. P. Santos, D. S. Carvalho, M. Vasco, A. Sardinha, P. A. Santos,
+A. Paiva, and F. S. Melo, “Centralized training with hybrid execu-
+tion in multi-agent reinforcement learning via predictive observation
+imputation,” Artificial Intelligence, p. 104404, 2025.
+[9] Z. Zhang, B. Cheng, Z. Wang, Y. Zhou, G. Li, P. Lu, B. He,
+and J. Chen, “Pagnet: Pluggable adaptive generative networks for
+information completion in multi-agent communication,” arXiv preprint
+arXiv:2502.03845, 2025.
+[10] J. Hwangbo, I. Sa, R. Siegwart, and M. Hutter, “Control of a quadrotor
+with reinforcement learning,” IEEE Robotics and Automation Letters,
+vol. 2, no. 4, pp. 2096–2103, 2017.
+[11] Y. Song, M. Steinweg, E. Kaufmann, and D. Scaramuzza, “Au-
+tonomous drone racing with deep reinforcement learning,” in 2021
+IEEE/RSJ International Conference on Intelligent Robots and Systems
+(IROS).
+IEEE, 2021, pp. 1205–1212.
+[12] R. Lowe, Y. I. Wu, A. Tamar, J. Harb, O. Pieter Abbeel, and I. Mor-
+datch, “Multi-agent actor-critic for mixed cooperative-competitive
+environments,” Advances in neural information processing systems,
+vol. 30, 2017.
+[13] J. Foerster, G. Farquhar, T. Afouras, N. Nardelli, and S. Whiteson,
+“Counterfactual multi-agent policy gradients,” in Proceedings of the
+AAAI conference on artificial intelligence, vol. 32, no. 1, 2018.
+[14] T. Rashid, M. Samvelyan, C. S. De Witt, G. Farquhar, J. Foerster, and
+S. Whiteson, “Monotonic value function factorisation for deep multi-
+agent reinforcement learning,” Journal of Machine Learning Research,
+vol. 21, no. 178, pp. 1–51, 2020.
+[15] P. Sunehag, G. Lever, A. Gruslys, W. M. Czarnecki, V. Zambaldi,
+M. Jaderberg, M. Lanctot, N. Sonnerat, J. Z. Leibo, K. Tuyls, et al.,
+“Value-decomposition networks for cooperative multi-agent learning,”
+arXiv preprint arXiv:1706.05296, 2017.
+[16] J. Jiang and Z. Lu, “Learning attentional communication for multi-
+agent cooperation,” Advances in neural information processing sys-
+tems, vol. 31, 2018.
+[17] R. E. Wang, M. Everett, and J. P. How, “R-maddpg for partially
+observable environments and limited communication,” arXiv preprint
+arXiv:2002.06684, 2020.
+[18] N. K. Ure, S. Omidshafiei, B. T. Lopez, A.-a. Agha-Mohammadi, J. P.
+How, and J. Vian, “Online heterogeneous multiagent learning under
+limited communication with applications to forest fire management,”
+in 2015 IEEE/RSJ International Conference on Intelligent Robots and
+Systems (IROS).
+IEEE, 2015, pp. 5181–5188.
+[19] W. Kim, J. Park, and Y. Sung, “Communication in multi-agent
+reinforcement learning: Intention sharing,” in International conference
+on learning representations, 2020.
+[20] C. Yu, A. Velu, E. Vinitsky, J. Gao, Y. Wang, A. Bayen, and
+Y. Wu, “The surprising effectiveness of ppo in cooperative multi-agent
+games,” Advances in neural information processing systems, vol. 35,
+pp. 24 611–24 624, 2022.
+[21] J. Schulman, P. Moritz, S. Levine, M. Jordan, and P. Abbeel, “High-
+dimensional continuous control using generalized advantage estima-
+tion,” arXiv preprint arXiv:1506.02438, 2015.
+[22] J. Terry, B. Black, N. Grammel, M. Jayakumar, A. Hari, R. Sullivan,
+L. S. Santos, C. Dieffendahl, C. Horsch, R. Perez-Vicente, et al.,
+“Pettingzoo: Gym for multi-agent reinforcement learning,” Advances
+in Neural Information Processing Systems, vol. 34, pp. 15 032–15 043,
+2021.
+APPENDIX I
+PHYSICAL DYNAMICS OF MPE
+We utilize the MPE [22], a continuous-space physics
+engine with the following constraints:
+1) Kinematics and Inertia: Agents are circular entities
+with mass m = 1.0 kg and radius r = 0.05. State transitions
+follow semi-implicit Euler integration (dt = 0.1s), where
+actions apply forces (F = 5.0 N), which leads the predictor
+to model second-order temporal dynamics.
+2) Friction and Damping: A linear damping factor of
+0.25 simulates air resistance, where agents retain 75% of
+their velocity per step. The velocity update is:
+vt+1 = vt × (1 −0.25) + F
+mdt
+(14)
+3) Collision Physics: MPE uses a soft-repulsion model.
+When distance d < ri + rj, a 100 N contact force is applied
+via a log-sum-exp formulation for differentiable gradients,
+and these interactions cause high-frequency velocity changes.
+Fig. 5 illustrates the environments, highlighting their spe-
+cific semantics and communication-based dependencies.
+See Agent
+Hear Agent
+Goal
+(a) HS
+?
+Listener
+Speaker
+Goal
+(b) SL
+Goal
+X-Agent
+Y-Agent
+(c) SXY
+Goal
+Goal
+Goal
+(d) SBF
+Fig. 5: Representative illustrations of the MPE tasks, demon-
+strating the specific task objectives and communication-based
+dependencies of the swarm.
+APPENDIX II
+EXPERIMENTAL HYPERPARAMETERS
+For fair comparisons, the RL agents were trained using
+two primary configurations as shown in Table II. Setting 1
+was utilized for most environments, while Setting 2 was
+applied to SXY-4 and SBF since it increased the pure
+RL performance in those scenarios. Table III shows the
+hyperparameters of the predictor models. Notably, the base-
+line MARO retains the exact optimal settings prescribed
+in its original implementation. We preserved these original
+baseline parameters for a fair comparison. For Value-Aware
+MARO, the predictor batch size is set to match the RL
+batch size, as the advantage estimates
+ˆAt are computed
+per RL minibatch and we keep them structurally aligned
+rather than using a separate buffer to store the transitions
+and sample later. A static advantage weight of λ = 1.0 is
+maintained across all tasks to demonstrate robustness without
+environment-specific tuning.
+TABLE
+II:
+Reinforcement
+Learning
+Hyperparameters
+(MAPPO/IPPO)
+Hyperparameter
+Setting 1
+Setting 2
+Learning Rate
+1 × 10−4
+3 × 10−4
+Entropy Coefficient
+0.001
+0.01
+Network Type
+MLP
+GRU
+Batch Size
+10
+10
+Hidden Dimensions
+256
+256
+Reward Standardization
+True
+True
+n-step
+5
+5
+TABLE
+III:
+Predictor
+Hyperparameters
+(Value-Aware
+MARO)
+Hyperparameter
+Value
+Architecture
+LSTM
+Hidden Dimension
+128
+Learning Rate
+1 × 10−3
+Advantage Weight (λ) (VA)
+1.0
+Gradient Clipping
+1.0
+Batch Size (VA / Baseline)
+10 / 32
+Buffer Size
+5,000
+Training Comm. Prob (p)
+1.0
+APPENDIX III
+EXTENDED EXPERIMENTAL RESULTS
+Extended experimental results are given in Figs. 6 and
+7. For further details about the environments, models
+and experiments; please check the github repository at:
+https://github.com/robust-comm-marl-IROS2026/Value-
+Aware-Prediction-Under-Communication-Loss
+-14
+-12
+-10
+-8
+p=1.0
+-14
+-12
+-10
+p=0.8
+-14
+-12
+-10
+p=0.6
+0.0
+0.8
+1.6
+-13
+-12
+-10
+-9
+p=0.4
+0.0
+0.8
+1.6
+Training step (×106)
+-13
+-12
+-10
+p=0.2
+0.0
+0.8
+1.6
+-14
+-13
+-12
+p=0.0
+Average return (×102)
+MARO
+Value-Aware MARO
+(a)
+-2.5
+-2
+-1.5
+p=1.0
+-2.5
+-2
+-1.5
+p=0.8
+-2.5
+-2
+-1.5
+p=0.6
+0.0
+0.8
+1.6
+-2.5
+-2
+-1.5
+p=0.4
+0.0
+0.8
+1.6
+Training step (×106)
+-2.5
+-2
+-1.5
+p=0.2
+0.0
+0.8
+1.6
+-3
+-2.5
+-2
+p=0.0
+Average return (×102)
+MARO
+Value-Aware MARO
+(b)
+-7
+-6
+-5
+-4
+p=1.0
+-7
+-6
+-5
+-4
+p=0.8
+-7
+-6
+-5
+-4
+p=0.6
+0.0
+0.8
+1.6
+-7
+-6
+-5
+-4
+p=0.4
+0.0
+0.8
+1.6
+Training step (×106)
+-7
+-6
+-5
+-4
+p=0.2
+0.0
+0.8
+1.6
+-7
+-6
+-5
+-4
+p=0.0
+Average return (×102)
+MARO
+Value-Aware MARO
+(c)
+-2
+-1.5
+-1
+-0.5
+0
+p=1.0
+-1.5
+-1
+-0.5
+p=0.8
+-1.5
+-1
+-0.5
+0
+p=0.6
+0.0
+0.8
+1.6
+-2
+-1.5
+-1
+-0.5
+0
+p=0.4
+0.0
+0.8
+1.6
+Training step (×106)
+-2
+-1.5
+-1
+-0.5
+0
+p=0.2
+0.0
+0.8
+1.6
+-1.5
+-1
+-0.5
+p=0.0
+Average return (×102)
+MARO
+Value-Aware MARO
+(d)
+Fig.
+6:
+Extended
+training
+performance
+with
+MAPPO
+across
+varying
+communication
+levels
+where
+p
+∈
+{1.0, 0.8, 0.6, 0.4, 0.2, 0.0}. The tasks shown are: (a) SXY-4, (b) SXY-2, (c) SBF, and (d) SL. The Value-Aware objective
+(blue) consistently demonstrates superior robustness compared to the baseline MARO (orange).
+-1.4
+-1.2
+-1
+-0.8
+p=1.0
+-1.4
+-1.2
+-1
+-0.8
+p=0.8
+-1.4
+-1.2
+-1
+-0.8
+p=0.6
+0.0
+0.8
+1.6
+-1.4
+-1.2
+-1
+-0.8
+p=0.4
+0.0
+0.8
+1.6
+Training step (×106)
+-1.4
+-1.2
+-1
+p=0.2
+0.0
+0.8
+1.6
+-1.4
+-1.3
+-1.2
+-1.1
+p=0.0
+Average return (×103)
+MARO
+Value-Aware MARO
+(a) SXY-4
+-2.5
+-2
+-1.5
+p=1.0
+-2.5
+-2
+-1.5
+p=0.8
+-2.5
+-2
+-1.5
+p=0.6
+0.0
+0.8
+1.6
+-2.5
+-2
+-1.5
+p=0.4
+0.0
+0.8
+1.6
+Training step (×106)
+-2.5
+-2
+-1.5
+p=0.2
+0.0
+0.8
+1.6
+-3
+-2.5
+-2
+p=0.0
+Average return (×102)
+MARO
+Value-Aware MARO
+(b) SXY-2
+-1.5
+-1
+-0.5
+p=1.0
+-1.5
+-1
+-0.5
+p=0.8
+-1.5
+-1
+-0.5
+p=0.6
+0.0
+0.8
+1.6
+-1.5
+-1
+-0.5
+p=0.4
+0.0
+0.8
+1.6
+Training step (×106)
+-1.5
+-1
+-0.5
+p=0.2
+0.0
+0.8
+1.6
+-3
+-2
+-1
+0
+p=0.0
+Average return (×102)
+MARO
+Value-Aware MARO
+(c) HS
+-7
+-6
+-5
+-4
+p=1.0
+-7
+-6
+-5
+-4
+p=0.8
+-7
+-6
+-5
+-4
+p=0.6
+0.0
+0.8
+1.6
+-7
+-6
+-5
+-4
+p=0.4
+0.0
+0.8
+1.6
+Training step (×106)
+-7
+-6
+-5
+-4
+p=0.2
+0.0
+0.8
+1.6
+-7
+-6
+-5
+-4
+p=0.0
+Average return (×102)
+MARO
+Value-Aware MARO
+(d) SBF
+-2
+-1.5
+-1
+-0.5
+0
+p=1.0
+-1.5
+-1
+-0.5
+p=0.8
+-1.5
+-1
+-0.5
+p=0.6
+0.0
+0.8
+1.6
+-2
+-1.5
+-1
+-0.5
+0
+p=0.4
+0.0
+0.8
+1.6
+Training step (×106)
+-2
+-1.5
+-1
+-0.5
+0
+p=0.2
+0.0
+0.8
+1.6
+-1.5
+-1
+-0.5
+p=0.0
+Average return (×102)
+MARO
+Value-Aware MARO
+(e) SL
+Fig. 7: Evaluation curves for IPPO during training of each task are given as comparisons between MARO and Value-Aware
+MARO to show generalization. The Value-Aware objective remains algorithm-agnostic, providing superior coordination
+compared to the baseline across both centralized and independent optimization schemes.

@@ -1,0 +1,1292 @@
+Physically Consistent Outflow Boundary Conditions for
+Global Stability Analysis of Bluff Body Wakes
+Guangyao Cui, Amit Sigawi, Michael Karp∗
+The Stephen B. Klein Faculty of Aerospace Engineering, Technion Israel Institute of Technology, Haifa 3200003, Israel
+Abstract
+Global linear stability analysis of bluff body wake flows is performed using the matrix-forming
+method based on finite-difference discretization. Particular emphasis is placed on the influence
+of outflow boundary conditions, with the aim of minimizing the required computational domain
+size without degrading accuracy or inducing spurious oscillations near the outlet. This study
+focuses on incompressible wakes behind bluff bodies such as cylinders and airfoils at high angle
+of attack, especially in regimes where global modes exhibit downstream spatial amplification.
+It is shown that below the critical Reynolds number – where the global mode remains linearly
+stable – significant spatial growth can persist far downstream, even when the wake is nearly ab-
+sent. This behavior underscores the importance of imposing a physical boundary condition at the
+outlet. Several commonly used outflow boundary conditions are evaluated, including Dirichlet,
+Neumann, extrapolation, stress-free, sponge layer, and the Robin condition that incorporates pre-
+dictions from local linear stability analysis at the outlet. The results demonstrate that, for different
+𝑅𝑒cases, the Robin condition enables robust convergence of global modes within substantially
+truncated domains, thereby improving the efficiency of global stability analysis. These findings
+highlight the broader applicability of the matrix-forming approach for complex stability analyses,
+including Floquet analysis of time-periodic flows and extensions to compressible configurations.
+1. Introduction
+The global linear instability of bluff-body wakes is fundamental to understanding the onset of
+periodic flow behavior, as it determines the unsteady dynamics of wakes behind cylinders, airfoils,
+and other bluff bodies, with significant consequences for transition modeling and flow-control
+design. The seminal work of von Kármán [1] first showed the formation of a vortex street in the
+wake of a cylinder, laying the foundation for understanding wake periodicity and its hydrodynamic
+stability. Barkley and Henderson [2], Barkley [3], and Williamson [4] provided critical insights
+into the onset of two-dimensional and three-dimensional wake instabilities, identifying the critical
+Reynolds numbers via linear stability analysis.
+One of the biggest challenges in analyzing the global instabilities of wake flows is the
+implementation of the outflow boundary condition (OBC), where the complex vortex dynamics is
+unknown; however, providing an OBC is mathematically necessary. Significant efforts have been
+∗Corresponding author: mkarp@technion.ac.il
+arXiv:2607.17864v1  [physics.flu-dyn]  20 Jul 2026
+made to develop effective OBCs, as reviewed by Sani and Gresho [5] who explained that an ideal
+OBC should allow the flow to exit the domain without affecting the flow close to it or introducing
+numerical reflections upstream, and the solution should be independent of the outlet where the
+computational domain is truncated. Sani and Gresho [5] highlighted the trade-offs among different
+methods, and noted that no single OBC universally outperforms others, and the choice of OBC
+and the ease of implementation depend on the problem itself and the discretization scheme. The
+traction-free OBC [6, 7] is often applied in the finite element method to prevent reflections, while
+the finite difference and finite volume methods often choose convective boundary conditions [8, 9]
+to avoid numerical artifacts. Subsequent studies have proposed additional OBCs, including non-
+reflecting boundary conditions [10], no-boundary conditions [11], etc. Dong et al. [12] introduced
+a robust OBC designed for incompressible flow simulations on severely truncated domains that
+allowed strong vortices to exit without causing numerical instability. The condition is formulated
+within a rotational velocity correction scheme, incorporating an energy-stable approach that
+allows kinetic energy influx through the outflow boundary while preventing uncontrolled energy
+growth.
+The studies discussed above have contributed to enhancing the efficiency of wake flow
+simulations and reducing the computational domain required to solve the nonlinear Navier-Stokes
+equations (NSE). However, applying OBCs in global stability analyses—where the objective is to
+compute eigenvalues of the linearized Navier-Stokes equations (LNSE)—introduces additional
+complexities and challenges. The implementation of those OBCs in the linear analysis is non-
+trivial and often requires adding additional algorithmic complexity, and can possibly introduce
+spurious modes. Therefore, classical Dirichlet and Neumann OBCs are still widely applied on
+the outflow boundary in the global stability analysis, with the need to compensate by a very large
+computational domain for the eigenfunction, consisting of vortices generated upstream, to be
+sufficiently dissipated before reaching the outflow boundary.
+Barkley and Henderson [2] conducted a linear stability analysis of the unsteady cylinder wake
+flow for Reynolds numbers between 140 and 300, and identified two distinct modes of secondary
+instability: Mode A, which emerges at a critical Reynolds number of 𝑅𝑒≈188.5, and Mode
+B, which becomes unstable at 𝑅𝑒≈259 with a shorter spanwise wavelength. In their work,
+Barkley and Henderson [2] applied the Neumann BC for the velocity eigenmode and the Dirichlet
+BC for the pressure mode in the outlet, and the same OBC was applied in subsequent studies
+such as Barkley [3], Giannetti and Luchini [13], and He et al. [14]. The stress-free OBC, which
+combines the velocity and pressure term, has also been applied in many studies with a slight
+variation in the definition of the stress tensors (e.g., Noack et al. [15], Mittal [16], Sen et al.
+[17], Sipp and Lebedev [18]). Canuto and Taira [19] investigated the instabilities of cylinder
+wakes in compressible flows and added a sponge layer near the outlet to overcome potential issues
+that may arise from the outlet. However, those OBCs do not necessarily capture the true physics
+in the outlet, where the actual mode may still be evolving spatially, even very far from the bluff
+body. How non-physical outflow boundary conditions influence global stability analysis remains
+insufficiently understood, raising the question of how to impose a more physically consistent outlet
+condition within the linear eigenvalue framework. A key open question is whether information
+from the local instability characteristics of the flow at the outlet can be incorporated into the
+outflow boundary condition used in the global analysis.
+In the global stability analysis of a flat plate boundary layer, Ehrenstein and Gallaire [20] and
+Alizard and Robinet [21] proposed the Robin-type convective boundary condition that accounts for
+Tollmien-Schlichting waves at the inlet and outlet. The streamwise wavenumber can be obtained
+from the local stability analysis by solving the Orr-Sommerfeld equation. A Taylor expansion was
+2
+conducted at the neutral point to associate the local wavenumber and global frequency (noting
+that only the real part in the group velocity was taken into account), and thereby the Robin
+boundary condition was obtained. A similar OBC that incorporates the ‘local’ wavenumber at
+the outlet was also applied in Fasel et al. [22]. These studies introduced a novel approach to
+developing more physical OBCs for global analysis by leveraging insights from local analysis at
+the outlet. However, most global stability studies still tend to choose the classical Neumann or
+Dirichlet OBC due to its simple implementation, with the assumption that a large enough domain
+could compensate for disturbances that may originate from the slightly non-physical boundary
+conditions (e.g., He et al. [14]).
+However, the impact of different OBCs on the required domain size in the global stability
+analysis and how much these choices are affected by parameters such as the Reynolds number
+remain unclear (e.g., Alizard and Robinet [21], Barkley [3], Mittal [16], He et al. [14]). Fur-
+thermore, most of the studies above used the time-stepping method to solve the global stability
+problem; however, these OBCs might not be directly applicable to matrix-forming methods [23].
+In matrix-forming methods, which usually rely on finite-difference discretizations, the OBC must
+be incorporated into the discretized operators, which may pose unique implementation challenges.
+Appropriate boundary conditions must be compatible with the matrix structure, avoid introduc-
+ing ill-conditioning, and accurately represent the physical outflow without generating spurious
+modes. Implementing non-reflecting or energy-based OBCs in this framework is nontrivial, as
+these conditions often involve complex operators that are difficult to discretize consistently within
+a finite-difference scheme. Further discussion of time stepping and matrix-forming methods can
+be found in Juniper et al. [23].
+In this study, we analyze the impact of OBCs on the global stability analysis of the two-
+dimensional wakes of the cylinder and airfoil at a high angle of attack using the matrix-forming
+method, discretized by the finite-difference scheme.
+The rest of the paper is organized as
+follows: In §2, we first explain the formulation of global stability analysis and develop the global
+solver for the eigenvalue problem, followed by the base flow solution; the commonly applied
+boundary conditions are then summarized. In §3, the spatial convergence of the spectrum and
+eigenfunctions obtained by different OBCs, including Neumann, Dirichlet, extrapolation, stress-
+free, sponge layer, and two Robin conditions, are evaluated for both cylinder and airfoil wakes.
+We show that compared to the velocity component, the pressure component of the eigenmode
+is more difficult to converge and, therefore, requires more effort in the global stability analysis.
+The impact of the Reynolds number on the behavior of different OBCs and how it is related to
+the spatial and temporal growth/decay are then explained. Finally, the conclusions are given in
+§4. This study demonstrates that the Robin boundary condition, by incorporating local linear
+stability theory, provides a physically consistent outflow treatment that enables the computation
+of converged global eigenmodes within significantly reduced computational domains. Our results
+further highlight the potential applicability of the matrix-forming approach to complex stability
+analyses.
+2. Global Stability Analysis Formulation and Boundary Conditions
+2.1. Matrix-Forming Formulation of Global Stability Analysis
+Linear stability analysis is based on the decomposition of the flow variables, 𝒒= (𝑢, 𝑣, 𝑤, 𝑝)T,
+into the base flow, 𝒒, and the small perturbation, ˜𝒒,
+𝒒(𝒙, 𝑡) = 𝒒(𝒙) + 𝜀˜𝒒(𝒙, 𝑡),
+𝜀≪1,
+(1)
+3
+where 𝒙= (𝑥, 𝑦, 𝑧) and 𝑡correspond to the spatial coordinates (streamwise, transverse, and
+spanwise) and time, respectively. The global stability analysis can therefore be formulated by
+substituting this ansatz into the incompressible Navier-Stokes equations (NSE) and neglecting
+the higher-order perturbation terms, yielding the linearized Navier-Stokes equations (LNSE),
+𝜕˜𝒖
+𝜕𝑡+ ˜𝒖· ∇𝑼+ 𝑼· ∇˜𝒖= −∇˜𝑝+ 1
+𝑅𝑒∇2 ˜𝒖,
+(2a)
+∇· ˜𝒖= 0,
+(2b)
+where the base flow is 𝒒= (𝑼, 𝑃)T and the perturbation is ˜𝒒= ( ˜𝒖, ˜𝑝)T. When the base flow is
+two-dimensional, i.e., 𝑼= (𝑈(𝑥, 𝑦),𝑉(𝑥, 𝑦), 0)T, the perturbation takes the form
+˜𝒒(𝑥, 𝑦, 𝑧, 𝑡) = ˆ𝒒(𝑥, 𝑦)𝑒i(𝛽𝑧−𝜔𝑡),
+(3)
+where 𝛽is the spanwise wavenumber (𝛽= 0 for the two-dimensional analysis), and 𝜔represents
+the temporal frequency. Substituting into the LNSE equation (2) leads to a BiGlobal temporal
+eigenvalue problem,
+
+L + 𝑈𝑥
+𝑈𝑦
+0
+D𝑥
+𝑉𝑥
+L + 𝑉𝑦
+0
+D𝑦
+0
+0
+L
+i𝛽I
+D𝑥
+D𝑦
+i𝛽I
+0
+
+ˆ𝒒= i𝜔
+
+I
+0
+0
+0
+0
+I
+0
+0
+0
+0
+I
+0
+0
+0
+0
+0
+
+ˆ𝒒,
+(4)
+where L = 𝑈D𝑥+ 𝑉D𝑦−𝑅𝑒−1(D𝑥𝑥+ D𝑦𝑦−𝛽2I), and the spatial derivative operators are
+indicated by subscripts. Comprehensive discussions on modal stability theory were reviewed in
+Schmid and Henningson [24], Theofilis [25] and Juniper et al. [23].
+The matrix-forming method was applied in the global analysis due to its flexibility and direct
+insight into the physical mechanism of the eigenvalues and eigenfunctions. The matrix storage
+and inversion issues associated with the matrix-forming method were overcome by applying
+the ARPACK algorithm (Lehoucq et al. [26]), which utilizes the implicitly restarted Arnoldi
+method (IRAM) to solve the eigenvalue problem of the sparse matrices. The linearized operators
+were discretized on a structured curvilinear C-grid using second-order central finite difference
+discretization, with one-sided differences on the wall (Γw), far-field (Γ∞) and outflow (Γo) bound-
+aries, as illustrated in figure 1. The construction of the derivative matrices, which incorporates
+the curvilinear coordinate transformation, is detailed in Appendix A. The base flow coefficients
+in eq. (4) were obtained by direct numerical simulation (DNS) discussed in §2.2.
+2.2. DNS: Base Flow
+The computational domain, illustrated in figure 1, was discretized by a structured C-type
+curvilinear grid generated in Pointwise v18.1. The spatial domain extends 100𝐷downstream
+of the cylinder, where 𝐷denotes the cylinder diameter that is used to normalize all spatial
+variables. In the transverse direction, the domain spans 60𝐷on either side of the wake cut AB.
+The curvilinear coordinate system comprises 1961 × 401 grid points along the computational
+coordinates 𝜉and 𝜂, respectively, which are mapped onto the physical coordinates along the
+streamwise (𝑥) and transverse (𝑦) directions.
+The cylinder flow DNS was conducted by solving the incompressible Navier-Stokes equations
+using SU2, an open-source multiphysics simulation and design suite (Economon et al. [27]). The
+Reynolds number, defined as 𝑅𝑒= 𝑈∞𝐷/𝜈, was defined based on the freestream velocity 𝑈∞,
+4
+(a)
+(b)
+(c)
+Γ∞
+Γw
+Γo
+𝜂
+𝜉
+A
+B
+100𝐷
+120𝐷
+𝐷
+𝑥
+𝑦
+𝑦
+Figure 1: (a) Schematic of the computational domain for a flow past a circular cylinder of diameter 𝐷, as indicated in (b).
+The domain spans 100𝐷in the streamwise direction and 60𝐷in the transverse direction on either side of the wake cut
+AB. Computational coordinates are represented by 𝜉and 𝜂. Boundary conditions include the solid wall (Γw), far-field
+(Γ∞), and outlet (Γo). Panel (b) illustrates the grid near the cylinder (displaying every 6 grid points). Panel (c) illustrates
+the grid near the NACA0015 airfoil (displaying every 6 grid points). Freestream direction is from left to right along the
+𝑥axis.
+cylinder diameter, and kinematic viscosity 𝜈. The convergence of the base flow was confirmed by
+ensuring that the residuals reached machine precision. For the base flow simulation, the no-slip
+and no-penetration boundary conditions (𝑈= 𝑉= 0) were imposed on the velocity components at
+the solid wall. At the far-field boundary, a uniform streamwise velocity and a Dirichlet condition
+for the transverse velocity (𝑈= 1, 𝑉= 0) were applied. At the outlet, a Dirichlet BC was specified
+for the pressure (𝑃= 0) and a Neumann BC for the velocity components (𝜕𝑈/𝜕𝑥= 𝜕𝑉/𝜕𝑥= 0).
+The base flow velocities were then substituted into the LNSE for the eigenvalue decomposition.
+2.3. Perturbation Boundary Conditions in Wake Flows
+The boundary conditions implemented in previous studies of global instabilities of two-
+dimensional wake flows are summarized in Table 1. The no-slip, no-penetration condition –
+implemented via Dirichlet boundary conditions – was consistently implemented at the solid wall
+across all referenced works. At the inlet/far-field boundaries, Dirichlet conditions were also
+commonly implemented, although some studies adopted an alternative Neumann condition (He
+et al. [14]) or symmetry boundary conditions (Canuto and Taira [19]). Accordingly, we imposed
+Dirichlet BC on the velocity components at both the solid wall and the far-field boundaries.
+For the pressure mode at the wall, the linearized pressure Poisson equation (LPPE) was applied
+following Theofilis [28].
+In contrast to the general consensus on wall and inlet/far-field boundary conditions, there was
+significantly less agreement regarding the appropriate treatment at the outlet of the computational
+domain. As noted by Sani and Gresho [5], an effective OBC should permit flow structures
+to convect downstream without generating divergence errors or inducing spurious upstream
+reflections — an aspect of particular importance in wake flows where the disturbance can continue
+to grow spatially past the outlet. Therefore, the focus of this study is to analyze the impact of
+different OBCs on the global stability analysis of the wake flow.
+2.3.1. Non-physical Outflow Boundary Conditions
+The main OBCs from the literature include: 1) Classical Neumann or Dirichlet conditions
+applied separately to the velocity and pressure modes (Barkley and Henderson [2], Giannetti and
+5
+Wall
+Far-Field
+Outlet
+ˆ𝑢
+ˆ𝑣
+ˆ𝑝
+ˆ𝑢
+ˆ𝑣
+ˆ𝑝
+ˆ𝑢
+ˆ𝑣
+ˆ𝑝
+Barkley and Henderson [2]
+D
+D
+-
+D
+D
+-
+N
+N
+D
+Giannetti and Luchini [13]
+D
+D
+-
+N (D)
+D
+N
+N / -
+D / N D / N
+He et al. [14]
+D
+D
+-
+N (D) N (D)
+-
+N
+N
+D
+Mittal [16]
+D
+D
+-
+𝜎𝑥𝑦
+D
+-
+𝜎𝑥𝑥
+𝜎𝑥𝑦
+-
+Sipp and Lebedev [18]
+D
+D
+-
+N (D)
+D
+-
+𝜎𝑥𝑥
+N
+-
+Canuto and Taira [19]
+D
+D
+-
+S
+S
+S
+SL
+SL
+SL
+Theofilis [29]
+D
+D
+-
+D
+D
+D
+E
+E
+E
+Present study
+D
+D
+LPPE
+D
+D
+D
+N / D / E / R / SL / 𝜎𝑖𝑗
+Table 1: Perturbation BCs for global stability analysis of wake flows past bluff bodies. N-Neumann; D-Dirichlet; R-
+Robin; S-symmetry; SL-sponge layer; 𝜎𝑖𝑗-stress tensor; E-extrapolation; LPPE-linearized pressure Poisson equation.
+(Parenthesis in Far-Field denote inlet BC if different from top/bottom far-fields)
+Luchini [13], He et al. [14]); 2) Stress-free boundary conditions, in which the stress tensor was
+defined as: 𝜎𝑖𝑗= −ˆ𝑝𝛿𝑖𝑗+ 𝑅𝑒−1  𝜕ˆ𝑢𝑖/𝜕𝑥𝑗+ 𝜕ˆ𝑢𝑗/𝜕𝑥𝑖
+ implemented in Noack et al. [15], Mittal
+[16], Sipp and Lebedev [18]; and 3) Other methods such as sponge layers designed to mitigate
+contamination due to inaccurate or non-reflecting outlet conditions (Canuto and Taira [19]), with
+detailed guidance on their implementation provided in Mani [30] and the extrapolation method
+discussed in Theofilis [29], Chedevergne et al. [31]. These classical OBCs lack the capability to
+accurately capture the true physics of the instability modes at the outflow.
+2.3.2. Physical Robin Boundary Condition: Incorporating Local LST
+A natural way to reveal the spatial information is to incorporate the local linear stability theory
+(LST) at the outlet to the OBC of the global analysis. The concept of linking temporal and spatial
+growth rates originates from Gaster [32], who showed that the real and imaginary components of
+the group velocity satisfy the Cauchy–Riemann equations,
+𝑐≡𝜕𝜔
+𝜕𝛼= 𝑐𝑟+ i𝑐𝑖,
+𝑐𝑟= 𝜕𝜔𝑟
+𝜕𝛼𝑟
+= 𝜕𝜔𝑖
+𝜕𝛼𝑖
+,
+𝑐𝑖= 𝜕𝜔𝑖
+𝜕𝛼𝑟
+= −𝜕𝜔𝑟
+𝜕𝛼𝑖
+,
+(5)
+where 𝑐is the group velocity and 𝛼represents the streamwise wavenumber, formally defined by
+the local LST ansatz
+˜𝒒= Å𝒒(𝑦)𝑒i(𝛼𝑥+𝛽𝑧−𝜔𝑡),
+(6)
+where Å𝒒is the local eigenfunction. The relations between 𝜔, 𝛼and Å𝒒are given by the Orr-
+Sommerfeld and Squire equations (see, e.g., [23, 24, 25]). The Gaster transform is based on the
+integration of eq. (5) and a series expansion of 𝑐𝑟, which yields
+𝜔𝑖= −𝑐𝑟𝛼𝑖,
+(7)
+relying on the imaginary part of the group velocity, 𝑐𝑖, being rather small for boundary layer and
+channel flows. The real part of the group velocity, 𝑐𝑟, can be evaluated at any station between the
+temporal case (𝛼∈R, 𝜔∈C) and the spatial case (𝜔∈R, 𝛼∈C).
+Ehrenstein and Gallaire [20] and Alizard and Robinet [21] used a similar analysis based on a
+Taylor series around the neutral point, (𝜔0, 𝛼0) ∈R,
+6
+𝜔−𝜔0 = 𝑐0(𝛼−𝛼0),
+(8)
+where the subscript ‘0’ indicates the neutral point. The real and imaginary parts of eq. (8) are
+𝜔𝑟−𝜔0 = 𝑐0𝑟(𝛼𝑟−𝛼0) −𝑐0𝑖𝛼𝑖,
+(9a)
+𝜔𝑖= 𝑐0𝑟𝛼𝑖+ 𝑐0𝑖(𝛼𝑟−𝛼0).
+(9b)
+Similarly to Gaster [32], Ehrenstein and Gallaire [20] and Alizard and Robinet [21] assumed that
+the imaginary part of the group velocity, 𝑐0𝑖, is small, as their focus was on boundary layers.
+Therefore, neglecting 𝑐0𝑖, eq. (8) becomes
+𝜔−𝜔0 = 𝑐0𝑟(𝛼−𝛼0),
+(10)
+with real and imaginary parts
+𝜔𝑟−𝜔0 = 𝑐0𝑟(𝛼𝑟−𝛼0),
+(11a)
+𝜔𝑖= 𝑐0𝑟𝛼𝑖.
+(11b)
+It should be noted that eq. (11b) does not contradict eq. (7) since Gaster’s derivation is not
+conducted around the neutral point; notwithstanding, it can be recovered by the following substi-
+tution in eq. (8): the temporal case is plugged into (𝜔, 𝛼) and the spatial case into (𝜔0, 𝛼0), i.e.
+𝜔= 𝜔𝑟+ i𝜔𝑖, 𝛼= 𝛼𝑟, and 𝜔0 = 𝜔𝑟, 𝛼0 = 𝛼𝑟+ i𝛼𝑖, respectively. The underlying conclusion of
+both eq. (7) and eq. (11b) is the same – the former enables converting temporal growth rate into
+spatial growth rate, whereas the latter states that the temporal growth rate of a global eigenmode
+comes at the expense of its local spatial growth rate.
+An interesting conclusion arises from the above analysis with regard to the spatial growth of
+the global eigenmode very far downstream, where the wake has straightened out and the local
+velocity profile is uniform, i.e. 𝑈(𝑥→∞, 𝑦) = 𝑈𝑐, where 𝑈𝑐is constant. For that case, an
+analytical solution for the local eigenmodes and the group velocity exists, given by
+𝜔= 𝛼𝑈𝑐−i𝑘2
+𝑅𝑒≈𝛼𝑈𝑐,
+𝑐0 ≡𝜕𝜔
+𝜕𝛼
+
+0
+= 𝑈𝑐−2i𝛼0
+𝑅𝑒≈𝑈𝑐,
+(12)
+where 𝑘2 is the total spatial wavenumber (corresponding to the Fourier transform of −∇2). In
+the globally stable (subcritical) case, where 𝑅𝑒< 𝑅𝑒𝑐𝑟, the temporal growth rate is negative,
+i.e., 𝜔𝑖< 0. Using eq. (11b) it can be seen that −𝛼𝑖≈−𝜔𝑖/𝑈𝑐> 0, stating that the global
+eigenfunction is expected to amplify spatially ad infinitum, even as 𝑥→∞. This may preclude
+convergence of the global stability eigenmodes unless a proper OBC is applied to capture its
+behavior; moreover, further extension of the domain will not facilitate convergence.
+The Robin boundary condition is derived similarly to Ehrenstein and Gallaire [20] and Alizard
+and Robinet [21] by applying the Fourier transform of the streamwise derivative, i𝛼ˆ𝑞= 𝜕ˆ𝑞/𝜕𝑥,
+which yields
+i (𝜔0 −𝛼0𝑐0) ˆ𝒒+ 𝑐0
+𝜕ˆ𝒒
+𝜕𝑥= i𝜔ˆ𝒒,
+(13)
+noting that this boundary condition is imposed without knowing 𝜔a priori, which is part of the
+solution of the eigenvalue decomposition system. Two versions of the boundary condition are
+7
+tested: the Robin-R assumes that 𝑐0𝑖is negligible (based on eq. (10)), whereas the Robin-C is
+derived for the general case where 𝑐0 ∈C (based on eq. (8)). The differences between both
+versions of the OBC will be quantified in detail in §3. It should be noted that if we assume
+𝜔0 = 𝛼0𝑐0 in eq. (13), the current Robin condition becomes the classical convective boundary
+condition (e.g., [8]), except that the value of 𝑐0 in eq. (13) is determined from local linear stability
+theory, rather than relying on a prescribed convection velocity 𝑈𝑐. Therefore, Robin-R serves as
+a representative example of the classical convective boundary condition.
+The group velocity was calculated based on the biorthogonality of the spectrum (e.g., Nayfeh
+and Padhye [33], Tumin [34]), utilizing the adjoint eigenvector,
+𝑐0 = 𝜕𝜔
+𝜕𝛼
+
+0
+=
+
+Å𝒒†, N Å𝒒
+
+
+Å𝒒†, M Å𝒒
+ ,
+(14)
+with the inner products given by
+
+Å𝒒†, N Å𝒒
+
+=
+∫∞
+−∞
+
+𝑈(𝑥o, 𝑦) −2i𝛼0
+𝑅𝑒
+ 
+Å𝑢† Å𝑢−Å𝑣† Å𝑣+ Å𝑤† Å𝑤
+
++ Å𝑝† Å𝑢+ Å𝑢† Å𝑝
+
+d𝑦,
+(15a)
+
+Å𝒒†, M Å𝒒
+
+=
+∫∞
+−∞
+
+Å𝑢† Å𝑢−Å𝑣† Å𝑣+ Å𝑤† Å𝑤
+
+d𝑦,
+(15b)
+where Å𝒒and Å𝒒† are the eigenvectors of the direct and adjoint local LST, respectively, and 𝑈(𝑥o, 𝑦)
+is the base flow wake profile at the outlet, shown for selected values of 𝑥o in Appendix B.
+3. Results and Discussions
+In this section, we first show the impact of OBCs on global stability analysis of cylinder wakes
+at different 𝑅𝑒, ranging from the subcritical (stable) to the unstable regime. Both the eigenvalues
+and the eigenfunctions are compared for different OBCs, with special attention given to the
+pressure component. Unless otherwise specified, all outflow boundary conditions (OBCs)—
+namely Neumann, Dirichlet, extrapolation, and two Robin conditions—are applied consistently
+to both velocity and pressure components. The same analysis is then conducted for the airfoil
+wake for both two- and three-dimensional perturbations, to demonstrate the applicability of the
+present conclusions for an arbitrary wake around a bluff body.
+3.1. Cylinder Wake in the Globally Stable Regime
+3.1.1. Neumann, Dirichlet, Extrapolation, and Stress-free Conditions
+Figure 2 shows the eigenvalue of the least stable global mode (the mode with maximum 𝜔𝑖,
+following [24]) for the cylinder wake at 𝑅𝑒= 40, which is lower than the critical 𝑅𝑒𝑐𝑟≈47.
+To assess the spatial convergence of the spectrum, the eigenvalue problem was solved for a wide
+range of domain truncations, with outlet locations varying as 30 ≤𝑥o ≤100, where 𝑥o represents
+the outlet location in the global analysis. The least stable eigenmode for the Neumann BC (black)
+exhibits high sensitivity to 𝑥o and does not converge well even for the case of the maximum
+domain size at 𝑥o = 100. The Dirichlet BC (magenta) significantly improves the convergence of
+the eigenvalue with 𝑥o, although the variation at large 𝑥o remains. The present results suggest that
+the Neumann OBC tends to cause inaccurate 𝜔𝑟and 𝜔𝑖compared to the Dirichlet condition. Such
+behavior is observed for the eigenfunctions as well (discussed later). The linear extrapolation
+8
+(a)
+𝜔𝑟
+(b)
+(c)
+𝜔𝑖
+𝑥o
+(d)
+𝑥o
+Figure 2: Real (a) and imaginary (c) parts of the least stable eigenvalue from the global stability analysis for different
+outlet locations, 𝑥o, of the cylinder wake at 𝑅𝑒= 40. Different outflow boundary conditions are denoted by different
+colors: Dirichlet (magenta), Neumann (black), Extrapolation (gray), Stress-free (green), Robin-R (blue), and Robin-C
+(red). Panels (b, d) provide magnified views of the regions indicated by the gray dashed boxes in (a, c).
+method (gray) exhibits even higher variation in 𝜔𝑟with domain size, as well as incorrect 𝜔𝑖(in
+both current subcritical and supercritical 𝑅𝑒discussed in §3.3), and therefore the results of the
+extrapolation OBC are excluded in subsequent discussions.
+Figure 2 reveals that in the subcritical (stable) case, global stability analysis is highly sensitive
+to OBCs, and classical Neumann and Dirichlet conditions fail to yield the converged spectrum.
+Notably, this issue cannot be overcome simply by extending the computational domain in the
+wake, which is perhaps challenging the general assumption that the impact of OBCs in DNS
+can be alleviated by employing a larger computational domain, with its size scaling linearly
+with Reynolds numbers (Dong et al. [12]). However, figure 2 demonstrates that the variation
+in the eigenmode for the Neumann and Dirichlet conditions does not diminish with increasing
+𝑥o. This suggests that the linear scaling of the computational domain with 𝑅𝑒really depends
+on the specific problem, and simply extending the domain without implementing the appropriate
+OBC cannot guarantee convergence in the global stability analysis. The stress-free boundary
+condition (following Mittal [16]), indicated by the green color, shows a significant convergence
+of the spectrum compared to the Neumann and Dirichlet conditions, with a magnified view of its
+variation with 𝑥o shown in figure 2(b, d).
+Figure 3 compares the least stable eigenmodes for different OBCs reported in figure 2, with
+the outlet positioned at 𝑥o = 52 (representative of the behavior for other 𝑥o).
+The velocity
+components for the Neumann (a, b) and Dirichlet (d, e) BC exhibit similar behavior, though the
+Neumann condition yields higher distortion near the outlet, consistent with the higher oscillation
+of the eigenvalue in figure 2. The pressure component for these classical boundary conditions
+differs significantly: the ˆ𝑝mode from the Neumann BC (c) displays a huge distortion compared to
+the Dirichlet BC (f). This distortion is not confined to only very close to the outlet, but to almost
+the entire computational domain. These findings are consistent with the unconverged eigenvalues
+of the Neumann OBC, indicating that the Neumann OBC tends to cause distortions over a wide
+region, leading to spurious less stable modes (larger 𝜔𝑖in figure 2(b) and large distortion in
+figure 3(c)). In addition, the ˆ𝑝mode from the Dirichlet condition in (f) exhibits striped patterns
+9
+that extend throughout a significant portion of the computational domain (spanning at least
+10𝐷), rather than being confined near the outlet, as suggested by Theofilis [29]. Similar striped
+distortion in ˆ𝑝is also observed in the vicinity of the outlet of the stress-free boundary condition,
+shown in (i), suggesting that even though the eigenvalue is substantially converged compared to
+Neumann and Dirichlet conditions in figure 2, still the pressure component is not well converged.
+Furthermore, the effect on spectrum and eigenmodes by imposing a sponge layer at the outlet is
+discussed in Appendix C.
+The comparison between the velocity and pressure components shows that the latter is more
+sensitive to the choice of OBCs in the global stability analysis (Tomboulides [35]) and therefore
+essential to evaluate the effectiveness of OBCs. Despite the significance of pressure modes in
+evaluating the quality of global results, it seems somewhat surprising that most previous studies
+only showed the velocity modes, and only a few studies showed the pressure mode (e.g., Mittal
+[16]).
+The elevated noise levels associated with the Neumann, Dirichlet, and stress-free OBCs can
+be attributed to the characteristics of the eigenmodes, as shown in figure 3. The global modes
+display spatial growth in the streamwise direction, which is incompatible with the assumption of
+Neumann or Dirichlet conditions, which presume either zero spatial growth or zero amplitude
+at the outlet, respectively; similarly, the simple assumption of zero stress at the outlet can
+not perfectly capture the true spatial behavior of the pressure modes. Consequently, all these
+conditions cannot accurately capture the spatially growing nature of local disturbances and are
+not suitable as physically representative OBCs. A more appropriate OBC, aligned with the spatial
+growth of the eigenmodes, is therefore essential to capture the true physics at the outlet.
+3.2. Robin Outflow Boundary Conditions
+The blue and red lines in figure 2 show the eigenvalue of the two Robin OBCs discussed in
+§2.3.2, denoted by Robin-R and Robin-C. The eigenvalues of the two Robin conditions have a
+significant improvement in convergence compared to the classical Neumann and Dirichlet BC.
+For the range of 𝑥o considered in this study, the variation of 𝜔𝑖for the Dirichlet BC is about 2%,
+which is similar to the uncertainty level reported in Table 7 in He et al. [14]. The variations in 𝜔𝑖
+are 0.4% and 0.2% for the Robin-R and Robin-C, respectively. This demonstrates that the Robin
+boundary condition ensures a better converged spectrum irrespective of the outlet position of the
+computational domain.
+The quality of the pressure component can be quantified by a relative error,
+𝜀ˆ𝑝= ∥ˆ𝑝o −ˆ𝑝ref
+o ∥2
+∥ˆ𝑝ref
+o ∥2
+,
+(16)
+where ∥· ∥2 denotes the 𝐿2 norm, ˆ𝑝o represents the pressure mode at the outlet for different OBCs,
+and ˆ𝑝ref
+o denotes the pressure mode corresponding to the Robin-C condition, which is defined as
+a reference. All ˆ𝑝o are normalized to be identical at (𝑥, 𝑦) = (𝑥o, 2). The value of 𝜀ˆ𝑝for the
+Dirichlet condition should be unity due to its nature (as ˆ𝑝o = 0 at the outlet). The values of 𝜀ˆ𝑝
+for the Neumann and stress-free conditions are 1.7 and 0.17, respectively. The Robin-R condition
+has 𝜀ˆ𝑝≈0.06. The value of 𝜀ˆ𝑝quantifies the relative error in the pressure component, observed
+in the contour in figure 3, among different boundary conditions.
+10
+(a)
+(b)
+(c)
+(d)
+(e)
+(f)
+(g)
+(h)
+(i)
+(j)
+(k)
+(l)
+(m)
+(n)
+(o)
+ℜ( ˆ𝑢)
+ℜ(ˆ𝑣)
+ℜ( ˆ𝑝)
+𝑥
+𝑥
+𝑥
+𝑦
+𝑦
+𝑦
+𝑦
+𝑦
+Figure 3: Real part of the least stable global eigenmode of the flow past a circular cylinder at 𝑅𝑒= 40: ˆ𝑢(first column), ˆ𝑣(second column), and ˆ𝑝(third column), for different
+outflow boundary conditions: Neumann (a,b,c), Dirichlet (d,e,f), Stress-free (g,h,i), Robin-R (j,k,l), and Robin-C (m,n,o). The outlet is located at 𝑥o = 52. All eigenfunctions
+are normalized by the magnitude of the ˆ𝑢mode at (𝑥, 𝑦) ≈(48, 2). The relative error, defined in eq. (16), is 𝜀ˆ𝑝= 1.74 (c), 1 (f), 0.17 (i), 0.06 (l), and 0 (o).
+11
+(a)
+(b)
+Figure 4: Real (a) and imaginary (b) parts of 𝛼estimated in eq. (9) and eq. (11), for Robin-R condition (gray) and
+Robin-C condition (black). The eigenvalue 𝜔was obtained from global analysis.
+The significant improvement associated with the Robin BC is observed in the eigenmodes
+in figure 3, particularly for the pressure components. Figure 3(l, o) illustrate ˆ𝑝for both Robin
+BCs. The high level of noise was eliminated by imposing the Robin BC, even very close to
+the outlet. The better performance of the eigenfunction does not depend on the choice of outlet
+positions, and the difference between the two Robin conditions seems to be negligible, indicating
+that qualitatively, whether or not including the imaginary part in the group velocity does not seem
+to change the global results. In other words, it seems safe to neglect 𝑐0𝑖in the current wake flow
+study like in the boundary layer studies [21]. A critical assessment of the difference between the
+Robin-R and Robin-C conditions is conducted in the following section.
+3.2.1. Real vs. Complex Robin Condition
+In this subsection, the difference between the two Robin conditions is quantified by examining
+how well the local streamwise wavenumber evaluated from the global eigenvalue using eq. (8)
+matches the local spatial growth of the actual global modes. The local streamwise wavenumber
+can be obtained from eqs. (9) and (11), for the Robin-C and Robin-R OBCs, respectively. The
+real and imaginary parts of the streamwise wavenumber are shown in figure 4. The real part, 𝛼𝑟,
+shown in figure 4(a) is very close for the two Robin conditions throughout the entire range of 𝑥o,
+which can be deduced by comparing the expressions in eq. (9a) and eq. (11a), and this implies
+that neglecting 𝑐0𝑖does not affect the estimation of 𝛼𝑟for both Robin conditions. However, this
+consistency does not hold for the imaginary part, 𝛼𝑖, as can be seen in figure 4(b). Ignoring the
+imaginary part of the group velocity, 𝑐0𝑖, tends to overestimate the local spatial growth rate, −𝛼𝑖,
+approximately by a factor of 2. Therefore, if one is interested in the local spatial growth of the
+global eigenmodes from the local analysis, the imaginary part of the group velocity has to be
+included and the Robin-C condition should be applied.
+Figure 5 illustrates the local spatial growth rate calculated from eq. (11b) and eq. (9b), to
+compare how well the local LST captures the local spatial growth of the global eigenmodes. The
+red lines mark the maximum magnitude of the mode ˆ𝑢within 30 ≤𝑥≤100 in figure 3(m), with
+𝑥o = 100, and its slope represents the local spatial growth of the global mode. The slopes of the
+short lines are identical to −𝛼𝑖, evaluated at the corresponding 𝑥o locations of the local analysis,
+which should ideally match the slope of the red line.
+12
+(a)
+(b)
+𝑥
+log(max𝑦| ˆ𝑢|)
+log(max𝑦| ˆ𝑢|)
+Figure 5: Comparison of local spatial growth rates of the streamwise velocity component of the global mode, ˆ𝑢, with
+local analysis. The red solid line shows the maximum magnitude of ˆ𝑢at each streamwise position. The slope of the short
+lines are identical to −𝛼𝑖evaluated at each corresponding 𝑥o location for (a) Robin-R, based on eq. (11b); (b) Robin-C,
+based on eq. (9b).
+Figure 5(a) shows that the spatial growth rate appears to be overestimated by local analysis in
+the Robin-R OBC, shown by the larger slope of the short gray lines, whereas the Robin-C OBC
+shown in figure 5(b) matches much better with the spatial growth of the global mode. Therefore,
+even though in §3.1.1 it seems that neglecting 𝑐0𝑖will not have a significant impact on the
+spectrum and eigenfunctions in the global analysis, its contribution to 𝛼𝑖is crucial and therefore
+should be taken into account if the spatial growth of the global modes is of interest. In other
+words, the Robin-C captures more accurately the local spatial growth of the global eigenmodes,
+and therefore we impose the Robin-C condition when we refer to the Robin condition in the
+subsequent study.
+3.3. Reynolds Number Dependence of OBC Impact
+In the preceding section, we examined the choice of outflow boundary conditions for the
+cylinder wake in the globally stable regime, showing that the spatially growing nature of the
+eigenmodes can lead to nonphysical behavior at the outlet when classical Dirichlet or Neumann
+OBCs are implemented.
+Because the spatial structure of the global modes depends on the
+Reynolds number, we now analyze how the Reynolds number affects the choice of appropriate
+OBC. To obtain a steady base flow for 𝑅𝑒≥47 (and suppress vortex shedding), we solve only
+the upper half of the computational domain shown in figure 1(a), imposing a symmetry boundary
+condition along the centerline along the 𝑥axis.
+The resulting half-domain solution is then
+mirrored to reconstruct the full flow field, as in previous studies (e.g., Sipp and Lebedev [18]).
+Figure 6 shows the eigenvalue of the most unstable mode of the cylinder wake at 𝑅𝑒= 70, with
+colors representing different BCs consistent with figure 2. Only the Neumann (black), Dirichlet
+(magenta) and Robin-C red) conditions are shown (the extrapolation method, stress-free, and
+Robin-R conditions are excluded for brevity, as explained in the preceding sections). The growth
+rate 𝜔𝑖changes its sign from negative to positive as 𝑅𝑒increases from 40 to 70, validating that
+13
+(a)
+𝜔𝑟
+(b)
+𝜔𝑖
+𝑥o
+Figure 6: Same caption as figure 2 for 𝑅𝑒= 70 in the current plots. Different boundary conditions are denoted by
+different colors: Dirichlet (magenta), Neumann (black), and Robin-C (red).
+the flow becomes globally unstable at the higher Reynolds number, consistent with the results in
+Barkley [3] and Mittal [16].
+The eigenvalues calculated from Neumann and Dirichlet BC show a significant improvement
+in convergence compared to the lower 𝑅𝑒case in figure 2. The difference between the classical
+Neumann or Dirichlet and Robin BC shows a clear trend with 𝑥o, past 𝑥o = 60 the eigenmode
+is approximately converged for all OBCs. The fact that the eigenmode of all OBCs becomes
+converged at large 𝑥o for 𝑅𝑒= 70 indicates that (at current 𝑅𝑒) if the computational domain
+is large enough, the global stability analysis becomes less sensitive to the choice of OBCs, and
+therefore we do not need to worry about how to choose the boundary condition as long as the
+outlet is far enough from the cylinder, which is consistent with Dong et al. [12] and others.
+However, this behavior holds only for the higher-𝑅𝑒case considered here. At low 𝑅𝑒, selecting
+an appropriate OBC remains essential regardless of the domain length, and simply extending the
+computational domain does not ensure spectral convergence. This is somewhat counterintuitive,
+as one might expect the higher-𝑅𝑒, globally unstable case to be more demanding in terms of
+accuracy, leading to the common assumption that the domain length should scale linearly with
+𝑅𝑒. In contrast, the current results indicate that it is the low-𝑅𝑒regime in which convergence is
+more difficult to achieve and more sensitive to the choice of OBCs for the current global stability
+analysis. This apparent discrepancy can be explained by examining the spatial evolution of the
+global eigenmodes.
+Figure 7 presents the real part of the eigenfunction components ˆ𝑢, ˆ𝑣, and ˆ𝑝for the most
+unstable mode at 𝑅𝑒= 70, obtained using Neumann (a–c), Dirichlet (d–f), and Robin (g–i)
+outlet boundary conditions, with the outlet placed at 𝑥o = 52. The velocity components are
+nearly indistinguishable across all three OBCs, indicating that any of them would be adequate
+for this particular combination of 𝑅𝑒and 𝑥o. Consequently, the velocity modes alone do not
+allow a meaningful comparison of convergence among the different OBCs.
+In contrast, the
+pressure component exhibits significantly stronger oscillations than the velocity components—
+most notably for the Neumann condition in panel (c). The striped pattern in the Dirichlet case
+14
+(f) further reveals that, although the eigenvalues appear to converge for 𝑥o ≈40, the pressure
+field remains poorly converged near the outlet. The Robin condition again shows no visible
+oscillations, as seen in panel (i), in stark contrast to panels (c) and (f).
+The most important difference in the eigenfunctions between 𝑅𝑒=40 and 𝑅𝑒=70 is their
+spatial development (Mittal [16]). At 𝑅𝑒=40 all eigenmodes tend to grow monotonically along
+the streamwise direction, as can be seen in figure 5. At 𝑅𝑒=70, the eigenmodes no longer grow
+monotonically with 𝑥, instead they have a local maximum at 𝑥≈10, past which the eigenmodes
+start to decay spatially and eventually die off, as shown in figure 7. The direct comparison of the
+spatial growth of the global modes for the two different 𝑅𝑒can be found in Appendix D.
+The differing spatial evolution of the eigenmodes explains the Reynolds-number dependence
+of the OBC behavior discussed above.
+At low 𝑅𝑒, the eigenmodes exhibit spatial growth,
+making both the Neumann and Dirichlet conditions incompatible with the actual physics at the
+outlet. Increasing the domain length does not alter this mismatch and therefore does not improve
+convergence (see also eq. (12) and the accompanying discussion). At higher 𝑅𝑒, however, the
+eigenmodes decay downstream, and their amplitude becomes negligible at sufficiently large 𝑥.
+As a result, both Neumann and Dirichlet conditions become increasingly consistent with the
+true downstream behavior, explaining why their performance improves with outlet location for
+high 𝑅𝑒.
+From the comparison of eigenvalues and eigenfunctions at the two Reynolds numbers, two
+conclusions emerge. First, the Robin boundary condition consistently outperforms the classical
+Neumann and Dirichlet conditions for both stable and unstable cylinder wakes, yielding notice-
+ably better convergence of both the spectrum and the eigenfunctions—particularly the pressure
+component. Second, the influence of domain length on OBC performance depends strongly on
+the Reynolds number: Whereas increasing the domain size is effective for unstable flows at high
+𝑅𝑒, it offers limited improvement for the stable, low 𝑅𝑒regime, at least for the present global
+stability analysis.
+This can be explained by the relationship between spatial and temporal growth rates in
+the dispersion relation near the neutral point. At low 𝑅𝑒, the negative temporal growth rate
+corresponds to the positive spatial growth rate, which cannot be captured by the Neumann and
+Dirichlet BC at the outlet; while at high 𝑅𝑒, the positive temporal growth rate corresponds to the
+negative spatial growth rate, leading to spatial decay in the wake, and therefore all OBCs tend to
+work better when the outlet is far enough (the mode decays substantially). In other words, the
+𝑅𝑒dependence of the OBC choice depends on the actual spatial and temporal behavior of the
+problem, and the same sign between the spatial and temporal growth rate indicate that the impact
+of outlet BC is more prominent when the flow itself is spatially growing (temporally stable),
+for which the long computational domain does not help to provide a more physical boundary
+condition, and therefore the more physical Robin OBC is necessary.
+15
+(a)
+(b)
+(c)
+(d)
+(e)
+(f)
+(g)
+(h)
+(i)
+ℜ( ˆ𝑢)
+ℜ(ˆ𝑣)
+ℜ( ˆ𝑝)
+𝑦
+𝑦
+𝑦
+𝑥
+𝑥
+𝑥
+Figure 7: Real part of the most unstable global eigenmode of the flow past a circular cylinder at 𝑅𝑒= 70: ˆ𝑢(first column), ˆ𝑣(second column), and ˆ𝑝(third column), for different
+outflow boundary conditions: Neumann (a,b,c), Dirichlet (d,e,f), and Robin (g,h,i). The outlet is located at 𝑥o = 52. All eigenfunctions are normalized by the magnitude of the
+ˆ𝑢mode at (𝑥, 𝑦) ≈(14, 1). The relative error, defined in eq. (16), is 𝜀ˆ𝑝= 1.67 (c), 1 (f), and 0 (i).
+16
+(a)
+(b)
+Figure 8: (a) Growth rate, 𝜔𝑖, and (b) Strouhal number, 𝑆𝑡= 𝜔𝑟/2𝜋, variation with Reynolds number in the cylinder
+wake flow. Red: Barkley [3]; blue: Mittal [16]; black: present study.
+Figure 8 shows the real and imaginary parts of the temporal spectrum with 𝑅𝑒ranging from
+20 to 100, calculated from the complex Robin condition. The black squares, representing the
+current study, show a good match with the results in the literature for both globally stable (𝜔𝑖< 0)
+and unstable (𝜔𝑖> 0) cases.
+3.4. OBCs for Global Stability Analysis in Airfoil Wakes
+In this section, we examine the influence of different OBCs on the global stability analysis
+of the less-studied airfoil wake, in order to assess the robustness of the Robin condition without
+prior knowledge of the flow’s stability.
+The base flow of a NACA0015 airfoil at 𝑅𝑒= 200 at an angle of attack of 18◦was studied
+as a representative case. The Reynolds number is defined as 𝑅𝑒= 𝑈∞𝑐/𝜈, where 𝑐denotes the
+airfoil chord length. These parameters were chosen to match the configuration studied in He
+et al. [14]. A curvilinear C-grid was generated in Pointwise v18.1, with the wake extending 100𝑐
+downstream and spanning 40𝑐in the transverse direction, resulting in a computational mesh of
+2257 × 305 points. The near-airfoil mesh is shown in figure 1(c). The global stability analysis
+was carried out using the same solver employed for the cylinder wake; additional details of the
+DNS and global stability methodology are provided in §2.2.
+Figure 9 presents the least stable eigenvalue of the airfoil wake for outlet positions 10 ≤
+𝑥o ≤60 under different OBCs. Similar to the cylinder case, the frequency 𝜔𝑟obtained with the
+Neumann condition (black) exhibits pronounced spatial oscillations. Moreover, the growth rate
+𝜔𝑖in panel (b) shows that the Neumann condition yields an incorrect growth rate even for the
+largest domain considered (𝑥o = 60). As in the cylinder wake, the Dirichlet condition performs
+better than the Neumann condition; however, noticeable variations in both frequency and growth
+rate with respect to the outlet location remain.
+The large variations in the spectrum with domain length are effectively mitigated by the Robin
+OBC, indicated by the red dashed line, even for a very small computational domain (𝑥o ≈10).
+This demonstrates the robustness and efficiency of the Robin condition for flows past different
+bluff bodies, including cylinders and airfoils, allowing a significant reduction in computational
+17
+(a)
+(b)
+𝜔𝑖
+𝜔𝑟
+Figure 9: Real (a) and imaginary (b) parts of the least stable eigenvalue of global stability analysis for NACA0015 airfoil
+with an angle of attack of 18◦, at 𝑅𝑒= 200, with the outlet location 10 < 𝑥o < 60. Different OBCs are represented by
+different colors: Dirichlet (magenta), Neumann (black), and Robin-C (red).
+domain size. A direct comparison of the global results as a function of domain length is further
+discussed in §3.5.
+Figure 10 shows the real part of the least stable eigenmode for different OBCs in the airfoil
+wake.
+The velocity components obtained with both the Neumann (first row) and Dirichlet
+(second row) conditions appear reasonable; however, closer inspection near the outlet reveals
+higher oscillations in ˆ𝑢and ˆ𝑣for the Dirichlet BC (d, e) compared to the Neumann BC (a, b). In
+contrast, the pressure component exhibits substantial distortion for the Neumann BC (c), whereas
+the Dirichlet BC (f) performs better for the pressure, despite showing stronger oscillations in
+the velocity components. Another notable difference is in the spatial behavior of the velocity
+modes within the computational domain: for the Neumann BC, their magnitude initially increases
+with 𝑥and then decays slightly, whereas for the Dirichlet BC, the velocity magnitude increases
+monotonically with 𝑥.
+These observations illustrate the complexity of OBC effects in global stability analysis, as
+different components of the eigenmode (velocity versus pressure) can respond differently to the
+same outlet condition. The oscillations in both velocity and, particularly, pressure components
+are effectively suppressed by the Robin OBC, as shown in the last row of figure 10. The Robin BC
+captures the overall spatial trends similarly to the Dirichlet BC while eliminating high wavenumber
+oscillations near the outlet by enforcing a more physically consistent boundary condition.
+18
+(a)
+(d)
+(g)
+𝑦
+𝑦
+𝑦
+𝑥
+ℜ( ˆ𝑢)
+(b)
+(e)
+(h)
+𝑥
+ℜ( ˆ𝑣)
+(c)
+(f)
+(i)
+𝑥
+ℜ( ˆ𝑝)
+Figure 10: Real part of the least stable eigenmode, ˆ𝑢(first column), ˆ𝑣(second column), and ˆ𝑝(third column), calculated from different outflow boundary conditions: Neumann
+(a,b,c), Dirichlet (d,e,f), and Robin (g,h,i) of NACA0015 airfoil with an angle of attack of 18◦, at 𝑅𝑒= 200. All eigenmodes are normalized by the magnitude of ˆ𝑢at
+(𝑥, 𝑦) ≈(48, −1). The relative error, defined in eq. (16), is 𝜀ˆ𝑝= 1.04 (c), 1 (f), and 0 (i).
+19
+(a)
+(b)
+Figure 11: (a) Growth rate, 𝜔𝑖, and (b) Strouhal number, 𝑆𝑡, of the least stable modes of NACA0015 airfoil at 𝑅𝑒=200
+and angle of attack of 18◦. Blue: He et al. [14] with time stepping method (Nektar++) and domain (𝑥o, 𝑦max) = (50, 15);
+red: He et al. [14] with matrix-forming (FreeFEM++) method and domain (𝑥o, 𝑦max) = (40, 32); black: present study
+with domain of only (𝑥o, 𝑦max) = (10, 5).
+3.5. Stationary Modes in Airfoil Wake Flow
+In this subsection, we examine the effectiveness of the Robin condition in capturing the
+stationary mode by performing the global stability analysis of the airfoil wake at different spanwise
+wavenumbers.
+Figure 11 shows the effect of the spanwise wavenumber, 𝛽, on the damping rate and frequency
+of the NACA0015 airfoil at 𝑅𝑒=200 and angle of attack of 18◦by implementing the Robin OBC
+in the global analysis. It validates that the spectrum in the present study matches well with He
+et al. [14], in which they applied both the time stepping (blue) and the matrix-forming methods
+(red), although the domain size in the current study is much smaller in both streamwise and
+transverse direction. The change of the least stable mode between the traveling and stationary
+mode is well captured in (a) at approximately 𝛽= 2.5. The effect of OBCs on the stationary
+mode was also consistent with the results in 𝛽= 0 case shown in figure 10, and the eigenmodes
+of different OBCs can be found in Appendix E.
+Finally, we would like to compare the spectrum convergence as a function of computational
+domain size, and quantify how the current Robin OBC can significantly reduce the required
+domain size. Table 2 lists the relative error, 𝜔−˜𝜔, of both real and imaginary parts of the
+least stable mode, where ˜𝜔𝑟and ˜𝜔𝑖represent the real and imaginary parts at the largest domain
+size ((𝑥o, 𝑦max) = (40, 10) presented herein). The spanwise wavenumber 𝛽= 1 was chosen to
+make the direct comparison with the literature. For the same computational domains, the relative
+error in the current study is at least three orders of magnitude smaller than that of He et al. [14]
+in which the Neumann OBC was implemented. For instance, even the smallest computational
+domain used in the present study, (𝑥o, 𝑦max) = (10, 5), yields eigenvalues with a relative error of
+the order of 10−6 for both the damping rate and the frequency, as long as the more physical Robin
+condition is implemented properly at the outlet.
+20
+He et al. [14]
+Present work (Robin OBC)
+𝑥o
+𝑦max
+|𝜔𝑟−˜𝜔𝑟| × 103
+|𝜔𝑖−˜𝜔𝑖| × 103
+|𝜔𝑟−˜𝜔𝑟| × 103
+|𝜔𝑖−˜𝜔𝑖| × 103
+10
+5
+–
+–
+4.8 × 10−3
+1.5 × 10−3
+15
+5
+6.7
+9.1
+4.5 × 10−3
+1.2 × 10−3
+20
+5
+6.7
+9.1
+4.5 × 10−3
+1.2 × 10−3
+30
+5
+4.3
+9.8
+4.3 × 10−3
+1.2 × 10−3
+40
+5
+3.2
+1.4
+4.5 × 10−3
+1.2 × 10−3
+30
+10
+4.4
+9.8
+1.5 × 10−8
+1.0 × 10−9
+40
+10
+–
+–
+–
+–
+Table 2: Effect of domain size on the global analysis for NACA0015 airfoil, 𝑅𝑒= 220, angle of attack of 18◦and
+spanwise wavenumber 𝛽= 1, compared to Table 7 in He et al. [14]. ˜𝜔𝑖, ˜𝜔𝑟represent damping rate and frequency of the
+largest domain size reported in their study, (𝑥o, 𝑦max) = (40, 10), listed in the last row.
+4. Conclusions
+The global stability analysis of the wake flow past bluff bodies was investigated for a wide range
+of computational domains using the matrix-forming method. The eigenvalues and eigenfunctions
+from the global analysis were found to be highly sensitive to the choice of the boundary condition
+at the outlet. Various outflow boundary conditions were compared in both cylinder wake and
+airfoil wake flows, and results show that the Robin boundary condition, which incorporates the
+local linear stability theory in the global solver, consistently yields a converged spectrum and a
+less distorted eigenfunction across different outlet truncations.
+In the stable regime of the cylinder wake flow, the frequency calculated from the global
+stability analysis had high spatial oscillations for the classical Neumann, Dirichlet, extrapolation,
+stress-free, and sponge layer boundary conditions, and the damping rate showed even worse
+behavior, particularly for the Neumann and extrapolation conditions. Compared to the relatively
+smooth velocity modes, the pressure modes appeared to be much noisier and not well converged
+for both Neumann and Dirichlet conditions due to the non-physical condition enforced at the
+outlet. The Robin boundary condition was implemented by incorporating the local linear stability
+theory in the boundary condition of the global analysis, and a Taylor expansion was conducted near
+the neutral point to approximate the local streamwise wavenumber. We modified the previously
+reported Robin-R condition, which accounts only for the real part of the group velocity, and
+incorporated its full complex form (Robin-C) into the global stability solver. The latter enables
+us to capture more accurately the spatial growth of the global mode.
+The effectiveness of the outflow boundary conditions depends on the spatial behavior of the
+eigenmodes at different Reynolds numbers. In the unstable regime of the cylinder wake, the
+spatially decaying nature of the modes makes the choice of OBC less affective with increasing
+computational domain, leading to a converged spectrum for all boundary conditions with suf-
+ficiently large domain size. In other words, the spectrum is easier to converge in the unstable
+regime, at higher 𝑅𝑒. However, the lack of convergence of the spectrum at low 𝑅𝑒can not be
+overcome by simply extending the computational domain. The spatially amplifying nature of
+the modes at low 𝑅𝑒makes it essential to impose the physical Robin condition at the outlet.
+Therefore, global stability analysis is more sensitive to OBC when the flow is stable and the
+eigenmode is growing spatially ad infinitum. In both globally stable and unstable cases examined
+in this study, the Robin condition consistently yields a converged spectrum with a much smaller
+21
+domain size.
+The preference of Robin condition was further validated in the wake flow past the NACA0015
+airfoil. The spanwise wavenumber trend of both damping rate and frequency in the present
+study matches well with both time stepping and matrix-forming results in He et al. [14]. The
+convergence of the least stable mode was compared for the Robin condition and previously used
+Neumann conditions in the literature. The variation in the relative error of the spectrum was
+found to be about three orders of magnitude smaller for the same domain size compared to the
+results using the Neumann condition, showing that the computational cost can be significantly
+reduced when the more physical Robin outflow boundary condition is implemented.
+The Robin outflow condition provides a physically consistent boundary condition for the
+global analysis of the bluff body wake flow. By incorporating the linear stability analysis for the
+local profile at the outlet, it has been shown that the Robin boundary condition can significantly
+reduce the computational domain required to obtain converged eigenmodes, particularly for low
+Reynolds number stable flows, for which classical boundary conditions cannot produce well-
+converged results simply by extending the domain size. With its clear physical mechanism and
+easy implementation in the matrix-forming framework, the Robin condition paves the way towards
+applications in more complex stability problems, such as Floquet analysis and in compressible
+flows.
+Acknowledgment
+This research was supported by the ISRAEL SCIENCE FOUNDATION (grant No. 1522/21).
+Appendix A. Metrics for Curvilinear Structured Grid
+The metrics in the eigenvalue decomposition for the current curvilinear C-grid were calculated
+using the finite difference method following Anderson [36]. The transformation between the
+physical domain (𝑥, 𝑦) and the computational domain (𝜉, 𝜂) is given as
+𝜕
+𝜕𝑥= 𝜕𝜉
+𝜕𝑥
+𝜕
+𝜕𝜉+ 𝜕𝜂
+𝜕𝑥
+𝜕
+𝜕𝜂,
+𝜕
+𝜕𝑦= 𝜕𝜉
+𝜕𝑦
+𝜕
+𝜕𝜉+ 𝜕𝜂
+𝜕𝑦
+𝜕
+𝜕𝜂,
+(A.1)
+with the metrics given by
+
+𝜕𝜉
+𝜕𝑥
+𝜕𝜉
+𝜕𝑦
+𝜕𝜂
+𝜕𝑥
+𝜕𝜂
+𝜕𝑦
+
+= 1
+𝐽
+
+𝜕𝑦
+𝜕𝜂
+−𝜕𝑥
+𝜕𝜂
+−𝜕𝑦
+𝜕𝜉
+𝜕𝑥
+𝜕𝜉
+
+,
+(A.2)
+where 𝐽= 𝑥𝜉𝑦𝜂−𝑥𝜂𝑦𝜉is the Jacobian of the transformation. Similarly, the second derivatives
+𝜕2/𝜕𝑥2, 𝜕2/𝜕𝑦2 in the Laplacian operator have the following form [36]
+𝜕2
+𝜕𝑥2 = 𝜕2𝜉
+𝜕𝑥2
+𝜕
+𝜕𝜉+ 𝜕2𝜂
+𝜕𝑥2
+𝜕
+𝜕𝜂+
+ 𝜕𝜉
+𝜕𝑥
+2 𝜕2
+𝜕𝜉2 +
+ 𝜕𝜂
+𝜕𝑥
+2 𝜕2
+𝜕𝜂2 + 2𝜕𝜂
+𝜕𝑥
+𝜕𝜉
+𝜕𝑥
+𝜕2
+𝜕𝜂𝜕𝜉,
+(A.3a)
+𝜕2
+𝜕𝑦2 = 𝜕2𝜉
+𝜕𝑦2
+𝜕
+𝜕𝜉+ 𝜕2𝜂
+𝜕𝑦2
+𝜕
+𝜕𝜂+
+ 𝜕𝜉
+𝜕𝑦
+2 𝜕2
+𝜕𝜉2 +
+ 𝜕𝜂
+𝜕𝑦
+2 𝜕2
+𝜕𝜂2 + 2𝜕𝜂
+𝜕𝑦
+𝜕𝜉
+𝜕𝑦
+𝜕2
+𝜕𝜂𝜕𝜉.
+(A.3b)
+22
+Appendix B. Base Flow Profiles in the Wake
+The base flow streamwise velocity profiles for the stable cylinder and airfoil cases are shown
+in Figure B.12 for several outlet locations 𝑥o = 10, 50, 100. As the wake develops downstream,
+the velocity deficit reduces and its thickness grows.
+(a)
+𝑦
+𝑈(𝑥o, 𝑦)
+(b)
+𝑦
+𝑈(𝑥o, 𝑦)
+Figure B.12: Base flow streamwise velocity profile, 𝑈, in the wake of (a) Cylinder at 𝑅𝑒= 40, and (b) NACA0015 airfoil
+at 𝑅𝑒= 200 and an angle of attack of 18◦. The gray level of the lines represent profiles at 𝑥o = 10, 50, and 100, with
+darker lines representing larger 𝑥o.
+Appendix C. Effect of Sponge Layers
+The effect of a sponge layer at the outlet on the global stability analysis is analyzed for the
+case of the cylinder flow at 𝑅𝑒= 40 as an example. A typical quadratic profile was chosen for
+the sponge,
+𝜎(𝑥) = 𝜎0
+ 𝑥−𝑥s
+𝑥o −𝑥s
+2
+,
+(C.1)
+where 𝑥s represents the starting location of the sponge, the sponge length 𝜆s = 𝑥o −𝑥s, and 𝜎0 is
+the damping coefficient. We keep fixed 𝜆s = 10 for the sponge and vary the damping coefficient
+with a wide range 𝜎0 ∈[0.05, 1.5] following Mani [30].
+Figure C.13 shows the variation of the least stable eigenvalue with 𝑥o for four different values
+of 𝜎0. It can be seen that the eigenmode convergence is highly dependent on the choice of
+damping coefficient. Similarly, figure C.14 shows the pressure component of the least stable
+eigenmode corresponding to the same damping coefficient in figure C.13, and it is clear that the
+pressure component is highly dependent on the parameter choice. Therefore, without knowing a
+priori the ‘optimal’ damping coefficient, it would be difficult to determine whether the spectrum
+and eigenfunction are converged or not. Here we only consider the choice of 𝜎0, while in reality,
+the sponge length and actual damping profile would also highly affect the results, as described
+extensively in Mani [30]. This makes the implementation of the sponge layer outflow boundary
+condition unfavorable for general use in the current global stability analysis, as both the spectrum
+and eigenmodes can be highly dependent on the choices of the sponge layer parameters.
+23
+(a)
+𝜔𝑟
+(b)
+𝜔𝑖
+𝑥o
+Figure C.13: Real (a) and imaginary (b) parts of 𝜔for different damping coefficients of the sponge, with 𝜎0 = [0.05,
+0.2, 0.4, 1.5] corresponding to color levels from light to dark.
+(a)
+𝑦
+ℜ( ˆ𝑝)
+(b)
+ℜ( ˆ𝑝)
+(c)
+𝑥
+𝑦
+ℜ( ˆ𝑝)
+(d)
+𝑥
+ℜ( ˆ𝑝)
+Figure C.14: Real part of pressure component of the least stable eigenmode, ℜ( ˆ𝑝), for different damping coefficients of
+the sponge, shown in figure C.13, 𝜎0 = [0.05, 0.2, 0.4, 1.5] for (a-d), respectively.
+24
+Appendix D. Local Spatial Growth rate of the Global Mode at Different Reynolds numbers
+Figure D.15 illustrates the comparison of the spatial global mode development for the two
+𝑅𝑒of the cylinder wake flow. It is clear that at low 𝑅𝑒(black), the eigenmode tends to increase
+monotonically with 𝑥, while there is a local maximum for the higher 𝑅𝑒case (gray).
+The
+magnitude of the velocity component is normalized by the global maximum for each 𝑅𝑒. This
+comparison implies that the choice of OBC affects more of the lower 𝑅𝑒case, because the mode
+tends to grow monotonically; while at higher 𝑅𝑒, the mode itself decays very rapidly along 𝑥, and
+therefore it becomes less important which OBC we impose as long as the outlet location is large
+enough.
+max𝑦| ˆ𝑢|
+Figure D.15: Spatial development of the maximum magnitude of the streamwise velocity component, ˆ𝑢, (across all
+transverse points) at each streamwise location 𝑥for 𝑅𝑒= 40 (black), and 70 (gray) of the cylinder wake flow.
+Appendix E. Eigenmodes Comparison of Stationary Modes
+The eigenmode of the stationary mode for 𝛽= 3 is shown in figure E.16 for the (a) Neumann,
+(b) Dirichlet and (c) Robin outflow boundary condition. Only the spanwise velocity component,
+ˆ𝑤, is shown since other components ( ˆ𝑢, ˆ𝑣, ˆ𝑝) are negligible compared to it. Interestingly, the ˆ𝑤
+mode has the highest oscillation in the vicinity of the outlet for the Dirichlet condition in (b), while
+it is much smoother throughout the computational domain for the Neumann (a) and Robin (c)
+condition, indicating that the Neumann condition performs better than the Dirichlet condition,
+which is opposite to the results at 𝛽= 0 shown in figure 10. Despite the distinct behaviors
+associated with the Neumann and Dirichlet boundary conditions, the Robin condition consistently
+produces smooth eigenmodes, thereby confirming its reliable and consistent application as an
+outflow boundary condition for the current global stability analysis.
+(a)
+(b)
+(c)
+𝑥
+𝑥
+𝑥
+Figure E.16: Real part of the spanwise velocity component, ˆ𝑤, of the least stable stationary global eigenmode at
+wavenumber 𝛽= 3 for the NACA0015 airfoil at 𝑅𝑒= 200 and an angle of attack of 18◦. Results are shown for
+(a) Neumann, (b) Dirichlet, and (c) Robin outflow boundary condition. The outlet is located at 𝑥o = 20. Contour levels
+are normalized to range from −1 to 1.
+25
+References
+[1] T. von Kármán, Über den mechanismus des widerstandes, den ein bewegter körper in einer
+flüssigkeit erfährt, Nachr. Von Ges. Wiss. Göttingen Math.-Phys. Kl. 11 (1911) 509–517.
+[2] D. Barkley, R. D. Henderson, Three-dimensional Floquet stability analysis of the wake of
+a circular cylinder, J. Fluid Mech. 322 (1996) 215–241.
+[3] D. Barkley, Linear analysis of the cylinder wake mean flow, Europhys. Lett. 75 (2006) 750.
+[4] C. H. Williamson, Oblique and parallel modes of vortex shedding in the wake of a circular
+cylinder at low Reynolds numbers, J. Fluid Mech. 206 (1989) 579–627.
+[5] R. L. Sani, P. M. Gresho, Résumé and remarks on the open boundary condition minisym-
+posium, Int. J. Numer. Methods Fluids 18 (1994) 983–1008.
+[6] J. Liu, Open and traction boundary conditions for the incompressible Navier–Stokes equa-
+tions, J. Comput. Phys. 228 (2009) 7250–7267.
+[7] J.-L. Guermond, P. Minev, J. Shen, Error analysis of pressure-correction schemes for the
+time-dependent Stokes equations with open boundary conditions, SIAM J. Numer. Anal.
+43 (2005) 239–258.
+[8] I. Orlanski, A simple boundary condition for unbounded hyperbolic flows, J. Comput. Phys.
+21 (1976) 251–269.
+[9] M. Ruith, P. Chen, E. Meiburg, Development of boundary conditions for direct numerical
+simulations of three-dimensional vortex breakdown phenomena in semi-infinite domains,
+Comput. Fluids 33 (2004) 1225–1250.
+[10] G. Jin, M. Braza, A nonreflecting outlet boundary condition for incompressible unsteady
+navier-stokes calculations, J. Comput. Phys. 107 (1993) 239–253.
+[11] T. C. Papanastasiou, N. Malamataris, K. Ellwood, A new outflow boundary condition, Int.
+J. Numer. Methods Fluids 14 (1992) 587–608.
+[12] S. Dong, G. E. Karniadakis, C. Chryssostomidis, A robust and accurate outflow boundary
+condition for incompressible flow simulations on severely-truncated unbounded domains,
+J. Comput. Phys. 261 (2014) 83–105.
+[13] F. Giannetti, P. Luchini, Structural sensitivity of the first instability of the cylinder wake, J.
+Fluid Mech. 581 (2007) 167–197.
+[14] W. He, R. Gioria, J. M. Pérez, V. Theofilis, Linear instability of low Reynolds number
+massively separated flow around three NACA airfoils, J. Fluid Mech. 811 (2017) 701–741.
+[15] B. R. Noack, K. Afanasiev, M. Morzyński, G. Tadmor, F. Thiele, A hierarchy of low-
+dimensional models for the transient and post-transient cylinder wake, J. Fluid Mech. 497
+(2003) 335–363.
+[16] S. Mittal, Stability of flow past a cylinder: Energy budget of eigenmodes, Int. J. Numer.
+Methods Fluids 63 (2010) 533–547.
+26
+[17] S. Sen, S. Mittal, G. Biswas, Flow past a square cylinder at low Reynolds numbers, Int. J.
+Numer. Methods Fluids 67 (2011) 1160–1174.
+[18] D. Sipp, A. Lebedev, Global stability of base and mean flows: a general approach and its
+applications to cylinder and open cavity flows, J. Fluid Mech. 593 (2007) 333–358.
+[19] D. Canuto, K. Taira, Two-dimensional compressible viscous flow around a circular cylinder,
+J. Fluid Mech. 785 (2015) 349–371.
+[20] U. Ehrenstein, F. Gallaire, On two-dimensional temporal modes in spatially evolving open
+flows: the flat-plate boundary layer, J. Fluid Mech. 536 (2005) 209–218.
+[21] F. Alizard, J. Robinet, Spatially convective global modes in a boundary layer, Phys. Fluids
+19 (2007) 114105.
+[22] H. Fasel, U. Rist, U. Konzelmann, Numerical investigation of the three-dimensional devel-
+opment in boundary-layer transition, AIAA J. 28 (1990) 29–37.
+[23] M. P. Juniper, A. Hanifi, V. Theofilis, Modal stability theory: lecture notes from the FLOW-
+NORDITA summer school on advanced instability methods for complex flows, Stockholm,
+Sweden, 2013, Appl. Mech. Rev. 66 (2014) 024804.
+[24] P. J. Schmid, D. S. Henningson, Stability and Transition in Shear Flows, Springer, New
+York, 2001.
+[25] V. Theofilis, Global linear instability, Annu. Rev. Fluid Mech. 43 (2011) 319–352.
+[26] R. B. Lehoucq, D. C. Sorensen, C. Yang, ARPACK users’ guide: solution of large-scale
+eigenvalue problems with implicitly restarted Arnoldi methods, SIAM, 1998.
+[27] T. D. Economon, F. Palacios, S. R. Copeland, T. W. Lukaczyk, J. J. Alonso, SU2: An
+open-source suite for multiphysics simulation and design, AIAA J. 54 (2016) 828–846.
+[28] V. Theofilis, The linearized pressure Poisson equation for global instability analysis of
+incompressible flows, Theor. Comput. Fluid Dyn. 31 (2017) 623–642.
+[29] V. Theofilis,
+Advances in global linear instability analysis of nonparallel and three-
+dimensional flows, Prog. Aerosp. Sci. 39 (2003) 249–315.
+[30] A. Mani, Analysis and optimization of numerical sponge layers as a nonreflective boundary
+treatment, J. Comput. Phys. 231 (2012) 704–716.
+[31] F. Chedevergne, G. Casalis, T. Feraille, Biglobal linear stability analysis of the flow induced
+by wall injection, Phys. Fluids 18 (2006).
+[32] M. Gaster, A note on the relation between temporally-increasing and spatially-increasing
+disturbances in hydrodynamic stability, J. Fluid Mech. 14 (1962) 222–224.
+[33] A. H. Nayfeh, A. Padhye,
+Relation between temporal and spatial stability in three-
+dimensional flows, AIAA J. 17 (1979) 1084–1090.
+27
+[34] A. Tumin, The biorthogonal eigenfunction system of linear stability equations: A survey
+of applications to receptivity problems and to analysis of experimental and computational
+results, in: 41st AIAA Fluid Dynamics Conference and Exhibit, 2011, p. 3244.
+[35] A. G. Tomboulides, Direct and large eddy simulation of wake flows: Flow past a sphere,
+Princeton University, 1993.
+[36] J. D. Anderson, Computational fluid dynamics: the basics with applications, McGraw-Hill
+New York, 2002.
+28

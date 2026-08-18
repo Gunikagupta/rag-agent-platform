@@ -1,0 +1,942 @@
+Real-time THz ptychography using an optically modulated aperture
+Diksha Garg,1, ∗Anil Kumar,2 Nicholas E. Grant,2 John D. Murphy,2, 3
+John E. Cunningham,4 Nick Stone,1 Euan Hendry,1 and Harry Penketh1, †
+1Department of Physics and Astronomy, University of Exeter, Exeter, EX4 4QL, UK.
+2School of Engineering, University of Warwick, Coventry, CV4 7AL, UK.
+3School of Engineering, University of Birmingham, Edgbaston, Birmingham, B15 2TT, UK.
+4School of Electronic and Electrical Engineering, University of Leeds, Leeds, LS2 9JT, UK.
+Ptychography allows ordinary cameras to perform both quantitative phase and intensity imag-
+ing. However, the requirement for relative object to probe motion and high measurement count
+significantly limits imaging speed and application scope. In this work, we introduce optically mod-
+ulated aperture ptychography, using a silicon photomodulator as a rapidly reconfigurable aperture,
+deployable across the microwave, millimeter wave and terahertz bands. We demonstrate experimen-
+tally at ∼0.1 THz real-time ptychographic image capture, without moving parts. Furthermore,
+a reconfigurable aperture facilitates diverse and spatially multiplexed probes.
+We use a multi-
+plexed known-probe reconstruction strategy that improves signal-to-noise ratio and increases the
+information content per measurement, enabling the capture of fluid dynamics at 16 fps. Our opti-
+cal modulation approach enables high-throughput ptychographic imaging of dynamic samples, for
+applications such as non-destructive evaluation and in-vivo biomedical imaging.
+I.
+INTRODUCTION
+Standard cameras typically capture only the intensity
+of an electromagnetic field and therefore record incom-
+plete information about a scene. Techniques such as dig-
+ital holography [1] and coherent diffractive imaging [2]
+provide the means to retrieve the missing phase compo-
+nent, enabling lensless imaging [3], aberration removal
+[4], and high contrast imaging of dielectric samples [5].
+Ptychography is a leading coherent diffractive imaging
+method, demonstrated across several spectral bands [6].
+When compared with holography it offers a much simpler
+experimental implementation without a reference beam,
+at the expense of imaging speed [7–9].
+In conventional scanning ptychography, object phase is
+reconstructed from diffraction patterns recorded at over-
+lapping illumination positions in the object plane [10]. A
+physical aperture is often used to localize the illumination
+beam, while the object is moved to generate the overlap-
+ping positions. Fly-scanning ptychography is a variant
+in which continuous motion of the object is used, reduc-
+ing delays caused by object acceleration and deceleration
+between measurements [11]. However, the relative move-
+ment of the object across the illumination still imposes
+a mechanical restriction on imaging speeds, as hundreds
+to thousands of diffraction patterns are typically needed.
+Several multiplexed aperture techniques have been
+demonstrated which reduce the number of diffraction
+patterns required for reconstruction [12–16].
+However,
+these approaches still require object scanning and are
+sensitive to artifacts due to the interference between
+apertures.
+Another popular ptychographic approach,
+Fourier ptychography, addresses these limitations to
+∗d.garg@exeter.ac.uk
+† h.penketh2@exeter.ac.uk
+some extent by replacing object motion with a chang-
+ing illumination angle [17, 18]. Indeed, real-time Fourier
+ptychography has been demonstrated in the visible spec-
+tral region by using reconfigurable LED arrays to rapidly
+scan illumination angle [17–19].
+Whilst microscopy at visible wavelengths has ben-
+efited substantially from ptychographic augmentation,
+ptychography in other frequency bands is underdevel-
+oped.
+In particular, the problematic mm-wave and
+terahertz (THz) bands, in-between the more developed
+infrared and microwave spectral regions, could bene-
+fit enormously from the unrealized potential in ptycho-
+graphic imaging. Due to the transparency of most non-
+polar dielectrics in the THz region, it has great promise
+for label-free, safe and non-destructive imaging across
+a wide range of applications [20]. The high sensitivity
+of THz radiation to material hydration also makes it a
+promising tool for differentiating normal from cancerous
+tissues in biomedical imaging [21].
+Simple demonstrations of THz ptychography have
+been realized [22, 23], and the straightforward imple-
+mentation when compared to two-beam holographic sys-
+tems [24, 25] may be a key facilitator of translation from
+the laboratory to diverse end-users. Real-time THz pty-
+chography could enable, for example, high throughput
+non-destructive evaluation, monitoring of concealed fluid
+dynamics and in-vivo biological observation. However,
+there is no available analog to a reconfigurable LED ar-
+ray in this frequency range, and imaging times remain
+a central challenge. Thus, despite many prospective ap-
+plications, real-time ptychography has not been demon-
+strated in this spectral region. In this work, we overcome
+the limitations of scanning ptychography imposed by the
+requirement for physical movement by utilizing an opti-
+cally modulated spatial light modulator (SLM). The pro-
+posed SLM-based approach enables localized modulation
+of THz transmission through a silicon wafer and forms an
+optically controlled THz aperture between photoexcited
+arXiv:2607.17796v1  [physics.optics]  20 Jul 2026
+2
+and non-excited regions. In this configuration, the over-
+lapping scan positions can be realized by changing the
+optical illumination. Rapidly scanning the aperture, in
+place of moving the object to be imaged, yields a step
+change in accessible imaging speed applicable across the
+mm-wave and THz bands. Furthermore, such a reconfig-
+urable aperture opens up a swathe of opportunities for
+spatial multiplexing within the probe function, which re-
+duces the number of necessary diffraction measurements
+and further improves imaging speed. Leveraging this, we
+demonstrate real-time ptychographic imaging, capturing
+fluid dynamics in a sample at 16 fps.
+II.
+METHOD
+A.
+Conventional scanning ptychography
+In standard scanning ptychography, the illumination
+is shaped into a spatially localized probe P(r), typically
+via beam focusing or with a static aperture. This con-
+finement ensures that the measured diffraction intensity
+varies with the relative motion between the probe and
+object O(r). In the optical regime, it is common for the
+probe to remain fixed whilst the object is translated to
+scan position rn, yet it is conventional to describe the
+exit wave from the probed object as [26]
+ψn(r) = P(r −rn) O(r)
+(1)
+and the measured intensity at a downstream camera as
+In(q) = |Pz {Ψn(rn)} |2,
+(2)
+where Pz is the diffraction propagator between object
+and detector planes, with the latter described by posi-
+tion vector q. Unlike in optical ptychography where Pz
+would usually be the Fourier transform, at THz frequen-
+cies the detector typically sits in the Fresnel diffraction
+zone, which can be modeled using the angular spectrum
+method [27]. Eqs. 1 and 2 describe the forward model
+for ptychography.
+For a sequence of N overlapping scan positions such
+that each point on the object is probed at least twice, the
+unknown complex valued object can be reconstructed it-
+eratively using established ptychographic solvers such as
+ePIE [28] and RAAR [29]. If the probe overlap is greater,
+the additional redundancy facilitates robust retrieval of
+both the object O(r) and unknown probe P(r), in so
+called blind ptychography.
+See ref.
+[30, 31] for an in
+depth discussion of phase retrieval algorithms for pty-
+chography.
+B.
+Optically modulated aperture ptychography
+The critical innovation of this work is the application
+of a dynamic photo-reconfigurable aperture created using
+a silicon photomodulator. The photomodulator is illumi-
+nated with spatially patterned visible light, which mod-
+ifies the local conductivity of the photomodulator and
+consequently, the transmission of the THz beam pass-
+ing through it. Regions exposed to visible light strongly
+attenuate THz transmission, while non-illuminated ar-
+eas allow the THz radiation to pass, thereby creating a
+structured probe. To induce sufficient photoconductivity
+to render photo-excited regions opaque, it is necessary to
+passivate the surfaces of the silicon wafer, a process that
+increases the effective lifetime of photogenerated charge
+carriers, which can be tuned from µs to ms (see exper-
+imental details section D) [32]. Passivation reduces the
+required visible photoexcitation intensity and enables the
+use of safe, low-cost continuous wave visible light sources
+such as LEDs. For this study, we choose two different
+modulators with carrier lifetimes of ∼4 ms and ∼1 ms
+(Supplementary Fig. S2), the latter permitting a faster
+measurement rate.
+Fig. 1 (a) illustrates the concept, with the example of
+imaging a Siemens star located behind the photomod-
+ulator. The incident THz beam is expanded to match
+the modulation area, which is given by the extent of the
+illumination by visible light. By introducing a transpar-
+ent aperture (a region without illumination) we can de-
+fine a local THz probe region, as shown in Fig. 1 (a).
+The position of the aperture may be optically updated
+to new probe positions rn using a digital micromirror de-
+vice (DMD), which is capable of running at kHz rates.
+Here we tune the rate at which we update the aperture
+position to the lifetime of the modulator and the camera
+frame rate. As there are no moving parts in this imple-
+mentation and the object is static, the imaging field of
+view is limited by the detector size and distance. Mimick-
+ing the traditional scanning ptychography approach, we
+raster scan a transparent square within our photomod-
+ulator (of size 26 mm × 26 mm) across the modulation
+area in a regular 2D grid of 9 mm step size. This leads to
+a linear overlap ratio of 65 percent. In results section 3B,
+we explore the advantages of alternative probing strate-
+gies.
+C.
+Known-probe reconstruction algorithm
+As our probe function P(r) can no longer be consid-
+ered fixed for all measurements, we adapt the standard
+ptychographic formulation for the exit wave to
+ψn(r) = Pn(r) O(r).
+(3)
+This allows us to use a standard ptychographic iterative
+algorithm, in this case PIE [33], in which we only solve
+for the unknown object O(r). The probe is treated as a
+known input, which in our case updates according to the
+optical projection sequence and photomodulator carrier
+dynamics.
+In practice, due to imperfect passivation, the carrier
+lifetime will vary slightly across the modulator (see Sup-
+3
+FIG. 1. Principle of optically modulated aperture ptychography. (a) Spatially structured optical illumination is projected onto
+a silicon wafer to form a transient aperture for the incident THz beam. The transmitted THz radiation interacts with the
+object placed behind the wafer, producing a diffraction pattern from the localized region. (b) Measured reduction in the THz
+transmission (modulation depth) through a white light illuminated 380 µm thick passivated silicon wafer at varying illumination
+intensities. (c) Numerically simulated reconstruction from a sequence of aperture positions, forming a complex-valued object
+with uniform intensity (brightness) and spatially varying phase (color) as shown in the inset.
+plementary Fig. S1). Thus, we favour a reconstruction
+approach in which the probe spatio-temporal dynamics
+are first measured experimentally and then used to de-
+fine a dynamic probe during reconstruction. The probe
+sequence Pn(r) is measured by removing the object and
+placing the camera immediately behind the photomodu-
+lator. Since this measurement only constrains the inten-
+sity of the probe sequence, we assume a spatially uniform
+phase profile across the modulator plane (r). In practice,
+this imparts local phase curvature, derived from the di-
+vergence of the THz beam, into the object response O(r),
+which can then be removed by a one time no-object nor-
+malization. With this assumption, the probe intensity
+sequence and a random object guess are input into an
+adapted PIE algorithm [34] following the Eq. 3 formula-
+tion. We use 100 iterations for image reconstruction, and
+300 iterations for later video reconstructions in Fig. 4.
+D.
+Experimental details
+We perform our experimental demonstration with a
+continuous wave, 95 GHz, 180 mW IMPATT-diode
+source (TeraSense). This source flood-illuminates our sil-
+icon photomodulator, 5 mm behind which is placed the
+object to be imaged. Our detector, a Tera-4096 64 × 64
+pixel, 1.5 mm pitch array formed from GaAs high mo-
+bility heterostructures (TeraSense) is positioned 50 mm
+behind the object and along the optical axis. An anno-
+tated photograph of the experimental system is provided
+in the Supplementary Fig. S3.
+To generate the reconfigurable THz aperture, pat-
+terned visible light is encoded with a DLP7000 (Vialux)
+DMD, which has a maximum refresh rate exceeding
+20 kHz.
+White light illumination is provided by an
+SLS605 liquid light guide coupled xenon arc lamp (Thor-
+labs). The THz and visible beams are combined on axis
+by reflecting the THz off a 1.2 mm thick, 45◦quartz
+beamsplitter, which is optically transparent. The illumi-
+nation intensity at the photomodulator is 200 W/m2 for
+imaging. Later, we increase this illumination intensity to
+490 W/m2 for video-rate capture.
+We use two photomodulators in this work. The first,
+used for imaging of static objects, is a 150 mm diame-
+ter, high resistivity (>7000 Ωcm) silicon wafer that has
+undergone surface passivation through Al2O3 deposition
+following Ref. [35], which gives a carrier lifetime of ∼
+4 ms at 200 W/m2.
+For this modulator, 200 W/m2
+illumination results in near 100% modulation of trans-
+mission, as shown in Fig. 1 (b). The thickness of this
+modulator, 380 µm, is chosen from available stock to
+give a Fabry-Perot resonance, with increased transmis-
+sion, near our operating frequency (78 GHz and 95 GHz,
+respectively). Later, for the high-speed imaging, we use
+a different modulator (>10,000 Ωcm, 100 mm diameter
+and 100 µm thickness) with a shorter lifetime of ∼1 ms
+to allow video-rate capture. Further details on the photo-
+modulator fabrication and characterization can be found
+in Supplementary Section 1.
+4
+FIG. 2.
+Complex reconstructed images of the Siemens
+star generated using optically modulated (a) raster, and (b)
+Hadamard probes. In these complex images, the colors rep-
+resent phase values ranging from -π to π, while the bright-
+ness indicates the relative intensity. (c) and (d) Intensity and
+phase images of the 3D-printed dielectric object generated us-
+ing the Hadamard basis, the colormaps are from Ref. [37].
+III.
+RESULTS AND DISCUSSION
+A.
+Proof of concept
+Exemplar imaging using an optically modulated aper-
+ture is shown in Fig. 2 (a). This is a complex-valued im-
+age of a metallic Siemens star, with colors representing
+phase and brightness indicating the local field intensity.
+For this we use a probe sequence of 8 × 8 overlapping
+raster apertures, acquired with a camera frame rate of
+45 fps. For each optical pattern, 12 continuous frames
+are recorded over a time interval of 267 ms. For recon-
+struction we use every 12th frame to ensure that carriers
+generated by the previous pattern do not contribute to
+measurement of the current pattern.
+This produces a
+64 × 64 × 64 pixel dataset or ptychogram, from 64
+diffraction patterns recorded with a 64
+×
+64
+pixels
+camera in 17 seconds. Note that the measurement rate
+is slower than the minimum required by the modulator
+lifetime of ∼4 ms; data could therefore be acquired at a
+higher rate. The image in Fig. 2 (a) is reconstructed and
+normalized with a non-object reference (see Supplemen-
+tary Fig. S4 for unnormalized reconstruction). Whilst
+the resulting image is clearly identifiable as the Siemens
+star, the signal-to-noise ratio (SNR) is low. We attribute
+this in part to the non-uniform spatial response of our
+THz camera [36] and blinking hot-pixel clusters at low
+signal counts (see Supplementary Fig. S5).
+B.
+Probe multiplexing
+To improve the SNR and imaging speed further, we
+leverage another key innovation afforded by our ap-
+proach:
+a reconfigurable aperture offers new possibil-
+ities for spatial multiplexing.
+Typically in ptychogra-
+phy, a spatially multiplexed or multi probe approach re-
+quires each aperture to be in some way separable in the
+diffracted intensity, e.g. by position, wavelength or phase
+encoding [15, 38]. This requirement for separability lim-
+its the increase in throughput to a modest enhancement,
+following the number of apertures [39, 40]. In this work,
+however, we find that by using a known-probe sequence
+and therefore reducing the number of unknowns to just
+the object O(r), this constraint is relaxed.
+In keeping with the known-probe sequence strategy
+(Eq. 3), there is no requirement for separability between
+multiplexed apertures within a single projection. There-
+fore, we select our new probe basis to satisfy two crite-
+ria: 50% transparency across the entire modulation area,
+to maximize signal and throughput, and orthogonality
+between projected probes Pn(r) to encourage even ob-
+ject sampling. This leads us naturally to the Hadamard
+basis. Unlike for the raster basis in which the individ-
+ual aperture size must be larger than the sampling grid
+spacing, in this case the overlap is provided by the mul-
+tiplexed nature of the Hadamard basis, and each point
+on the object is now probed N/2 times (N is the number
+of projections). To generate projectable binary optical
+patterns, the +1 and -1 entries in the Hadamard matrix
+are mapped to 255 and 0 values to DMD pixels, defining
+illuminated and non-illuminated apertures, respectively.
+In Fig. 2 (b) we show that using the same acquisition
+parameters as in (a) but with an 8 × 8 Hadamard projec-
+tion basis, we obtain a notable SNR improvement. With
+improved SNR, the resolution of our approach can be
+evaluated using the Siemens star spoke separation. We
+determine an object-plane resolution of 2.1±0.3 mm by
+identifying the radius at which the target spokes meet the
+Rayleigh criterion in field intensity (see Supplementary
+Fig. S6). Additionally, we note that due to spatial mul-
+tiplexing in the Hadamard case, the number of iterations
+required for reconstruction may be significantly reduced
+(see Supplementary Fig. S7).
+The phase information retrieved from scanning pty-
+chography is essential for propagating the diffraction
+measurements to the object plane. Therefore, even an
+intensity-only object, as in Fig. 2 (b), requires accurate
+phase recovery to enable lensless reconstruction. How-
+ever, the additional object phase images recovered have
+far broader utility, particularly for evaluating dielectric
+objects. In Fig.
+2 (c) we show a normalized intensity-
+only image of such a dielectric object - a 3D-printed ABS
+50 mm× 50 mm× 5 mm block shown in the inset. Fig.
+2 (d) is the corresponding phase-only image, in which
+5
+FIG. 3. Complex images of the Siemens star reconstructed
+using varying number of random binary patterns: (a) 64, (b)
+32, (c) 8 and (d) 4; in these complex images, the colors repre-
+sent phase values ranging from -π to π, while the brightness
+indicates the relative intensity.
+small differences in optical path length manifest clear
+changes in measured phase, revealing a hidden inclusion
+with higher index in the form of the letter E. By invert-
+ing the relationship between phase delay and refractive
+index, the measured phase can be converted into a map
+of effective refractive index, shown in Supplementary Fig.
+S8. In S8, we show that the solved refractive distribution
+follows the known variation in infill density from 20% to
+100% for the surround and letter E, respectively.
+C.
+Video-rate imaging
+The
+optically
+modulated
+aperture
+ptychography
+demonstrated in Fig. 2 achieves at least an order of mag-
+nitude reduction in measurement time relative to state-
+of-the-art THz scanning ptychography [22]. Extending
+this improvement to video-rate acquisition would unlock
+the study of previously inaccessible dynamic phenomena
+and rapidly evolving samples. In this section we intro-
+duce our final innovation, in which we exploit the en-
+hanced redundancy present in our spatially multiplexed
+ptychograms to increase imaging speeds further.
+In conventional scanning ptychography, each point on
+the object must be sampled redundantly to enable stable
+phase reconstruction. In our multiplexed scheme, com-
+plete object coverage can be achieved using as few as
+two binary projections. We investigate the effect of un-
+dersampling our measurement basis by using fewer mea-
+surements than are required for the raster-scanned case.
+To do this, we first substitute our Hadamard projection
+basis for random binary projections (in which 50% of
+the apertures are randomly open within each pattern).
+This removes any effects from the variation in spatial
+frequency content from pattern to pattern.
+Fig. 3 examines the effect of undersampling the pro-
+jected patterns formed using an 8 × 8 grid of such ran-
+domly distributed apertures. To minimize image noise
+for undersampled reconstructions, these figures are pre-
+sented without normalization and therefore the phase
+curvature of the THz probe is visible. The fully sampled
+reconstruction, Fig. 3 (a) is comparable to the Hadamard
+case in Fig. 2 (b), despite the lack of basis orthogonality.
+In Fig. 3 (b) the acquisition time is halved, with a modest
+reduction in the fidelity of the intensity reconstruction.
+As the number of optical patterns is reduced to 8 and 4
+in (c) and (d) respectively, both intensity and phase fi-
+delity continue to decrease, with phase diminishing more
+rapidly. In (d), corresponding to just four projected pat-
+terns, the object intensity response is recognizable but of
+heavily compromised quality.
+To achieve video-rate imaging, we first employ a pho-
+tomodulator with a shorter carrier lifetime (∼1 ms),
+enabling photoexcited masks to dissipate faster between
+projections (see Supplementary Fig. S2 for wafer com-
+parison). The illumination intensity is increased to 490
+W/m2 to compensate for the reduced carrier density as-
+sociated with the shorter carrier lifetime. Under these
+conditions, the optical patterns are projected for a du-
+ration of 2 camera frames (a minimum imposed by the
+camera output trigger). At an increased camera frame
+rate of 67 fps, this corresponds to 30 ms per pattern.
+To improve reconstruction quality under highly un-
+dersampled conditions, the spatiotemporal correlations
+present in many real-world imaging applications can be
+exploited. In our final demonstration in Fig. 4, we cap-
+ture the motion of water droplets dispersed in mineral oil
+at a camera acquisition rate of 67 fps.
+To achieve high reconstruction frame rates with ac-
+ceptable fidelity, we first generate a high fidelity recon-
+struction of the static scene using 300 frames. We then
+enter to a dynamic reconstruction mode, in which we up-
+date using only the 2 most recent projections, with the
+previous reconstruction supplied as the algorithm object
+guess. In this way, we ensure the scene is quasi-static over
+the reconstruction window (4 camera frames) and exploit
+the similarity of subsequent reconstructions to obtain a
+much higher fidelity image than that shown in Fig. 3 (d),
+from fewer measurements (see Supplementary Table S1
+for a summary of imaging times for each figure).
+Supplementary Visualization 1 shows a real-time play-
+back of the motion of colored water droplets dispersed in
+oil. In Fig. 4, representative frames from Supplementary
+Visualization 1 are shown. For improved visualization,
+we display the field amplitude rather than the intensity
+and a 3 × 3 × 3 spatiotemporal median filter is ap-
+plied to the image sequence shown in Supplementary Vi-
+sualization 1 (see Supplementary Visualization 2 for the
+unfiltered version). The blue and pink dyes in the wa-
+6
+FIG. 4. Visualization of downward motion of the water droplets through an oil medium. (a) Top row, visual images of the
+water-oil dynamic object at different times; the droplets are dyed in different colors to enhance visual contrast. Note that
+the visual images are acquired off axis from the THz system. (b) Middle and (c) bottom row, corresponding reconstructed
+amplitude and phase images. The scale bar in all images represents 1 cm. See Supplementary Visualization 1 for the continuous
+droplet motion over a longer time interval.
+ter drops are for visual distinction only, and correspond
+to two isolated parallel cavities separated by ∼3 mm
+along the optical axis (small enough to be inconsequen-
+tial here). The slightly concave edges of the plastic con-
+tainment vessel are visible left and right of the frames in
+all the data. Note that the THz reconstructions in this
+dataset are presented unnormalised to improve SNR. As
+such, the quadratic phase curvature of the illuminating
+beam can also be seen in the phase reconstructions.
+In Fig. 4, the water droplets are identified by significant
+reduction in transmission and a phase change relative to
+the oil background. The downward motion of the water
+droplets can be clearly tracked throughout the sequence,
+including the subtle displacement observed between re-
+constructed frames separated by only 60 ms, correspond-
+ing to an effective reconstructed frame rate exceeding 16
+fps. This demonstration highlights the potential for de-
+tecting and tracking the presence of unwanted contam-
+inants such as air bubbles and immiscible fluids in con-
+cealed pipes under flow conditions, as just one example
+of the many use cases unlocked by real-time THz pty-
+chography.
+IV.
+CONCLUSION
+We have demonstrated a novel approach to THz pty-
+chographic imaging using an optically reconfigured aper-
+ture.
+Using this system-level innovation we forgo the
+need for physical movement between the object and
+aperture and demonstrate real-time complex field imag-
+ing. Our silicon-based photomodulation approach is suit-
+able for deployment across the millimeter-wave and THz
+bands.
+Furthermore, we exploit the massively paral-
+lel nature of optical control to generate spatially multi-
+plexed apertures for increased SNR and imaging through-
+put, which we combine with temporal redundancy of the
+scene to capture fluid dynamics at 16 fps. It should be
+noted that the achieved imaging speed is constrained by
+the camera acquisition speed and SNR, and not the sili-
+con photomodulator. This imaging framework overcomes
+the major limitation of mechanically scanned ptychogra-
+phy and expands the scope of millimeter-wave and THz
+imaging toward high-throughput, non-destructive eval-
+uation of dielectric structures, as well as quantitative
+phase imaging for biomedical applications.
+7
+FUNDING
+D.G, A.K, J.D.M., J.E.C., N.S., E.H. and H.P. ac-
+knowledge support from the Engineering and Physi-
+cal Sciences Research Council via the Terabotics Pro-
+gramme Grant (EP/V047914/1). EH and I.R.H. also ac-
+knowledge support via the META4D Programme Grant
+(EP/Y015673/1), and J.D.M via (EP/S036261/1).
+DISCLOSURES
+The authors declare no conflicts of interest.
+DATA AVAILABILITY
+The research data underlying this work will be made
+openly available upon publication of the peer-reviewed
+article.
+8
+SUPPLEMENTARY MATERIAL
+This supplementary document provides additional in-
+formation supporting the main manuscript,“Real-time
+THz ptychography using an optically modulated aper-
+ture”. It provides further details on the fabrication pro-
+cess of the silicon photomodulator and a description of
+the experimental setup. It also includes additional recon-
+struction data and imaging performance evaluation.
+Appendix A: Photomodulator
+Two photomodulators are used in this work, both of
+which are made by surface passivation of high resistivity
+(100)-oriented silicon wafers. The wafers undergo a strin-
+gent wet chemical clean, which is immediately followed
+by transfer to the load lock of a Veeco Fiji G2 plasma-
+enhanced atomic layer deposition (ALD) tool. Both sides
+of the wafers are passivated with 20 nm Al2O3, deposited
+by ALD at 200 ◦C using trimethylaluminium (TMA) and
+O2 plasma as precursors. Following the Al2O3 deposi-
+tion, the wafers are annealed in a quartz tube furnace for
+30 min in air at 450 ◦C which increases the photogen-
+erated charge carrier lifetime and modulation efficiency
+[32]. Further details of the ALD process are described in
+Ref. [35].
+The lifetime uniformity of the 380 µm thick wafer is
+evaluated by photoluminescence (PL) imaging using an
+LED array (650 nm), and captured using an ANDOR
+Apogee Alta F32 CCD camera cooled to -20 °C by a
+chiller.
+Fig. S1 shows the captured PL image of the
+wafer, demonstrating the spatial variation in carrier life-
+time across it.
+Both wafers used in this study are fabricated using the
+same process. However, owing to their differing thick-
+nesses and variations in surface passivation quality, they
+exhibit different carrier lifetimes as shown in Fig. S2 (a,
+b). The effective carrier lifetime of each wafer is mea-
+sured by the photoconductance decay method using Sin-
+ton Instruments WCT-120PL lifetime system in transient
+mode; the given values are averaged over 5 successive
+measurements.
+The effective carrier lifetime decreases
+with increasing carrier density (illumination intensity)
+which is attributed to enhanced Auger recombination at
+high injection levels.
+The difference in carrier lifetime between wafers di-
+rectly influences the temporal switching response of the
+wafers under optical illumination. Fig. S2 (c, d) shows
+the normalized transmission of the THz beam with time
+when optical excitation is applied and then removed. As
+expected, the longer carrier lifetime (380 µm thick) wafer
+in (c) exhibits slower switching times and a deeper mod-
+ulation than the 100 µm thick wafer in (d). Note that
+for significant modulation depths the switch on and off
+times diverge from the effective lifetime as shown in (c)
+[41]. For this reason the faster 100 µm thick modulator
+is used for the video-rate demonstrations in this work.
+Appendix B: Experimental setup
+The annotated experimental setup, shown in Fig. S3
+(a), consists of a 95 GHz source and a DMD (1024 × 768
+pixels resolution) coupled to a visible light source. The
+DMD generates structured optical patterns that are
+transmitted through a beam splitter (BS) using a com-
+mercial projection system. An additional plano-convex
+lens L with a focal length of 175 mm is added ∼80 mm
+after the projector aperture for the video rate demon-
+strations in Fig. 4 of the main text, to increase the illu-
+mination intensity. The 95 GHz beam is reflected by the
+BS and combined with the structured visible light at the
+silicon wafer. Sub-regions of the DMD are used to de-
+fine the effective field of view, corresponding to 75 mm ×
+75 mm for static imaging and 50 mm × 50 mm for video
+measurements, respectively.
+Each optical pattern con-
+tains dark (unexposed) regions, forming a localized aper-
+ture for the 95 GHz beam to illuminate the object. The
+object is scanned by sequentially updating these optical
+patterns. The camera is placed 50 mm away from the ob-
+ject to capture the resulting diffraction patterns required
+for the reconstruction. Camera acquisition triggers the
+DMD to project the next pattern, which is controlled via
+the LabVIEW environment.
+Fig. S3 (b) illustrates the four example patterns out
+of a total of 64 (arranged in an 8 × 8 grid) used for
+raster scanning of the sample.
+Here, the silicon wafer
+is fully illuminated with optical light except for a small
+square region, and the camera is placed directly behind
+the silicon wafer without any object. The right column
+of the figure shows the transmission of the THz beam
+which is used to define the probe function.
+Appendix C: Additional reconstruction results
+This section provides information supporting the re-
+sults shown in Fig. 2 in the main text.
+1.
+Unnormalized images
+The unnormalized images of the Siemens star obtained
+using raster and Hadamard bases are shown in Fig. S4.
+The image reconstructed with raster scanning exhibits
+a lower signal-to-noise ratio (SNR), with some measure-
+ment noise attributed to the non-uniform and fluctuating
+pixel response of the camera pixels, as illustrated in Fig.
+S5. In both images, since a uniform probe phase is as-
+sumed during reconstruction, the phase curvature of the
+incident beam is mapped onto the reconstructed object.
+This leads to the quadratic background color variation in
+these unnormalised images.
+9
+FIG. S1. Photoluminescence image of the wafer with a thickness of 380 µm, showing the varying carrier lifetime throughout
+the wafer.
+FIG. S2. Effective carrier lifetime as a function of the minority carrier density for silicon wafers with thicknesses of (a) 380 µm
+and (b) 100 µm, respectively. The dashed vertical lines indicate the corresponding values used in the paper. (c, d) Temporal
+response of the normalized THz transmission under optical illumination for the 380 µm and 100 µm wafers, respectively. The
+shaded area represents the time for which optical illumination was applied.
+10
+FIG. S3. (a) Annotated image of the experimental setup used to record ptychographic imaging data ; SW: silicon wafer, BS:
+beam splitter, and L: lens. (b) Example of the four optically generated apertures captured by the camera, with corresponding
+visible light patterns; these frames show the THz beam passing through a non-illuminated region. They were obtained by
+positioning the camera just behind the silicon wafer and are used as probes for the reconstruction.
+FIG. S4. Unnormalized reconstructions of the Siemens star acquired using (a) raster and (b) Hadamard bases, the quadratic
+color variation shows the phase curvature of the incident THz beam.
+2.
+Spatial-resolution estimation
+The spatial resolution is determined by analyzing in-
+tensity profiles extracted along the multiple concentric
+circles centered on the Siemens star.
+A representative
+concentric circle is shown in Fig. S6 (a), together with
+the corresponding angular intensity profile in S6 (b). For
+each adjacent spoke pair, concentric circles are drawn,
+and the minimum radius at which the spokes could be
+resolved as separate intensity peaks is identified. The cor-
+responding spatial resolution is then calculated from this
+radius. The reported spatial resolution (2.1±0.3 mm) is
+the average of the values obtained for all adjacent spoke
+pairs.
+3.
+Error prediction
+The reconstruction error is quantified using the struc-
+tural similarity index (SSIM) [42] between the recon-
+11
+FIG. S5. (a) Spatially varying response of the camera pixels measured under uniform illumination. (b–e) Four camera frames
+acquired at 45 fps with no incident beam, showing fluctuating pixel response across the sensor area.
+FIG. S6. (a) Reconstructed intensity image of the Siemens star generated using the Hadamard basis. The white circle shows
+a representative concentric circle. (b) Intensity profile along the angular position of the white circle.
+structed and measured intensity images at each itera-
+tion, and is defined as (1 - SSIM). Fig.
+S7 compares
+the error behavior of reconstructions performed using
+raster and Hadamard basis projections. The Hadamard
+illumination-based reconstruction exhibits faster conver-
+gence and achieves a lower error as compared to raster
+scanning. In this case, each measurement simultaneously
+records the diffraction information from multiple regions
+of the object, resulting in faster convergence and a lower
+reconstruction error.
+4.
+Refractive index calculation
+The reconstructed phase map of the 3D-printed di-
+electric object was unwrapped using a constrained phase
+unwrapping, guided by prior knowledge of the sample
+thickness (5 mm) and a constraint on the expected re-
+fractive index range [43]. Since ptychographic phase re-
+trieval yields relative phase rather than absolute values,
+the known refractive index of the image background (air)
+is used to provide a corrective global phase offset. The
+effective refractive index, shown in Fig. S8 (b), is calcu-
+lated from the unwrapped phase, Fig. S8 (a), using the
+12
+FIG. S7. The convergence of reconstruction error with number of iterations for raster and Hadamard bases.
+following relation n = 1 + ϕλ
+2πt [44], where t is the thick-
+ness of the block and ϕ is the measured unwrapped phase.
+From the index distribution map, we clearly see a differ-
+ence in the refractive index of the block and inclusion
+letter E, which ranges from an index of ∼1.2 for 20% in-
+fill density to approximately the homogeneous index∼1.6
+at 100% infill density [43].
+Appendix D: Measurement parameters
+Table S1 summarizes the acquisition parameters used
+to collect the ptychographic datasets for each figure pro-
+vided in the paper. Here the number of projections refers
+to the total number of optical patterns used to recon-
+struct a single image of the object. Similarly, the total
+acquisition time represents the time required to collect all
+frames needed for the reconstruction of one image. For
+data acquisition, we capture a certain number of camera
+frames for a given optical projection, this is defined by
+the camera frames per projection (fpp) in the table. Note
+that only the final camera frame acquired for each pro-
+jection is used for reconstructions shown in Fig. 2 and 3.
+In contrast, all acquired camera frames are used for the
+video reconstruction shown in Fig. 4.
+Appendix E: Video-rate imaging
+Supplementary Visualization 1, referenced in the main
+text shows a reference optical video of the dynamic ob-
+ject, along with the corresponding amplitude and phase
+reconstructions. At the default 30 fps playback speed this
+corresponds to the real-time motion of the fluid droplets.
+This dataset has been processed with a 3 × 3 × 3 median
+filter, spanning both transverse spatial and temporal di-
+mensions.
+This improves the visual clarity of the still
+images used for Fig. 4 of the main text, at the cost of a
+reduction in effective spatial and temporal bandwidths.
+For completeness, in Supplementary Visualization 2 we
+show the unfiltered dataset, in which the motion of the
+droplets may still be clearly observed. The optical cam-
+era data is recorded off-axis (∼45◦) from the THz camera
+due to geometrical constraints. To partially compensate
+for this, the optical video data undergoes an affine trans-
+formation consisting primarily of a horizontal scaling by a
+factor of
+√
+2 together with a small horizontal shear. This
+transformation approximately corrects for the difference
+in viewing geometry between the optical and THz cam-
+eras, although some residual discrepancies remain. Note
+also that due to the viewing angle the left-hand side of
+the plastic container in Fig. 4 (a) of the main text con-
+tains refracted images of the colored droplets and has
+therefore been rendered partially transparent to increase
+visualization clarity.
+[1] T. Latychevskaia, Journal of the Optical Society of Amer-
+ica A 36, D31 (2019).
+[2] F. Zhang, B. Chen, G. R. Morrison, J. Vila-Comamala,
+M. Guizar-Sicairos, and I. K. Robinson, Nature commu-
+nications 7, 13367 (2016).
+[3] V. Boominathan, J. T. Robinson, L. Waller, and A. Veer-
+araghavan, Optica 9, 1 (2021).
+[4] P. Ferraro, S. Grilli, L. Miccio, D. Alfieri, S. De Nicola,
+A. Finizio, and B. Javidi, Journal of Display Technology
+4, 97 (2008).
+[5] S. Utadiya, V. Trivedi, G. Sheoran, A. Srivastava,
+D. Claus, H. Cabrera, and A. Anand, Optics and Lasers
+in Engineering 160, 107227 (2023).
+[6] R. Wang, Q. Zhao, L. Loetgering, F. Allars, Z. Hong,
+T.
+J.
+Pennycook,
+R.
+Horstmeyer,
+J.
+Rodenburg,
+13
+FIG. S8.
+(a) Phase image of the 3D-printed dielectric object after constrained phase unwrapping, (b) calculated effective
+refractive index; the colormaps are from Ref. [37].
+TABLE S1. Details of the acquisition parameters for each figure; fpp is camera frames per projection.
+Figure No. of projections Camera fpp Camera frame rate (fps) Total acquisition time (s)
+2a
+64 (Raster)
+12
+45
+17
+2(b-d)
+64 (Hadamard)
+12
+45
+17
+3a
+64 (Random)
+12
+45
+17
+3b
+32 (Random)
+12
+45
+8.5
+3c
+8 (Random)
+12
+45
+2.1
+3d
+4 (Random)
+12
+45
+1
+4
+2 (Random)
+2
+67
+0.06
+A. Maiden, and G. Zheng, Nature Reviews Methods
+Primers 5, 68 (2025).
+[7] F. Monaco, M. Hubert, J. C. Da Silva, V. Favre-Nicolin,
+D. Montinaro, P. Cloetens, and J. Laurencin, Materials
+Characterization 187, 111834 (2022).
+[8] A. M. Maiden, M. C. Sarahan, M. D. Stagg, S. M.
+Schramm, and M. J. Humphry, Scientific reports 5, 14690
+(2015).
+[9] J. Rodenburg, A. Hurst, and A. Cullis, Ultramicroscopy
+107, 227 (2007).
+[10] J. Rodenburg and A. Maiden, Springer Handbook of Mi-
+croscopy pp. 819–904 (2019).
+[11] X. Huang, K. Lauer, J. N. Clark, W. Xu, E. Nazaret-
+ski, R. Harder, I. K. Robinson, and Y. S. Chu, Scientific
+reports 5, 9074 (2015).
+[12] H. Lin, W. Xu, and F. Zhang, Optics Express 29, 43342
+(2021).
+[13] X. He, S. P. Veetil, X. Pan, A. Sun, C. Liu, and J. Zhu,
+Optics Express 26, 25869 (2018).
+[14] M. ˚Astrand, M. Kahnt, U. Johansson, and U. Vogt, Op-
+tics express 32, 22771 (2024).
+[15] M. Lyubomirskiy, F. Wittwer, M. Kahnt, F. Koch,
+A. Kubec, K. V. Falch, J. Garrevoet, M. Seyrich,
+C. David, and C. G. Schroer, Scientific Reports 12, 6203
+(2022).
+[16] P. Sidorenko and O. Cohen, Optica 3, 9 (2015).
+[17] G. Zheng, C. Shen, S. Jiang, P. Song, and C. Yang, Na-
+ture Reviews Physics 3, 207 (2021).
+[18] P. C. Konda, L. Loetgering, K. C. Zhou, S. Xu, A. R.
+Harvey, and R. Horstmeyer, Optics express 28, 9603
+(2020).
+[19] L. Tian, Z. Liu, L.-H. Yeh, M. Chen, J. Zhong, and
+L. Waller, Optica 2, 904 (2015).
+[20] R. Li, C. Li, H. Li, S. Wu, and G. Fang, IEEE Transac-
+tions on Terahertz Science and Technology 9, 165 (2018).
+[21] Z. D. Taylor, R. S. Singh, D. B. Bennett, P. Tewari, C. P.
+Kealey, N. Bajwa, M. O. Culjat, A. Stojadinovic, H. Lee,
+J.-P. Hubschman, et al., IEEE transactions on terahertz
+science and technology 1, 201 (2011).
+[22] L. Valzania, T. Feurer, P. Zolliker, and E. Hack, Optics
+Letters 43, 543 (2018).
+[23] P. Mukherjee,
+V. Kumar,
+F. Fauquet,
+A. Badon,
+D. Bigourd, K. Khare, S. Gigan, and P. Mounaix, Optica
+13, 424 (2026).
+[24] M. S. Heimbeck and H. O. Everitt, Advances in Optics
+and Photonics 12, 1 (2020).
+[25] H. Penketh, M. S. Ergoktas, C. R. Lawrence, D. B.
+Phillips, J. E. Cunningham, E. Hendry, and M. Mrnka,
+Optics Express 32, 5783 (2024).
+[26] J. M. Rodenburg and H. M. Faulkner, Applied physics
+letters 85, 4795 (2004).
+[27] T.-C. Poon and J.-P. Liu, Introduction to modern dig-
+ital holography: with MATLAB (Cambridge University
+14
+Press, 2014).
+[28] A. M. Maiden and J. M. Rodenburg, Ultramicroscopy
+109, 1256 (2009).
+[29] P. Enfedaque, H. Chang, B. Enders, D. Shapiro, and
+S. Marchesini, in International Conference on Compu-
+tational Science (Springer, 2019), pp. 46–59.
+[30] Z. Zhang, Ph.D. thesis, University of Sheffield (2021).
+[31] W. Mei, Ph.D. thesis, University of Sheffield (2024).
+[32] I. Hooper, N. Grant, L. Barr, S. Hornett, J. D. Murphy,
+and E. Hendry, Scientific Reports 9, 18304 (2019).
+[33] K. Sindhya, A. B. Ruiz, and K. Miettinen, in Interna-
+tional Conference on Evolutionary Multi-Criterion Opti-
+mization (Springer, 2011), pp. 212–225.
+[34] A.
+Maiden,
+Ptychography
+algorithms
+from
+Sheffield
+University,
+https://github.com/andyMaiden/
+SheffieldPtycho
+(2023),
+GitHub
+SheffieldPtycho,
+accessed August 2025.
+[35] N. E. Grant, S. L. Pain, E. Khorani, R. Jefferies,
+A. Wratten, S. McNab, D. Walker, Y. Han, R. Beanland,
+R. Bonilla, et al., Applied Surface Science 645, 158786
+(2024).
+[36] M. Mrnka, H. Penketh, D. B. Phillips, and E. Hendry,
+Scientific Reports 14, 21056 (2024).
+[37] Stephen23,
+Matplotlib
+”perceptually
+uni-
+form”
+colormaps,
+https://uk.mathworks.
+com/matlabcentral/fileexchange/
+62729-matplotlib-perceptually-uniform-colormaps
+(2024),
+MATLAB
+Central
+File
+Exchange,
+accessed
+October 2025.
+[38] R. Yang, P. Villanueva-Perez, and M. Kahnt, arXiv
+preprint arXiv:2510.24542 (2025).
+[39] Y. Yao, Y. Jiang, J. A. Klug, M. Wojcik, E. R. Maxey,
+N. S. Sirica, C. Roehrig, Z. Cai, S. Vogt, B. Lai, et al.,
+Scientific reports 10, 19550 (2020).
+[40] M. Hirose, T. Higashino, N. Ishiguro, and Y. Takahashi,
+Optics express 28, 1216 (2020).
+[41] I. R. Hooper, E. Khorani, X. Romain, L. E. Barr,
+T. Niewelt, S. Saxena, A. Wratten, N. E. Grant, J. D.
+Murphy, and E. Hendry, Journal of Applied Physics 132
+(2022).
+[42] Z. Wang, A. C. Bovik, H. R. Sheikh, and E. P. Simoncelli,
+IEEE transactions on image processing 13, 600 (2004).
+[43] B. D. Price, S. N. Lowry, I. D. Hartley, and M. Reid,
+Applied Optics 59, 5429 (2020).
+[44] C. Joseph, C. Trujillo, and A. Doblas, Measurement p.
+122139 (2026).

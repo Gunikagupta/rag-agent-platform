@@ -1,0 +1,5044 @@
+Efficient Quantum-Mechanical Modeling of
+Nonradiative Charge Transfer Processes
+Alexander Karl1, Dominic Waldhoer1, Theresia Knobloch1, Christoph Wilhelmer1, and
+Tibor Grasser1, *
+1Institute for Microelectronics, Technical University Vienna, Austria
+*e-mail: grasser@iue.tuwien.ac.at
+ABSTRACT
+Nonradiative charge transfer processes play a central role in a wide range of physical phenomena, including reliability phenomena
+in semiconductor devices such as bias temperature instability, hysteresis, random telegraph noise, and trap-assisted tunneling.
+nonradiative multiphonon (NMP) theory provides a physically rigorous framework for describing such charge transitions, but its
+full quantum-mechanical formulation is computationally too demanding for large-scale simulations. In this work, we present a
+systematic and implementation-oriented treatment of NMP-based models for practical large-scale simulations. Starting from the
+quantum-mechanical foundations of coupled electron–phonon dynamics, we derive computationally efficient approximations for
+charge capture and emission rates and clearly identify the underlying assumptions and validity regimes. In particular, we introduce
+an effective crossing-preserving approximation that yields fully analytic, numerically stable, and computationally inexpensive
+transition rates while retaining the essential quantum-mechanical physics. The resulting expressions are therefore well suited for
+large-scale device simulations, where capture coefficients must be evaluated repeatedly over broad multidimensional parameter
+spaces. Furthermore, we derive continuum formulations for transitions between localized defect states and extended electronic
+bands, enabling direct incorporation into semiconductor-device simulations. The resulting framework bridges microscopic defect
+physics and practical large-scale simulations of charge transfer processes in complex semiconductor devices. At the same time this
+work serves as a practical guide for implementing physically grounded NMP-based models, providing both a systematic derivation
+of the underlying theory and a clear guidance on the validity limits.
+arXiv:2607.17730v1  [cond-mat.mtrl-sci]  20 Jul 2026
+Introduction
+Nonradiative charge transfer processes at defects in semiconductor devices are a key physical mechanism governing the
+behavior, reliability, and long-term stability of modern semiconductor devices. Phenomena such as bias temperature
+instability (BTI), hysteresis, random telegraph noise (RTN) and gate leakage due to trap assisted tunneling (TAT) are
+all governed by the dynamics of underlying charge capture and emission processes at defects. As device dimensions
+continue to scale, an accurate physical description of defect-mediated charge capture and emission processes has
+become essential for the correct description of device behavior.
+In most Technology Computer-Aided Design (TCAD) tools, defect-mediated charge transfer processes are
+commonly described using the Shockley–Read–Hall (SRH) model [1, 2, 3] due to its simplicity and computational
+efficiency. However, the SRH formalism assumes that charge transitions occur without significant relaxation of the
+atoms surrounding the defect. This assumption breaks down for virtually all technologically relevant defects, where a
+change in the defect’s charge state is accompanied by substantial structural rearrangement of the neighboring atoms.
+Consequently, the SRH description is inherently incomplete and generally fails to reproduce the experimentally
+observed temperature and field dependence of charge trapping and detrapping. To reconcile SRH-based simulations
+with experimental observations, the missing relaxation physics is typically absorbed into empirical fitting parameters,
+most notably capture cross sections that are allowed to vary with temperature and electric field [4, 5]. While
+such empirical extensions can be calibrated to reproduce measured trapping and detrapping kinetics, the resulting
+capture cross sections often span many orders of magnitude and generally lack a direct connection to the microscopic
+properties of the underlying defects [6, 7, 8].
+A physically rigorous description of defect-mediated charge transfer is provided by Nonradiative multiphonon
+(NMP) theory [9, 10, 11, 12, 13, 14, 15]. Conceptually, electron capture by a defect may be viewed as a two-step
+process within this framework: First, the electron tunnels to the defect, changing its charge state and destabilizing the
+initial atomic configuration. Subsequently, the atoms at the defect site relax toward a different equilibrium configura-
+tion corresponding to the new charge state. The NMP framework therefore naturally captures the interplay between
+electronic transitions and atomic relaxation. This framework has been successfully used to quantitatively reproduce a
+wide range of experimentally observed reliability phenomena in MOSFETs, including BTI [16, 17, 18], hysteresis [19,
+20, 21], RTN [22, 23, 24], and TAT [25, 26, 27]. In parallel, substantial progress has been made in determining the
+underlying model parameters from first-principles calculations, particularly using density functional theory (DFT)
+[13, 14]. The parameters obtained from DFT can be directly compared with those extracted from experimental
+data, enabling the identification or exclusion of microscopic defect candidates responsible for the observed reliability
+phenomena [28, 29, 30]. Owing to this capability to link macroscopic reliability effects to their atomistic origins,
+the NMP framework is widely regarded as the state-of-the-art approach for modeling defect dynamics in modern
+semiconductor devices, providing a unified and physically well-founded description of diverse degradation mechanisms.
+Despite these advances, the full quantum-mechanical NMP formulation remains too computationally demanding
+for direct use in TCAD simulations. Practical device-level modeling therefore relies on simplified rate expressions.
+However, the assumptions behind these expressions are often not systematically documented, and their derivation
+and range of validity are not always clearly defined. This is particularly problematic for the widely used classical ap-
+proximation, which is formally valid only in the high-temperature limit. Depending on the specific defect parameters
+the classical approximation can already break down at room temperature [31, 32]. Applying such approximations
+outside their validity range can therefore lead to misleading interpretations of simulation results. In this work, we
+address this gap by systematically deriving practical, computationally efficient approximations for nonradiative
+charge-transition rates starting from the full quantum-mechanical NMP formalism, while explicitly discussing their
+underlying assumptions and validity regimes.
+Specifically, we address the additional complexity arising in the general case where the potential-energy surfaces
+of the defect have different curvatures. In this case, the full quantum-mechanical NMP problem becomes significantly
+more challenging, since the transition rates involve a double sum over vibrational states that is generally not analyt-
+ically tractable. To overcome this limitation, we develop a crossing-preserving approximation (CPA) for general
+NMP systems. This approach maps the original unequal-curvature problem onto an effective equal-curvature model
+while preserving the dominant crossing point that governs the transition dynamics. Combined with a continuum
+approximation for the vibronic spectrum, the mapping yields a fully analytic closed-form approximation to the
+quantum-mechanical capture and emission rates. The resulting expression retains the essential quantum-mechanical
+2/51
+physics while remaining computationally inexpensive and numerically stable, making it well suited for integration into
+large-scale TCAD workflows, where capture coefficients must be computed repeatedly over broad multidimensional
+parameter spaces.
+Building on this efficient approximation for transitions between two discrete electronic states, we extend the
+formalism to charge exchange between defects and continua of electronic states, such as the conduction or valence
+band of semiconductor devices. Starting from the state-to-state transition rates, the total capture and emission
+rates are obtained by summing over the electronic states in the continuum. The resulting expressions are then
+written in terms of the local density of states of the continuum and the occupation probabilities of the corre-
+sponding electronic states. Finally, we simplify the continuum rates using a band-edge approximation, thereby
+avoiding explicit energy integration and obtaining a compact, computationally efficient representation suitable
+for large-scale TCAD simulations. We then compare the resulting continuum rates with SRH theory and show
+that the conventional SRH framework is fundamentally phenomenological. In particular, the temperature- and
+field-dependent capture and emission rates predicted by NMP theory can only be reproduced within the SRH
+framework by introducing phenomenological capture cross sections with ad-hoc dependencies on temperature and field.
+Beyond introducing these new approximations for the NMP transition rates, the present work is intended as
+a practical guide for modeling charge transitions in semiconductor devices. The manuscript aims to bridge the
+gap between defect physics and practical TCAD implementation by providing both a systematic derivation of the
+underlying theory and an intuitive interpretation of the relevant model parameters. In this way, the paper is designed
+not only as a theoretical treatment of NMP transitions, but also as a structured reference for implementing physically
+grounded charge-trapping models in semiconductor device simulations.
+The paper is organized as follows: In Section 1, we derive the quantum-mechanical foundations of the NMP model
+starting from the coupled electron–ion Hamiltonian and introduce the diabatic representation of charge transitions.
+Section 2 introduces the scalar configuration-coordinate picture, which transforms the multidimensional phonon
+problem into an effective one-dimensional model. In Section 3, we derive the quantum-mechanical transition-rate
+expression and discuss three complementary evaluation strategies: direct quantum-mechanical evaluation, the
+classical high-temperature approximation, and the newly developed effective crossing preserving approximation.
+Section 4 extends the formalism to transitions between localized defect states and electronic bands, establishing the
+connection to TCAD-compatible capture and emission models. Here, we also derive a band-edge approximation for
+the resulting continuum rates and compare these rates with conventional SRH theory. Finally, Section 5 present
+representative BTI simulations that illustrate the differences between the transition-rate approximations developed
+throughout this work.
+1 Quantum-Mechanical Foundations of Nonradiative Charge Transfer
+We consider a nonradiative charge transition in a system consisting of a localized defect and an electronic reservoir
+that can exchange carriers with the defect. To describe the coupled electron–nuclear system, we denote the electronic
+coordinates and momenta by x and p, and the mass-weighted nuclear coordinates and momenta by Q and P . The
+full Hamiltonian is given by
+H = TN +Te +Vee +VeN +VNN,
+(1)
+where TN and Te denote the nuclear and electronic kinetic-energy operators, respectively, while Vee, VeN, and VNN
+describe the electron–electron, electron–ion, and ion–ion interactions. The Hamiltonian describes the complete
+system, including both the defect and the reservoir. A prototypical example is a defect at an insulator–semiconductor
+interface, where the defect can capture an electron from the semiconductor conduction band or emit its electron
+into the conduction band. More generally, the reservoir may represent any continuum of electronic states that can
+exchange charge with the defect.
+To calculate nonradiative charge transition rates within perturbation theory, the Hamiltonian must be partitioned
+into an unperturbed part and a weak perturbation that induces transitions. Since perturbation theory yields transi-
+tion rates between the eigenstates of the unperturbed Hamiltonian, these states define the basis of the perturbative
+treatment and must therefore be chosen such that they can be identified with the physical charge states of the defect.
+Only then can the calculated transition rates be interpreted as the physical rates for charge capture and emission.
+3/51
+The choice of basis is therefore of central importance, as it determines the form of the Hamiltonian partitioning and
+consequently the coupling responsible for the transitions. As a natural starting point, we first introduce the adiabatic
+Born–Oppenheimer approximation, which provides a convenient representation of the coupled electron–nuclear
+system. This representation subsequently serves as the foundation for constructing the diabatic basis employed in
+the perturbative treatment in the rest of this work.
+The Born–Oppenheimer approximation [15] exploits the separation of electronic and nuclear time scales arising
+from the large mass difference between electrons and nuclei. As a result, electrons adjust quasi-instantaneously
+to the slow nuclear motion. Within this approximation, the total wave function can be factorized into a nuclear
+(vibrational) wavefunction χa,n(Q) and an electronic wave function ψa(x;Q) at fixed nuclear configuration Q:
+Ψa,n(x,Q) = ψa(x;Q)χa,n(Q),
+(2)
+where a labels the electronic state and n the nuclear (vibrational) state. The set of such product states defines a
+basis for the coupled electron–nuclear Hilbert space. For each Q, the electronic wave function ψa(x;Q) is obtained
+from the eigenvalue problem
+He(Q)ψa(x;Q) = Ea(Q)ψa(x;Q),
+He(Q) = Te +Vee +VeN(Q)+VNN(Q),
+(3)
+where the nuclear coordinates Q enter only as parameters. The eigenvalues Ea(Q) define the adiabatic potential
+energy surfaces (PES). Note that the electronic Hamiltonian He includes the ion–ion interaction VNN(Q), such that
+Ea(Q) represents the total potential energy of the system. The nuclear wave functions χa,n(Q) are obtained from
+the effective Schrödinger equation
+[TN +Ea(Q)] χa,n(Q) = Ea,n χa,n(Q),
+(4)
+which describes the nuclei moving under the effect of the adiabatic PES Ea(Q) defined by the electronic problem.
+In the following, we consider the adiabatic ground-state PES of the system. As the nuclear configuration Q is varied,
+the electronic charge distribution adjusts continuously to the nuclear motion and the character of the electronic
+ground state may change from a defect-localized state to one in which the electron is no longer localized at the
+defect. We assume that the relevant ground-state PES possesses two stable local minima, denoted by Qi and Qf,
+corresponding to the relaxed atomic geometries with the carrier localized at the defect and after it has left the defect
+(e.g., by occupying a delocalized band state), respectively. In practice, these equilibrium geometries are typically
+obtained from independent DFT calculations. For example for isolated bulk defects the calculation is restricted
+to the host material containing the defect, and the relevant electronic configurations are realized by prescribing
+different total charges of the supercell. The relaxed structures of the corresponding charged supercells are then
+identified with the equilibrium geometries Qi and Qf [30].
+In the adiabatic Born–Oppenheimer basis defined by Eq. (2), the electronic states ψa(x;Q) depend parametrically
+on the nuclear configuration and therefore evolve continuously as Q changes. As a result, their physical character
+may change. In particular, near regions where different adiabatic potential-energy surfaces approach each other, the
+electronic states can become strong mixtures of states with different charge-state character, such as a defect-localized
+state and a conduction-band-like state. In such regions, the index a no longer labels a well-defined charge state of
+the defect. To describe charge transitions between well-defined charge states, it is therefore necessary to employ a
+basis whose electronic character remains fixed throughout configuration space. For this purpose, we adopt the static
+approximation [15], in which the adiabatic electronic eigenstates are frozen at a fixed reference geometry Q0 and
+used as a new electronic basis,
+ϕa(x;Q0) ≡ψa(x;Q0).
+(5)
+The corresponding static basis states for the coupled electron–nuclear system are
+Ψi,m(x,Q) = ϕi(x;Q0)χi,m(Q),
+Ψf,n(x,Q) = ϕf(x;Q0)χf,n(Q).
+(6)
+Here, i and f label the initial and final charge states of the defect. Unlike the adiabatic states ψa(x;Q), the basis
+functions ϕi and ϕf no longer evolve with the nuclear configuration. Instead, they retain their electronic character
+throughout configuration space and therefore provide a diabatic-like basis in which the charge states remain well
+defined. Throughout this work, the equilibrium geometry of the initial charge state is chosen as the reference
+4/51
+configuration for the diabatic basis, i.e. Q0 = Qi. This, however, is merely a practical choice and does not alter the
+underlying formalism. In principle, the final equilibrium geometry Qf could equally well be chosen as the reference.
+In first-principles calculations, the most convenient reference is often the geometry at which the electronic states
+entering the transition can be identified and evaluated most reliably within DFT.
+Having fixed the basis states, we now derive an effective description of the coupled electron–ion system by
+projecting the full Hamiltonian onto the electronic subspace spanned by the initial and final diabatic electronic
+states. The resulting matrix elements
+Hab(Q) = TNδab +⟨ϕa|He(Q)|ϕb⟩.
+(7)
+define operators acting on the nuclear degrees of freedom. This projected Hamiltonian still retains the full dependence
+on the nuclear coordinates and is therefore generally too complicated for practical calculations. To obtain a model
+that captures the essential physics using only a small number of parameters, we now approximate the electronic
+matrix elements by their Taylor expansions truncated at leading order.
+The diagonal electronic matrix elements
+Va(Q) = ⟨ϕa|He(Q)|ϕa⟩,
+a ∈{i,f},
+(8)
+define the diabatic PESs, which describe the total potential energy of the system as a function of the nuclear
+coordinates while the defect retains a fixed electronic charge-state character. Provided the potential-energy surfaces
+are sufficiently smooth in the vicinity of their equilibrium geometries, they may be approximated by a second-order
+Taylor expansion,
+Va(Q) = Ea + 1
+2(Q −Qa)TK a(Q −Qa),
+a ∈{i,f},
+(9)
+where Ea denotes the minimum energy and K a the Hessian matrix evaluated at the equilibrium geometry Qa. Since
+the expansion is performed about an equilibrium configuration the linear term in the Taylor expansion vanishes
+identically, leaving the quadratic (harmonic) contribution as the leading order. This harmonic approximation
+provides an accurate description of the dynamics associated with each charge state while remaining sufficiently
+simple for practical calculations.
+The off-diagonal matrix elements Vif(Q) = ⟨ϕi|He(Q)|ϕf⟩, describe the electronic coupling between the two
+diabatic charge states. In principle, the off-diagonal matrix elements may be expanded about any arbitrary nuclear
+configuration. However, choosing the expansion point to coincide with the reference configuration Q0 = Qi, is
+particularly advantageous, since the electronic Hamiltonian is diagonal at this geometry. Consequently, the constant
+term in the Taylor expansion vanishes identically, yielding a linear electron–phonon coupling model to leading order:
+Vif(Q) = W if ·(Q −Qi).
+(10)
+As a result, the off-diagonal coupling is induced solely by the small nuclear displacements away from the initial
+equilibrium geometry Qi. This provides a well-controlled starting point for treating the electron–phonon interaction
+perturbatively with Fermi’s golden rule.
+Using these definitions, the Hamiltonian can be expanded to leading order in the nuclear displacements and
+written compactly as
+H = |ϕi⟩⟨ϕi|
+1
+2P TP +Vi(Q)
+
++|ϕf⟩⟨ϕf|
+1
+2P TP +Vf(Q)
+
++
+ |ϕf⟩⟨ϕi|+|ϕi⟩⟨ϕf|
+
+W if ·(Q −Qi).
+(11)
+Vi(Q) = Ei + 1
+2(Q −Qi)TK i(Q −Qi),
+Vf(Q) = Ef + 1
+2(Q −Qf)TK f(Q −Qf).
+(12)
+Importantly, this Hamiltonian admits a simple physical interpretation. An electronic transition transfers the system
+from the initial diabatic PES Vi(Q) to the final diabatic PES Vf(Q). Before the transition, the nuclei fluctuate
+around the equilibrium geometry Qi of the initial surface. Immediately after the transition, however, the nuclei
+remain at essentially the same atomic configuration while the governing PES changes to Vf(Q), whose minimum is
+located at the different equilibrium geometry Qf. The nuclei therefore experience forces that drive a structural
+relaxation from the former equilibrium Qi toward the new equilibrium Qf. This structural relaxation is central to
+charge trapping processes and determines the rate at which charge-state transitions occur.
+5/51
+2 Effective Configuration-Coordinate Model
+The general NMP model defined in Eqs. (11) and (12) is intrinsically multidimensional, since the nuclear motion gen-
+erally involves all vibrational degrees of freedom of the system. For realistic systems, this multidimensional problem
+becomes difficult to evaluate explicitly due to the large number of vibrational degrees of freedom. A considerable
+simplification is obtained by describing the nuclear motion in terms of a single scalar configuration coordinate that
+parametrizes the structural relaxation along the straight line connecting the equilibrium configurations of the two
+charge states. This reduces the multidimensional problem to an effective one-dimensional model, which forms the
+basis for the remainder of this work.
+The relaxation associated with the charge transition is characterized by the displacement ∆Q = Qf −Qi, between
+the equilibrium configurations of the two charge states, and by the energy difference between the minima of the
+corresponding diabatic potential-energy surfaces, ∆E = Ef −Ei. To simplify the notation throughout the remainder
+of this work, we choose the equilibrium configuration and energy of the initial charge state as the origin of the
+coordinate system. Accordingly, we choose Qi = 0 and Ei = 0, such that the equilibrium configuration and energy of
+the final charge state are simply given by Qf = ∆Q and Ef = ∆E. This is merely a choice of coordinate system that
+simplifies the subsequent notation and does not affect the underlying physics or any of the resulting transition rates.
+0.5
+0.0
+0.5
+1.0
+1.5
+Q1 [ u Å]
+0.5
+0.0
+0.5
+1.0
+1.5
+2.0
+Q2 [ u Å]
+0.5
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+Q3 [ u Å]
+Qi = 0
+Qf =
+Q
+Q
+Q e
+Q
+Configuration Coordinate Picture
+(a)
+10
+5
+0
+5
+10
+15
+Configuration Coordinate Q [Å
+u]
+3
+2
+1
+0
+1
+2
+3
+Total Potential Energy V [eV]
+(QX,EX)
+(Qi,Ei)
+(Qf,Ef)
+Ei
+R
+Ef
+R
+E
+Q
+Ex
+Qx
+Parabolic Potential Energy Surfaces
+Vi(Q) = 1
+2
+2
+i Q2
+Vf(Q) =
+E + 1
+2
+2
+f (Q
+Q)2
+(b)
+Figure 1. Schematic representation of the scalar configuration coordinate reduction. (a) Visualization of different
+paths in nuclear configuration space. The configuration coordinate path shown in blue connects the minima of the
+initial and final potential-energy surfaces, located at Qi = 0 and Qf = ∆Q, along a straight line. The orange curve
+illustrates a general path in configuration space. A general configuration Q can be decomposed into a component
+Q∥= Qe along the configuration coordinate path and an orthogonal component Q⊥. (b) Corresponding configuration
+coordinate diagram showing the effective potential energy surfaces Vi(Q) and Vf(Q) along the one-dimensional
+configuration coordinate Q. The minima of these surfaces are located at (Qi,Ei) = (0,0) and (Qf,Ef) = (∆Q,∆E),
+respectively. The two parabolic potentials are fully characterized by the energy difference ∆E, the displacement
+between both equilibrium configurations ∆Q, and the relaxation energies Ef
+R = (1/2)Ω2
+f ∆Q2 and Ei
+R = (1/2)Ω2
+i ∆Q2.
+To reduce the multidimensional problem to an effective one-dimensional description, we define the unit vector
+pointing from the initial equilibrium to the final equilibrium
+e = ∆Q
+∆Q
+with
+∆Q = ∥∆Q∥.
+(13)
+As shown in Fig. 1, every vector in configuration space can be decomposed into components parallel and orthogonal
+to the relaxation direction e. For a general nuclear configuration Q, this decomposition is expressed as
+Q = Qe +Q⊥,
+Q = e ·Q,
+Q⊥= Q −Qe.
+(14)
+Here, the scalar configuration coordinate Q measures the displacement along the dominant relaxation direction,
+while Q⊥describes displacements orthogonal to this path. Analogously, the nuclear momentum P is decomposed as
+P = P e +P ⊥,
+P = e ·P ,
+P ⊥= P −P e.
+(15)
+6/51
+Accordingly, the scalar momentum P is the momentum conjugate to the configuration coordinate Q and describes
+nuclear motion along the dominant relaxation direction, while P ⊥contains the momentum associated with motions
+orthogonal to this direction.
+Substituting this decomposition into the Hamiltonian and neglecting terms involving the orthogonal degrees of
+freedom, we obtain an effective one-dimensional model in which nuclear motion is confined to the line connecting
+the two equilibrium configurations. The neglected orthogonal phonon modes are thereby treated as weakly coupled
+environmental degrees of freedom, whose primary effect is to provide dissipative corrections rather than to determine
+the dominant transition dynamics. The resulting Hamiltonian reads
+H = |ϕi⟩⟨ϕi|
+P 2
+2 +Vi(Q)
+
++|ϕf⟩⟨ϕf|
+P 2
+2 +Vf(Q)
+
++
+ |ϕf⟩⟨ϕi|+|ϕi⟩⟨ϕf|
+
+Wif Q+....,
+(16)
+where the effective one-dimensional diabatic potential-energy surfaces are given by
+Vi(Q) = 1
+2Ω2
+i Q2,
+Vf(Q) = ∆E + 1
+2Ω2
+f(Q−∆Q)2.
+(17)
+The effective parameters of this one-dimensional model are obtained by projecting the corresponding multidimensional
+quantities onto the relaxation direction:
+Ω2
+i = eTK ie,
+Ω2
+f = eTK fe,
+Wif = W if ·e.
+(18)
+At first sight, neglecting the phonon modes orthogonal to the effective configuration coordinate may appear to
+be a rather drastic approximation. Within the effective one-dimensional model, the nuclei are constrained to move
+along the straight line connecting the equilibrium configurations of the two charge states. In general, however, this
+straight-line path does not coincide with the true minimum-energy path in the full multidimensional configuration
+space [33]. One might therefore expect the neglected orthogonal degrees of freedom to significantly alter the
+transition rates. Nevertheless, the general validity of this one-dimensional reduction has been demonstrated in several
+first-principles studies of nonradiative carrier capture. In particular, Alkauskas et al. [13] developed a comprehensive
+framework based on a single effective configuration coordinate and showed that the resulting capture coefficients
+are in quantitative agreement with experimental measurements for defects in wide-band-gap semiconductors such
+as GaN and ZnO. Their work highlights that the dominant contribution to the transition rate arises from the
+collective distortion associated with the change in charge state, thereby justifying the reduction to an effective mode.
+Complementary to this, Shi et al. [15] performed a systematic comparison of different theoretical approaches and
+demonstrated that formulations based on the static coupling picture and an effective scalar configuration coordinate
+yield capture rates in good agreement with experiment. Recent investigations by Waldhoer et al. [30] further
+support this approximation while also clarifying its range of validity. In particular, the effective mode was found to
+capture the dominant contribution to the transition rate in most cases. While orthogonal phonon modes are not
+always negligible and may individually contribute with a magnitude comparable to that of the effective mode, their
+inclusion generally changes the overall transition rate by less than one order of magnitude. These findings indicate
+that, despite its simplicity, the effective one-dimensional model provides an accurate and computationally efficient
+description of nonradiative capture processes at defects. Consequently, this effective one-dimensional model forms
+the basis for the subsequent development.
+The effective one-dimensional potentials Vi(Q) and Vf(Q) are most clearly visualized in a configuration-coordinate
+diagram, which represents the total potential energy as a function of the scalar configuration coordinate Q. As
+shown in Fig. 1b, this diagram provides an intuitive one-dimensional picture of the structural relaxation process:
+Following the charge transition, the structural relaxation is described by the scalar configuration coordinate Q, which
+serves as the reaction coordinate connecting the initial equilibrium geometry at Qi = 0 with the final equilibrium
+geometry at Qf = ∆Q. Within this representation, the effective one-dimensional potentials Vi(Q) and Vf(Q) can be
+conveniently parametrized by the four parameters
+∆E,
+∆Q,
+Ei
+R = 1
+2Ω2
+i ∆Q2,
+Ef
+R = 1
+2Ω2
+f∆Q2,
+(19)
+where Ei
+R and Ef
+R denote the relaxation energies associated with structural relaxation on the respective potential-
+energy surfaces. This parametrization is physically transparent and useful for analytical treatments of nonradiative
+7/51
+transitions. Furthermore, an additional convenient parameter is the dimensionless curvature ratio
+R = Ωi
+Ωf
+=
+s
+Ei
+R
+Ef
+R
+.
+(20)
+The special case R = 1 corresponds to equal curvatures, for which the two harmonic potentials have identical shapes
+and differ only by displacement and energy offset. In contrast, R̸ = 1 defines the unequal-curvature case, for which
+the two harmonic potentials have different shapes and the nuclei therefore experience different restoring forces in the
+two charge states.
+As shown in Fig. 1b, another important geometric feature of the two potential-energy surfaces is given by their
+crossing points (Qα
+X,Eα
+X) where α labels the possible intersections of the two surfaces. The crossing points are central
+to NMP transitions because they identify the configurations at which a charge transfer can occur without changing
+the total potential energy of the system. Since the probability of reaching a crossing point is thermally activated,
+the transition is generally dominated by the crossing with the lowest energy. In the following, we therefore omit the
+index α and denote this dominant crossing point simply by (QX,EX). The crossing point may be specified either in
+absolute coordinates (QX,EX) or in relative coordinates (∆QX,∆EX) with respect to the initial equilibrium. Within
+the coordinate system adopted throughout this work, these quantities are numerically identical. Nevertheless, we
+retain the ∆notation whenever it is important to emphasize that the corresponding quantity represents a coordinate
+or energy difference, particularly in Arrhenius laws exp(−∆EX/kBT), where only energy differences are physically
+meaningful.
+For unequal curvatures, Ei
+R̸ = Ef
+R the dominant crossing point is located at
+∆QX = ∆Q Ef
+R −D
+Ef
+R −Ei
+R
+,
+∆EX = Ei
+R
+ 
+Ef
+R −D
+Ef
+R −Ei
+R
+!2
+,
+D =
+q
+Ei
+REf
+R +(Ei
+R −Ef
+R)∆E.
+(21)
+For equal curvatures, Ei
+R = Ef
+R ≡ER, this simplifies to
+∆QX = ∆Q ∆E +ER
+2ER
+,
+∆EX = ER
+∆E +ER
+2ER
+2
+.
+(22)
+Note, that in practical first-principles calculations, the parameters of the effective one-dimensional model given
+by Eq. (19) are usually not constructed by projecting the Hessian matrices onto the relaxation direction. Instead,
+the effective harmonic potentials are commonly constructed by fitting two parabolas to four total-energy calculations
+[30]. Specifically, the energies of both charge states are evaluated at the relaxed geometries of the initial and final
+configurations, yielding Vi(0), Vf(0), Vi(∆Q), Vf(∆Q). These four energies uniquely determine the harmonic PES.
+Besides avoiding the computationally demanding evaluation of the Hessian, this procedure is also often preferable
+from a physical point of view. Whereas a Taylor expansion reproduces the local curvature only in the immediate
+vicinity of the equilibrium configurations, the four-point construction fits the effective harmonic potentials over
+the entire interval between the two minima and therefore provides a more faithful effective description when the
+underlying multidimensional potential-energy surfaces are anharmonic.
+3 Nonradiative Charge Capture and Emission Rates
+Having established an effective one-dimensional Hamiltonian for the description of nonradiative charge transfer
+processes, we now turn to the calculation of the quantum-mechanical transition rates between the two charge states.
+To this end, the total Hamiltonian introduced in Eq. (16) is decomposed into an unperturbed part H0, describing
+the uncoupled electronic and vibrational degrees of freedom, and a perturbation Hint describing the electron–phonon
+coupling,
+H0 = |ϕi⟩⟨ϕi|
+P 2
+2 +Vi(Q)
+
++|ϕf⟩⟨ϕf|
+P 2
+2 +Vf(Q)
+
+,
+Hint =
+ |ϕf⟩⟨ϕi|+|ϕi⟩⟨ϕf|
+
+WifQ.
+(23)
+The eigenstates of the unperturbed Hamiltonian H0 are given by direct products of electronic and vibrational states
+|ϕα⟩⊗|χα,n⟩, which form the basis for the following perturbative treatment. Here, |ϕα⟩denotes the electronic
+8/51
+wavefunction, while the vibrational wavefunctions |χα,n⟩are obtained from the effective 1D-Schrödinger equation
+P 2
+2 +Vα(Q)
+
+χα,n(Q) = Eα,n χα,n(Q),
+(24)
+which describes the nuclear motion under the effective potential Vα(Q) associated with electronic state α. Since the
+effective potentials are harmonic, the corresponding vibrational eigenstates are the well-known harmonic-oscillator
+wavefunctions. Specifically, since the minimum of the initial potential-energy surface is located at (Qi,Ei) = (0,0),
+the vibrational spectrum of the initial charge state is given by
+Ei,m = ¯hΩi
+ m+ 1
+2
+
+,
+(25)
+χi,m =
+1
+√
+2mm!
+ Ωi
+π¯h
+1/4
+Hm
+ r
+Ωi
+¯h Q
+!
+exp
+
+−Ωi
+2¯hQ2
+
+.
+(26)
+In contrast, the final potential-energy surface is characterized by the minimum (Qf,Ef) = (∆Q,∆E), with the
+corresponding vibrational spectrum given by
+Ef,n = ∆E +¯hΩf
+ n+ 1
+2
+
+,
+(27)
+χf,n =
+1
+√
+2nn!
+Ωf
+π¯h
+1/4
+Hn
+ r
+Ωf
+¯h (Q−∆Q)
+!
+exp
+
+−Ωf
+2¯h (Q−∆Q)2
+
+.
+(28)
+Here Hm and Hn denote Hermite polynomials of order m and n, respectively. As illustrated in Fig. 2, χi,m and χf,n
+describe quantized nuclear vibrations about the equilibrium positions Qi = 0 and Qf = ∆Q of the initial and final
+potential-energy surfaces, respectively. In this picture, every electronic charge transition i →f is accompanied by a
+simultaneous vibrational transition m →n. Since the equilibrium atomic configurations of the two charge states
+generally differ, a purely electronic transition is not possible without a corresponding change in the vibrational state.
+Consequently, charge transfer proceeds through transitions between the combined vibronic states.
+1
+0
+1
+2
+Configuration Coordinate [ uÅ]
+0.05
+0.00
+0.05
+0.10
+0.15
+0.20
+Potential Energy [eV]
+(QX, EX)
+(Qi, Ei)
+(Qf, Ef)
+i, 0
+Ei, 0
+i, 1
+Ei, 1
+i, 2
+Ei, 2
+f, 0
+Ef, 0
+f, 1
+Ef, 1
+f, 2
+Ef, 2
+f, 3
+Ef, 3
+Configuration Coordinate Diagram
+Vi(Q) = Ei + 1
+2
+2
+i (Q
+Qi)2
+Vf(Q) = Ef + 1
+2
+2
+f (Q
+Qf)2
+Figure 2. Configuration-coordinate diagram highlighting the vibrational states χi,m with eigenenergies Ei,m on
+the initial PES and the vibrational states χf,n with eigenenergies Ef,n on the final PES. The two PES are shown
+for the equal-curvature case, R = 1, so that the corresponding vibrational wavefunctions have identical shapes and
+differ only by their displacement along the configuration coordinate. The minima of the two surfaces are labeled by
+(Qi,Ei) and (Qf,Ef), while the crossing point is labeled by (QX,EX).
+We assume that, within each charge state, the vibrational subsystem stays close to thermal equilibrium. This
+assumption is generally well justified for nonradiative defect transitions because vibrational relaxation occurs on
+picosecond time scales (corresponding to typical phonon lifetimes) [34, 35, 36], whereas the charge trapping phenomena
+relevant for semiconductor reliability typically evolve on much longer time scales, ranging from approximately
+10−6 s to even 106 s [37]. These slow capture and emission events are responsible for the gradual shifts of device
+characteristics under electrical stress. Although defects with much faster transition rates also exist, they are generally
+not the focus of reliability studies. Under this assumption, the nuclei can re-equilibrate between successive capture
+9/51
+and emission events and the occupation probability of vibrational state m of the corresponding electronic state α is
+therefore given by a Boltzmann weight
+w(α)
+m = e−βEα,m
+Zα
+,
+Zα =
+X
+m
+e−βEα,m,
+α ∈{i,f}.
+(29)
+with β = (kBT)−1. For exceptionally fast defects, however, capture or emission may occur on time scales comparable
+to vibrational relaxation (i.e., on the order of picoseconds). In this regime, the assumption of thermal equilibrium
+within each charge state may no longer be valid, and a more general nonequilibrium treatment of the vibrational
+dynamics is required.
+Importantly, the elementary transitions occur between the vibronic states |ϕi⟩⊗|χi,m⟩→|ϕf⟩⊗|χf,n⟩, involving
+simultaneous changes in both the electronic and vibrational state. However, experiments typically detect only the
+change in the electronic charge state and not the accompanying vibrational transition. To compute these rates, which
+describe the reduced dynamics of the electronic subsystem observed experimentally, we treat the electron–phonon
+interaction perturbatively and trace out the vibrational degrees of freedom (see Supplementary Information SI-6).
+This yields a thermally averaged form of Fermi’s golden rule, in which the unresolved vibronic transitions are
+averaged over the equilibrium vibrational ensemble of the initially occupied charge state. Throughout this work, we
+adopt the convention that the localized defect state is labeled by i, while f denotes the state in which the electron is
+no longer localized at the defect (e.g., a delocalized band state). The resulting electronic emission rate is
+kif = 2π
+¯h |Wif|2 ηif,
+with
+ηif =
+X
+m
+w(i)
+m
+X
+n
+⟨χi,m|Q|χf,n⟩
+2 δ(Ei,m −Ef,n),
+(30)
+while the corresponding electronic capture rate is
+kfi = 2π
+¯h |Wif|2 ηfi,
+with
+ηfi =
+X
+n
+w(f)
+n
+X
+m
+⟨χf,n|Q|χi,m⟩
+2 δ(Ef,n −Ei,m).
+(31)
+Eqs. (30) and (31) are the central quantum-mechanical expressions for nonradiative transition rates in the NMP model.
+They are given by thermally weighted version of Fermi’s golden rule accounting for all possible transition between
+initial vibronic states |ϕi⟩⊗|χi,m⟩and final vibronic states |ϕf⟩⊗|χf,n⟩. The quantum mechanical transition rates
+are governed by two distinct parts: the electron–phonon coupling matrix element Wif, which encodes the strength of
+the electronic coupling, and the line-shape functions ηif and ηfi, which capture the vibrational contribution to the
+transition. The latter are determined entirely by the shapes and positions of the diabatic potential-energy surfaces
+and therefore depend on the parameters ∆E, ∆Q, Ei
+R, and Ef
+R.
+Importantly, the capture and emission rates, as well as the corresponding line-shape functions, are not independent.
+Instead, one finds that the ratio between the forward and reverse transition rates is fixed by detailed balance (see
+Supplementary Information SI-1),
+kif
+kfi
+= ηif
+ηfi
+= exp(−β∆F),
+∆F = ∆E −T∆Svib,
+∆Svib = −kB ln
+
+
+sinh
+ β¯hΩf
+2
+
+sinh
+
+β¯hΩi
+2
+
+
+.
+(32)
+where ∆F is the free-energy difference between the two vibronic manifolds and and ∆Svib is the change in vibrational
+entropy arising from the different phonon frequencies of the two charge states. In many practical cases, this
+contribution is small compared to the energy difference ∆E. For example, at room temperature, ¯hΩi = 0.01 eV and
+¯hΩf = 0.02 eV result in the vibrational entropy contribution of T∆Svib ∼0.01 eV. In this limit, the free energy
+difference reduces to ∆F ≈∆E and the standard detailed-balance relation kif/kfi = exp(−β∆E) is recovered. Since
+the difference between ∆E and ∆F is typically very small, we neglected it in the rest of this work for simplicity.
+Since capture and emission rates are connected by detailed balance, it is sufficient to evaluate one of them explicitly.
+The line-shape functions given by Eqs. (30) and (31) can be evaluated explicitly by computing the double sum
+over the vibrational states of the initial and final potential-energy surfaces. At this point it is important to note that
+Eqs. (30) and (31) consists of sums over Dirac delta distributions enforcing energy conservation between discrete
+vibronic states. Consequently, the resulting line-shape function forms a discrete Dirac comb rather than a smooth
+10/51
+finite function. This discrete structure is an artifact of reducing the full multidimensional phonon problem to a
+single configuration coordinate. Physically, the neglected orthogonal phonon modes act as an effective dissipative
+environment that induces finite vibronic lifetimes and consequently broadens the discrete energy levels. Their effect
+is commonly incorporated phenomenologically by replacing the delta distributions by Gaussian kernels [38, 39],
+δ
+ Ei,m −Ef,n
+
+7→Kσ(Ei,m −Ef,n) =
+1
+√
+2πσ exp
+ 
+−
+ Ei,m −Ef,n
+2
+2σ2
+!
+,
+(33)
+This approach is a common practice in spectroscopy to describe broadening arising from environmental coupling and
+leads to physically meaningful finite transition rates. The broadening parameter σ effectively encodes the complex
+influence of the orthogonal vibrational modes into a single phenomenological parameter, capturing their role in
+inducing finite lifetimes and energy uncertainty of the vibronic states [40]. While a Gaussian broadening kernel is
+adopted throughout this work for its simplicity, other broadening functions, such as Lorentzian or Voigt profiles,
+may equally be employed depending on the underlying broadening mechanism.
+The influence of σ on the line-shape function ηif is illustrated in Figs. 3a and 3b. At high temperatures, many
+initial vibrational states are thermally populated, and the sum over m averages over a large number of transitions.
+In this regime, the detailed broadening of individual transitions becomes less important, and σ has only a minor
+influence on the resulting line-shape function. In contrast, at low temperatures the system is predominantly in
+its vibrational ground state (m = 0). Consequently, the transition is governed by a single initial state, and the
+broadening parameter σ directly controls how many final vibrational states n are energetically accessible. In the
+limit T →0, the broadening therefore plays a decisive role in determining both the magnitude and shape of ηif. For
+a reasonable description, typical values of the broadening parameter are chosen on the order of the vibrational level
+spacing, commonly in the range σ ≈0.5–2.0¯hΩi [13, 14].
+0
+200
+400
+600
+Temperature T (K)
+10
+24
+10
+21
+10
+18
+10
+15
+10
+12
+10
+9
+10
+6
+10
+3
+Line-Shape Function (amu Å2 eV
+1)
+Line-Shape Function
+= 2.0
+i
+= 1.0
+i
+= 0.5
+i
+(a)
+6
+4
+2
+0
+2
+Energy difference E [eV]
+10
+40
+10
+35
+10
+30
+10
+25
+10
+20
+10
+15
+10
+10
+10
+5
+100
+Line-Shape Function [u Å2 eV
+1]
+Line-Shape Function
+Broadening
+= 0.5
+i
+= 1.0
+i
+= 2.0
+i
+0
+50
+100
+150
+200
+250
+300
+350
+400
+Temperature T [K]
+(b)
+Figure 3. Line-shape function ηif for different values of the Gaussian broadening parameter σ, calculated for
+∆Q = 4√uÅ and Ei
+R = Ef
+R = 2eV. (a) Line-shape function as a function of temperature for ∆E = −1eV. The
+curves converge at high T, indicating a weak dependence on σ due to thermal averaging over many initial vibrational
+states. At low temperatures, the line-shape function is strongly governed by σ, since the system predominantly
+occupies the vibrational ground state (m = 0), and σ controls the number of accessible final states. (b) Line-shape
+function as a function of energy difference ∆E at fixed temperatures T = 300K, T = 200K, and T = 100K.
+With the broadening kernel specified, the remaining task for evaluating the line-shape function is to evaluate the
+vibrational matrix elements ⟨χf,n|Q|χi,m⟩. Several analytical and numerical strategies are available for this purpose.
+For direct evaluation, it is convenient to express the coordinate operator Q in terms of the harmonic-oscillator ladder
+operators ai and a†
+i of the initial potential-energy surface,
+Q =
+r
+¯h
+2Ωi
+
+ai +a†
+i
+
+.
+11/51
+This transforms the line-shape function into
+ηif =
+X
+m
+w(i)
+m
+X
+n
+
+r
+¯h
+2Ωi
+ √
+m+1Am+1,n +√mAm−1,n
+
+
+2
+δ(Ei,m −Ef,n),
+(34)
+where
+Amn = ⟨χi,m|χf,n⟩=
+Z
+dQχi,m(Q)χf,n(Q).
+(35)
+are the Franck–Condon overlap matrix elements between the vibrational eigenstates. The overlap matrix elements
+Amn are shown as a heat map in Fig. 4a. Significant overlap occurs only for pairs of vibrational states (m,n)
+with sufficiently large quantum numbers, because low-lying states are localized near the minima of their respective
+potential-energy surfaces and overlap only weakly through their evanescent tails (see Fig. 2). Accurate evaluation
+of the line-shape function therefore requires Franck– Condon matrix elements Amn for relatively high vibrational
+quantum numbers.
+Direct evaluation of the overlap integrals Amn is conceptually straightforward, but numerically challenging. For
+large vibrational quantum numbers, the wave functions become highly oscillatory, requiring a very dense integration
+grid to resolve their structure accurately. As a result, direct numerical integration is computationally expensive
+and impractical for large-scale applications. Analytic closed-form expressions for Amn provide an alternative [41,
+42], but often involve factorials that become numerically unstable for large vibrational quantum numbers. A more
+robust approach is to evaluate the Franck–Condon overlaps recursively [43, 44], avoiding ill-conditioned factors. In
+particular we recommend to use the scheme of Schmidt Schmidt [44] to evaluate the Franck–Condon overlaps, as
+presented in Supplementary Information SI-2. This recursion remains stable even for high vibrational quantum
+numbers and for unequal curvatures, R̸ = 1.
+To gain deeper insight into the temperature dependence of the line-shape function, we consider the special case
+of equal curvatures, R = 1. In this case, the line-shape function can be rewritten as (see Supplementary Information
+SI-4)
+ηif ∝∆Q2
+X
+X
+m
+w(i)
+m Di
+m,
+Di
+m =
+X
+n
+|Amn|2Kσ(Ei,m −Ef,n).
+(36)
+where we have introduced the initial-state-resolved vibrational overlap density Di
+m. Eq. (36) shows that the line-shape
+function is governed by the competition between two factors: the thermal occupation w(i)
+m of the initial vibrational
+state and the vibrational overlap density Di
+m. The behavior of Di
+m is shown in Fig. 4b as a function of the
+initial vibrational state m. For states with Ei,m ≪EX, Di
+m is exponentially suppressed because the corresponding
+vibrational wave functions overlap only weakly through their evanescent tails. In contrast, Ei,m ≳EX, Di
+m saturates
+and roughly stays constant. Thus, Di
+m alone favors initial vibrational states with energies close to or above the
+crossing point EX. The thermal occupation factor w(i)
+m , however, decreases exponentially with increasing vibrational
+energy and therefore favors low-lying vibrational states.
+The competition between w(i)
+m and Di
+m is illustrated in Fig. 4c, which shows the normalized product w(i)
+m Di
+m
+for different temperatures. At high temperatures, the dominant contribution arises from vibrational states with
+eigenenergies close to EX. The rate is therefore primarily controlled by the thermal occupation of states near the
+crossing energy, leading to an Arrhenius-type temperature dependence w(i)
+m ∼exp[−β∆EX]. This corresponds to
+the classical picture, in which a transition occurs only when thermal fluctuations provide sufficient energy for the
+nuclei to reach the crossing point and overcome the barrier ∆EX. As the temperature decreases, this classical
+picture breaks down and the dominant contribution shifts toward lower quantum numbers, including states with
+eigenenergies below EX. In the limit T →0, only the ground state remains occupied, and the temperature dependence
+associated with the Boltzmann weights vanishes. The transition rate therefore saturates to a value determined by
+the overlap of the initial ground-state wave function with the accessible final vibrational states. Thus, as shown
+in Fig. 3a, the transition rate crosses over from a pronounced Arrhenius-type behavior at high temperatures to a
+temperature-independent, nuclear-tunneling-dominated regime at low temperatures.
+12/51
+0
+10
+20
+30
+Initial Vibrational State m
+0
+10
+20
+30
+Final Vibrational State n
+Ei, m
+Ef, n
+Ei, m
+Ef, n
+EX
+Franck-Condon Factors
+10
+3
+10
+2
+|Amn|2
+(a)
+0
+10
+20
+30
+40
+Initial Vibrational State m
+10
+24
+10
+21
+10
+18
+10
+15
+10
+12
+10
+9
+10
+6
+10
+3
+100
+Vibronic Density Di
+m [eV
+1]
+Ei, m
+EX
+State-Resolved Vibronic Density
+(b)
+0
+10
+20
+30
+40
+Initial Vibrational State m
+10
+60
+10
+52
+10
+44
+10
+36
+10
+28
+10
+20
+10
+12
+10
+4
+104
+Normalized Contribution wi
+mDi
+m [1]
+Ei, m
+EX
+100 K
+600 K
+State Resolved LSF-Contributions
+(c)
+Figure 4. State-resolved contributions to the line-shape function for ∆E = 0, ∆Q = 3.5√uÅ,Ei
+R = Ef
+R = 3.5eV and
+σ = 1.5¯hΩi. (a) Franck–Condon factors |Amn|2 on a logarithmic color scale. The solid line indicates the condition
+Ei,m = Ef,n (b) State-resolved vibrational overlap density Di
+m as a function of the initial vibrational quantum
+number m. For Ei,m ≪EX, the density is exponentially suppressed because the corresponding vibrational wave
+functions overlap only through their evanescent tails. For Ei,m ≳EX, the density increases and saturates. (c)
+Normalized contribution w(i)
+m Di
+m for different temperatures. At high temperatures, the dominant contribution is
+located near the crossing energy EX, whereas at lower temperatures the Boltzmann occupation shifts the dominant
+contribution toward smaller vibrational quantum numbers.
+While the direct evaluation of the line-shape function is sufficiently efficient for the accurate description of
+individual defects, it becomes computationally too demanding when extended to large ensembles of defects, as
+required in TCAD simulations. For example, simulating a device containing 104 defects using 100×100 vibrational
+states per defect already requires evaluating and storing about 108 Franck–Condon matrix elements, corresponding to
+roughly 800MB of memory in double precision. Even if these matrix elements are cached, the repeated access to such
+large memory blocks, together with the associated summations, significantly slows down the rate evaluation, typically
+to several tens of milliseconds. In TCAD applications, where transition rates must be evaluated repeatedly over
+a wide range of bias conditions, this computational cost renders the direct evaluation of the transition rates impractical.
+Over the past decades, numerous methods have been proposed for evaluating quantum-mechanical line-shape
+functions while avoiding the explicit summation over Franck–Condon factors. Among them, the generating-function
+formalism, or equivalently the time-correlation-function formalism, is one of the most widely adopted approaches [45,
+10, 40]. In this formalism, the line-shape function is expressed as the inverse Fourier transform of an analytically
+time correlation function, thereby avoiding the explicit summation over all vibrational transitions. Despite this
+reformulation, the numerical evaluation of the inverse Fourier integral remains computationally demanding and, for
+the exponentially small line-shape functions frequently encountered in nonradiative carrier capture, ultimately breaks
+down due to catastrophic cancellation between the highly oscillatory contributions of the time-correlation function.
+An alternative is to approximate the inverse Fourier integral using the method of steepest descent (saddle-point
+approximation). However, the time correlation function generally possesses multiple competing saddle points in the
+complex plane. Depending on the defect parameters and temperature, different saddle points may dominate the
+inverse Fourier integral, making a robust and automatic saddle-point approximation difficult to achieve over the
+entire parameter space. While advanced contour-deformation methods can identify the relevant saddle contributions,
+their computational cost makes them impractical for large-scale TCAD simulations.
+These limitations motivate the development of alternative evaluation strategies that avoid the numerical difficulties
+associated with inverse Fourier transforms while remaining sufficiently efficient for large-scale TCAD simulations. In
+this paper, two complementary approaches are considered, differing in their level of approximation, computational
+cost, and suitability for device-level applications:
+• Classical high-temperature approximation: In the high-temperature limit, the quantum-mechanical rate
+expressions reduce to classical Arrhenius-type rates governed by the classical activation barriers, which are
+determined by the crossing point of the diabatic potential-energy surfaces. This approximation is computation-
+13/51
+ally efficient and provides an intuitive physical picture, but it neglects nuclear tunneling. Consequently, it
+breaks down when the transition is dominated by tunneling rather than thermal activation, in particular at
+low temperatures, for small displacements ∆Q, or for large relaxation energies ER.
+• Effective crossing-preserving approximation: As an intermediate approach, the general unequal-curvature
+system is mapped onto an effective equal-curvature model that preserves the dominant crossing point of the
+potential-energy surfaces and thus retains the same classical transition rates. This leads to a closed-form
+analytic approximation to the quantum-mechanical line-shape functions while retaining essential quantum
+effects, making it well suited for TCAD applications.
+3.1 Classical High-Temperature Approximation
+The classical approximation can be derived from the quantum-mechanical lineshape function by taking the high-
+temperature limit of the vibrational degrees of freedom. Starting from Eq. (30), we consider the regime kBT ≫
+¯hΩi,¯hΩf, where many vibrational states are thermally populated and the discrete spectrum becomes quasi-continuous.
+In this limit, the sums over vibrational states can be replaced by an integral over nuclear configurations weighted by
+the classical Boltzmann distribution. At the same time, the quantum-mechanical matrix elements reduce to their
+classical counterpart, such that |⟨χi,m|Q|χf,n⟩|2 →Q2. This yields the classical lineshape function [46]
+ηcl
+if =
+Z
+dQρcl
+i (Q)Q2 δ
+ Vi(Q)−Vf(Q)
+
+,
+ρcl
+i (Q) =
+1
+Zcl
+i
+e−βVi(Q),
+Zcl
+i =
+Z
+dQe−βVi(Q).
+(37)
+This expression represents a classical average over nuclear configurations, where quantum effects such as zero-point
+motion, discrete vibrational levels, and tunneling are neglected. The delta function enforces energy conservation and
+restricts the integration to the crossing points (Qα
+X,Eα
+X) of the potential-energy surfaces. As a result, the integral
+collapses into a sum over all crossing points α
+kcl
+if = 2π
+¯h |Wif|2 X
+α
+|∆Q|
+ ∆Qα
+X
+2
+(Ei
+R −Ef
+R)∆Qα
+X +Ef
+R∆Q
+
+βEi
+R
+4π
+1/2
+exp[−β∆Eα
+X].
+(38)
+Each crossing contributes an Arrhenius factor determined by its activation energy ∆Eα
+X. Since the contributions are
+exponentially weighted, the rate is usually dominated by the crossing point with the lowest crossing energy given by
+Eqs. (21) and (22).
+Fig. 5a displays the classical transition path in the configuration-coordinate diagram. In this figure, (Qi,Ei) and
+(Qf,Ef) denote the initial and final equilibrium configurations, respectively, while (QX,EX) denotes the dominant
+crossing point. The classical picture allows for a simple physical interpretation: the crossing point separates the
+potential-energy surfaces and defines a classical activation barrier ∆EX for the forward transition. Since a transition
+can only occur when the system reaches this crossing point, the dynamics reduce to a thermally activated transition
+over this energy barrier, and the resulting rate takes the form of an Arrhenius law, kcl
+if ∝exp(−β∆EX). Importantly,
+the reverse process is also thermally activated: starting from the final potential-energy surface, the system must
+overcome the corresponding barrier ∆EX −∆E, yielding kcl
+fi ∝exp[−β(∆EX −∆E)]. Thus, both transition directions
+are governed by activation barriers in the configuration-coordinate diagram. Taking the ratio of the forward and
+reverse rates immediately gives kcl
+if/kcl
+fi = (Ei
+R/Ef
+R)
+1
+2 exp(−β∆E), which is classical limit of the detailed-balance
+relation given by Eq. (32).
+The classical approximation and its limitations are illustrated in Figs. 5b and 5c, which compares the quantum-
+mechanical and classical lineshape functions ηif as a function of temperature for representative NMP parameter
+sets. At high temperatures, meaning kBT ≫¯hΩi,¯hΩf, many initial vibrational states are populated and the
+quantum-mechanical result reduces to the classical expression, exhibiting Arrhenius behavior. In contrast, at low
+temperatures the classical rate vanishes due to exponential suppression of thermal activation (“freeze-out”), while the
+full quantum-mechanical lineshape function remains finite. This breakdown arises because the classical approximation
+entirely neglects quantum-mechanical tunneling through the barrier; it therefore fails when the thermal transition
+over the barrier becomes improbable and tunneling provides the dominant transition pathway.
+The crossover between thermally activated transitions over the barrier and quantum-mechanical tunneling
+through it can be estimated by matching the exponential factors governing both processes (see Supplementary
+14/51
+5.0
+2.5
+0.0
+2.5
+5.0
+7.5
+Configuration Coordinate Q [Å
+u]
+1.5
+1.0
+0.5
+0.0
+0.5
+1.0
+Total Potential Energy V [eV]
+E
+Q
+EX
+QX
+Configuration Coordinate Diagram
+(Qi, Ei)
+(Qf, Ef)
+(QX, EX)
+Vi(Q) = Ei + 1
+2
+2
+i (Q
+Qi)2
+Vf(Q) = Ef + 1
+2
+2
+f (Q
+Qf)2
+(a)
+100
+200
+300
+400
+500
+600
+Temperature  [K]
+10
+35
+10
+31
+10
+27
+10
+23
+10
+19
+10
+15
+10
+11
+10
+7
+10
+3
+Line-Shape Function 
+if [u Å2 eV
+1]
+TQ
+Line-Shape Function
+QM (solid) / Classical (dashed)
+Q = 2.4Å u, Ei
+R = Ef
+R = 1.5eV
+Q = 2.8Å u, Ei
+R = Ef
+R = 2.5eV
+Q = 3.2Å u, Ei
+R = Ef
+R = 3.5eV
+QM (solid) / Classical (dashed)
+Q = 2.4Å u, Ei
+R = Ef
+R = 1.5eV
+Q = 2.8Å u, Ei
+R = Ef
+R = 2.5eV
+Q = 3.2Å u, Ei
+R = Ef
+R = 3.5eV
+(b)
+100
+200
+300
+400
+500
+600
+Temperature  [K]
+10
+35
+10
+31
+10
+27
+10
+23
+10
+19
+10
+15
+10
+11
+10
+7
+10
+3
+Line-Shape Function 
+if [u Å2 eV
+1]
+TQ
+Line-Shape Function
+QM (solid) / Classical (dashed)
+Q = 2.4Å u, Ei
+R = 1.5eV, Ef
+R = 1.9eV
+Q = 2.8Å u, Ei
+R = 2.4eV, Ef
+R = 3.0eV
+Q = 3.2Å u, Ei
+R = 3.3eV, Ef
+R = 4.1eV
+QM (solid) / Classical (dashed)
+Q = 2.4Å u, Ei
+R = 1.5eV, Ef
+R = 1.9eV
+Q = 2.8Å u, Ei
+R = 2.4eV, Ef
+R = 3.0eV
+Q = 3.2Å u, Ei
+R = 3.3eV, Ef
+R = 4.1eV
+(c)
+Figure 5. Line-shape function ηif and configuration coordinate diagram illustrating the classical approximation
+and its breakdown. (a) Configuration coordinate diagram showing the initial and final potential-energy surfaces
+Vi(Q) and Vf(Q). The arrow highlights the classical transition pathway corresponding to a thermally activated
+transition over the barrier. (b–c) Line-shape function for different temperatures and NMP parameter sets at fixed
+∆E = −0.25eV, comparing the full quantum-mechanical result and the classical approximation. Panel (b) shows the
+equal-curvature case, Ei
+R = Ef
+R, while panel (c) shows the unequal-curvature case, Ei
+R̸ = Ef
+R. At high temperatures
+both approaches agree and show Arrhenius behavior, while at low temperatures the classical result freezes out
+whereas the quantum-mechanical one remains finite due to nuclear tunneling.
+Information SI-3). This yields a characteristic temperature Tquant below which tunneling becomes the dominant
+transport mechanism and the line-shape function begins to saturate:
+Tquant ∼
+¯h
+√
+2kB ∆Q
+q
+Ei
+REf
+R
+q
+Ei
+R +
+q
+Ef
+R
+.
+(39)
+This estimate is an order-of-magnitude criterion and is valid only in the near-resonant regime, ∆E ≈0, and
+when the classical crossing barrier is large compared to the vibrational quantum, i.e. ∆EX ≫¯hΩi, so that zero-point
+corrections can be neglected. As illustrated in the Arrhenius representation of the line-shape function in Fig. 6a,
+Tquant approximately corresponds to the temperature at which the classical line-shape function falls below the
+low-temperature limit of the exact quantum-mechanical result. Below this crossover, the classical approximation
+increasingly underestimates the transition rate because it neglects nuclear tunneling. In general, Tquant increases as
+the displacement ∆Q decreases. This occurs because smaller separations between the potential minima increase
+the overlap of the vibrational wavefunctions, thereby enhancing tunneling contributions (see Fig. 6b). Additionally,
+Tquant also increases for larger relaxation energies Ei
+R and Ef
+R, because they raise the classical activation barrier
+and thereby suppress thermally activated transition relative to tunneling (see Fig. 6c).
+Eq. (39) demonstrates that, depending on the defect parameters ∆Q, Ei
+R and Ef
+R, the crossover temperature
+Tquant can reach values well within the temperature range of practical interest rendering the classical approximation
+inadequate. This is particularly important in device simulations involving broad statistical distributions of defect
+parameters, where some defects will inevitably fall into parameter regimes in which quantum tunneling remains
+relevant. Moreover, even in the nominal regime T > Tquant, the classical approximation can still deviate from the
+full quantum-mechanical result by several orders of magnitude. This highlights that the breakdown of the classical
+description is not abrupt but rather gradual, and that significant quantitative errors may persist well above the
+estimated crossover temperature. Consequently, the classical approximation should be used only with care and,
+whenever possible, replaced by the more accurate approximation to the transition rate developed in the next section.
+3.2 Crossing-Preserving Approximation
+In the following, we derive an improved approximation that retains the essential quantum-mechanical features while
+remaining suitable for practical TCAD applications. The general quantum-mechanical rate expressions involve a
+double sum over vibrational states (see Eqs. (30) and (31)). While this double sum is generally not analytically
+15/51
+0
+50
+100
+150
+Inverse Temperature  [1/eV]
+10
+35
+10
+31
+10
+27
+10
+23
+10
+19
+10
+15
+10
+11
+10
+7
+10
+3
+Line-Shape Function 
+if [u Å2 eV
+1]
+TQ
+TQ
+TQ
+Line-Shape Function
+QM (solid) / Classical (dashed)
+Q = 2.4Å u, Ei
+R = Ef
+R = 1.5eV
+Q = 2.8Å u, Ei
+R = Ef
+R = 2.5eV
+Q = 3.2Å u, Ei
+R = Ef
+R = 3.5eV
+QM (solid) / Classical (dashed)
+Q = 2.4Å u, Ei
+R = Ef
+R = 1.5eV
+Q = 2.8Å u, Ei
+R = Ef
+R = 2.5eV
+Q = 3.2Å u, Ei
+R = Ef
+R = 3.5eV
+(a)
+1
+0
+1
+2
+Configuration Coordinate [ uÅ]
+0.050
+0.025
+0.000
+0.025
+0.050
+0.075
+0.100
+0.125
+0.150
+Potential Energy [eV]
+Configuration Coordinate Diagram
+large overlap ( Q = 0.6
+uÅ)
+small overlap ( Q = 1.2
+uÅ)
+large overlap ( Q = 0.6
+uÅ)
+small overlap ( Q = 1.2
+uÅ)
+(b)
+2
+0
+2
+4
+Configuration Coordinate [ uÅ]
+0.75
+0.50
+0.25
+0.00
+0.25
+0.50
+0.75
+1.00
+Potential Energy [eV]
+Q
+E
+Configuration Coordinate Diagram
+/
+ER = 1.0 eV
+/
+ER = 2.0 eV
+/
+ER = 3.0 eV
+(c)
+Figure 6.
+Illustration of the breakdown of the classical approximation. (a) Arrhenius plot of the line-shape
+function comparing the exact quantum-mechanical result (solid), the classical approximation (dashed), and the
+low-temperature quantum limit (dotted). The characteristic crossover temperature Tquant is indicated by the
+temperature at which the classical line-shape function reaches the low-temperature limit of the quantum-mechanical
+result, marking the onset of significant nuclear tunneling. (b) Overlap of the ground-state vibrational wavefunctions
+for two configurations with ∆Q = 0.6 √uÅ (orange) and ∆Q = 1.2 √uÅ (green). The shaded region indicates the
+wavefunction overlap, demonstrating that the tunneling contribution increases with decreasing displacement ∆Q.
+(c) Configuration-coordinate diagram showing the crossing points for relaxation energies ER = 1 eV (solid), 2 eV
+(dashed), and 3 eV (dotted) at fixed ∆E = −0.2 eV and ∆Q = 2.0 √uÅ. Increasing ER raises the classical barrier
+height, thereby suppressing thermally activated transitions relative to tunneling.
+tractable for unequal curvatures of the potential-energy surfaces, the equal-curvature case admits a closed-form
+analytic treatment. Fortunately, first-principles calculations indicate that, the curvatures of the initial and final
+potential-energy surfaces are similar for many defects [13, 14, 30]. Motivated by this observation, we treat the
+deviation from the equal-curvature limit perturbatively, by mapping the original unequal-curvature system with
+R ≈1 onto an effective equal-curvature model with R = 1. The mapping is constructed such that key quantities
+governing the transition rate are preserved. Once this mapping is established, the transition rates of the effective
+model can be evaluated analytically, as shown in the subsequent part of this section.
+Although many defects exhibit only moderate curvature mismatch, a naive reduction to an equal-curvature model
+is generally not sufficient. For example, simply replacing the two relaxation energies Ei
+R and Ef
+R by their average
+value can lead to large errors in the line-shape function ηif. This sensitivity arises because ηif depends exponentially
+on the dominant crossing point (∆QX,∆EX). In the classical high-temperature limit,the crossing point determines
+the activation barrier that must be overcome for a transition to occur, whereas in the quantum-mechanical tunneling
+regime it governs the attenuation of the vibrational wave functions and therefore the tunneling probability. It is
+therefore natural to construct the effective model such that this crossing point is preserved. This choice ensures
+that the effective equal-curvature model retains the dominant nuclear configuration and energy scale that control
+the transition rate. As illustrated in Fig. 7, requiring both ∆QX and ∆EX to remain unchanged fixes the mapping
+uniquely: the initial PES remains unchanged, whereas the final PES is renormalized. This asymmetry follows directly
+from preserving the crossing point measured relative to the initial equilibrium configuration. Alternatively, one
+could construct an analogous mapping in which the crossing point is preserved with respect to the final equilibrium
+configuration. Because the effective model is constructed from this crossing-preserving geometric mapping, we refer
+to it in the following as the crossing-preserving approximation (CPA).
+In practice, the CPA is constructed in two steps. First, the classical crossing point (∆QX,∆EX) is obtained
+from Eq. (21) using the parameters (∆E,∆Q,Ei
+R,Ef
+R) of the original system. Then the effective equal-curvature
+model is introduced with parameters (∆E,∆Qeff,Eeff
+R ), chosen such that this crossing point is preserved. The
+required effective displacement ∆Qeff follows from inverting the equal-curvature crossing condition in Eq. (22). For
+a given crossing configuration, this inversion yields two formal solutions. The physically relevant branch is selected
+by requiring that the geometric location of the crossing point relative to the two minima is preserved under the
+mapping, i.e. a crossing located between the minima in the original system remains between the minima in the
+16/51
+4
+2
+0
+2
+4
+6
+8
+Configuration Coordinate Q [ uÅ]
+2
+1
+0
+1
+2
+3
+4
+Potential Energy [eV]
+E
+Q
+Qeff
+Ei
+R
+Eeff
+R
+Ef
+R Eeff
+R
+Original and Effective Parabolas
+Vf
+Veff
+f
+Vi = Veff
+i
+Crossing
+(a)
+Figure 7. Crossing-preserving approximation (CPA). Panel (a) shows the geometric construction of the CPA for a
+system with ∆E = −0.4eV, ∆Q = 2.0 √uÅ, Ei
+R = 1.0eV, and Ef
+R = 1.5eV. The mapping preserves the dominant
+crossing point (∆QX,∆EX) by replacing the final PES Vf(Q) by an effective equal-curvature surrogate V eff
+f (Q).
+effective model, while a crossing outside this interval remains outside. This yields
+∆Qeff =
+
+
+
+
+
+
+
+
+
+∆QX
+
+1+
+r
+1−∆E
+∆EX
+
+,
+0 ≤∆QX ≤∆Q,
+∆QX
+
+1−
+r
+1−∆E
+∆EX
+
+,
+∆QX < 0 or ∆QX > ∆Q.
+(40)
+Once ∆Qeff is fixed, preservation of the crossing energy determines the required effective relaxation energy as
+Eeff
+R = Ei
+R
+∆Qeff
+∆Q
+2
+.
+(41)
+This construction preserves not only the crossing configuration itself but also the topology of the potential-energy
+surfaces along the configuration coordinate, ensuring a physically meaningful effective model.
+A special situation arises in the limit (∆QX,∆EX) →(0,0), where the inversion formula given by Eq. (41)
+becomes singular and breaks down. This reflects the fact that the two potential-energy surfaces intersect exactly at
+the minimum of the initial surface, such that the crossing condition fixes only the vertical alignment of the two
+surfaces but does not uniquely determine their effective displacement. The crossing geometry alone is therefore
+insufficient to define the mapping in this singular limit, and an additional condition must be imposed. We require
+that the mapping is continuous as ∆QX →0, i.e. that no discontinuous jump in the effective parameters occurs when
+approaching the singular point from finite ∆QX. This is achieved by replacing Eq. (40) in the singular limit by,
+∆Qeff = ∆Q
+s
+Ef
+R
+Ei
+R
+.
+(42)
+This prescription regularizes the singular case and provides a smooth continuation of the general mapping. In
+practical implementations, we found that switching to the singular-limit expression for |∆QX| ≲10−6√uÅ ensures a
+smooth transition between both branches of the mapping and avoids numerical artifacts, thereby providing stable
+and robust simulations.
+The mapping given by Eqs. (40) to (42) should be understood as a perturbative correction to the equal-curvature
+limit. In the special case R = 1, where the original system already has identical curvatures, no renormalization is
+required and the mapping reduces to the identity. The effective model then coincides exactly with the original model,
+such that ∆Qeff = ∆Q and Eeff
+R = Ei
+R = Ef
+R. Fig. 8 shows how the mapped parameters ∆Qeff and Eeff
+R vary as a
+function of ∆E in order to preserve the dominant crossing point (∆QX, ∆EX). Importantly, preserving the crossing
+point requires significant renormalization of the effective equal-curvature parameters. Nevertheless, these parameter
+17/51
+adjustments occur continuously, ensuring that the effective model evolves smoothly as the original unequal-curvature
+system is varied. This continuity is essential for avoiding artificial discontinuities in the resulting transition rates.
+3
+2
+1
+0
+1
+2
+3
+Energy Offset E [eV]
+1.4
+1.6
+1.8
+2.0
+2.2
+2.4
+2.6
+Displacement Q [ uÅ]
+QX = 0
+QX =
+Q
+Effective Displacement
+Q
+Qeff
+(a)
+3
+2
+1
+0
+1
+2
+3
+Energy Offset E [eV]
+0.6
+0.8
+1.0
+1.2
+1.4
+1.6
+1.8
+Relaxation Energy ER [eV]
+QX = 0
+QX =
+Q
+Effective Relaxation Energy
+Ei
+R
+Ef
+R
+Eeff
+R
+(b)
+Figure 8. Mapping of an unequal-curvature system onto an effective equal-curvature model for ∆Q = 2.0 √uÅ,
+Ei
+R = 1.2 eV, and Ef
+R = 1.5 eV as a function of the energy offset ∆E. Panels (a) and (b) show the resulting effective
+displacement ∆Qeff and effective relaxation energy Eeff
+R . The vertical lines indicate the special limits ∆QX = 0 and
+∆QX = ∆Q, which separate the different mapping branches. The smooth variation of ∆Qeff and Eeff
+R illustrates the
+continuity of the mapping, including the regularization of the ∆QX →0 case.
+Having constructed the mapping from the original unequal-curvature system onto an effective equal-curvature
+model, we now proceed to the second step: the analytic evaluation of the transition rate of the resulting effective
+model. To obtain a practical closed-form expression, the discrete sum over final vibrational states is replaced by
+a continuum integral, corresponding to the continuum limit of the vibronic spectrum. This replaces the discrete
+vibronic comb by a smooth spectral envelope and allows the remaining series to be summed analytically (see
+Supplementary Information SI-4). The approximation is expected to be accurate when the vibronic spectrum is
+sufficiently dense such that individual vibronic peaks cannot be resolved. Within this continuum approximation one
+obtains the closed-form expression [12]
+ηCPA
+if
+= ∆Q2
+X
+¯hΩeff exp
+h
+−Seff(1+2¯n)
+i
+¯n
+1+ ¯n
+p/2
+I|p|
+
+2Seffp
+¯n(1+ ¯n)
+
+,
+(43)
+where I|p| denotes the modified Bessel function of the first kind of order |p|.
+The parameters entering this expression are
+Ωeff =
+q
+2Eeff
+R
+∆Qeff ,
+Seff = Eeff
+R
+¯hΩeff ,
+p = ∆E
+¯hΩeff ,
+¯n =
+1
+eβ¯hΩeff −1
+,
+(44)
+where Ωeff is the vibrational frequency of the effective equal-curvature model, which equals Ωi by construction; Seff
+is the so-called Huang–Rhys factor characterizing the strength of the structural relaxation; p denotes the energy
+offset measured in units of the phonon energy; and ¯n is the thermal phonon occupation number. Eq. (43) provides a
+fully analytic approximation to the original unequal-curvature line-shape function, with all unequal-curvature effects
+absorbed into the renormalized parameters (∆E,∆Qeff,Eeff
+R ).
+The accuracy of the CPA is assessed in Fig. 9, where it is compared with the numerically exact quantum-
+mechanical result for both equal- and unequal-curvature systems. Panels (a)–(c) show the temperature dependence
+of the line-shape function for several representative parameter sets, while panels (d)–(f) show the corresponding
+dependence on the energy offset ∆E at fixed temperatures. In all cases, the CPA closely reproduces the exact
+line-shape function over a broad range of parameters and, unlike the classical approximation, remains well behaved at
+low temperatures. The largest deviations are observed in the low-temperature limit, where the numerical line-shape
+18/51
+100
+200
+300
+400
+500
+600
+Temperature T (K)
+10
+14
+10
+11
+10
+8
+10
+5
+10
+2
+101
+Line-Shape Function (amu Å2 eV
+1)
+Tquantum
+Line-Shape Function (R = 1.0)
+QM (solid) / CPA (dashed)
+( E,
+Q, Ei
+R, Ef
+R) = (
+0.2eV, 2.4Å u, 0.8eV, 0.8eV)
+( E,
+Q, Ei
+R, Ef
+R) = (
+0.2eV, 2.8Å u, 1.0eV, 1.0eV)
+( E,
+Q, Ei
+R, Ef
+R) = (
+0.2eV, 3.2Å u, 1.2eV, 1.2eV)
+QM (solid) / CPA (dashed)
+( E,
+Q, Ei
+R, Ef
+R) = (
+0.2eV, 2.4Å u, 0.8eV, 0.8eV)
+( E,
+Q, Ei
+R, Ef
+R) = (
+0.2eV, 2.8Å u, 1.0eV, 1.0eV)
+( E,
+Q, Ei
+R, Ef
+R) = (
+0.2eV, 3.2Å u, 1.2eV, 1.2eV)
+(a)
+100
+200
+300
+400
+500
+600
+Temperature T (K)
+10
+14
+10
+11
+10
+8
+10
+5
+10
+2
+101
+Line-Shape Function (amu Å2 eV
+1)
+Tquantum
+Line-Shape Function (R = 0.9)
+QM (solid) / CPA (dashed)
+( E,
+Q, Ei
+R, Ef
+R) = (
+0.2eV, 2.4Å u, 0.8eV, 0.9eV)
+( E,
+Q, Ei
+R, Ef
+R) = (
+0.2eV, 2.8Å u, 1.0eV, 1.2eV)
+( E,
+Q, Ei
+R, Ef
+R) = (
+0.2eV, 3.2Å u, 1.2eV, 1.5eV)
+QM (solid) / CPA (dashed)
+( E,
+Q, Ei
+R, Ef
+R) = (
+0.2eV, 2.4Å u, 0.8eV, 0.9eV)
+( E,
+Q, Ei
+R, Ef
+R) = (
+0.2eV, 2.8Å u, 1.0eV, 1.2eV)
+( E,
+Q, Ei
+R, Ef
+R) = (
+0.2eV, 3.2Å u, 1.2eV, 1.5eV)
+(b)
+100
+200
+300
+400
+500
+600
+Temperature T (K)
+10
+14
+10
+11
+10
+8
+10
+5
+10
+2
+101
+Line-Shape Function (amu Å2 eV
+1)
+Tquantum
+Line-Shape Function (R = 1.1)
+QM (solid) / CPA (dashed)
+( E,
+Q, Ei
+R, Ef
+R) = (
+0.2eV, 2.4Å u, 0.8eV, 0.6eV)
+( E,
+Q, Ei
+R, Ef
+R) = (
+0.2eV, 2.8Å u, 1.0eV, 0.8eV)
+( E,
+Q, Ei
+R, Ef
+R) = (
+0.2eV, 3.2Å u, 1.2eV, 1.0eV)
+QM (solid) / CPA (dashed)
+( E,
+Q, Ei
+R, Ef
+R) = (
+0.2eV, 2.4Å u, 0.8eV, 0.6eV)
+( E,
+Q, Ei
+R, Ef
+R) = (
+0.2eV, 2.8Å u, 1.0eV, 0.8eV)
+( E,
+Q, Ei
+R, Ef
+R) = (
+0.2eV, 3.2Å u, 1.2eV, 1.0eV)
+(c)
+10
+5
+0
+5
+Energy Difference E (eV)
+10
+45
+10
+39
+10
+33
+10
+27
+10
+21
+10
+15
+10
+9
+10
+3
+Line-Shape Function (u Å2 eV
+1)
+Line-Shape Function (R = 1.0)
+Quantum (solid) / CPA (dashed)
+Q = 2.0 Å u, Ei
+R = 2.00 eV, Ef
+R = 2.00 eV
+T = 100 K
+T = 300 K
+T = 600 K
+Quantum (solid) / CPA (dashed)
+Q = 2.0 Å u, Ei
+R = 2.00 eV, Ef
+R = 2.00 eV
+T = 100 K
+T = 300 K
+T = 600 K
+(d)
+6
+4
+2
+0
+2
+Energy Difference E (eV)
+10
+45
+10
+39
+10
+33
+10
+27
+10
+21
+10
+15
+10
+9
+10
+3
+Line-Shape Function (u Å2 eV
+1)
+Line-Shape Function (R = 0.9)
+Quantum (solid) / CPA (dashed)
+Q = 2.0 Å u, Ei
+R = 1.50 eV, Ef
+R = 1.85 eV
+T = 100 K
+T = 300 K
+T = 600 K
+Quantum (solid) / CPA (dashed)
+Q = 2.0 Å u, Ei
+R = 1.50 eV, Ef
+R = 1.85 eV
+T = 100 K
+T = 300 K
+T = 600 K
+(e)
+6
+4
+2
+0
+2
+Energy Difference E (eV)
+10
+45
+10
+39
+10
+33
+10
+27
+10
+21
+10
+15
+10
+9
+10
+3
+Line-Shape Function (u Å2 eV
+1)
+Line-Shape Function (R = 1.1)
+Quantum (solid) / CPA (dashed)
+Q = 2.0 Å u, Ei
+R = 2.50 eV, Ef
+R = 2.07 eV
+T = 100 K
+T = 300 K
+T = 600 K
+Quantum (solid) / CPA (dashed)
+Q = 2.0 Å u, Ei
+R = 2.50 eV, Ef
+R = 2.07 eV
+T = 100 K
+T = 300 K
+T = 600 K
+(f)
+Figure 9. Line-shape function (LSF) calculated for different sets of model parameters {∆E,∆Q,Ei
+R,Ef
+R}. Panels
+(a)–(c) show the temperature dependence of the LSF for several parameter sets. Panels (d)–(f) show the dependence
+of the LSF on the energy offset ∆E at fixed temperatures T = 100 K, 300 K, and 600 K for several parameter sets.
+function is more sensitive to the empirical broadening parameter σ. Depending on the chosen value of σ, the exact
+result exhibits more or less deviation from the CPA. Moreover, the CPA remains accurate for moderate curvature
+mismatch,
+0.8 ≲R ≲1.2,
+covering the majority of technologically relevant defect candidates identified in first-principles studies. Within this
+regime, preserving the dominant crossing configuration captures the essential unequal-curvature physics governing
+the transition rates.
+Beyond its accuracy, a central advantage of the CPA is its computational simplicity. Once the effective parameters
+are obtained, the line-shape function reduces to evaluation of a closed-form expression involving only the evaluation of
+a modified Bessel function, avoiding explicit summation over vibrational states. This makes the approximation orders
+of magnitude faster than direct quantum-mechanical evaluation of the transition rates. Fig. 10 quantifies the runtimes
+of the different approaches for the evaluation of transition rates for 1000 defects. The direct quantum-mechanical
+calculation is the most computationally expensive approach, requiring several ms per evaluation. Evaluating the
+CPA with the modified Bessel function computed on the fly reduces the runtime by about one order of magnitude.
+If the Bessel function is instead obtained by interpolation from a precomputed lookup table, the runtime decreases
+by another order of magnitude. This demonstrates that the CPA provides an analytic, numerically stable, and
+computationally inexpensive quantum-mechanical description of the transition, making it well suited for large-scale
+TCAD workflows where capture coefficients must be evaluated repeatedly over broad multidimensional parameter
+spaces.
+19/51
+QM
+CPA
+CPAI
+Classic
+Rate Calculation Method
+10
+2
+10
+1
+100
+101
+Runtime for 1000 Defects [ms]
+Performance of Approximations
+Figure 10. Performance benchmark of the different approaches used to evaluate the transition rates. Shown are the
+full quantum-mechanical calculation (QM), the crossing-preserving approximation with direct on-the-fly evaluation
+of the Bessel function (CPA), the corresponding implementation employing interpolation from a precomputed
+Bessel-function lookup table (CPAI), and the classical approximation (Classic).
+4 Charge Exchange Between Defects and Electronic Bands
+In the previous chapter, we discussed charge transitions between two discrete electronic states. A typical example of
+such a process is trap-to-trap tunneling, where an electron tunnels between two spatially separated defects, each
+described by a localized electronic state. We now extend this description to the case in which the defect interacts
+not with a single discrete state, but with a continuum of electronic states, such as the conduction or valence band of
+a semiconductor. Such transitions are particularly important for semiconductor-device applications, as they provide
+the basis for simulating charge exchange between defects and electronic bands within device-level models. The
+objective of this chapter is therefore to derive the corresponding carrier capture and emission rates for the interaction
+of a localized defect state with a continuum of electronic band states.
+4.1 Continuum Capture and Emission Rates
+Fig. 11a shows a prototypical case where a defect located in the oxide region of a Si/SiO2 structure interacts with
+the extended states in the silicon conduction band across the interface barrier. The conduction band contains a
+dense set of delocalized electronic states that can be treated as a quasi-continuum. We denote the corresponding
+electronic states and their electronic energies by {(ϕfk,Efk)}, where the index k labels the k-th delocalized band
+state. Fig. 11b shows the corresponding configuration coordinate diagram for the defect. While the initial charge
+state is described by a single potential-energy surface Vi(Q), each final band state ϕfk gives rise to a corresponding
+final potential-energy surface Vfk(Q).
+Since the final electronic states are delocalized band states, the electronic density associated with any individual
+band state is distributed throughout the solid and therefore contributes only negligibly to the charge density in the
+immediate vicinity of the defect. As a result, occupying different conduction-band states perturbs the defect only
+weakly. As illustrated in Fig. 11b, this has two important consequences: First, the local forces acting on the defect in
+the final charge state, are essentially independent of the particular final band state into which the electron is emitted.
+As a result, the final potential-energy surfaces Vfk(Q) share the same equilibrium configuration, curvature, and
+relaxation energy. Second, because the interaction between the localized defect and the delocalized conduction-band
+electron is negligible, the total energy in the final charge state can be expressed as a sum of a defect contribution
+and the energy of the occupied band state. Consequently, the minimum energy of the final potential-energy surface
+can be written as Efk = Efk +constant, where the constant comprises all contributions to the total energy that are
+independent of the particular occupied band state. Thus, the minima of the final potential-energy surfaces shift
+linearly with the electronic energy Efk of the occupied band state. As a result of these two properties, the individual
+configuration-coordinate diagrams shown in Fig. 11b differ only through their vertical energy offset ∆Ek = Efk −Ei,
+whereas the structural-relaxation parameters ∆Q, Ei
+R, and Ef
+R are independent of the final band state.
+Generalizing the transition rates of Eqs. (30) and (31) to the continuum of band states, the transition rates for
+20/51
+electron emission into the k-th band state and for electron capture from the k-th band state are given by
+ke,k = 2π
+¯h
+Wifk
+2 ηe(∆Ek),
+with
+ηe(∆Ek) ≡ηif
+
+∆Ek;∆Q,Ei
+R,Ef
+R
+
+,
+(45)
+kc,k = 2π
+¯h
+Wifk
+2 ηc(∆Ek),
+with
+ηc(∆Ek) ≡ηfi
+
+∆Ek;∆Q,Ei
+R,Ef
+R
+
+.
+(46)
+In order to relate the offset ∆Ek entering the lineshape functions to the electronic energy Efk, it is convenient to
+introduce the thermodynamic charge transition level ET,
+∆Ek = Efk −Ei ≡Efk −ET.
+(47)
+Physically, the thermodynamic charge-transition level (CTL) is the electronic energy at which the initial and final
+charge states have equal total (free) energy. It therefore provides the constant energy reference that relates the
+electronic energies of the band states in the band diagram to the total potential energies of the corresponding charge
+states in the configuration-coordinate diagram. As illustrated in Fig. 11, it thus serves as the natural reference for
+the energy offsets.
+5.0
+2.5
+0.0
+2.5
+5.0
+7.5
+10.0
+Position [nm]
+1
+0
+1
+2
+3
+Electronic Energy [eV]
+f0
+f1
+f2
+f3
+f4
+f5
+xT
+ET
+CB
+SiO2 Si
+Electronic Defect Wave-functions
+(a)
+4
+2
+0
+2
+4
+6
+8
+Configuration coordinate [ uÅ]
+0
+1
+2
+3
+4
+Potential Energy [eV]
+Ei = 0
+Ef0
+Ef1
+Ef2
+Ef3
+Ef4
+Ef5
+Defect (localized)
+Continuum States
+Parabolic Potential Energy Surfaces
+(b)
+Figure 11. Charge transitions between a localized defect state and a continuum of band states at Si/SiO2 surface.
+(a) Electronic structure at a semiconductor interface: a localized defect state at position xT with charge transition
+level ET coexists with a quasi-continuum of extended band states {Efk}. The conduction-band states shown
+were calculated numerically for the plotted conduction-band profile. (b) Corresponding configuration-coordinate
+diagram: the defect is described by a single PES Vi(Q), while all band states share the same structural relaxation
+and are represented by a family of parabolic final-state surfaces Vfk(Q) that differ only by a vertical energy shift
+∆Ek = Efk −ET. This representation illustrates that the nuclear relaxation is defect-specific, whereas the continuum
+of final states enters solely through the electronic energy offset.
+To calculate the total transition rates involving the continuum of band states, the occupation of the available
+electronic states has to be specified. For near-equilibrium simulations, we assume that the band is occupied according
+to the Fermi–Dirac distribution fFD(Efk,EF), where EF represents the corresponding (quasi-)Fermi level in the
+band. For situations far from equilibrium, this assumption can be relaxed by replacing fFD(Efk,EF) with an
+energy-resolved carrier distribution obtained, for example, from a Boltzmann transport equation (BTE) solver. A
+typical example is hot-carrier degradation, where the carrier energy distribution no longer follows a Fermi–Dirac
+distribution but instead acquires a pronounced high-energy tail [47].
+Finally, the total emission and capture rates are obtained by summing the state-resolved transition rates over
+all band states. Since electron emission into the k-th band state is only possible if that state is unoccupied, the
+corresponding contribution is weighted by the Pauli blocking factor 1−fFD(Efk,EF). Conversely, electron capture
+from the k-th band state requires that the state is occupied and is therefore weighted by the Fermi–Dirac occupation
+21/51
+factor fFD(Efk,EF). The resulting total rates are
+ke =
+X
+k
+ke,k = 2π
+¯h
+X
+k
+|Wifk|2ηe
+ Efk −ET
+
+1−fFD
+ Efk,EF
+
+,
+(48)
+kc =
+X
+k
+kc,k = 2π
+¯h
+X
+k
+|Wifk|2ηc
+ Efk −ET
+
+fFD(Efk,EF).
+(49)
+Since the localized defect wave function is typically confined to a small region around the defect position xT , whereas
+the delocalized band-state wave functions vary only on a much larger length scale (see Fig. 11a), the band-state
+wave functions can be regarded as approximately constant over the spatial extent of the defect wave function.
+Consequently, the electronic coupling matrix may be approximated as
+Wifk =
+Z
+dx ϕfk(x)
+"
+∂He
+∂Q
+
+Q0
+ϕi(x)
+#∗
+≃ϕfk(xT )Wi
+(50)
+where the effective coupling constant is given by,
+Wi =
+Z
+dx
+"
+∂He
+∂Q
+
+Q0
+ϕi(x)
+#∗
+,
+(51)
+and carries an additional factor of
+√
+volume compared to the coupling matrix element Wifk. This approximation is
+valid for strongly localized defect states, whose spatial extent is much smaller than the characteristic length scale
+over which the delocalized band-state wave functions vary. Such localization is characteristic of deep defects with
+charge-transition levels well within the band gap. By contrast, shallow donor and acceptor states are only weakly
+bound and possess spatially extended wave functions, rendering the approximation inapplicable [48]. In the following,
+we therefore restrict our discussion to strongly localized deep defects. Substituting Eq. (50) into the band rates and
+inserting the identity 1 =
+R
+dE δ(E −Efk) allows us to rewrite the state sum as an integral:
+ke = 2π
+¯h |Wi|2
+Z
+ηe(E −ET) [1−fFD(E,EF)]gf(E,xT )dE,
+(52)
+kc = 2π
+¯h |Wi|2
+Z
+ηc(E −ET) fFD(E,EF)gf(E,xT )dE,
+(53)
+where the sum over band states has been absorbed in the local density of states (LDOS) of the band evaluated at
+the defect position,
+gf(E,xT ) =
+X
+k
+|ϕfk(xT )|2δ(E −Efk).
+(54)
+Eqs. (52) and (53) express the total transition rates as energy integrals over the LDOS at the defect position, thereby
+accounting for the local availability of band states accessible to the defect. In the case shown in Fig. 11a, the silicon
+conduction-band wave functions decay evanescently into the oxide. As a result, the Si-LDOS decays approximately
+exponentially with distance from the Si/SiO2 interface. The Si-LDOS is therefore commonly approximated in the
+oxide region by its bulk value gSi
+f (E) multiplied by a tunneling factor TWKB(E,xT), which accounts for the exponential
+attenuation of the conduction-band wave functions in the oxide. This approximation avoids the explicit calcu-
+lation of the Si-LDOS inside the oxide, which would otherwise require a self-consistent Schrödinger–Poisson simulation.
+The relative position of the charge-transition level ET with respect to the Fermi level EF determines the balance
+between capture and emission. This follows from the detailed-balance relation, which carries over directly to the
+corresponding continuum transition rates:
+ηe(E −ET)
+ηc(E −ET) = exp[−β(E −ET)]
+⇒
+ke
+kc
+= exp[β(ET −EF)].
+(55)
+Correspondingly, when the Fermi level rises above ET, capture dominates over emission and an initially empty defect
+starts to capture an electron on the characteristic timescale 1/kc. Conversely, when the Fermi level falls below ET,
+22/51
+7.5
+5.0
+2.5
+0.0
+2.5
+5.0
+7.5
+Position [nm]
+3
+2
+1
+0
+1
+2
+3
+4
+Electronic Energy [eV]
+EF
+f0
+f1
+f2
+f3
+f4
+f5
+ET(xT)
+EC(xT)
+constant
+SiO2 Si
+Electronic Defect Wave-functions
+(a)
+5.0
+2.5
+0.0
+2.5
+5.0
+7.5
+Configuration coordinate [ uÅ]
+2
+1
+0
+1
+2
+3
+4
+Potential Energy [eV]
+Ei = 0
+Ef0
+Ef1
+Ef2
+Ef3
+Ef4
+Ef5
+Defect (localized)
+Continuum States
+Parabolic Potential Energy Surfaces
+(b)
+7.5
+5.0
+2.5
+0.0
+2.5
+5.0
+7.5
+Position [nm]
+3
+2
+1
+0
+1
+2
+3
+4
+Electronic Energy [eV]
+EF
+f0
+f1
+f2
+f3
+f4
+f5
+ET(xT)
+EC(xT)
+constant
+SiO2 Si
+Electronic Defect Wave-functions
+(c)
+5.0
+2.5
+0.0
+2.5
+5.0
+7.5
+Configuration coordinate [ uÅ]
+0
+1
+2
+3
+4
+5
+6
+Potential Energy [eV]
+Ei = 0
+Ef0
+Ef1
+Ef2
+Ef3
+Ef4
+Ef5
+Defect (localized)
+Continuum States
+Parabolic Potential Energy Surfaces
+(d)
+Figure 12. Effect of the gate bias on charge trapping at Si/SiO2 interface in MOSFET. (a-b) MOSFET under a
+small bias. The defect charge-transition level ET lies above the Fermi level EF, so the defect is energetically favored
+to remain empty, indicated by the white circle. (c-d) MOSFET under a large bias. The electrostatic potential shifts
+all electronic energies locally, including the charge-transition level ET, such that ET moves below the Fermi level
+EF. Electron capture therefore becomes energetically favorable, leading to an occupied defect, indicated by the blue
+circle. In both cases, the charge-transition level remains fixed relative to the local conduction-band edge, while its
+position relative to the Fermi level changes with the applied bias.
+emission dominates over capture and an occupied defect starts to emit its electron on the characteristic timescale
+1/ke. Thus, the relative position EF −ET fixes the equilibrium occupation: when ET > EF, the empty charge state
+is thermodynamically favored, whereas when ET < EF, the occupied charge state is favored.
+It is important to note that, in a device, the electrostatic potential shifts all electronic energies locally, including
+the charge-transition level ET, as illustrated in Fig. 12. Since the local band edges EC and EV are shifted by the
+same electrostatic potential as ET, the offsets EC −ET and ET −EV remain fixed. For this reason, charge-transition
+levels are commonly reported relative to the conduction- or valence-band edge of the host material. The electrostatic
+shift has several consequences for the charge-transition rates. First, the electrostatic potential modifies the barrier
+separating the extended conduction-band states from the defect (see Figs. 12a and 12c). It therefore controls the
+penetration of the extended conduction-band states into the barrier and thereby modulates the band LDOS at the
+defect position. Second, and typically more importantly, the electrostatic potential changes the relative alignment of
+the band states and the CTL. In the configuration-coordinate picture (see Figs. 12b and 12d), this corresponds to a
+shift of the relative alignment of the potential-energy surfaces, thereby modifying the NMP transition barriers and
+the line-shape functions. As a result of these combined effects, the capture and emission rates acquire a pronounced
+bias dependence. This bias dependence is also reflected in the equilibrium charge state of the defect, as shown in
+Figs. 12b and 12d. At low bias, ET lies above EF, and the defect therefore thermodynamically favors the empty
+charge state, indicated by the white circle. Under high bias, ET is shifted below EF, so that the occupied charge
+23/51
+state, indicated by the blue circle, becomes thermodynamically favored.
+4.2 Band-Edge Approximation for Continuum Rates
+Eqs. (52) and (53) provide the most general device-level NMP transition rates for carrier exchange with a continuum
+of band states. These expressions require an explicit integration over the full energy range of the LDOS. To obtain a
+compact and computationally efficient representation of the transition rates suitable for TCAD applications, we
+approximate these integrals in terms of a small number of evaluations of the line-shape function in the vicinity of
+the band edge. In the lowest-order approximation, this reduces to a single evaluation of the line-shape function,
+which significantly accelerates the continuum-rate calculation.
+In the following, we demonstrate the procedure for electron exchange with the conduction band. The same
+derivation can be applied to electron exchange with the valence band or metallic electrodes by replacing the
+corresponding LDOS. Let gCB(E,EC) denote the conduction-band LDOS evaluated at the defect position and let
+EC denote the corresponding conduction band edge. For emission, the band state must be empty. In the degenerate
+case, meaning EF > EC, states between EC and EF are mostly occupied and therefore Pauli blocked. The lowest
+available final states are then located near EF. This motivates replacing the lower integration boundary of the
+emission rate by an effective lower boundary E0 = max(EC,EF), yielding
+kCB
+e
+= 2π
+¯h |Wi|2
+Z ∞
+EC
+dE gCB(E,EC)[1−fFD(E)]ηe(E −ET)
+(56)
+≈2π
+¯h |Wi|2
+Z ∞
+E0
+dE gCB(E,EC)[1−fFD(E)]ηe(E −ET),
+(57)
+For EF < EC, this replacement is exact and for EF > EC, it represents an approximation that neglects the
+exponentially small density of available empty states below EF. To derive practical approximations for the continuum
+rates, we proceed by rewriting the Pauli-blocking factor as
+1−fFD(E,EF) = fFD(E,EF)exp[β(E −EF)],
+(58)
+resulting in
+ke ≈2π
+¯h |Wi|2
+Z ∞
+E0
+dE gCB(E,EC)fFD(E,EF)exp[β(E −EF)]ηe(E −ET).
+(59)
+The emission rate can then be rewritten compactly as
+ke = 2π
+¯h |Wi|2n0(xT )⟨Fe(E)⟩,
+Fe(E) = exp[β(E −EF)]ηe(E −ET).
+(60)
+The corresponding capture rate follows from detailed balance and is given by
+kc = 2π
+¯h |Wi|2n0(xT )⟨Fc(E)⟩,
+Fc(E) = ηc(E −ET).
+(61)
+Here, the averages are taken with respect to the normalized carrier measure
+dµ(E) = gCB(E,EC)fFD(E,EF)
+n0
+dE,
+n0 =
+Z ∞
+E0
+dE gCB(E,EC)fFD(E,EF),
+(62)
+which describes the energetic distribution of the carriers in the band. To arrive at a computationally efficient
+approximation we expand the functions Fe(E) and Fc(E) in a Taylor series about E0. Substituting this expansion
+into the average and interchanging summation and integration yields
+
+Fe/c(E)
+
+=
+∞
+X
+j=0
+1
+j!
+djFe/c
+dEj
+
+E=E0
+
+(E −E0)j
+.
+(63)
+The expansion coefficients in this expression are thus fully determined by the centered moments of the carrier
+measure. We denote these moments by
+µj(E0) =
+
+(E −E0)j
+=
+R ∞
+E0 dE gCB(E,EC)fFD(E,EF)(E −E0)j
+n0
+.
+(64)
+24/51
+Finally, the expansion can be written compactly as
+kCB
+e
+≈2π
+¯h |Wi|2n0
+N
+X
+j=0
+µj(E0)
+j!
+djFe
+dEj
+
+E=E0
+,
+(65)
+kCB
+c
+≈2π
+¯h |Wi|2n0
+N
+X
+j=0
+µj(E0)
+j!
+djFc
+dEj
+
+E=E0
+.
+(66)
+where N denotes the truncation order. At lowest order, only a single evaluation of the line-shape function at the
+effective edge E0 is required, resulting in a particularly compact and computationally efficient approximation for the
+continuum rates
+kCB
+e
+≈2π
+¯h |Wi|2ηe(E0 −ET)exp[β(E0 −EF)]n0.
+(67)
+kCB
+c
+≈2π
+¯h |Wi|2ηc(E0 −ET)n0.
+(68)
+This band-edge approximation is valid whenever the dominant contribution to the continuum integral originates
+from states close to the effective lower integration boundary E0 = max(EC,EF), i.e., when the integrand peaks near
+E0 and decays rapidly for higher-energy states in the band. However, the line-shape function generally possesses an
+intrinsic maximum at an energy E∗. As shown in Supplementary Information SI-5 the precise position of E∗depends
+on the chosen line-shape model. Nevertheless, E∗generally lies close to the energy at which the classical emission
+barrier vanishes. This reflects the fact that, within the classical picture, the emission rate follows the Arrhenius
+law ke ∝exp(−β∆EX), so that states with small emission barriers contribute most strongly to the transition rate.
+Once the intrinsic maximum E∗enters the integration domain, the line-shape function preferentially weights states
+close to its intrinsic maximum E∗, shifting the dominant contribution of the continuum integral away from the
+band edge and thereby violating the central assumption of the band-edge approximation. Consequently, the regime
+E0 < E∗marks the most pronounced and readily identifiable breakdown of the band-edge expansion. Fig. 13a
+illustrates the boundary-dominated case E∗< E0. Here, states near E0 dominate because they have the smallest
+available classical emission barrier, whereas transitions into higher-energy states require the system to overcome
+progressively larger barriers and are therefore exponentially suppressed. Conversely, Fig. 13b shows the regime
+E∗> E0, where conduction-band states near the intrinsic maximum E∗dominate due to their small emission barriers.
+Fortunately, the breakdown of the band-edge approximation for E0 < E∗can be repaired in a simple way. Once
+E∗lies within the integration domain, the dominant contributing band states are already available. The emission
+rate therefore cannot continue to increase significantly when the band states are lowered further relative to the
+defect state and the emission rate starts to saturate. We account for this behavior by clamping the band-edge
+approximation for the emission rate to its value at E0 = E∗whenever E0 < E∗. This provides a continuous crossover
+from the E0-dominated regime to the E∗-dominated regime. Operationally, the clamping is implemented by shifting
+the band to the configuration at which this crossover occurs:
+EF →E∗
+F = E∗−(E0 −EF),
+EC →E∗
+C = E∗−(E0 −EC),
+E0 →E∗,
+(69)
+In the following, thus all starred quantities denote the corresponding band-edge-expansion quantities evaluated at
+the crossover point, i.e. with the effective lower integration boundary fixed to E0 = E∗and the band-edge and
+Fermi-level positions replaced by EC = E∗
+C and EF = E∗
+F, respectively. The emission rate is thus obtained by,
+kCB
+e
+≈2π
+¯h |Wi|2n∗
+0
+N
+X
+j=0
+µ∗
+j(E∗)
+j!
+djF ∗
+e
+dEj
+
+E=E∗.
+(70)
+whereas the corresponding capture rate follows from detailed balance from the clamped expression,
+kCB
+c
+≈exp[β(E0 −E∗)]2π
+¯h |Wi|2n∗
+0
+N
+X
+j=0
+µ∗
+j(E∗)
+j!
+djF ∗
+c
+dEj
+
+E=E∗.
+(71)
+25/51
+5
+0
+5
+10
+Configuration coordinate [ uÅ]
+4
+3
+2
+1
+0
+1
+2
+3
+4
+Potential Energy [eV]
+ET
+E0 = EC
+E
+Parabolic Potential Energy Surfaces
+(a)
+5
+0
+5
+10
+Configuration coordinate [ uÅ]
+4
+3
+2
+1
+0
+1
+2
+3
+4
+Potential Energy [eV]
+ET
+E0 = EC
+E
+Parabolic Potential Energy Surfaces
+(b)
+Figure 13. Visualization of the break down of the band edge approximation for the non-degenerate case, E0 = EC.
+The defect is described by the initial PES Vi(Q), shown in red, while the continuum states are represented by a
+family of parabolas Vfk(Q), shown in blue. The black arrows indicate the dominant classical transition path in
+each case. (a) EC ≫E∗: the continuum integral is dominated by states with E ≈EC, which have the smallest
+classical transition barrier among the available states, while the barrier increases rapidly for excited band states. (b)
+EC ≪E∗: the continuum integral is dominated by excited states with E ≈E∗, where the classical transition barrier
+becomes small.
+At leading order, N = 0, the fully clamped expressions reduce to
+kCB
+e
+≈2π
+¯h |Wi|2n∗
+0 exp[β(E∗−E∗
+F)]ηe(E∗−ET).
+(72)
+kCB
+c
+≈2π
+¯h |Wi|2n∗
+0 exp[β(E0 −E∗)]ηc(E∗−ET).
+(73)
+By construction, these expressions remain exactly constant throughout the clamped regime and reproduce the value
+of the boundary expansion continuously at the crossover point E0 = E∗.
+Eqs. (65) and (66) and Eqs. (70) and (71) constitute the generalized band-edge approximation for continuum
+NMP transition rates. The quality of the approximation is assessed in Fig. 14, where the emission and capture rates
+are compared to exact numerical integration as a function of EC. The figure shows the band-edge approximation
+for different truncation orders N of the asymptotic expansion. A visible deviation remains in the E∗-dominated
+regime for both the non-degenerate and degenerate case, where the clamped continuation necessarily introduces
+an error. In the degenerate case a visible deviation also appears for large values of EC −ET, where the combined
+effect of the line-shape function and the Fermi occupation develops a second interior maximum violating the band
+edge approximation. This deviation is typically less pronounced, since in degenerate operation the offset EF −EC
+is usually only a few hundred meV. Overall, the approximation captures the correct physical trends in both the
+boundary-dominated and interior-dominated regimes, while ensuring a smooth and continuous crossover between
+them across the transition region E0 ≈E∗. Importantly, even the lowest-order approximation, N = 0, shows good
+agreement with the exact rates over the full energy range. Since this approximation requires only a single evaluation
+of the line-shape function at the dominant energy, either at the boundary E0 or at the interior maximum E∗, it is
+computationally extremely efficient and particularly well suited for TCAD applications.
+4.3 Comparison with Shockley–Read–Hall Theory
+Having reduced the continuum NMP rates to TCAD-compatible expressions, we now relate them to the SRH model,
+which remains the most widely used description of nonradiative transitions in device simulation. This comparison
+shows that the NMP rates can be cast into the same operational form as SRH rates, but also exposes a fundamental
+limitation of the conventional SRH framework: its capture coefficients are purely phenomenological fitting parameters.
+As a result, SRH theory does not intrinsically contain the temperature and bias dependence of charge trapping,
+whereas these dependencies arise naturally in the NMP framework from the microscopic defect physics.
+26/51
+4
+2
+0
+2
+4
+Conduction Band Edge EC [eV]
+10
+60
+10
+52
+10
+44
+10
+36
+10
+28
+10
+20
+10
+12
+10
+4
+104
+Transition Rate [arb. units]
+ET
+E0 = E
+Transition Rates (non-degenerate)
+(a)
+4
+2
+0
+2
+4
+Conduction Band Edge EC [eV]
+10
+60
+10
+52
+10
+44
+10
+36
+10
+28
+10
+20
+10
+12
+10
+4
+104
+Transition Rate [arb. units]
+ET
+E0 = E
+Transition Rates (degenerate)
+(b)
+Figure 14. Comparison of the emission and capture rates obtained from the exact numerical evaluation and the band
+edge approximation. The NMP parameters are Ei
+R = Ef
+R = 2.0eV, ∆Q = 4.0√uÅ, R = 1.0, T = 300K. (a) shows the
+rates for the non-degenerate case EC −EF = 0.5eV (b) shows the rates for the degenerate case EF −EC = 0.2eV. In
+both panels, the exact integration is shown as points, Different line styles correspond to different truncation orders
+N of the band edge approximation, with N = 0 shown as a dotted line, N = 2 as a dashed line, and N = 4 as a solid
+line.
+The leading-order band-edge approximation, given by Eqs. (67) and (68), reduces to a form that is formally
+identical to the Shockley–Read–Hall (SRH) rate expressions in the regime E∗< EC and EF < EC. To make this
+connection explicit, we introduce the local conduction-band electron density in the nondegenerate limit,
+n ≈NC exp[−β(EC −EF)],
+(74)
+where NC is the effective band weight of the conduction band in the Boltzmann approximation. The capture and
+emission rates at a single defect can then be written compactly as
+kCB
+c
+= cNMP
+n
+n,
+kCB
+e
+= eNMP
+n
+.
+(75)
+The NMP capture coefficient is given by
+cNMP
+n
+= 2π
+¯h |Wi|2ηc(EC −ET),
+(76)
+and the NMP emission coefficient is given by
+eNMP
+n
+= cNMP
+n
+n1,
+(77)
+where we introduced the reference concentration
+n1 = NC exp[−β(EC −ET)].
+(78)
+for a compact notation. Thus, in the band-edge-dominated regime, the NMP rates take the same operational form
+as SRH theory [49]. In both descriptions, the capture rate is written as the product of a capture coefficient and
+the local carrier concentration, whereas the emission rate is independent of the local carrier concentration and is
+determined by the emission coefficient only. Despite this formal equivalence, the microscopic interpretation of the
+coefficients is fundamentally different in SRH and NMP theory.
+Within the NMP framework, the capture and emission coefficients cCB
+NMP and eCB
+NMP are directly linked to the
+microscopic properties of the defect and can be obtained from first-principles calculations [13, 14, 29]. These
+coefficients are therefore not adjustable parameters, but are determined by the underlying defect physics. Impor-
+tantly, both electron capture and electron emission require the system to overcome a corresponding barrier in the
+configuration-coordinate diagram (see Fig. 5). These NMP barriers arise naturally from the structural relaxation
+accompanying the charge transition and enter the transition rates through the NMP line-shape functions, giving
+27/51
+rise to the characteristic Arrhenius temperature dependence in the high-temperature limit. At the same time, the
+NMP barriers are not fixed but depend on the relative alignment of the charge-transition level with respect to
+the conduction-band edge, which is controlled by the electrostatic potential (see Fig. 12). Consequently, the NMP
+transition rates exhibit not only an intrinsic temperature dependence through the thermally activated crossing of
+the barriers, but also a pronounced bias dependence through the electrostatic modulation of the barriers themselves.
+Both the experimentally observed temperature and bias dependence of the transition rates [29] therefore emerge
+naturally from the microscopic defect physics captured by the NMP framework.
+In contrast, the SRH model completely neglects the vibrational degrees of freedom of the defect system. It
+therefore does not describe the structural relaxation following a change in the defect charge state and contains no
+NMP-type activation barriers. Consequently, the SRH capture and emission coefficients, cCB
+SRH and eCB
+SRH, do not
+naturally contain the temperature and bias dependence arising from the structural defect relaxation. To reproduce
+the experimentally observed temperature and bias dependence, one must therefore introduce coefficients that are
+themselves temperature and bias dependent [6]. This effectively shifts the relevant physics into empirical fitting
+parameters. The limitation of the conventional SRH model becomes particularly apparent at cryogenic temperatures.
+In its standard form, the capture coefficient is written as cCB
+SRH = σnvth, where σn denotes the capture cross section
+and vth the carrier thermal velocity [3]. Since vth vanishes as T →0, the SRH model predicts the complete suppression
+of both charge capture and emission at cryogenic temperatures. This prediction clearly contradicts experimental
+observations, which show that charge trapping persists even in the cryogenic regime [31, 32].
+5 Device-Level Applications
+In the previous chapter, we derived continuum formulations for charge capture and emission processes between
+localized defect states and electronic bands. In this description, the bands act as charge reservoirs that supply
+or accept carriers during trapping and detrapping events. Within TCAD simulations, these NMP-based capture
+and emission rates can be evaluated locally using the spatially resolved band structure and quasi-Fermi levels,
+thereby enabling time-dependent modeling of charge trapping phenomena under realistic operating conditions. In
+the following, we demonstrate how the developed framework can be applied to a MOSFET in order to investigate
+threshold-voltage shifts caused by charge trapping under elevated stress conditions, a degradation phenomenon
+commonly referred to as bias temperature instability (BTI).
+Defects located at the semiconductor–oxide interface of a MOSFET typically interact with several charge
+reservoirs at the same time, such as the conduction and valence bands of the semiconductor and, potentially, the
+gate electrode. Each reservoir provides an independent channel through which the defect can capture or emit a
+carrier. Since these channels are mutually exclusive and compete in parallel, the probability that any capture or
+emission event occurs within a short time interval is the sum of the individual probabilities. Consequently, the total
+capture and emission rates are obtained by adding the contributions from all reservoirs,
+ktot
+c
+=
+X
+r
+k(r)
+c ,
+ktot
+e
+=
+X
+r
+k(r)
+e .
+(79)
+where r labels the individual reservoirs. Each reservoir-specific transition rate can be evaluated either by direct
+numerical integration (see Eqs. (52) and (53)), or by employing the band-edge approximation (see Eqs. (67), (68),
+(72) and (73)).
+Charge trapping is an inherently stochastic process. An individual defect does not capture or emit charge at a
+deterministic time, but instead undergoes random transitions between its charge states with probabilities determined
+by the corresponding total capture and emission rates. In large-area devices, however, one is typically interested
+in the collective behavior of many nearly identical defects within a small volume of the device, rather than the
+stochastic trajectory of a single defect. Such a local ensemble of NT defects is conveniently described by the fraction
+of occupied defects Poccu(t) = ⟨Pi(t)⟩and the fraction of unoccupied defects Pempty(t) = 1 −⟨Pi(t)⟩, where Pi(t)
+denotes the occupancy of the i-th defect within the ensemble. Equivalently, these quantities can be interpreted
+as the probabilities of finding a defect from the ensemble in the occupied or unoccupied state, respectively. Since
+capture increases the occupied fraction while emission decreases it, the time evolution of the ensemble-averaged
+occupations reduces to a Pauli master equation [50]:
+dPoccu
+dt
+= −ktot
+e Poccu +ktot
+c Pempty,
+(80)
+28/51
+dPempty
+dt
+= +ktot
+e Poccu −ktot
+c Pempty.
+(81)
+Averaging over the ensemble therefore replaces the stochastic switching of individual defects by deterministic master
+equations for the probabilities of the two charge states. The corresponding average charge of the defect ensemble
+depends on whether the defects are acceptor-like or donor-like. For acceptor-like defects, the empty state is neutral,
+while the occupied state is negatively charged. The average defect charge is therefore
+Qacc
+T (t) = −qNTPoccu(t),
+(82)
+Conversely, for donor-like defects, the occupied state is neutral, while the empty state is positively charged. In this
+case, the average defect charge is
+Qdon
+T
+(t) = +qNTPempty(t).
+(83)
+This average charge of the ensemble enters the Poisson equation and results in a time-dependent shift of the device
+electrostatics, thereby affecting the stability of the device. It is important to note that the Poisson equation and the
+Pauli master equation form a set of strongly coupled differential equations: the local electrostatic potential influences
+the capture and emission rates by shifting the band edges and the CTL, while the defects themselves modify the
+electrostatic potential through their contribution to the space charge. Due to this nonlinear and time-dependent
+coupling, the resulting system generally cannot be solved analytically and must instead be treated self-consistently
+using numerical methods. In practical TCAD simulations, the Pauli master equation is commonly integrated in time
+using implicit Runge–Kutta methods, or Rosenbrock-type methods [51, 52]. These schemes provide robust numerical
+stability across the wide range of timescales characteristic of charge-trapping phenomena.
+(a)
+0
+2
+4
+6
+Time [s]
+0
+3
+Gate Voltage Vg [V]
+initial
+Id
+Vg
+ts=102s
+tr=10
+4s
+tr=10
+2s
+tr=100s
+tr=102s
+tr=104s
+tr=106s
+recovery
+stress
+Schematic BTI Stress Pattern
+(b)
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+Gate Voltage Vg [V]
+10
+9
+10
+8
+10
+7
+10
+6
+10
+5
+10
+4
+Drain Current Id [A]
+BTI Recovery, ts = 102 s
+initial Id
+Vg
+1.0
+1.1
+1.2
+1.3
+1.4
+1.5
+10
+6
+Recovery Sweeps
+tr = 10
+4 s
+tr = 10
+2 s
+tr = 100 s
+tr = 102 s
+tr = 104 s
+tr = 106 s
+(c)
+Figure 15. Simulation of bias-temperature instability (BTI) in a MOSFET due to acceptor-like NMP defects. The
+defects are sampled uniformly in the first 2 nm of the oxide, while Gaussian distributions are assumed for ET and ER
+using the parameters ET = 4.9±0.2eV ER = 2.25±0.75eV (the CTL is given relative to the oxide valence-band edge).
+(a) Band diagram of the Si/SiO2 MOSFET structure. Oxide defects located near the channel are shown as circles,
+with blue indicating occupied defects and white indicating empty defects. (b) Schematic BTI stress–recovery pattern.
+First, an initial Id −Vg sweep is performed to extract the threshold voltage of the unstressed device. The device is
+then stressed at Vs for a stress time ∆ts. During the subsequent recovery phase at Vrec, several Id −Vg sweeps are
+performed at logarithmically spaced recovery times to monitor the relaxation of threshold voltage. (c) Corresponding
+simulated Id–Vg curves after a stress time of ts = 102 s, illustrating the stress-induced threshold-voltage shift and its
+recovery.
+Fig. 15 illustrates a representative BTI charge-trapping simulation for a Si/SiO2 MOSFET performed with the
+Compact Physics (Comphy) framework [17, 27]. The band diagram in Fig. 15a shows defects in the oxide of the MOS-
+FET, where they can exchange charge with both the channel and the metal gate. When the device is stressed with an
+elevated gate bias, the channel is driven into strong inversion and the Fermi level EF approaches the conduction band
+of the channel promoting electron capture by oxide defects. This modifies the device electrostatics and shifts the
+29/51
+threshold voltage. After the stress is removed, occupied defects may emit charge back to the channel or gate, leading
+to a recovery of the threshold-voltage shift. This degradation and recovery behavior is commonly characterized using
+the standard BTI stress–recovery sequence shown in Fig. 15b. First, an initial Id–Vg curve is recorded to characterize
+the unstressed device. The device is then subjected to an elevated stress bias Vs for a duration ts, allowing the oxide
+defects to capture charge. After stress, the gate bias is switched to the recovery value Vrec, and Id–Vg curves are
+recorded at logarithmically spaced recovery times trec to monitor the device recovery. The resulting degradation can
+be quantified from the recorded transfer curves as shown in Fig. 15c by extracting the time-dependent threshold
+voltage shift ∆Vth(tr) between the stressed and unstressed device. For a consistent extraction of ∆Vth(tr), the
+same criterion is applied to all transfer curves; in this example, a constant-current criterion of Id = 1.0×10−6 A is used.
+To investigate the time and temperature dependence of charge trapping, the BTI experiment is repeated for
+different temperatures and stress times. Fig. 16 shows the resulting threshold-voltage shift ∆Vth for temperatures
+of 150K, 300K, and 450K, and stress times of 10−2 s, 100 s, 102 s, and 104 s. It compares the simulated recovery
+curves obtained using different approximations for the transition rates. Figs. 16a to 16c show that the effective
+crossing-preserving approximation (CPA) closely reproduces the full quantum-mechanical rate calculation at all three
+temperatures. In contrast, Figs. 16d to 16f reveal a clear limitation of the classical approximation: while it shows
+good agreement with the full quantum-mechanical result at 450 K and still provides reasonable agreement at 300 K,
+it breaks down at 150 K and fails to accurately capture the device degradation. This underscores the importance
+of quantum effects for describing BTI degradation at low temperatures, where a purely classical treatment is no
+longer sufficient. This behavior is consistent with earlier theoretical and experimental studies of charge trapping at
+cryogenic temperatures [31, 32], which demonstrated that the experimentally observed charge-trapping dynamics at
+cryogenic temperatures cannot be explained by classical NMP theory. Instead, a quantum-mechanical description of
+the transition rates, accounting for nuclear tunneling, is required to accurately reproduce the measured degradation
+and recovery kinetics.
+30/51
+10
+2
+100
+102
+104
+106
+Recovery Time tr [s]
+0.02
+0.04
+0.06
+0.08
+0.10
+0.12
+Threshold Voltage Shift Vth [V]
+BTI Recovery at T = 150 K
+QM / CPA
+ts = 10
+2 s
+ts = 100 s
+ts = 102 s
+ts = 104 s
+(a)
+10
+2
+100
+102
+104
+106
+Recovery Time tr [s]
+0.00
+0.02
+0.04
+0.06
+0.08
+0.10
+0.12
+0.14
+0.16
+Threshold Voltage Shift Vth [V]
+BTI Recovery at T = 300 K
+QM / CPA
+ts = 10
+2 s
+ts = 100 s
+ts = 102 s
+ts = 104 s
+(b)
+10
+2
+100
+102
+104
+106
+Recovery Time tr [s]
+0.00
+0.02
+0.04
+0.06
+0.08
+0.10
+0.12
+0.14
+Threshold Voltage Shift Vth [V]
+BTI Recovery at T = 450 K
+QM / CPA
+ts = 10
+2 s
+ts = 100 s
+ts = 102 s
+ts = 104 s
+(c)
+10
+2
+100
+102
+104
+106
+Recovery Time tr [s]
+0.02
+0.04
+0.06
+0.08
+0.10
+0.12
+Threshold Voltage Shift Vth [V]
+BTI Recovery at T = 150 K
+QM / Classic
+ts = 10
+2 s
+ts = 100 s
+ts = 102 s
+ts = 104 s
+(d)
+10
+2
+100
+102
+104
+106
+Recovery Time tr [s]
+0.00
+0.02
+0.04
+0.06
+0.08
+0.10
+0.12
+0.14
+0.16
+Threshold Voltage Shift Vth [V]
+BTI Recovery at T = 300 K
+QM / Classic
+ts = 10
+2 s
+ts = 100 s
+ts = 102 s
+ts = 104 s
+(e)
+10
+2
+100
+102
+104
+106
+Recovery Time tr [s]
+0.00
+0.02
+0.04
+0.06
+0.08
+0.10
+0.12
+0.14
+Threshold Voltage Shift Vth [V]
+BTI Recovery at T = 450 K
+QM / Classic
+ts = 10
+2 s
+ts = 100 s
+ts = 102 s
+ts = 104 s
+(f)
+Figure 16. Simulated BTI experiments for temperatures of 150 K, 300 K, and 450 K, and stress times of 1.0×10−2 s,
+1.0×100 s, 1.0×102 s, and 1.0×104 s. Panels (a)–(c) compare the full quantum-mechanical rate calculation (QM),
+shown as solid lines, with the effective crossing-preserving approximation (CPA), shown as dashed lines, demonstrating
+very good agreement over the full temperature range. Panels (d)–(f) compare the full quantum-mechanical rate
+calculation (QM), shown as solid lines, with the classical approximation (Classic), shown as dashed lines. The
+classical approximations shows good agreement with the full quantum-mechanical result at 450 K and still provides
+reasonable agreement at 300 K, but breaks down at 150 K.
+31/51
+6 Conclusions
+In this work, we developed a systematic framework for modeling nonradiative charge transfer processes in semi-
+conductor devices within the nonradiative multiphonon (NMP) formalism. Starting from the quantum-mechanical
+description of coupled electron–nuclei dynamics, we derived a hierarchy of increasingly efficient rate models and
+established their connection to practical TCAD simulations.
+Specifically, to overcome the main limitation of the full quantum-mechanical NMP model, namely its high compu-
+tational cost, we introduced the crossing-preserving approximation (CPA). The CPA maps general unequal-curvature
+systems onto an effective equal-curvature representation while preserving the dominant crossing configuration that
+governs the transition dynamics. This construction yields a fully analytic, numerically stable, and computation-
+ally efficient approximation to the quantum-mechanical line-shape function. Comparisons with numerically exact
+calculations demonstrated that the CPA accurately reproduces quantum-mechanical transition rates over a broad
+parameter range, including regimes where the well established classical approximation fails due to tunneling effects.
+At the same time, the efficiency of the CPA makes quantum-mechanical NMP simulations of large defect populations
+feasible in practical TCAD environments.
+Furthermore, we extended the description to defects that interact with electronic bands rather than only with
+discrete electronic states. For this case, the continuum transition rates are expressed as energy integrals over
+the band LDOS weighted by the corresponding carrier occupation probabilities, quantities readily available in
+semiconductor-device simulation frameworks. For near-equilibrium conditions, where the carrier occupation is
+described by Fermi–Dirac statistics, we then developed a band-edge approximation that replaces the full energy
+integral by a single-point evaluation at the dominant electronic energy. This greatly reduces the computational cost
+while retaining the relevant microscopic defect physics, thereby enabling efficient and physically consistent modeling
+of charge trapping phenomena in semiconductor devices.
+Another major objective of this work was to provide a comprehensive guide for implementing NMP-based models.
+To this end, the manuscript presents a complete derivation of the formalism, discusses the physical interpretation of
+the model parameters, compares different evaluation strategies, and explicitly identifies the regimes in which common
+approximations remain valid. In particular, we clarified the limitations of the widely used classical approximation
+and derived criteria for the onset of quantum-mechanical tunneling effects. The resulting framework therefore serves
+not only as a source of efficient rate expressions but also as a practical reference for researchers and engineers
+implementing NMP models in simulation tools.
+32/51
+Author contributions
+The authors contributed equally to all aspects of the article.
+Competing interests
+The authors declare no competing interests.
+Data availability
+The data that support the findings of this study are available from the corresponding author upon reasonable request.
+Supplementary Information
+Supplementary Information SI-1: Detailed-Balance Condition
+In this section, we derive the detailed-balance relation satisfied by the nonradiative multiphonon (NMP) transition
+rates. We first present the derivation within the full quantum-mechanical formalism, where the transition rates
+are expressed in terms of vibronic line-shape functions. This derivation is completely general and does not rely on
+the harmonic approximation. We then specialize the result to harmonic potential-energy surfaces, obtaining an
+explicit expression for the free-energy difference and its high-temperature limit. Next, we derive the corresponding
+detailed-balance relation directly within the classical NMP formalism. Finally, we compare the quantum and
+classical expressions, demonstrating that the latter is recovered as the high-temperature limit of the former, thereby
+establishing the consistency between the two formulations.
+A. Quantum-mechanical detailed balance
+We begin by considering the quantum-mechanical expression for the NMP line-shape function describing the forward
+transition from the initial electronic state i to the final state f. The line-shape function is obtained by summing
+over all vibronic transitions weighted by the thermal occupation of the initial vibronic states,
+ηif =
+X
+m
+w(i)
+m
+X
+n
+⟨χi,m|Q|χf,n⟩
+2 δ(Ei,m −Ef,n),
+(84)
+where
+w(i)
+m = exp(−βEi,m)
+Zi
+,
+Zi =
+X
+m
+exp(−βEi,m).
+(85)
+The corresponding reverse line-shape function is obtained by interchanging the initial and final vibronic manifolds,
+ηfi =
+X
+n
+w(f)
+n
+X
+m
+⟨χf,n|Q|χi,m⟩
+2 δ(Ef,n −Ei,m),
+(86)
+with
+w(f)
+n
+= exp(−βEf,n)
+Zf
+,
+Zf =
+X
+n
+exp(−βEf,n).
+(87)
+The transition matrix elements satisfy
+⟨χf,n|Q|χi,m⟩
+2 =
+⟨χi,m|Q|χf,n⟩
+2 ,
+(88)
+as a consequence of the Hermiticity of the configuration coordinate operator. Furthermore, the Dirac delta function
+is symmetric,
+δ(Ef,n −Ei,m) = δ(Ei,m −Ef,n).
+(89)
+Therefore, the forward and reverse line-shape functions contain identical vibronic transition matrix elements, differing
+only in the thermal occupation factors associated with the initial states.
+33/51
+Since the delta function enforces energy conservation,
+Ei,m = Ef,n,
+(90)
+the ratio of the Boltzmann weights becomes
+w(i)
+m
+w(f)
+n
+= Zf
+Zi
+exp(−βEi,m)
+exp(−βEf,n) = Zf
+Zi
+,
+(91)
+which immediately gives
+ηif
+ηfi
+= Zf
+Zi
+.
+(92)
+Introducing the Helmholtz free energy,
+Fa = −1
+β lnZa,
+a ∈{i,f},
+(93)
+we obtain the exact detailed-balance relation
+kif
+kfi
+= ηif
+ηfi
+= exp(−β∆F),
+(94)
+where
+∆F = Ff −Fi.
+(95)
+This relation is exact and holds for arbitrary vibronic spectra. No assumptions regarding the shape of the
+potential-energy surfaces have been made up to this point. To obtain an explicit expression for the free-energy
+difference, we now specialize to harmonic potential-energy surfaces. In this case, the vibronic energies are given by
+Ea,n = Ea +¯hΩa
+
+n+ 1
+2
+
+,
+a ∈{i,f},
+(96)
+and the corresponding partition function can be evaluated analytically,
+Za =
+∞
+X
+n=0
+exp
+
+−β
+
+Ea +¯hΩa
+
+n+ 1
+2
+
+=
+exp(−βEa)
+2sinh(β¯hΩa/2).
+(97)
+The free-energy difference therefore becomes
+∆F = ∆E + 1
+β ln
+sinh(β¯hΩf/2)
+sinh(β¯hΩi/2)
+
+,
+(98)
+where
+∆E = Ef −Ei.
+(99)
+Substituting this expression into the general detailed-balance relation yields
+kif
+kfi
+= exp(−β∆E) sinh(β¯hΩi/2)
+sinh(β¯hΩf/2) .
+(100)
+This expression explicitly shows that, in the quantum-mechanical description, detailed balance depends not only
+on the electronic energy difference but also on the quantum vibrational free-energy contribution arising from the
+different phonon frequencies.
+34/51
+B. Classical detailed balance
+We now derive the detailed-balance relation independently within the classical NMP formalism. This provides an
+explicit verification that the classical theory satisfies the same thermodynamic constraints. The classical forward
+line-shape function is
+ηcl
+if =
+Z
+dQ exp[−βVi(Q)]
+Zcl
+i
+Q2δ
+
+Vi(Q)−Vf(Q)
+
+,
+(101)
+where
+Zcl
+i =
+Z
+dQ exp[−βVi(Q)].
+(102)
+The corresponding reverse line-shape function is obtained by interchanging the initial and final potential-energy
+surfaces,
+ηcl
+fi =
+Z
+dQ exp[−βVf(Q)]
+Zcl
+f
+Q2δ
+
+Vf(Q)−Vi(Q)
+
+,
+(103)
+with
+Zcl
+f =
+Z
+dQ exp[−βVf(Q)].
+(104)
+Since the delta function is symmetric,
+δ
+
+Vf(Q)−Vi(Q)
+
+= δ
+
+Vi(Q)−Vf(Q)
+
+,
+(105)
+and on its support one has
+Vi(Q) = Vf(Q),
+(106)
+the Boltzmann factors satisfy
+exp[−βVi(Q)]/Zcl
+i
+exp[−βVf(Q)]/Zcl
+f
+=
+Zcl
+f
+Zcl
+i
+,
+(107)
+which immediately yields
+ηcl
+if
+ηcl
+fi
+=
+Zcl
+f
+Zcl
+i
+.
+(108)
+For harmonic potentials,
+Zcl
+a = e−βEa
+s
+2π
+βΩ2a
+,
+(109)
+which leads to
+kcl
+if
+kcl
+fi
+= Ωi
+Ωf
+exp(−β∆E).
+(110)
+C. Comparison between the quantum and classical results
+The quantum and classical derivations follow the same underlying physical principle: detailed balance originates
+from the symmetry of the transition probability together with the thermal occupation of the initial states. The
+distinction between the two formulations arises entirely from the different forms of the partition functions describing
+quantum and classical vibrational statistics. The quantum-mechanical expression,
+kif
+kfi
+= exp(−β∆E) sinh(β¯hΩi/2)
+sinh(β¯hΩf/2),
+(111)
+35/51
+contains the complete quantum vibrational contribution through the harmonic partition functions. In contrast, the
+classical treatment yields
+kcl
+if
+kcl
+fi
+= Ωi
+Ωf
+exp(−β∆E).
+(112)
+Expanding the quantum expression in the limit β¯hΩ≪1 gives
+sinh(β¯hΩ/2) ≃β¯hΩ
+2
+,
+(113)
+from which the quantum result reduces exactly to
+kif
+kfi
+−→Ωi
+Ωf
+exp(−β∆E).
+(114)
+Thus, the independently derived classical detailed-balance relation is recovered as the high-temperature limit of the
+full quantum-mechanical theory. This agreement provides an important consistency check on both formulations
+of the NMP transition-rate theory and confirms that the quantum formalism correctly reproduces the expected
+classical behavior in the appropriate thermodynamic limit.
+Supplementary Information SI-2: Recursive Calculation of Franck-Condon Matrix Elements
+The direct numerical evaluation of the Franck–Condon overlaps
+Amn = ⟨χi,m|χf,n⟩
+(115)
+from the explicit harmonic-oscillator wave functions rapidly becomes numerically inefficient for high vibrational
+quantum numbers. A direct implementation requires repeated evaluation of Hermite polynomials and highly
+oscillatory Gaussian integrals, which becomes increasingly susceptible to overflow, underflow, and cancellation errors
+for large m and n. To avoid these issues, the overlap matrix is most efficiently constructed using recursive relations
+[43, 44].
+The recursion is initialized with the ground-state overlap
+A00 =
+ 
+2pΩiΩf
+Ωi +Ωf
+!1/2
+exp
+
+−ΩiΩf∆Q2
+2(Ωi +Ωf)
+
+.
+(116)
+The first column and first row are then generated from
+Am+2,0 =
+r
+m+1
+m+2
+Ωi −Ωf
+Ωi +Ωf
+Am,0 +
+r
+2
+m+2
+√ΩiΩf
+Ωi +Ωf
+∆QAm+1,0,
+(117)
+and
+A0,n+2 = −
+r
+n+1
+n+2
+Ωi −Ωf
+Ωi +Ωf
+A0,n −
+r
+2
+n+2
+Ωi
+pΩf
+Ωi +Ωf
+∆QA0,n+1.
+(118)
+All remaining matrix elements are obtained from the two-dimensional recursion
+Am+1,n+1 = K1
+r
+1
+n+1Am+1,n +K2
+r
+n
+n+1Am+1,n−1 +K3
+r
+1
+m+1Am,n+1
++K4
+s
+1
+(m+1)(n+1)Am,n +K5
+r
+n
+(m+1)(n+1)Am,n−1
++K6
+r
+m
+m+1Am−1,n+1 +K7
+r
+m
+(m+1)(n+1)Am−1,n
++K8
+r
+mn
+(m+1)(n+1)Am−1,n−1,
+(119)
+36/51
+with
+K1 = −Ωi
+pΩf∆Q
+√
+2(Ωi +Ωf),
+K2 = −Ωi −Ωf
+Ωi +Ωf
+,
+K3 =
+√ΩiΩf∆Q
+√
+2(Ωi +Ωf),
+K4 = 2pΩiΩf
+Ωi +Ωf
+,
+K5 = −K3,
+K6 = −K2,
+K7 = −K1,
+K8 = 1.
+(120)
+Terms containing negative indices are omitted. The recursion generates the complete Franck–Condon overlap
+matrix from the single element A00 without explicitly evaluating the vibrational wave functions. The resulting
+algorithm scales approximately as O(NM) for a truncation at vibrational quantum numbers (N,M) and only
+requires local arithmetic operations on previously computed matrix elements.
+For large relaxation energy, the dominant overlaps are distributed over many phonon sidebands, whereas for weak
+lattice relaxation the matrix becomes concentrated close to the diagonal. Nevertheless, accurate evaluation of the
+line-shape function generally requires a large number of vibrational states (N,M > 100) to capture the exponentially
+decaying tails of the Franck–Condon distribution and to ensure convergence of the thermally weighted sums.
+Supplementary Information SI-3: Estimate for the Breakdown of the Classical Approximation
+In this section, we derive a simple estimate for the temperature below which the classical approximation to the
+NMP transition rate is expected to break down. The purpose of this estimate is not to define a sharp crossover
+temperature, but rather to identify the characteristic scale below which the purely classical picture is no longer
+sufficient and quantum-mechanical overlap of vibrational wavefunctions must be taken into account. We keep the
+notation independent of any specific choice of coordinate origin and the harmonic potentials are thus given by
+Va(Q) = Ea + 1
+2Ω2
+a(Q−Qa)2
+with
+a ∈{i,f}
+(121)
+Let QX denote the dominant diabatic crossing point, and define the corresponding crossing energy by EX = Vi(QX) =
+Vf(QX). In the classical limit, the transition rate follows an Arrhenius law governed by the activation barrier for
+reaching the crossing point,
+kcl
+if ∝exp
+
+−∆EX
+kBT
+
+with
+∆EX = EX −Ei.
+(122)
+At low temperature, the classical picture ceases to be adequate because the initial vibrational population is dominated
+by the ground state. The quantum-mechanical line-shape function is then governed by transitions from χi,0 into
+final vibrational states χf,n whose energies approximately satisfy energy conservation. We denote this common
+resonant energy by
+Eres ≡Ei,0 ≈Ef,n∗,
+(123)
+where n∗is the resonant final vibrational state. The relevant low-temperature matrix element is therefore
+⟨χi,0|Q|χf,n∗⟩=
+Z
+dQχi,0(Q)Qχf,n∗(Q).
+(124)
+In the following, we assume that the the crossing point between the two potential energy surfaces lies between the
+classical turning points, i.e. Qti < QX < Qtf . As illustrated in Fig. 17, this ordering ensures that the evanescent
+tails of the initial and final vibrational wavefunctions decay in opposite directions in the crossing region. As a result,
+the product χi,0(Q)χf,n∗(Q) exhibits an interior maximum Q∗between the two turning points Qti and Qtf .
+To locate this maximum, we approximate the exponential part of the overlap integral using the WKB approxi-
+mation. In the classically forbidden region, the vibrational wavefunctions can be approximated by the WKB form
+χ(Q) ∼
+1
+p
+κ(Q)
+exp
+"
+−
+Z Q
+dQ′ κ(Q′)
+#
+,
+κ(Q) = 1
+¯h
+q
+2
+ V (Q)−Eres
+
+.
+(125)
+For Qti < Q < Qtf , the initial-state wavefunction decays from Qti toward increasing Q, while the final-state
+wavefunction decays from Qtf toward decreasing Q. Thus,
+χi,0(Q) ∼e−Si(Q)/¯h,
+χf,n∗(Q) ∼e−Sf (Q)/¯h,
+(126)
+37/51
+2
+0
+2
+4
+6
+Configuration coordinate Q
+1.5
+1.0
+0.5
+0.0
+0.5
+1.0
+1.5
+2.0
+Potential energy
+Eres
+(Qi, Ei)
+(Qf, Ef)
+(QX, EX)
+Qti
+Qtf
+Configuration-Coordinate Diagram
+Vi(Q)
+Vf(Q)
+Figure 17. Configuration-coordinate diagram illustrating the WKB estimate for the breakdown of the classical
+approximation. The initial and final harmonic potential-energy surfaces Vi(Q) and Vf(Q) are shown together
+with their minima (Qi,Ei) and (Qf,Ef), the diabatic crossing point (QX,EX), and the resonant energy Eres.
+The turning points Qti and Qtf define the classically forbidden region of the resonant vibrational states. The
+plotted wavefunctions χi,0(Q) and χf,n∗(Q) illustrate the opposing evanescent tails whose overlap dominates the
+low-temperature transition rate.
+with
+Si(Q) =
+Z Q
+Qti
+dQ′ q
+2
+ Vi(Q′)−Eres
+
+(127)
+and
+Sf(Q) =
+Z Qtf
+Q
+dQ′ q
+2
+ Vf(Q′)−Eres
+
+.
+(128)
+The product of the two evanescent tails is therefore exponentially suppressed as
+χi,0(Q)χf,n∗(Q) ∼exp
+
+−1
+¯h
+ Si(Q)+Sf(Q)
+
+.
+(129)
+The overlap integral is therefore dominated by the coordinate Q∗that minimizes the total action
+Stot(Q) = Si(Q)+Sf(Q).
+(130)
+Minimization gives
+Vi(Q∗)−Eres = Vf(Q∗)−Eres,
+(131)
+or simply
+Vi(Q∗) = Vf(Q∗).
+(132)
+Thus the dominant contribution arises from the vicinity of the diabatic crossing point,
+Q∗≈QX.
+(133)
+Therefore, to leading exponential accuracy,
+⟨χi,0|Q|χf,n∗⟩
+2 ∝exp
+
+−2
+¯h
+ Si(QX)+Sf(QX)
+
+.
+(134)
+The breakdown of the classical approximation can now be estimated by comparing the thermal Arrhenius suppression
+in Eq. (122) with the quantum-mechanical tunneling suppression in Eq. (134). Equating the exponents gives
+kBTquant ∼
+¯h∆EX
+2
+
+Si(QX)+Sf(QX)
+.
+(135)
+38/51
+We now evaluate the actions exactly for harmonic potential-energy surfaces. For a general harmonic potential
+Va(Q) = Ea + 1
+2Ω2
+a(Q−Qa)2,
+(136)
+the exact under-barrier action from the classical turning point to QX is
+Sa(QX;Eres) =
+Z QX
+Qt,a
+dQ
+p
+2[Va(Q)−Eres].
+(137)
+Introducing
+x = |Q−Qa|,
+xt =
+p
+2(Eres −Ea)
+Ωa
+,
+xX = |QX −Qa|,
+(138)
+the action becomes
+Sa(QX;Eres) = Ωa
+Z xX
+xt
+dx
+q
+x2 −x2
+t .
+(139)
+Using
+Z
+dx
+q
+x2 −x2
+t = 1
+2
+
+x
+q
+x2 −x2
+t −x2
+t arcosh
+ x
+xt
+
+,
+(140)
+one obtains
+Sa(QX;Eres) = Ωa
+2
+
+xX
+q
+x2
+X −x2
+t −x2
+t arcosh
+xX
+xt
+
+.
+(141)
+Since
+x2
+X = 2(EX −Ea)
+Ω2a
+,
+x2
+X −x2
+t = 2(EX −Eres)
+Ω2a
+,
+(142)
+and
+xX
+xt
+=
+r
+EX −Ea
+Eres −Ea
+,
+(143)
+the exact harmonic action can be written as
+Sa(QX;Eres) = 1
+Ωa
+"q EX −Eres
+ EX −Ea
+
+−
+ Eres −Ea
+
+arcosh
+ r
+EX −Ea
+Eres −Ea
+!#
+.
+(144)
+To obtain a simpler analytic estimate, we now simplify the exact harmonic actions in Eq. (144). The purpose
+of this step is not to retain all subleading prefactors and zero-point corrections, but only to extract the leading
+exponential scale that controls the crossover between thermal activation and nuclear tunneling. We specialize to the
+near-resonant case in which the energy offset between the two minima is small compared to the crossing energy,
+∆E = Ef −Ei ≃0. Thus Ef ≃Ei, and the two actions have the same energy dependence, differing only through the
+curvatures Ωi and Ωf. It is then convenient to measure all energies relative to the initial minimum and to define
+∆EX = EX −Ei,
+∆Eres = Eres −Ei.
+(145)
+Under these assumptions, the action for either surface may be written as
+SX
+a = 1
+Ωa
+"
+p
+∆EX (∆EX −∆Eres)−∆Eres arcosh
+ s
+∆EX
+∆Eres
+!#
+,
+a ∈{i,f}.
+(146)
+We further assume that the crossing energy measured relative to the initial minimum is much larger than the
+resonant energy measured relative to the same reference. Defining
+ε ≡∆Eres
+∆EX
+,
+ε ≪1,
+(147)
+39/51
+we expand the action in powers of ε. The algebraic square-root term gives
+p
+∆EX (∆EX −∆Eres) = ∆EX
+√
+1−ε = ∆EX
+h
+1−ε
+2 +O(ε2)
+i
+.
+(148)
+The inverse hyperbolic cosine reduces to
+arcosh
+ s
+∆EX
+∆Eres
+!
+= ln
+ 
+2
+s
+∆EX
+∆Eres
+!
++O(ε).
+(149)
+Substitution into Eq. (146) therefore yields
+SX
+a = ∆EX
+Ωa
+−∆Eres
+Ωa
+"
+1
+2 +ln
+ 
+2
+s
+∆EX
+∆Eres
+!#
++O
+ ∆E2
+res
+Ωa∆EX
+
+.
+(150)
+The logarithmic correction in Eq. (150) is negligible in the asymptotic limit ε = ∆Eres/∆EX →0, since its relative
+size scales as εln(1/ε). Thus, when ∆Eres ≪∆EX sufficiently strongly, the leading exponential scale is
+SX
+a ≈∆EX
+Ωa
+.
+(151)
+Consequently, the total tunneling action entering the low-temperature overlap is
+SX
+i +SX
+f ≈∆EX
+ 1
+Ωi
++ 1
+Ωf
+
+.
+(152)
+Inserting this leading action into Eq. (135) gives
+kBTquant ∼
+¯h∆EX
+2∆EX
+
+Ω−1
+i
++Ω−1
+f
+ =
+¯h
+2
+
+Ω−1
+i
++Ω−1
+f
+.
+(153)
+The crossing energy cancels because both the classical Arrhenius exponent and the leading WKB tunneling exponent
+scale linearly with ∆EX in the deep-forbidden-region limit. We therefore obtain
+Tquant ∼
+¯h
+2kB
+ΩiΩf
+Ωi +Ωf
+.
+(154)
+Finally, using the definitions of the relaxation energies,
+Ei
+R = 1
+2Ω2
+i ∆Q2,
+Ef
+R = 1
+2Ω2
+f∆Q2,
+(155)
+the estimate can be expressed directly in terms of the NMP parameters as
+Tquant ∼
+¯h
+√
+2kB ∆Q
+q
+Ei
+REf
+R
+q
+Ei
+R +
+q
+Ef
+R
+.
+(156)
+For equal curvatures,
+Ei
+R = Ef
+R ≡ER,
+(157)
+this reduces to
+Tquant ∼
+¯h
+2
+√
+2kB
+√ER
+∆Q .
+(158)
+This final expression should be interpreted as a leading exponential estimate rather than as a sharp crossover
+temperature. Its validity is limited to the near-resonant case, in which the energy offset between the two minima is
+small, ∆E = Ef −Ei ≃0, so that the initial and final potential-energy surfaces have nearly aligned minima in energy.
+It also assumes a deep-forbidden-region limit, in which the crossing energy measured from the initial minimum is
+much larger than the resonant vibrational energy, ∆EX ≫∆Eres. In physical terms, this means that the diabatic
+crossing lies high above the inital ground state, so that the zero point energy can be safely neglected in the WKB
+action.
+40/51
+Supplementary Information SI-4: Equal-Curvature Line-Shape Function
+In this section we derive the analytic equal-curvature line-shape function used in the main text. The derivation
+proceeds in three steps. First, we start from the unequal-curvature case and relate the coordinate-weighted matrix
+elements ⟨χi,m|Q|χf,n⟩to the Franck–Condon overlaps ⟨χi,m|χf,n⟩. Second, we take the equal-curvature limit,
+where the line-shape function factorizes as ∆Q2
+X times the conventional Franck–Condon line-shape function. Third,
+we take the continuum limit of this line-shape function, replacing the discrete Dirac comb by a smooth envelope that
+can be written in terms of a modified Bessel function.
+We first keep the general unequal-curvature formulation in order to clarify which step is special to the equal-
+curvature limit. In the one-dimensional configuration-coordinate model used in the main text, the one-dimensional
+vibrational Hamiltonians are
+Hi = P 2
+2 +Vi(Q),
+with
+Vi(Q) = 1
+2Ω2
+i Q2,
+(159)
+and
+Hf = P 2
+2 +Vf(Q),
+with
+Vf(Q) = ∆E + 1
+2Ω2
+f(Q−∆Q)2.
+(160)
+where P is the momentum conjugate to the configuration coordinate Q.
+The final-state potential can be expanded as
+Vf(Q) = ∆E + 1
+2Ω2
+f(Q−∆Q)2 = ∆E + 1
+2Ω2
+f∆Q2 −Ω2
+f∆QQ+ 1
+2Ω2
+fQ2.
+(161)
+Therefore, the final-state vibrational Hamiltonian can be written in terms of the initial-state Hamiltonian as
+Hf = Hi +∆E + 1
+2Ω2
+f∆Q2 −Ω2
+f∆QQ+ 1
+2(Ω2
+f −Ω2
+i )Q2.
+(162)
+We define the Franck–Condon overlaps
+Amn = ⟨χi,m|χf,n⟩,
+(163)
+and the coordinate-weighted overlaps
+Mmn = ⟨χi,m|Q|χf,n⟩,
+Bmn = ⟨χi,m|Q2|χf,n⟩.
+(164)
+Taking matrix elements of Eq. (162) between ⟨χi,m| and |χf,n⟩, and using
+Hi|χi,m⟩= Ei,m|χi,m⟩,
+Hf|χf,n⟩= Ef,n|χf,n⟩,
+(165)
+gives
+Ef,nAmn =
+
+Ei,m +∆E + 1
+2Ω2
+f∆Q2
+
+Amn −Ω2
+f∆QMmn + 1
+2(Ω2
+f −Ω2
+i )Bmn.
+(166)
+Solving for the coordinate-weighted overlap yields
+Mmn =
+
+Ei,m +∆E + 1
+2Ω2
+f∆Q2 −Ef,n
+
+Amn + 1
+2(Ω2
+f −Ω2
+i )Bmn
+Ω2
+f∆Q
+.
+(167)
+The quantum-mechanical line-shape function can therefore be written as
+ηif =
+∞
+X
+m=0
+w(i)
+m
+∞
+X
+n=0
+|Mmn|2δ(Ei,m −Ef,n).
+(168)
+On the support of the delta function, Ei,m = Ef,n, so Eq. (167) becomes
+Mmn =
+"
+∆E + 1
+2Ω2
+f∆Q2
+Ω2
+f∆Q
++
+Ω2
+f −Ω2
+i
+2Ω2
+f∆Q
+Bmn
+Amn
+#
+Amn.
+(169)
+41/51
+It is useful to denote the transition-dependent coordinate prefactor by
+Qmn =
+∆E + 1
+2Ω2
+f∆Q2
+Ω2
+f∆Q
++
+Ω2
+f −Ω2
+i
+2Ω2
+f∆Q
+Bmn
+Amn
+.
+(170)
+Then
+Mmn = QmnAmn,
+(171)
+and the line-shape function may be written as
+ηif =
+∞
+X
+m=0
+w(i)
+m
+∞
+X
+n=0
+|Qmn|2|Amn|2δ(Ei,m −Ef,n).
+(172)
+Equation (170) shows that, in the general unequal-curvature case, Qmn depends on the particular vibronic transition
+m →n. This transition dependence enters through the ratio Bmn/Amn, which is weighted by the curvature mismatch
+Ω2
+f −Ω2
+i . Consequently, each Franck–Condon contribution |Amn|2 carries its own transition-dependent prefactor
+|Qmn|2. We now specialize to the equal-curvature case,
+Ωi = Ωf ≡Ω,
+Ei
+R = Ef
+R ≡ER = 1
+2Ω2∆Q2.
+(173)
+In this limit the Q2-weighted term in Eq. (170) vanishes identically. The coordinate prefactor is no longer transition
+dependent and becomes
+Qmn = ∆E +ER
+Ω2∆Q
+= ∆Q∆E +ER
+2ER
+≡∆QX.
+(174)
+This is the classical crossing coordinate of the two equal-curvature parabolas, measured relative to the initial
+minimum. Therefore
+Mmn = ∆QXAmn,
+(175)
+and the coordinate-weighted line-shape function factorizes exactly,
+ηif = ∆Q2
+X ηFC,
+(176)
+where
+ηFC =
+∞
+X
+m=0
+w(i)
+m
+∞
+X
+n=0
+|Amn|2δ(Ei,m −Ef,n)
+(177)
+is the ordinary Franck–Condon line-shape function. For equal curvatures,
+Ei,m = ¯hΩ
+
+m+ 1
+2
+
+,
+Ef,n = ∆E +¯hΩ
+
+n+ 1
+2
+
+.
+(178)
+Thus the energy-conservation condition Ei,m = Ef,n implies
+∆E = (m−n)¯hΩ.
+(179)
+The thermally weighted Franck–Condon spectrum can therefore be written in the Poisson-product form
+ηFC(∆E) = e−(a+b)
+∞
+X
+m=0
+∞
+X
+n=0
+an
+n!
+bm
+m! δ[∆E −(m−n)¯hΩ],
+(180)
+with
+a = S(1+ ¯n),
+b = S¯n,
+S = ER
+¯hΩ,
+¯n =
+1
+eβ¯hΩ−1.
+(181)
+42/51
+Introducing the signed dimensionless energy offset
+p = ∆E
+¯hΩ,
+(182)
+we use
+δ[∆E −(m−n)¯hΩ] = 1
+¯hΩδ[p−(m−n)].
+(183)
+The delta function enforces p = m −n. We now take the continuum limit of the discrete vibronic spectrum by
+promoting one of the vibrational sums to an integral. Since m,n ≥0, this step must be carried out separately for
+p ≥0 and p < 0. This branch split is essential: for positive p, the initial vibrational quantum number must exceed
+the final one by p, whereas for negative p, the final vibrational quantum number must exceed the initial one by |p|.
+For p ≥0, the constraint p = m−n gives m = n+p. Taking the continuum envelope of the discrete spectrum gives
+η(+)
+FC (∆E) ≈e−(a+b)
+¯hΩ
+Z ∞
+0
+dn
+an
+Γ(n+1)
+bn+p
+Γ(n+p+1)
+(184)
+= e−(a+b)
+¯hΩ
+bp
+∞
+X
+n=0
+(ab)n
+n!Γ(n+p+1).
+(185)
+Using the series representation of the modified Bessel function of the first kind,
+Ip(2
+√
+ab) =
+∞
+X
+n=0
+(ab)n+p/2
+n!Γ(n+p+1),
+p ≥0,
+(186)
+we obtain
+η(+)
+FC (∆E) ≈1
+¯hΩexp[−(a+b)]
+ b
+a
+p/2
+Ip(2
+√
+ab),
+p ≥0.
+(187)
+For p < 0, we write q = −p > 0. The constraint p = m −n then gives n = m + q. The corresponding continuum
+envelope is
+η(−)
+FC (∆E) ≈e−(a+b)
+¯hΩ
+∞
+X
+m=0
+bm
+m!
+am+q
+Γ(m+q +1)
+(188)
+= e−(a+b)
+¯hΩ
+aq
+∞
+X
+m=0
+(ab)m
+m!Γ(m+q +1).
+(189)
+Using the series representation of the modified Bessel function of the first kind,
+Iq(2
+√
+ab) =
+∞
+X
+m=0
+(ab)m+q/2
+m!Γ(m+q +1),
+q > 0,
+(190)
+we obtain
+η(−)
+FC (∆E) ≈1
+¯hΩexp[−(a+b)]
+a
+b
+q/2
+Iq(2
+√
+ab),
+q = −p > 0.
+(191)
+Since q = |p|, we can combine both branches which results in a compact expression for the continuum limit of the
+Franck-Condon lineshape function
+ηFC(∆E) ≈1
+¯hΩexp[−(a+b)]
+ b
+a
+p/2
+I|p|(2
+√
+ab).
+(192)
+Combining Eq. (176) with Eq. (192) gives the equal-curvature line-shape envelope for the NMP model
+ηif ≈∆Q2
+X
+¯hΩexp[−S(1+2¯n)]
+
+¯n
+1+ ¯n
+p/2
+I|p|
+
+2S
+p
+¯n(1+ ¯n)
+
+,
+(193)
+43/51
+with
+Ω=
+√2ER
+∆Q ,
+S = ER
+¯hΩ,
+p = ∆E
+¯hΩ,
+¯n =
+1
+eβ¯hΩ−1.
+(194)
+Equivalently, since
+¯n
+1+ ¯n = e−β¯hΩ,
+(195)
+Eq. (193) may be written as
+ηif ≈∆Q2
+X
+¯hΩexp
+
+−∆E
+2kBT −S(1+2¯n)
+
+I|∆E|/(¯hΩ)
+
+2S
+p
+¯n(1+ ¯n)
+
+.
+(196)
+Equation (193) is the single-Bessel-function representation of the line-shape-function envelope in the equal-curvature
+limit. The equivalent form in Eq. (196) makes the detailed-balance-related Boltzmann factor explicit. In the exact
+discrete theory, energy conservation restricts p to integer values and the spectrum is a Dirac comb. The continuum
+approximation promotes p to a continuous variable and yields the smooth envelope used for the analytic rate
+expression.
+Supplementary Information SI-5: Intrinsic Maxima of the Classical Line-Shape Function
+In the classical limit, the line-shape function is given by
+ηcl ∝∆Q2
+X exp(−β∆EX),
+(197)
+where ∆EX is the classical barrier measured from the minimum of the initial potential-energy surface and ∆QX is
+the corresponding crossing coordinate. Consequently, the classical line-shape function is governed by the competition
+between the exponentially increasing Boltzmann factor, which favors small barriers ∆EX, and the coordinate
+prefactor ∆Q2
+X, which vanishes when the crossing point coincides with the minimum of the initial potential-energy
+surface. In this section, we derive the intrinsic maxima of the classical line-shape function resulting from this
+interplay. Using the notation introduced in the main text, the diabatic potential-energy surfaces can be rewritten in
+the following form
+Vi(Q) = Ei
+R
+ Q
+∆Q
+2
+,
+Vf(Q) = ∆E +Ef
+R
+Q−∆Q
+∆Q
+2
+.
+(198)
+Introducing the dimensionless crossing coordinate
+x = ∆QX
+∆Q ,
+(199)
+the crossing condition
+Vi(∆QX) = Vf(∆QX)
+(200)
+gives
+∆E(x) = (Ei
+R −Ef
+R)x2 +2Ef
+Rx−Ef
+R,
+(201)
+while the corresponding crossing energy measured from the minimum of the initial potential-energy surface is
+∆EX(x) = Ei
+Rx2.
+(202)
+According to the classical high-temperature expression derived in the main text, the line-shape function is proportional
+to (up to slowly varying prefactors)
+ηcl(x) ∝x2 exp
+ −βEi
+Rx2
+.
+(203)
+Taking the logarithm yields
+lnηcl = 2ln|x|−βEi
+Rx2 +const.,
+(204)
+44/51
+such that
+d
+dx lnηcl = 2
+x −2βEi
+Rx.
+(205)
+The stationary points therefore satisfy
+x± = ±
+1
+q
+βEi
+R
+.
+(206)
+Since
+d2
+dx2 lnηcl = −2
+x2 −2βEi
+R < 0,
+(207)
+both stationary points correspond to maxima. Substituting these values into Eq. (201) gives the corresponding
+energy offsets
+∆E± = −Ef
+R + Ei
+R −Ef
+R
+βEi
+R
+±
+2Ef
+R
+q
+βEi
+R
+.
+(208)
+For equal curvatures,
+Ei
+R = Ef
+R ≡ER,
+(209)
+this expression simplifies to
+∆E± = −ER ±2
+s
+ER
+β = −ER ±2
+p
+ERkBT.
+(210)
+In general, the classical line-shape function therefore possesses two maxima, corresponding to the two possible
+crossing branches (∆QX > 0 and ∆QX < 0). Both maxima are located close to ∆E ≈−Ef
+R which marks the point
+at which the classical barrier vanishes, i.e., where the crossing point coincides with the minimum of the initial
+potential-energy surface. Exactly at this point, however, the coordinate prefactor ∆Q2
+X vanishes, causing the
+classical line-shape function itself to become zero. Consequently, the maxima are shifted slightly away from the
+point ∆E ≈−Ef
+R. The full quantum-mechanical line-shape function exhibits a similar behavior, with its maximum
+typically occurring close to the ∆E ≈−Ef
+R, although its precise position is further modified by quantum effects such
+as zero-point motion and tunneling.
+Supplementary Information SI-6: Derivation of the Electronic Capture and Emission Rates from Time-Dependent
+Perturbation Theory
+In this section, we derive the electronic capture and emission rates used in the main text using time-dependent
+perturbation theory in the density-matrix formalism. The Hamiltonian is decomposed into an exactly solvable part
+and a weak perturbation,
+H = H0 +Hint,
+(211)
+where the unperturbed Hamiltonian is diagonal in the diabatic electronic basis,
+H0 = |ϕi⟩⟨ϕi|
+P 2
+2 +Vi(Q)
+
++|ϕf⟩⟨ϕf|
+P 2
+2 +Vf(Q)
+
+.
+(212)
+The perturbation responsible for electronic transitions is given by
+Hint = Wif Q
+ |ϕi⟩⟨ϕf|+|ϕf⟩⟨ϕi|
+
+.
+(213)
+The eigenstates of H0 are the vibronic product states
+|Ψa,m⟩= |ϕa⟩⊗|χa,m⟩,
+a ∈{i,f},
+(214)
+45/51
+We first consider the forward transition i →f. The system is assumed to be initially prepared in the vibronic
+manifold associated with the electronic state |ϕi⟩, while the vibrational subsystem has already relaxed to thermal
+equilibrium on the corresponding potential-energy surface. The initial density operator is therefore
+ρ(0) = |ϕi⟩⟨ϕi|⊗ρeq
+i ,
+(215)
+where
+ρeq
+i =
+X
+m
+w(i)
+m |χi,m⟩⟨χi,m|,
+w(i)
+m = exp(−βEi,m)
+Zi
+,
+(216)
+and
+Zi =
+X
+m
+exp(−βEi,m).
+(217)
+Passing to the interaction picture,
+˜ρ(t) = eiH0t/¯hρ(t)e−iH0t/¯h,
+˜Hint(t) = eiH0t/¯hHinte−iH0t/¯h,
+(218)
+the density operator obeys
+d˜ρ(t)
+dt
+= −i
+¯h
+ ˜Hint(t), ˜ρ(t)
+
+.
+(219)
+Integrating once and substituting back yields the second-order Dyson expansion,
+˜ρ(t) = ρ(0)−i
+¯h
+Z t
+0
+dt1
+ ˜Hint(t1),ρ(0)
+
+−1
+¯h2
+Z t
+0
+dt1
+Z t1
+0
+dt2
+ ˜Hint(t1),
+ ˜Hint(t2),ρ(0)
+
+,
+(220)
+which is accurate up to second order in the weak coupling Hint. The probability of finding the electronic subsystem
+in the final state |ϕf⟩at time t is The probability of finding the electronic subsystem in the final charge state |ϕf⟩
+at time t is obtained by projecting onto the electronic state |ϕf⟩while remaining insensitive to the vibrational state.
+This is achieved using the projector
+Pf(t) = Tr
+
+Πf ˜ρ(t)
+	
+,
+Πf = |ϕf⟩⟨ϕf|⊗Ivib,
+(221)
+where Ivib denotes the identity operator on the vibrational Hilbert space. Consequently, the trace is taken over
+all vibrational states, reflecting the fact that experiments resolve only the electronic charge state and not the
+accompanying vibrational transition. Since the initial state contains no population in |ϕf⟩, the first non-vanishing
+contribution is second order in Hint. Inserting the complete vibronic basis gives
+Pf(t) =
+X
+m
+w(i)
+m
+X
+n
+⟨Ψf,n|Hint|Ψi,m⟩
+2
+¯h2
+
+Z t
+0
+dt′ei(Ef,n−Ei,m)t′/¯h
+
+2
+.
+(222)
+The time integral evaluates to
+
+Z t
+0
+dt′ei(Ef,n−Ei,m)t′/¯h
+
+2
+= 4sin2
+(Ef,n −Ei,m)t/(2¯h)
+
+(Ef,n −Ei,m)2/¯h2
+.
+(223)
+In the long-time limit,
+lim
+t→∞
+1
+t
+
+Z t
+0
+dt′ei(Ef,n−Ei,m)t′/¯h
+
+2
+= 2π¯hδ(Ef,n −Ei,m),
+(224)
+such that the transition probability grows linearly with time,
+Pf(t) ≃kift.
+(225)
+46/51
+The transition rate is therefore
+kif = 2π
+¯h
+X
+m
+w(i)
+m
+X
+n
+⟨Ψf,n|Hint|Ψi,m⟩
+2 δ(Ei,m −Ef,n).
+(226)
+Using the explicit form of the perturbation,
+⟨Ψf,n|Hint|Ψi,m⟩= Wif ⟨χf,n|Q|χi,m⟩,
+(227)
+we obtain the final form of the transition rate
+kif = 2π
+¯h |Wif|2ηif,
+ηif =
+X
+m
+w(i)
+m
+X
+n
+⟨χi,m|Q|χf,n⟩
+2 δ(Ei,m −Ef,n).
+(228)
+The reverse transition rate is obtained analogously by preparing the system initially in the vibronic manifold
+associated with the electronic state |ϕf⟩,
+ρ(0) = |ϕf⟩⟨ϕf|⊗ρeq
+f ,
+(229)
+with
+ρeq
+f =
+X
+n
+w(f)
+n |χf,n⟩⟨χf,n|,
+w(f)
+n
+= exp(−βEf,n)
+Zf
+.
+(230)
+Repeating the same calculation yields
+kfi = 2π
+¯h |Wif|2ηfi,
+ηfi =
+X
+n
+w(f)
+n
+X
+m
+⟨χf,n|Q|χi,m⟩
+2 δ(Ef,n −Ei,m)
+(231)
+Thus, the observable electronic transition rates are obtained as conditional thermal averages of the textbook Fermi
+golden-rule transition rates, where the thermal average is taken over the equilibrium vibrational ensemble associated
+with the initially occupied electronic charge state.
+47/51
+References
+[1]
+W. Shockley and W. T. Read. “Statistics of the Recombinations of Holes and Electrons”. In: Physical Review
+87.5 (1952), pp. 835–842. issn: 0031-899X. doi: 10.1103/physrev.87.835. url: http://dx.doi.org/10.
+1103/PhysRev.87.835.
+[2]
+R. N. Hall. “Electron-Hole Recombination in Germanium”. In: Physical Review 87.2 (1952), pp. 387–387. issn:
+0031-899X. doi: 10.1103/physrev.87.387. url: http://dx.doi.org/10.1103/PhysRev.87.387.
+[3]
+S.M. Sze and Kwok K. Ng. Physics of Semiconductor Devices. Wiley, Apr. 2006. isbn: 9780470068328. doi:
+10.1002/0470068329. url: http://dx.doi.org/10.1002/0470068329.
+[4]
+Global TCAD Solutions, GmbH. GTS Minimos-NT User Manual, Release 2025.09. Global TCAD Solutions,
+GmbH. Vienna, Austria, 2025.
+[5]
+Synopsys, Inc. Sentaurus Device User Guide, Version T-2024.09. Synopsys, Inc. Mountain View, CA, USA,
+2024.
+[6]
+M.J. Kirton and M.J. Uren. “Noise in solid-state microstructures: A new perspective on individual defects,
+interface states and Low-Frequency (1/f) Noise”. In: Advances in Physics 38.4 (Jan. 1989), pp. 367–468. issn:
+1460-6976. doi: 10.1080/00018738900101122. url: http://dx.doi.org/10.1080/00018738900101122.
+[7]
+J. T. Ryan et al. “Interface-state capture cross section—Why does it vary so much?” In: Applied Physics
+Letters 106.16 (Apr. 2015). issn: 1077-3118. doi: 10.1063/1.4919100. url: http://dx.doi.org/10.1063/1.
+4919100.
+[8]
+Bernhard Ruch et al. “Applicability of Shockley–Read–Hall Theory for Interface States”. In: IEEE Transactions
+on Electron Devices 68.4 (Apr. 2021), pp. 2092–2097. issn: 1557-9646. doi: 10.1109/ted.2021.3049760. url:
+http://dx.doi.org/10.1109/TED.2021.3049760.
+[9]
+Kun Huang and Avril Rhys. “Theory of Light Absorption and Non-Radiative Transitions in F-Centres”. In:
+Proceedings of the Royal Society of London. Series A. Mathematical and Physical Sciences 204.1078 (Dec.
+1950), pp. 406–423. issn: 2053-9169. doi: 10.1098/rspa.1950.0184. url: http://dx.doi.org/10.1098/
+rspa.1950.0184.
+[10]
+Ryogo Kubo and Yutaka Toyozawa. “Application of the Method of Generating Function to Radiative and Non-
+Radiative Transitions of a Trapped Electron in a Crystal”. In: Progress of Theoretical Physics 13.2 (Feb. 1955),
+pp. 160–182. issn: 0033-068X. doi: 10.1143/ptp.13.160. url: http://dx.doi.org/10.1143/PTP.13.160.
+[11]
+Karl F. Freed and Joshua Jortner. “Multiphonon Processes in the Nonradiative Decay of Large Molecules”.
+In: The Journal of Chemical Physics 52.12 (1970), pp. 6272–6291. issn: 1089-7690. doi: 10.1063/1.1672938.
+url: http://dx.doi.org/10.1063/1.1672938.
+[12]
+A M Stoneham. “Non-radiative transitions in semiconductors”. In: Reports on Progress in Physics 44.12 (Dec.
+1981), pp. 1251–1295. issn: 1361-6633. doi: 10.1088/0034-4885/44/12/001. url: http://dx.doi.org/10.
+1088/0034-4885/44/12/001.
+[13]
+Audrius Alkauskas, Qimin Yan, and Chris G. Van de Walle. “First-principles theory of nonradiative carrier
+capture via multiphonon emission”. In: Physical Review B 90.7 (Aug. 2014). issn: 1550-235X. doi: 10.1103/
+physrevb.90.075202. url: http://dx.doi.org/10.1103/PhysRevB.90.075202.
+[14]
+Mark E. Turiansky et al. “Nonrad: Computing nonradiative capture coefficients from first principles”. In:
+Computer Physics Communications 267 (Oct. 2021), p. 108056. issn: 0010-4655. doi: 10.1016/j.cpc.2021.
+108056. url: http://dx.doi.org/10.1016/j.cpc.2021.108056.
+[15]
+Lin Shi, Ke Xu, and Lin-Wang Wang. “Comparative study of ab initio nonradiative recombination rate
+calculations under different formalisms”. In: Physical Review B 91.20 (May 2015). issn: 1550-235X. doi:
+10.1103/physrevb.91.205315. url: http://dx.doi.org/10.1103/PhysRevB.91.205315.
+[16]
+Luca Vandelli et al. “A Charge-Trapping Model for the Fast Component of Positive Bias Temperature Instability
+(PBTI) in High-κ Gate-Stacks”. In: IEEE Transactions on Electron Devices 61.7 (2014), pp. 2287–2293. issn:
+1557-9646. doi: 10.1109/ted.2014.2323085. url: http://dx.doi.org/10.1109/TED.2014.2323085.
+[17]
+G. Rzepa et al. “Comphy — A compact-physics framework for unified modeling of BTI”. In: Microelectronics
+Reliability 85 (2018), pp. 49–65. issn: 0026-2714. doi: 10.1016/j.microrel.2018.04.002. url: http:
+//dx.doi.org/10.1016/j.microrel.2018.04.002.
+48/51
+[18]
+Vamsi Putcha et al. “Extensive assessment of the charge-trapping kinetics in InGaAs MOS gate-stacks for the
+demonstration of improved BTI reliability”. In: Microelectronics Reliability 115 (Dec. 2020), p. 113996. issn:
+0026-2714. doi: 10.1016/j.microrel.2020.113996. url: http://dx.doi.org/10.1016/j.microrel.2020.
+113996.
+[19]
+Theresia Knobloch et al. “Physical modeling of the hysteresis in MoS2 transistors”. In: 2017 47th European
+Solid-State Device Research Conference (ESSDERC). IEEE, 2017, pp. 284–287. doi: 10.1109/essderc.2017.
+8066647. url: http://dx.doi.org/10.1109/essderc.2017.8066647.
+[20]
+Alexander Karl et al. “A standardized approach to characterize hysteresis in 2D-materials-based transistors
+for stability benchmarking and performance projection”. In: Nature Communications 17.1 (Nov. 2025). issn:
+2041-1723. doi: 10.1038/s41467-025-66210-z. url: http://dx.doi.org/10.1038/s41467-025-66210-z.
+[21]
+Y. Z. Lv et al. “Mapping diverse hysteresis dynamics in scaled MoS2 FETs using the universal method
+derived from TCAD modeling”. In: npj 2D Materials and Applications 10.1 (Feb. 2026). issn: 2397-7132. doi:
+10.1038/s41699-026-00671-8. url: http://dx.doi.org/10.1038/s41699-026-00671-8.
+[22]
+Tibor Grasser. “Stochastic charge trapping in oxides: From random telegraph noise to bias temperature
+instabilities”. In: Microelectronics Reliability 52.1 (Jan. 2012), pp. 39–70. issn: 0026-2714. doi: 10.1016/j.
+microrel.2011.09.002. url: http://dx.doi.org/10.1016/j.microrel.2011.09.002.
+[23]
+Dongyuan Mao et al. “Deep understanding of random telegraph noise (RTN) effects on SRAM stability”. In: 2016
+International Symposium on VLSI Technology, Systems and Application (VLSI-TSA). IEEE, Apr. 2016, pp. 1–2.
+doi: 10.1109/vlsi-tsa.2016.7480513. url: http://dx.doi.org/10.1109/VLSI-TSA.2016.7480513.
+[24]
+Shaofeng Guo et al. “Anomalous random telegraph noise in nanoscale transistors as direct evidence of two
+metastable states of oxide traps”. In: Scientific Reports 7.1 (2017). issn: 2045-2322. doi: 10.1038/s41598-
+017-06467-7. url: http://dx.doi.org/10.1038/s41598-017-06467-7.
+[25]
+L. Larcher. “Statistical simulation of leakage currents in mos and flash memory devices with a new multiphonon
+trap-assisted tunneling model”. In: IEEE Transactions on Electron Devices 50.5 (May 2003), pp. 1246–1253.
+issn: 0018-9383. doi: 10.1109/ted.2003.813236. url: http://dx.doi.org/10.1109/TED.2003.813236.
+[26]
+Feilong Liu et al. “Three-Dimensional Mechanistic Modeling of Gate Leakage Current in High-κ> MOSFETs”.
+In: Physical Review Applied 13.2 (Feb. 2020). issn: 2331-7019. doi: 10.1103/physrevapplied.13.024020.
+url: http://dx.doi.org/10.1103/PhysRevApplied.13.024020.
+[27]
+Dominic Waldhoer et al. “Comphy v3.0—A compact-physics framework for modeling charge trapping related
+reliability phenomena in MOS devices”. In: Microelectronics Reliability 146 (2023), p. 115004. issn: 0026-2714.
+doi: 10.1016/j.microrel.2023.115004. url: http://dx.doi.org/10.1016/j.microrel.2023.115004.
+[28]
+W. Goes et al. “Identification of oxide defects in semiconductor devices: A systematic approach linking DFT
+to rate equations and experimental evidence”. In: Microelectronics Reliability 87 (Aug. 2018), pp. 286–320.
+issn: 0026-2714. doi: 10.1016/j.microrel.2017.12.021. url: http://dx.doi.org/10.1016/j.microrel.
+2017.12.021.
+[29]
+Dominic Waldhoer et al. “Toward Automated Defect Extraction From Bias Temperature Instability Measure-
+ments”. In: IEEE Transactions on Electron Devices 68.8 (Aug. 2021), pp. 4057–4063. issn: 1557-9646. doi:
+10.1109/ted.2021.3091966. url: http://dx.doi.org/10.1109/TED.2021.3091966.
+[30]
+Dominic Waldhör. “Multiscale Modeling of Defect-Related Reliability Phenomena in Nanoelectronics”. en.
+PhD thesis. 2024. doi: 10.34726/HSS.2024.126322. url: https://repositum.tuwien.at/handle/20.500.
+12708/211246.
+[31]
+Jakob Michl et al. “Efficient Modeling of Charge Trapping at Cryogenic Temperatures—Part I: Theory”. In:
+IEEE Transactions on Electron Devices 68.12 (Dec. 2021), pp. 6365–6371. issn: 1557-9646. doi: 10.1109/ted.
+2021.3116931. url: http://dx.doi.org/10.1109/TED.2021.3116931.
+[32]
+Jakob Michl et al. “Efficient Modeling of Charge Trapping at Cryogenic Temperatures—Part II: Experimental”.
+In: IEEE Transactions on Electron Devices 68.12 (Dec. 2021), pp. 6372–6378. issn: 1557-9646. doi: 10.1109/
+ted.2021.3117740. url: http://dx.doi.org/10.1109/TED.2021.3117740.
+[33]
+D. Waldhoer et al. “Minimum Energy Paths for Non-Adiabatic Charge Transitions in Oxide Defects”. In:
+2019 IEEE International Integrated Reliability Workshop (IIRW). IEEE, Oct. 2019, pp. 1–5. doi: 10.1109/
+iirw47491.2019.8989889. url: http://dx.doi.org/10.1109/IIRW47491.2019.8989889.
+49/51
+[34]
+A. Ward and D. A. Broido. “Intrinsic phonon relaxation times from first-principles studies of the thermal
+conductivities of Si and Ge”. In: Physical Review B 81.8 (Feb. 2010). issn: 1550-235X. doi: 10.1103/physrevb.
+81.085205. url: http://dx.doi.org/10.1103/PhysRevB.81.085205.
+[35]
+David K. Ferry. “Non-equilibrium longitudinal optical phonons and their lifetimes”. In: Applied Physics Reviews
+8.2 (2021). issn: 1931-9401. doi: 10.1063/5.0044374. url: http://dx.doi.org/10.1063/5.0044374.
+[36]
+Enda Xiao et al. “Validating first-principles phonon lifetimes via inelastic neutron scattering”. In: Physical
+Review B 106.14 (Oct. 2022). issn: 2469-9969. doi: 10.1103/physrevb.106.144310. url: http://dx.doi.
+org/10.1103/PhysRevB.106.144310.
+[37]
+L. Dobaczewski, A. R. Peaker, and K. Bonde Nielsen. “Laplace-transform deep-level spectroscopy: The
+technique and its applications to the study of point defects in semiconductors”. In: Journal of Applied Physics
+96.9 (Nov. 2004), pp. 4689–4728. issn: 1089-7550. doi: 10.1063/1.1794897. url: http://dx.doi.org/10.
+1063/1.1794897.
+[38]
+Volkhard May and Oliver Kühn. Charge and Energy Transfer Dynamics in Molecular Systems. Wiley, Feb. 2011.
+isbn: 9783527633791. doi: 10.1002/9783527633791. url: http://dx.doi.org/10.1002/9783527633791.
+[39]
+Claudia Roos et al. “The temperature dependence of vibronic lineshapes: Linear electron-phonon coupling”.
+In: The Journal of Chemical Physics 141.15 (Oct. 2014). issn: 1089-7690. doi: 10.1063/1.4898081. url:
+http://dx.doi.org/10.1063/1.4898081.
+[40]
+Andrea Landi, D. K. Andrea Phan Huu, and Anna Painelli. “From the Fermi Golden Rule to Open Quantum
+Systems: Basic Concepts on Non-radiative Rates”. In: The Journal of Physical Chemistry C 128.43 (Oct.
+2024), pp. 18598–18611. issn: 1932-7455. doi: 10.1021/acs.jpcc.4c05567. url: http://dx.doi.org/10.
+1021/acs.jpcc.4c05567.
+[41]
+Kuo-mei Chen and Cheng-chih Pei. “An analytic formula of one-dimensional Franck-Condon factors for linear
+harmonic oscillators”. In: Journal of Molecular Spectroscopy 140.2 (Apr. 1990), pp. 401–406. issn: 0022-2852.
+doi: 10.1016/0022-2852(90)90150-o. url: http://dx.doi.org/10.1016/0022-2852(90)90150-O.
+[42]
+F. Iachello and M. Ibrahim. “Analytic and Algebraic Evaluation of Franck-Condon Overlap Integrals”. In: The
+Journal of Physical Chemistry A 102.47 (1998), pp. 9427–9432. issn: 1520-5215. doi: 10.1021/jp981911m.
+url: http://dx.doi.org/10.1021/jp981911m.
+[43]
+P. J. Drallos and J. M. Wadehra. “Exact evaluation and recursion relations of two-center harmonic oscillator
+matrix elements”. In: The Journal of Chemical Physics 85.11 (Dec. 1986), pp. 6524–6529. issn: 1089-7690.
+doi: 10.1063/1.451433. url: http://dx.doi.org/10.1063/1.451433.
+[44]
+P.P. Schmidt. “Computationally efficient recurrence relations for one-dimensional Franck–Condon overlap inte-
+grals”. In: Molecular Physics 108.11 (2010), pp. 1513–1529. issn: 1362-3028. doi: 10.1080/00268971003762142.
+url: http://dx.doi.org/10.1080/00268971003762142.
+[45]
+Melvin Lax. “The Franck-Condon Principle and Its Application to Crystals”. In: The Journal of Chemical
+Physics 20.11 (Nov. 1952), pp. 1752–1760. issn: 1089-7690. doi: 10.1063/1.1700283. url: http://dx.doi.
+org/10.1063/1.1700283.
+[46]
+Wolfgang Goes, Franz Schanovsky, and Tibor Grasser. “Advanced Modeling of Oxide Defects”. In: Bias
+Temperature Instability for Devices and Circuits. Springer New York, 2013, pp. 409–446. isbn: 9781461479093.
+doi: 10.1007/978-1-4614-7909-3_16. url: http://dx.doi.org/10.1007/978-1-4614-7909-3_16.
+[47]
+Markus Jech et al. “Quantum Chemistry Treatment of Silicon-Hydrogen Bond Rupture by Nonequilibrium
+Carriers in Semiconductor Devices”. In: Physical Review Applied 16.1 (2021). issn: 2331-7019. doi: 10.1103/
+physrevapplied.16.014026. url: http://dx.doi.org/10.1103/PhysRevApplied.16.014026.
+[48]
+Christoph Freysoldt et al. “First-principles calculations for point defects in solids”. In: Reviews of Modern
+Physics 86.1 (Mar. 2014), pp. 253–305. issn: 1539-0756. doi: 10.1103/revmodphys.86.253. url: http:
+//dx.doi.org/10.1103/RevModPhys.86.253.
+[49]
+Dieter K. Schroder. Semiconductor Material and Device Characterization. Wiley, Apr. 2005. isbn: 9780471749097.
+doi: 10.1002/0471749095. url: http://dx.doi.org/10.1002/0471749095.
+[50]
+Heinz-Peter Breuer and Francesco Petruccione. The Theory of Open Quantum Systems. Oxford University
+PressOxford, Jan. 2007. isbn: 9780191706349. doi: 10.1093/acprof:oso/9780199213900.001.0001. url:
+http://dx.doi.org/10.1093/acprof:oso/9780199213900.001.0001.
+50/51
+[51]
+Ernst Hairer and Gerhard Wanner. Solving Ordinary Differential Equations I. Springer Berlin Heidelberg,
+1993. isbn: 9783540788621. doi: 10.1007/978-3-540-78862-1. url: http://dx.doi.org/10.1007/978-3-
+540-78862-1.
+[52]
+Ernst Hairer and Gerhard Wanner. Solving Ordinary Differential Equations II. Springer Berlin Heidelberg,
+1996. isbn: 9783642052217. doi: 10.1007/978-3-642-05221-7. url: http://dx.doi.org/10.1007/978-3-
+642-05221-7.
+51/51

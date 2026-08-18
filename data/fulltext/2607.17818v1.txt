@@ -1,0 +1,1051 @@
+Task-Space Constrained Stochastic Trajectory Optimization for
+Time-Optimal Forestry Crane Motion Planning
+Marc-Philip Ecker1,2, Christoph Fr¨ohlich2, Bernhard Bischof2, Wolfgang Kemmetm¨uller1, Tobias Gl¨uck2
+Abstract— Efficient, collision-free, and time-optimal motion
+planning is a fundamental requirement for autonomous forestry
+cranes operating under hydraulic pump-flow constraints. The
+Via-Point-based Stochastic Trajectory Optimization (VP-STO)
+algorithm has demonstrated near-time-optimal hybrid motion
+planning in this domain, but requires a fixed terminal joint
+configuration specified prior to optimization. For kinematically
+redundant manipulators such as forestry cranes, this pre-
+commitment to a single inverse kinematics solution restricts
+the planner’s ability to exploit redundancy, particularly under
+the nonlinear, globally coupled pump-flow constraint where
+admissible joint velocities depend on their combined hydraulic
+demand. This paper presents TSC-VP-STO, a task-space-
+constrained extension of VP-STO that replaces the strict termi-
+nal joint-space constraint with a task-space constraint, jointly
+optimizing the trajectory and the redundant degrees of freedom
+of the terminal configuration. This enables the planner to
+adapt end configurations to the environment-dependent motion
+and hydraulic flow allocation, yielding more balanced pump
+utilization and shorter trajectory durations. We formalize the
+approach through a configuration space decomposition and
+derive a concrete reachability constraint for the forestry crane
+kinematics. Experimental evaluations across multiple planning
+targets and via-point configurations demonstrates a reduction
+on trajectory durations by 12-15% on average and improved
+pump-flow utilization compared to the baseline VP-STO. The
+practical applicability of TSC-VP-STO is validated through
+real-world deployment on a forestry crane, including a full
+log-loading cycle.
+I. INTRODUCTION
+Forestry cranes are among the most demanding platforms
+for autonomous manipulation research. Operating as large-
+scale hydraulic manipulators in cluttered, unstructured out-
+door environments, they must execute fast, collision-free
+motions while respecting tight actuation constraints imposed
+by a shared hydraulic pump. At the same time, the forestry
+sector faces a growing shortage of skilled operators due to
+demographic shifts and the high cost of training [1], [2],
+driving strong industrial demand for autonomous and semi-
+autonomous crane systems. Meeting this demand requires
+motion planners that are not only safe and collision-free, but
+that also fully exploit the machine’s actuation capabilities to
+minimize cycle times.
+From a planning perspective, forestry cranes present two
+interacting challenges that distinguish them from standard
+1Marc-Philip Ecker and Wolfgang Kemmetm¨uller are with the Au-
+tomation & Control Institute (ACIN), TU Wien, 1040 Vienna, Austria
+{ecker,kemmetmueller}@acin.tuwien.ac.at
+2Marc-Philip
+Ecker,
+Christoph
+Fr¨ohlich,
+Bernhard
+Bischof
+and
+Tobias
+Gl¨uck
+are
+with
+the
+Center
+for
+Vision,
+Automation
+&
+Control, AIT Austrian Institute of Technology GmbH, 1210 Vienna,
+Austria
+{marc-philip.ecker,christoph.froehlich,
+bernhard.bischof,tobias.glueck}@ait.ac.at
+¡
+0
+2
+4
+6
+8
+0
+0.5
+1
+0
+2
+4
+6
+8
+-3
+-2.5
+-2
+0
+2
+4
+6
+8
+0
+0.5
+1
+0
+2
+4
+6
+8
+0.6
+0.8
+1
+1.2
+1.4
+0
+2
+4
+6
+8
+0
+0.5
+1
+0
+2
+4
+6
+8
+-0.4
+-0.2
+0
+0.2
+0.4
+0
+2
+4
+6
+8
+0
+0.5
+1
+0
+2
+4
+6
+8
+0.5
+1
+1.5
+2
+0
+2
+4
+6
+8
+0
+0.5
+1
+0
+5
+10
+15
+20
+25
+30
+35
+40
+45
+50
+0
+0.2
+0.4
+0.6
+0.8
+1
+0
+2
+4
+6
+8
+10
+12
+0
+0.2
+0.4
+0.6
+0.8
+1
+Fig. 1.
+Overview of TSC-VP-STO. The proposed method replaces the
+fixed terminal joint-space constraint of VP-STO with a task-space constraint,
+enabling the optimizer to jointly refine the trajectory and the redundant
+terminal configuration for improved hydraulic flow allocation.
+robotic manipulators. First, their performance is fundamen-
+tally limited by the hydraulic pump flow rate (PFR), which
+is shared across all actuated joints simultaneously. Unlike
+systems with independent joint velocity limits, the PFR
+constraint introduces a nonlinear, globally coupled restric-
+tion: the admissible velocity of any joint depends on the
+instantaneous flow demand of all others. Time-optimal plan-
+ning therefore requires coordinating joint motion collectively,
+rather than optimizing joints independently. Second, forestry
+cranes are kinematically redundant, multiple joint configura-
+tions correspond to the same end-effector pose in task space.
+This redundancy, if properly exploited, offers additional
+degrees of freedom to improve the global flow allocation
+across joints. However, if the terminal configuration is fixed
+prior to planning, this opportunity is lost entirely.
+Existing approaches [1]–[7] address these challenges to
+varying degrees but do not jointly optimize trajectory dura-
+tion under the hydraulic pump-flow constraint. The closest
+prior work, the family of VP-STO-based planners [8]–[10],
+explicitly integrates the PFR constraint and generates near-
+time-optimal trajectories, significantly outperforming RRT*-
+based approaches.
+Despite these advances, a fundamental limitation persists
+arXiv:2607.17818v1  [cs.RO]  20 Jul 2026
+Fig. 2.
+Block diagram of the proposed TSC-VP-STO algorithm. The augmented parameter vector θ includes both the via-points ξvia and the independent
+terminal joint qI,d. The dependent terminal joints are resolved analytically via h−1
+D , and the full trajectory is represented as a cubic spline. The minimum-
+time parameterization accounts for the pump-flow rate constraint.
+across all existing VP-STO-based planners: the terminal joint
+configuration must be fixed before trajectory optimization
+begins. This requires selecting a specific inverse kinematics
+solution a priori, before any knowledge of the required
+motion through the environment is available. For a redundant
+system under a globally coupled PFR constraint, this pre-
+commitment is particularly costly. The choice of terminal
+configuration strongly influences how hydraulic flow must
+be distributed among joints throughout the entire motion.
+Yet this distribution depends on the trajectory itself, which
+in turn depends on obstacle geometry, start configuration, and
+the joint coordination induced by the PFR constraint. Prema-
+turely fixing the terminal configuration therefore eliminates
+the planner’s ability to adapt joint coordination to the task,
+often forcing suboptimal flow distributions that increase total
+trajectory duration.
+This paper addresses this limitation by introducing TSC-
+VP-STO, a task-space-constrained extension of VP-STO for
+forestry crane motion planning. Rather than prescribing a
+fixed terminal joint configuration, TSC-VP-STO enforces
+a terminal constraint directly in task space and treats the
+redundant degrees of freedom of the terminal configuration
+as additional free optimization variables. The trajectory and
+the terminal configuration are thus optimized jointly, allow-
+ing the planner to select a kinematically advantageous end
+configuration that improves hydraulic flow allocation across
+the full motion horizon. This yields more balanced pump
+utilization, faster joint coordination, and consistently shorter
+trajectory durations compared to the baseline.
+The contributions of this paper are summarized in Fig. 1
+We present a general task-space-constrained formulation
+of VP-STO applicable to redundant manipulators under
+nonlinear actuation constraints. We introduce a structured
+configuration space decomposition into fixed, independent,
+and dependent joints, and derive an explicit reachability
+constraint for the forestry crane kinematics. We demonstrate
+through systematic numerical evaluation that TSC-VP-STO
+consistently reduces trajectory durations across all tested
+planning scenarios and via-point configurations, while main-
+taining comparable or lower total computation time. Finally,
+we validate the practical applicability of the proposed planner
+through deployment on a real forestry crane, including free
+navigation and a full log-loading cycle under near-time-
+optimal pump utilization.
+A. Related Work
+We structure the review around two topics directly relevant
+to the proposed approach: autonomous motion planning for
+large-scale hydraulic manipulators and redundancy resolution
+in kinematically redundant systems.
+a) Autonomous motion planning for large-scale hy-
+draulic manipulators: Existing work on forestry crane au-
+tomation spans model predictive path-tracking control with
+sway damping [3], [4], trajectory planning from pre-recorded
+human demonstrations [1], learning-from-demonstration via
+dynamic motion primitives [6] and reinforcement learning
+for end-effector tracking [5]. At the system level, RRT*-
+based planners have been integrated into fully autonomous
+pipelines for log loading [2] and material handling [7]. How-
+ever, none of these approaches jointly optimize trajectory
+duration under the hydraulic pump-flow constraint.
+Jebellat and Sharf [11], [12] address sway damping and
+waypoint tracking through dynamic programming, but do
+not explicitly optimize for execution time or account for
+the pump flow rate constraint. Song and Sharf [13] con-
+sider time-optimal motion planning with zero-moment point
+stability constraints for timber manipulation, but similarly
+do not incorporate the hydraulic pump-flow rate. The most
+directly relevant prior work is the family of VP-STO-based
+planners introduced in [8], which explicitly integrates the
+pump-flow rate constraint into the time-optimal trajectory op-
+timization and demonstrates near-time-optimal performance
+operating at the pump saturation limit and outperforming
+classical RRT* based approaches [2], [7]. This approach
+has subsequently been extended to account for pendulum
+sway dynamics [9], Euclidean Distance Field-based collision
+avoidance for slender robotic links [14], and integrated with
+a collision-free sway-damping model predictive controller
+for closed-loop real-world deployment [10]. The present
+work builds directly on this line of research and inherits its
+treatment of the pump-flow rate constraint.
+b) Kinematic redundancy resolution: Redundancy res-
+olution, the problem of selecting among the infinite joint
+configurations that satisfy a given task-space constraint, is a
+classical topic in robot kinematics [15]. Common approaches
+include Jacobian null-space projection for local redundancy
+resolution, task augmentation, and optimization-based meth-
+ods that exploit redundancy to satisfy secondary objectives
+such as joint limit avoidance, singularity avoidance, or ma-
+nipulability maximization. In the context of motion planning,
+redundancy is typically resolved either at the inverse kine-
+matics level prior to planning [8], [9], [16], or integrated into
+the planning problem itself [17]–[19]. Pre-resolving redun-
+dancy decouples the IK and planning problems but eliminates
+the planner’s ability to select terminal configurations that
+are advantageous for the planned motion. This limitation is
+well recognized in the manipulation literature [17]–[19], and
+solutions for global planners such as RRT* and PRM have
+been proposed [17], [18], [20]. However, these approaches
+have not been extended to VP-STO-based planners for hy-
+draulic crane planning under pump-flow constraints. This gap
+is particularly important because VP-STO has been shown
+to outperform classical sampling-based planners in terms of
+trajectory duration [8], yet it does not explicitly account
+for the interaction between kinematic redundancy and the
+globally coupled actuation constraint, which is especially
+pronounced in pump-flow-limited hydraulic systems.
+II. TASK-SPACE CONSTRAINED VP-STO
+We consider the mapping from joint space coordinates q ∈
+Rn to task-space coordinates
+y = h(q) ∈Rm ,
+(1)
+for a redundant manipulator, i.e. m < n. The planning task
+considered in this work can be formulated as an optimal
+control problem of the form
+min
+q(·),T
+J(q, ˙q, ¨q, T)
+(2a)
+s.t.
+q(0) = q0 ,
+˙q(0) = 0
+(2b)
+y(T) = yd ,
+˙q(T) = 0
+(2c)
+˙qmin ≤˙q(t) ≤˙qmax, Q(t) ≤Qmax
+(2d)
+¨qmin ≤¨q(t) ≤¨qmax, q(t) ∈Cfree ,
+(2e)
+with the PFR constraint Q(t) ≤Qmax and the collision
+constraint q(t) ∈Cfree. In the context of this work, we
+set J = T + J, i.e., the objective is to minimize the total
+trajectory duration. In contrast to the original formulation,
+which enforces a fixed terminal configuration q(T) = qd, we
+only require the terminal task-space constraint y(T) = yd,
+allowing the optimizer to select a kinematically advantageous
+final joint configuration. The main idea of the algorithm is
+summarized in Fig. 2.
+A. Original Baseline VP-STO
+This section briefly reviews the core concepts of the
+original Via-Point-based Stochastic Trajectory Optimization
+(VP-STO) algorithm [21]. As previously noted, the algorithm
+solves the motion planning problem (2) given a fixed target
+configuration in joint space, q(T) = qd. The trajectory is
+parameterized by N via-points
+ξvia =
+
+
+q1
+...
+qN
+
+
+(3)
+which are connected using cubic spline interpolations. This
+is formulated as the following minimum-acceleration opti-
+mization problem
+min
+q(·)
+Z 1
+0
+q′′(s)Tq′′(s) ds
+(4a)
+s.t.
+q(sk) = qk , k = 1, . . . , N
+(4b)
+q(0) = q0 , q′(0) = 0
+(4c)
+q(1) = qd , q′(1) = 0 .
+(4d)
+The solution of (4) is given by cubic splines and can be
+written as q(s) = Φ(s)w with the weight vector
+w =
+ξvia
+ξbc
+
+,
+(5)
+where ξT
+bc = [qT
+0 , qT
+d , 0T, 0T] is the vector containing the
+boundary conditions. A linear time parameterization s =
+t
+T
+is used to yield the trajectory q(t). The final time T is chosen
+as the minimum time that fulfils the inequality constraints
+(2d) and (2e). Hence, (2d) and (2e) yields a finite number of
+constraints of the form T ≥Tj(ξvia). The minimum endtime
+that ensures (2d) and (2e) can be computed by T ∗(ξvia) =
+maxj Tj(ξvia). This allows to rewrite (2) to
+min
+ξvia
+J
+
+q(ξvia), ˙q(ξvia), ¨q(ξvia), T ∗(ξvia)
+
+.
+(6)
+With Φ(s) = [Φvia(s), Φbc(s)], a smoothness prior
+Σvia =
+ Z 1
+0
+Φ′′
+via(s)TΦ′′
+via(s)ds
+−1
+(7a)
+µvia = Σvia
+Z 1
+0
+Φ′′
+via(s)TΦ′′
+bc(s)dsξbc
+(7b)
+is used to initialize the sampling distribution ξvia
+∼
+N(µvia, Σvia).
+B. Configuration Space Decomposition
+We decompose the configuration space as
+q =
+
+
+qI
+qF
+qD
+
+∈CI × CF × CD = C
+(8)
+where qI ∈CI ⊆RnI are the independent joint coordinates,
+qF ∈CF ⊆RnF are the fixed, and qD ∈CD ⊆RnD are
+the dependent joints coordinates, with m = nF + nD and
+n = nF + nI + nD.
+For a given task-space coordinate y ∈Rm, the fixed
+coordinates are uniquely defined by the mapping
+qF = h−1
+F (y) ,
+(9)
+If qF̸ = h−1
+F (y), the task space target y = h(qI, qF , qD)
+cannot be reached for any choice of qI and qD.
+Furthermore, for a given y and independent coordinates
+qI, we assume that the dependent joints are uniquely deter-
+mined by
+qD = h−1
+D (y, qI) ,
+(10)
+such that
+y = h
+ qI, h−1
+F (y), h−1
+D (y, qI)
+
+.
+(11)
+This decomposition isolates the independent degrees of free-
+dom that remain available for optimization at the terminal
+configuration. We assume that the mappings h−1
+F
+and h−1
+D
+are unique and a derivation for the specific timber crane use
+case is proposed in Section III.
+C. Augmented Problem Formulation
+To fully exploit the kinematic redundancy of the forestry
+crane, we extend the standard VP-STO framework by treating
+the redundant terminal configuration as a free parameter
+within the optimization. We define an augmented parameter
+vector
+θ =
+ξvia
+qI,d
+
+∈RN·n+nI ,
+(12)
+that includes the independent components qI,d of the termi-
+nal configuration qT
+d = [qT
+I,d, qT
+F,d, qT
+D,d].
+Since the fixed coordinates qF,d = h−1
+F (yd) can be
+computed directly from the task-space target, they are incor-
+porated into the boundary condition vector wbc. This ensures
+that qF,d are explicitly accounted for in the smoothness
+prior (7). Consequently, the new boundary condition vector
+is defined as
+ξbc = [qT
+0 , qT
+F,d, 0T, 0T] .
+(13)
+With the augmented weight vector
+w =
+
+
+θ
+h−1
+D (yd, qI,d)
+ξbc
+
+
+(14)
+the path is represented as the cubic spline q(s) = Φ(s)w,
+s ∈[0, 1]. By construction, the boundary condition vector
+(13) ensures that the terminal constraint h
+ q(1)
+
+= yd is
+Fig. 3.
+Kinematic structure of the five-DOF forestry crane used for global
+motion planning. The joints q1 (slewing), q2 (main boom), q3 (inner boom),
+q4 (telescoping), and q5 (gripper rotation) are shown. Points p1, p2, and
+p3 denote the relevant kinematic reference points used in the configuration
+space decomposition, and γ is the angle used to compute the dependent
+joint q3.
+satisfied. Time parameterization and computation of the final
+time T are performed as in the original formulations [8],
+[21].
+D. Reachability Constraint
+For a given independent joint configuration qI, we define
+the set of reachable task-space coordinates as
+R(qI) =
+
+y ∈Rmh−1
+D (y, qI) exists
+
+.
+(15)
+Feasibility of the terminal configuration thus requires
+yd ∈R(qI,d) .
+(16)
+This constraint is enforced via penalty terms, analogous to
+joint limit and collision constraints. Consequently, an explicit
+characterization of R(qI) is required for implementation. A
+concrete implementation for the timber crane can be found
+in Section III-C.
+E. Optimization
+The augmented parameter vector θ is optimized using
+the covariance matrix adaptation (CMA) update rule of VP-
+STO [21]. In each iteration, Nsample candidate solutions are
+sampled from the current distribution, evaluated in parallel,
+and the distribution parameters are updated based on the top-
+ranked samples. The solver simultaneously refines path shape
+and the terminal configuration, ensuring that the selected
+terminal state is not merely a valid inverse kinematics
+solution, but the specific configuration that minimizes the
+total trajectory duration T ∗(θ). In our experiments, we use
+Nsample = 50 trajectory samples and 100 evaluation points
+along the spline.
+III. FORESTRY CRANE APPLICATION
+We apply TSC-VP-STO to the forestry crane depicted in
+Fig. 1, adopting the crane model from [8], [9]. The crane
+is modeled with five actuated DOFs, q = [q1, . . . , q5]T.
+Passive pendulum dynamics at the tip are neglected at the
+global planning level and handled by the lower-level tracking
+controller [8], [10].
+We define the task space coordinates
+y = h(q) =
+
+ptip
+ϕ
+
+,
+(17)
+where ptip = [y1, y2, y3]T ∈R3 denotes the Cartesian
+position of the tip, and ϕ ∈[−π, π) is the yaw angle of
+the gripper expressed in frame F0.
+A. Pump flow rate
+The displacements of the hydraulic cylinders denoted by
+dT = [d1, . . . , d5] ∈R5, are described as a function of
+q by d = hC(q). This directly results in the differential
+kinematics
+˙d = JC(q) ˙q = ∂hC(q)
+∂q
+˙q ,
+(18)
+where ˙d ∈R5 are the velocities of the hydraulic actuators
+and ˙q are the joint velocities. The cylinders are supplied by
+a single pump, resulting in a pump flow rate (PFR) for the
+hydraulic system given by
+Q(t) =
+5
+X
+l=1
+Al
+ sign( ˙dl)
+
+| ˙dl| ,
+(19)
+where Al(·), l = 1, . . . , 5 are the direction-dependent ef-
+fective areas of the cylinders. The PFR (19) that can be
+supplied by the hydraulic actuation system is limited by
+Qmax. This yields the pump flow rate constraint (PFRC)
+Q(t) ≤Qmax. For a detailed description on how to integrate
+this constraint into the endtime computation of VP-STO, the
+reader is referred to [8].
+B. Configuration Space Decomposition
+We choose the fixed joints as qF = [q1, q5]T, the in-
+dependent joint as qI = q2, and the dependent joints as
+qD = [q3, q4]T.
+As illustrated in Fig. 3, given a desired tip position
+ptip,d = [y1,d, y2,d, y3,d]T and desired gripper orientation
+ϕd, the fixed joints follow from
+h−1
+F (y) =
+"
+atan2(y2,d, y1,d)
+atan2(y2,d, y1,d) −ϕd
+#
+.
+(20)
+To derive the mapping from the independent to the depen-
+dent joints, we express all relevant quantities in the frame F0,
+which is fixed to the slewing column and does not depend
+on q1. The points p1 and p2 in Fig. 3 expressed in F0 read
+p1 =
+−a1
+d1
+
+,
+p2 =
+a2 cos q2 −a1
+a2 sin q2 + d1
+
+,
+(21)
+Fig. 4.
+Different task space targets used for numerical evaluation and
+comparison in Fig. 5.
+where q2 = qI is known. The tip position expressed in F0
+is
+p3 =
+"q
+y2
+1,d + y2
+2,d
+y3,d
+#
+.
+(22)
+From Fig. 3, the quantity d3 satisfies
+d3 =
+q
+∥p3 −p2∥2 −a2
+3.
+(23)
+Because
+the
+telescope
+arm
+has
+a
+known
+fixed
+base
+length d3,0, the joint q4 follows as
+q4 = d3 −d3,0.
+(24)
+The angle γ shown in Fig. 3 can be computed from p1,
+p2, and p3 via
+γ = arccos
+(p3 −p2)T(p1 −p2)
+∥p3 −p2∥∥p1 −p2∥
+
+,
+(25)
+which yields the dependent joint angle
+q3 = γ + arctan
+a3
+d3
+
+.
+(26)
+Thus, the dependent joints can be obtained from the
+desired task-space configuration yd and the independent joint
+qI = q2:
+h−1
+D (y, qI) =
+"
+γ + arctan
+a3
+d3
+
+d3 −d3,0
+#
+.
+(27)
+C. Reachability Constraint
+From (23), it follows that no solution exists whenever
+∥p3 −p2∥< a3. This has a clear physical interpretation:
+the tip position p3 must always remain at least the offset a3
+away from p2 (ignoring joint limits, which are addressed
+separately). Accordingly, the reachable set for a given value
+of the independent joint qI = q2 is
+R(qI) =
+n
+y ∈R4 : ∥p3 −p2∥≥a3
+o
+.
+(28)
+Joint limits are neglected in the definition of the reachable
+set, since they are addressed separately in the algorithm.
+Fig. 5.
+Numerical comparison of TSC-VP-STO (red) and VP-STO (blue) across four planning targets and varying numbers of via-points Nvia. Top: Mean
+planner runtime. Middle: Mean trajectory duration T. Bottom: Total execution time (runtime + trajectory duration). TSC-VP-STO consistently achieves
+shorter trajectory durations and lower total execution times across all scenarios.
+0
+2
+4
+6
+8
+0
+0.5
+1
+0
+2
+4
+6
+8
+-3
+-2.5
+-2
+0
+2
+4
+6
+8
+0
+0.5
+1
+0
+2
+4
+6
+8
+0.6
+0.8
+1
+1.2
+1.4
+0
+2
+4
+6
+8
+0
+0.5
+1
+0
+2
+4
+6
+8
+-0.4
+-0.2
+0
+0.2
+0.4
+0
+2
+4
+6
+8
+0
+0.5
+1
+0
+2
+4
+6
+8
+0.5
+1
+1.5
+2
+0
+2
+4
+6
+8
+0
+0.5
+1
+Fig. 6.
+Representative sample trajectory for Target 4. Left: Contribution
+of each joint to the total hydraulic pump flow rate, normalized by Qmax.
+TSC-VP-STO (red) achieves a more balanced flow distribution than VP-
+STO (blue), with q3 completing its motion early to free pump capacity for
+the remaining joints. Right: Corresponding joint-space trajectories and target
+configurations.
+TABLE I
+AVERAGE REDUCTION OF TRAJECTORY DURATIONS FOR 100
+RANDOMLY SELECTED TASK-SPACE TARGETS
+Nvia
+Avg. Reduction in %
+1
+15.28
+2
+13.11
+3
+12.87
+4
+12.37
+IV. RESULTS
+We evaluate our algorithm on the forestry crane visual-
+ized in Fig. 4. We measure planning performance across
+four different task-space targets and varying numbers of
+via-points Nvia, comparing runtimes and overall trajectory
+duration against the classical VP-STO baseline [8]. We then
+analyze the differences on a representative sample scenario
+to illustrate the coordination strategy employed by TSC-VP-
+STO. Finally, we deploy the planner on the real machine and
+demonstrate its practical applicability in a log-loading cycle.
+A. Numerical Comparison
+We evaluate the proposed TSC-VP-STO against the base-
+line VP-STO introduced in [8] with the minimum norm
+IK strategy from [16]. Both algorithms are tested with 100
+evaluation points and 50 trajectory samples, a configuration
+that provides a good trade-off between runtime and trajectory
+quality. All trajectory evaluations are parallelized on eight
+CPU cores.
+First, we evaluate the reduction of trajectory durations
+for 100 randomly selected task space targets, which are
+0
+5
+10
+15
+20
+25
+30
+35
+40
+45
+50
+Total Flow
+0
+0.2
+0.4
+0.6
+0.8
+1
+Time in s
+0
+2
+4
+6
+8
+10
+12
+Total Flow
+0
+0.2
+0.4
+0.6
+0.8
+1
+Fig. 7.
+Real-world crane experiments. Top: Empty-gripper motions. Bottom: Full log-loading cycle. Left: Estimated hydraulic pump flow rate Qpump ∈
+[0, 1], normalized by Qmax; the dashed line indicates the flow rate limit. Right: Planned tip trajectories (black) and executed tip trajectories (blue). The
+crane consistently operates near the pump flow rate limit, confirming near-time-optimal behavior.
+summarized in Table I . We found that on average our
+approach finds trajectories which are faster by 12-15% than
+the baseline approach.
+Fig. 5 compares both planners for different numbers of via-
+points Nvia and the targets shown in Fig. 4. The figure shows
+(top) the mean planner runtime, (middle) the mean trajectory
+duration T, and (bottom) the total execution time, defined as
+the sum of runtime and trajectory duration. This illustrates
+that our proposed TSC-VP-STO consistently reduces trajec-
+tory duration across all targets. By jointly optimizing the
+trajectory and the final joint configuration, the planner can
+exploit kinematic redundancy to minimize execution time
+in task space. Even with fewer via-points, TSC-VP-STO
+achieves faster trajectories than the baseline in most cases.
+Although its higher-dimensional search space and the lack
+of prior knowledge about a collision-free final configuration
+slightly increase optimization runtime, the overall total exe-
+cution time remains lower than that of the classical VP-STO.
+Hence, TSC-VP-STO achieves better overall time-efficiency.
+Since TSC-VP-STO reaches comparable or better tra-
+jectory durations with fewer via-points, it can reduce the
+number of decision variables while maintaining high-quality
+solutions, yielding shorter computation times overall.
+For a more detailed analysis, Fig. 6 illustrates a represen-
+tative example for Target 4. A consistent pattern is that TSC-
+VP-STO deliberately completes one joint (q3) significantly
+earlier than the others, freeing pump capacity for the remain-
+ing joints. In contrast, VP-STO keeps q2 nearly stationary
+initially and allocates most flow to q3, leading to less
+balanced pump utilization. TSC-VP-STO distributes motion
+more evenly across joints over time, yielding smoother flow
+profiles and shorter total durations. The resulting terminal
+configurations for both planners are illustrated at the bottom
+right part of Fig. 6.
+B. Real-World Implementation
+The proposed TSC-VP-STO planner was integrated into
+the autonomous control stack of a real-world forestry crane,
+following the framework in [10]. In this architecture, TSC-
+VP-STO serves as the global planning module, while a
+collision-free MPC acts as the underlying tracking controller
+to suppress pendulum oscillations. Environmental perception
+is handled via a LiDAR-based mapping system that generates
+a Euclidean Distance Field (EDF) for collision detection
+[14].
+The performance of the planner is evaluated through a
+series of continuous trajectory executions. Fig. 7 (upper
+right) illustrates the end-effector motions, comparing the
+planned paths (black) with the actual crane movement (blue)
+using an empty gripper. The tracking performance remains
+high despite the high-speed nature of the motions. The
+larger deviation observed in the rightmost trajectory results
+from the MPC responding to collisions induced by the
+pendulum dynamics, which are not considered by the global
+planner.To verify the time-optimality of the generated plans,
+the estimated hydraulic pump flow rate is shown in the upper
+left of Fig. 7. As direct measurement of the flow rate was
+unavailable, it was reconstructed from joint coordinate and
+velocity estimates. The data reveals that the crane consis-
+tently operates at or near the defined flow rate limits during
+peak motion phases. This saturation confirms that the TSC-
+VP-STO planner effectively exploits the machine’s actuation
+limits to produce near-time-optimal trajectories.
+Finally, the system was validated in a full log-loading cy-
+cle, demonstrating that the task-space constrained approach
+is robust and applicable to real-world manipulation tasks.
+The results are illustrated at the lower part of Fig. 7.
+V. CONCLUSION
+This
+paper
+presented
+TSC-VP-STO,
+a
+task-space-
+constrained extension of VP-STO for time-optimal motion
+planning on kinematically redundant forestry cranes under
+hydraulic pump-flow constraints. By replacing the fixed ter-
+minal joint-space constraint with a task-space constraint and
+jointly optimizing the trajectory and the redundant degrees of
+freedom of the terminal configuration, TSC-VP-STO enables
+the planner to adapt end configurations to the environment-
+dependent motion and hydraulic flow allocation. We for-
+malized the approach through a configuration space decom-
+position into fixed, independent, and dependent joints, and
+derived an explicit reachability constraint for the forestry
+crane kinematics. Experimental evaluations across multiple
+planning targets and via-point configurations consistently
+demonstrated reduced trajectory durations and improved
+pump-flow utilization compared to the VP-STO baseline.
+Real-world deployment on a forestry crane, including a full
+log-loading cycle, confirmed the practical applicability and
+near-time-optimal behavior of the proposed planner.
+A current limitation is the assumption that the reachable
+set R(qI) can be characterized in closed form. Extending
+to more complex kinematic chains may require numerical
+reachability estimation. Furthermore, the increased dimen-
+sionality of the search space due to the additional redundant
+terminal DOF may affect convergence for systems with
+higher degrees of redundancy.
+REFERENCES
+[1] D. Ortiz Morales, S. Westerberg, P. La Hera, U. Mettin, L. Freidovich,
+and A. Shiriaev, “Increasing the level of automation in the forestry
+logging process with crane trajectory planning and control,” Journal
+of Field Robotics, vol. 31, no. 3, pp. 343–363, 2014.
+[2] E. Ayoub, H. Fernando, W. Larriv´ee-Hardy, N. Lemieux, P. Gigu`ere,
+and I. Sharf, “Log loading automation for timber-harvesting industry,”
+in 2024 IEEE International Conference on Robotics and Automation
+(ICRA), 2024, pp. 17 920–17 926.
+[3] J. Kalmari, J. Backman, and A. Visala, “Nonlinear model predictive
+control of hydraulic forestry crane with automatic sway damping,”
+Computers and Electronics in Agriculture, vol. 109, pp. 36–45, 2014.
+[4] ——, “Coordinated motion of a hydraulic forestry crane and a vehicle
+using nonlinear model predictive control,” Computers and Electronics
+in Agriculture, vol. 133, pp. 119–127, 2017.
+[5] R. Dhakate, C. Brommer, C. Bohm, H. Gietler, S. Weiss, and J. Stein-
+brener, “Autonomous control of redundant hydraulic manipulator using
+reinforcement learning with action feedback,” in 2022 IEEE/RSJ
+International Conference on Intelligent Robots and Systems (IROS),
+2022, pp. 7036–7043.
+[6] P. L. Hera, D. O. Morales, and O. Mendoza-Trejo, “A study case of
+dynamic motion primitives as a motion planning method to automate
+the work of forestry cranes,” Computers and Electronics in Agricul-
+ture, vol. 183, p. 106037, 2021.
+[7] F. A. Spinelli, Y. Zhai, F. Nan, P. Egli, J. Nubert, T. Bleumer, L. Miller,
+F. Hofmann, and M. Hutter, “Large scale robotic material handling:
+Learning, planning, and control,” 2025.
+[8] M.-P. Ecker, B. Bischof, M. N. Vu, C. Fr¨ohlich, T. Gl¨uck, and
+W. Kemmetm¨uller, “Near time-optimal hybrid motion planning for
+timber cranes,” in 2025 IEEE International Conference on Robotics
+and Automation (ICRA), 2025, pp. 1467–1473.
+[9] ——, “Global kinodynamic motion planning for an underactuated
+timber crane with stochastic trajectory optimization,” Mechatronics,
+vol. 108, p. 103319, 2025.
+[10] ——, “A collision-free sway damping model predictive controller for
+safe and reactive forestry crane navigation,” in 2026 IEEE Interna-
+tional Conference on Robotics and Automation (ICRA), 2026.
+[11] I. Jebellat and I. Sharf, “Trajectory generation with dynamic program-
+ming for end-effector sway damping of forestry machine,” in 2023
+IEEE International Conference on Robotics and Automation (ICRA),
+2023, pp. 8134–8140.
+[12] ——, “Motion planners for path or waypoint following and end-
+effector sway damping with dynamic programming,” IEEE Transac-
+tions on Automation Science and Engineering, pp. 1–14, 2024.
+[13] J. Song and I. Sharf, “Time optimal motion planning with zmp stability
+constraint for timber manipulation,” in 2020 IEEE International Con-
+ference on Robotics and Automation (ICRA), 2020, pp. 4934–4940.
+[14] M.-P. Ecker, B. Bischof, M. N. Vu, C. Fr¨ohlich, T. Gl¨uck, and
+W. Kemmetm¨uller, “Efficient collision detection for long and slender
+robotic links in euclidean distance fields: Application to a forestry
+crane,” in 2025 IEEE/RSJ International Conference on Intelligent
+Robots and Systems (IROS), 2025.
+[15] B. Siciliano, “Kinematic control of redundant robot manipulators: A
+tutorial,” Journal of intelligent and robotic systems, vol. 3, no. 3, pp.
+201–212, 1990.
+[16] M. N. Vu, G. Ebmer, A. Wachter, M.-P. Ecker, G. Nguyen, and
+T. Glueck, “Gpu-accelerated motion planning of an underactuated
+forestry crane in cluttered environments,” IFAC-PapersOnLine, vol. 59,
+no. 18, pp. 295–300, 2025, 14th IFAC Symposium on Robotics
+ROBOTICS 2025.
+[17] J. Ahuactzin and K. Gupta, “The kinematic roadmap: a motion
+planning based global approach for inverse kinematics of redundant
+robots,” IEEE Transactions on Robotics and Automation, vol. 15, no. 4,
+pp. 653–669, 1999.
+[18] L. Keselman, E. Verriest, and P. A. Vela, “Forage rrt — an efficient
+approach to task-space goal planning for high dimensional systems,”
+in 2014 IEEE International Conference on Robotics and Automation
+(ICRA), 2014, pp. 1572–1577.
+[19] E. Ferrentino, F. Salvioli, and P. Chiacchio, “Globally optimal redun-
+dancy resolution with dynamic programming for robot planning: A
+ros implementation,” Robotics, vol. 10, no. 1, 2021.
+[20] M. Behnisch, R. Haschke, and M. Gienger, “Task space motion
+planning using reactive control,” in 2010 IEEE/RSJ International
+Conference on Intelligent Robots and Systems, 2010, pp. 5934–5940.
+[21] J. Jankowski, L. Bruderm¨uller, N. Hawes, and S. Calinon, “VP-STO:
+Via-point-based stochastic trajectory optimization for reactive robot
+behavior,” in 2023 IEEE International Conference on Robotics and
+Automation (ICRA), 2023, pp. 10 125–10 131.

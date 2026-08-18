@@ -1,0 +1,654 @@
+ 
+ 
+  
+Toward Optimal Adenovirus Detection Using YOLO26 
+Olivier Rukundo 
+Department of Electronic and Computer Engineering; University of Limerick; Limerick, Ireland 
+e-mail: olivier.rukundo@ul.ie  
+Abstract: This study systematically benchmarks different data augmentation setups across YOLO26 
+model size variants to determine the most effective setup for adenovirus detection in TEM images. 
+The benchmarked setups include NAS, GAS, GMAS and DAS, all evaluated under identical training 
+conditions. The adenovirus dataset, selected from the published TEM virus dataset, was re-anno-
+tated by leveraging adenovirus particle positions to generate YOLO-compatible bounding box an-
+notations. The experimental results demonstrated the impact of the benchmarked data augmenta-
+tion setups on adenovirus detection with YOLO26 and indicated the most effective data augmenta-
+tion setup.  
+Keywords: adenovirus; virus; detection, data augmentation, TEM; YOLO26  
+ 
+1. Introduction 
+Transmission electron microscopy (TEM) remains one of the most reliable techniques 
+for directly visualizing adenoviruses, as large-scale production of viral vectors for gene 
+therapy requires tools to characterize such virus particles [1-2]. With TEM enabling na-
+nometer‐scale resolution, it has become possible to understand what occurs with viral 
+particles when parameters or process operations change or when formulations are modi-
+fied[3-4]. However, detecting accurately adenoviruses in TEM images remains challeng-
+ing due to the presence of broken adenoviruses, debris, and various kinds of staining ar-
+tefacts [4]. Deep learning methods have demonstrated strong potential for automated ad-
+enovirus detection [3–4]. However, despite the success of YOLO-based detectors in nu-
+merous object detection tasks [5], their application to adenovirus detection has not been 
+previously investigated. Recently, YOLO26 was introduced as the latest member of the 
+YOLO family [6], providing an opportunity to investigate its applicability to detect ade-
+novirus from TEM images from TEM virus dataset [7]. Despite advances in object detec-
+tion architectures [8-12], the influence or impact of data augmentation setups on adenovi-
+rus detection with YOLO26 remains largely unexplored. For the purposes of this study, a 
+data augmentation setup is defined as a predefined set of data augmentation transfor-
+mations and their corresponding parameter settings applied to the training images (dur-
+ing YOLO26 model training). Because data augmentation setup can substantially affect 
+object detection model generalization, identifying the most effective augmentation setup 
+is essential for reliable adenovirus detection in TEM images, especially, due to the simul-
+taneous presence of intact adenoviruses, broken adenoviruses, different types of debris, 
+and various kinds of staining artefacts in such TEM images [4]. Therefore, this work sys-
+tematically benchmarks multiple data augmentation setups across YOLO26 model vari-
+ants to determine the most effective augmentation setup for adenovirus detection. The 
+benchmarked data augmentation setups are No Augmentation Setup (NAS), Geometric 
+Augmentation Setup (GAS), Geometric + Mosaic Augmentation Setup (GMAS), and De-
+fault Augmentation Setup (DAS). The selected YOLO26 model size variants are nano (n), 
+small (s), medium (m), large (l) and extra-large (x) [6]. The contributions of this work are 
+twofold:  The design data augmentation setups and systematic benchmarking. The em-
+pirical determination of the most effective setup across YOLO26 model size variants for 
+adenovirus detection in TEM images. 
+ 
+ 
+2. Materials and Methods 
+ 
+2.1. Data Augmentation Setups 
+In Deep learning, the data augmentation rely on geometric transformations (such as 
+rotation, scaling, translation, flipping), non-geometric transformations (such as contrast 
+adjustment, blurring, noise addition) and composite transformations or multi-image 
+composition methods (such as Mosaic) [13-15]. The most popular are geometric 
+transformations which rely heavily on interpolation algorithms to estimate pixel values at 
+transformed coordinates to preserve image continuity after spatial transformation. Early 
+studies investigated image interpolation from a general perspective, establishing a broad 
+understanding of grayscale interpolation methods [16].  
+ 
+                                                       Table 1: Data augmentation setups evaluated. 
+Transformation 
+DAS 
+NAS 
+GAS 
+GMAS 
+Rotation  
+Default 
+0.0 
+180.0 
+180.0 
+Translation 
+Default 
+0.0 
+0.10 
+0.10 
+Scaling 
+Default 
+0.0 
+0.20 
+0.20 
+Shear 
+Default 
+0.0 
+0.0 
+0.0 
+Perspective 
+Default 
+0.0 
+0.0 
+0.0 
+Horizontal flip 
+Default 
+0.0 
+0.5 
+0.5 
+Vertifical flip 
+Default 
+0.0 
+0.5 
+0.5 
+Mosaic 
+Default 
+0.0 
+0.0 
+1.0 
+Mixup 
+Default 
+0.0 
+0.0 
+0.0 
+Copy-Paste 
+Default 
+0.0 
+0.0 
+0.0 
+HSV-Hue 
+Default 
+0.0 
+0.0 
+0.0 
+HSV-Saturation 
+Default 
+0.0 
+0.0 
+0.0 
+HSV-Value 
+Default 
+0.0 
+0.0 
+0.0 
+Close Mosaic 
+Default 
+0.0 
+0.0 
+10 
+ 
+Subsequent studies examined the influence of rounding functions on interpolation 
+accuracy, demonstrating that interpolation performance can be significantly affected by 
+the choice of rounding strategy [17–19]. A new conceptual framework for classifying 
+interpolation algorithms into extra-pixel and non-extra-pixel methods was later 
+introduced [20]. Building upon these findings, subsequent research focused on 
+developing improved interpolation algorithms through adaptive optimization, novel 
+weighting schemes, and extrapolation techniques [21–26]. These developments were 
+ultimately extended to practical medical imaging applications, where optimized 
+interpolation was employed to improve echocardiographic scan conversion [19,27]. In this 
+context, the interpolation algorithms play a fundamental role in data augmentation 
+pipelines used in deep learning methods. As of today, the nearest-neighbour, bilinear, and 
+bicubic interpolations are still among the most commonly used interpolation algorithms 
+for geometrically transforming images during data augmentation [13]. However, the 
+choice of interpolator remains dependent on the image type and/or the intended 
+application [13]. Table 1 summarizes the data augmentation setups evaluated in this 
+study. The evaluated setups and their associated parameter values were systematically 
+selected to isolate the contribution of different augmentation options while maintaining a 
+manageable experimental design. The No Augmentation Setup (NAS) serves as the 
+baseline without augmentation. The Geometric Augmentation Setup (GAS) introduces 
+the effect of commonly used geometric transformations alone, whereas the Geometric + 
+Mosaic Augmentation Setup (GMAS) adds the additional contribution of Mosaic 
+augmentation beyond geometric transformations. Finally, the Default Augmentation 
+Setup (DAS) allows the comparison against the default data augmentation implemented 
+in YOLO26. 
+ 
+ 
+ 
+2.2. YOLO26 Model Size Variants 
+The YOLO26 model’s family comprises five size variants: nano (YOLO26n), small 
+(YOLO26s), medium (YOLO26m), large (YOLO26l), and extra-large (YOLO26x) [6]. These 
+variants share the same underlying architecture and training framework while differing 
+in model capacity and computational complexity. All five variants support the same com-
+puter vision tasks, including object detection, instance segmentation, image classification, 
+pose estimation, and oriented object detection [6]. The availability of multiple model sizes 
+enables evaluation across different computational budgets while maintaining a consistent 
+architectural design. In this study, all five YOLO26 model size variants were trained and 
+evaluated using identical experimental settings to systematically assess their suitability 
+for adenovirus detection [28].  
+ 
+2.3. TEM virus dataset 
+The TEM virus dataset contains a total of 1245 images of 22 virus classes captured 
+with two different electron microscopes: an LEO (Zeiss, Oberkochen, Germany) with a 
+Morada (Olympus) camera and a Tecnai 10 (FEI, Hillsboro, OR, USA) with a MegaView 
+III (Olympus, Münster, Germany) camera [7]. The virus classes in the dataset are strongly 
+unbalanced both regarding the number of images (from 9 to 129) and in the number of 
+virus particles (from 38 to 1934). The sizes of all raw images are either 1376 x 1032 or 2048 
+x 2048 pixels (depending on with which electron microscope they were captured) but the 
+pixel sizes vary from 0.26 to 5.57 nm, i.e., they were acquired at different magnifications 
+[7]. Each virus particle was annotated only with its approximate center, i.e., a single point 
+for isolated spherical particles or a centerline in case of clustered viruses (beyond visual 
+recognition of individual particles) or elongated viruses. The annotations were in the form 
+of coordinate points stored in a separate text file for each image [7]. Although the pub-
+lished TEM virus dataset contains 22 virus classes, only the adenovirus class was used in 
+this study. The raw adenovirus dataset comprised of train set (40 images containing 160 
+particles), test set (14 images containing 86 particles) and validation set (13 images con-
+taining 44 particles) [3, 7]. 
+ 
+2.4. Computational Environment  
+All training experiments were conducted on a SLURM-managed High-Performance 
+Computing (HPC) cluster belonging to the University of Limerick and equipped with 
+NVIDIA A100 SXM4-40GB GPUs. GPU resource utilization and system performance were 
+monitored using NVIDIA’s nvidia-smi utility, which provides real-time statistics on GPU 
+memory usage, processing load, temperature, power consumption, CUDA environment, 
+and active computational processes throughout the training and inference stages. No ad-
+ditional environment modules or containerized runtime were used during the experi-
+ments. The training and evaluation script was developed in Python and publicly available 
+via Zenodo repository [28]. 
+ 
+2.5. Annotations 
+Annotation bounding boxes were generated from the adenovirus particle centre co-
+ordinates provided in the TEM adenovirus dataset. Since the original annotations con-
+sisted only of particle centre coordinates [7], a custom Python script was developed to 
+automatically generate YOLO-compatible annotation files [29]. For each annotated parti-
+cle, the script created a fixed-size bounding box centred on the recorded particle position. 
+A bounding box size of 60 × 60 pixels was empirically selected based on the approximate 
+size of adenovirus particles observed in the TEM images. Bounding boxes extending be-
+yond the image boundaries were automatically clipped to remain within the image limits 
+before being converted into the normalized YOLO annotation format (x center, y center, 
+width, height). In addition, the script generated visualization images to facilitate visual ver-
+ification of the automatically generated annotations [29]. 
+ 
+ 
+ 
+2.6. Evaluation metrics 
+The adenovirus detection performance was quantitatively evaluated using Precision, 
+Recall, mAP@50, and mAP@50–95. Precision emphasizes reducing false positives, whereas 
+Recall emphasizes reducing false negatives [30]. The mAP@50 metric denotes the mean 
+Average Precision computed at an Intersection over Union (IoU) threshold of 0.50, while 
+mAP@50–95 denotes the mean Average Precision averaged over ten IoU thresholds rang-
+ing from 0.50 to 0.95 in increments of 0.05 [31]. 
+3. Results 
+The experimental results are organized into four subsections: (i) quantitative detec-
+tion, (ii) training and inference time, (iii) YOLO26n convergence analysis, and (iv) quali-
+tative detection. 
+ 
+3.1. Quantitative Detection 
+Table 2 presents the adenovirus detection performance on the test set. Here, five YOLO26 
+size variants and four evaluated data augmentation setups were evaluated using 
+mAP@50–95, mAP@50, Precision, and Recall metrics. As shown in Table 3, YOLO26n 
+trained with GAS achieved the highest overall detection accuracy, with an mAP@50–95 of 
+0.44, an mAP@50 of 0.69, and a Precision of 0.86. 
+ 
+Table 2: Test-set detection performance of YOLO26 size variants (SV) under different data augmentation sets. 
+SV 
+mAP@50-95 
+mAP@50 
+Precision 
+Recall 
+ 
+DAS 
+NAS 
+GAS 
+GMAS 
+DAS 
+NAS 
+GAS 
+GMAS 
+DAS 
+NAS 
+GAS 
+GMAS 
+DAS 
+NAS 
+GAS 
+GMAS 
+26n 
+0.40 
+0.39 
+0.44 
+0.31 
+0.59 
+0.54 
+0.69 
+0.68 
+0.68 
+0.81 
+0.86 
+0.75 
+0.65 
+0.52 
+0.61 
+0.56 
+26s 
+0.34 
+0.39 
+0.28 
+0.26 
+0.49 
+0.57 
+0.64 
+0.61 
+0.61 
+0.81 
+0.72 
+0.65 
+0.49 
+0.56 
+0.52 
+0.56 
+26m 
+0.29 
+0.35 
+0.20 
+0.28 
+0.44 
+0.52 
+0.44 
+0.56 
+0.61 
+0.78 
+0.72 
+0.82 
+0.52 
+0.52 
+0.45 
+0.48 
+26l 
+0.33 
+0.36 
+0.20 
+0.26 
+0.51 
+0.52 
+0.48 
+0.58 
+0.65 
+0.79 
+0.66 
+0.68 
+0.52 
+0.46 
+0.46 
+0.48 
+26x 
+0.38 
+0.39 
+0.22 
+0.29 
+0.60 
+0.55 
+0.54 
+0.64 
+0.71 
+0.81 
+0.76 
+0.74 
+0.64 
+0.52 
+0.46 
+0.59 
+ 
+However, the highest Recall of 0.65 was obtained using the DAS. The effect of 
+augmentation varied across the model size variants. GAS was most effective for 
+YOLO26n, whereas GMAS produced the highest mAP@50 values for YOLO26m, 
+YOLO26l, and YOLO26x. NAS yielded the highest mAP@50–95 for YOLO26s, YOLO26m, 
+and YOLO26l, while YOLO26x obtained the same highest mAP@50–95 value of 0.39 with 
+both NAS and DAS. Overall, increasing the model size did not result in a corresponding 
+improvement in detection performance, as the nano variant achieved the highest values, 
+in general, across the experiments.  
+ 
+3.2. Training and Inference Time 
+Table 3 compares the training and inference times of the five YOLO26 size variants under 
+the four evaluated data augmentation setups. As expected, both training and inference 
+times generally increased with model size, with YOLO26n requiring the shortest 
+execution times and YOLO26x the longest. The effect of the data augmentation setups on 
+computational time was less consistent across the evaluated models. GAS and GMAS 
+frequently reduced the training time compared with the DAS and NAS. For example, 
+YOLO26x required 29.31 minutes for training with the DAS, whereas GMAS reduced the 
+training time to 20.59 minutes. In contrast, inference times exhibited only minor variations 
+across the augmentation setups for a given model variant. Overall, model size had a 
+substantially greater influence on inference time than the choice of data augmentation 
+setup. 
+ 
+ 
+ 
+                   Table 3: Training and inference time comparison under different data augmentation sets 
+SV 
+Training time (minutes) 
+Inference time (ms/image) 
+ 
+DAS 
+NAS 
+GAS 
+GMAS 
+DAS 
+NAS 
+GAS 
+GMAS 
+26n 
+9.88 
+10.71 
+9.61 
+6.79 
+6.57 
+7.76 
+8.08 
+8.47 
+26s 
+14.61 
+9.31 
+8.6 
+8.77 
+7.77 
+8.36 
+8.63 
+9.22 
+26m 
+16.94 
+16.21 
+9.91 
+10.85 
+11.45 
+10.69 
+10.65 
+11.08 
+26l 
+20.39 
+17.17 
+11.18 
+20.22 
+13.98 
+13.70 
+13.61 
+12.98 
+26x 
+29.31 
+29.27 
+24.14 
+20.59 
+22.21 
+21.99 
+22.45 
+21.92 
+ 
+3.3. YOLO26n Convergence Analysis 
+     YOLO26n was selected for convergence analysis because it achieved the highest 
+overall adenovirus detection performance among the evaluated YOLO26 model size 
+variants. Figure 1 illustrates the training convergence of YOLO26n under the four 
+evaluated data augmentation setups. As shown in Figure 1, all four augmentation setups 
+exhibited stable convergence during training, with the training and classification losses 
+decreasing rapidly during the early epochs before gradually stabilizing. 
+ 
+ 
+ 
+Figure 1: YOLO26n training convergence curves under DAS (top left), GAS (bottom left), NAS (top right) and GMAS (bottom right).  
+ 
+Similarly, Precision, Recall, mAP@50, and mAP@50–95 increased sharply (almost) at the 
+beginning of training and approached relatively stable values as training progressed. 
+Among these data augmentation setups, the GAS maintained the stable convergence 
+curves throughout the training process. In contrast, the GMAS exhibited larger 
+fluctuations in the validation losses and detection metrics, particularly for mAP@50–95, 
+indicating comparatively less stable convergence. Overall, the convergence curves 
+demonstrate the success with all augmentation setups, although differences in 
+convergence stability and final detection performance were observed. 
+ 
+3.4. Qualitative Detection 
+    Figure 2 presents representative qualitative adenovirus detection results. These 
+results were achieved by YOLO26n under four data augmentation setups on only four 
+TEM test images. The confidence scores associated with the detected adenovirus particles 
+ 
+ 
+in these four image examples were 0.9, 0.9, 0.8, 0.1, 0.9, 0.7, 0.3, 0.9, and 0.0 for DAS; 1.0, 
+0.4, 0.7, 1.0, 0.9, 0.9, 0.8, 0.6, and 0.6 for NAS; 0.9, 0.9, 0.4, 0.9, 0.9, 0.8, 0.3, 0.9, and 0.9 for 
+GAS; and 0.4, 0.4, 0.3, 0.3, 0.7, 0.5, 0.5, 0.4, and 0.5 for GMAS. Here, NAS and GAS 
+exhibited the highest average confidence scores (0.767), followed by DAS (0.611), whereas 
+GMAS produced the lowest average confidence score (0.444). Note that these observations 
+are specific to these four representative TEM images shown in Figure 2 and are intended 
+solely to support the qualitative assessment rather than provide a quantitative 
+comparison across the complete test dataset. 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+Figure 2: YOLO26n detection results: Ground truth (1st row), DAS (2nd row), NAS (3rd row), GAS (4th row), and GMAS (5th row).  
+ 
+4. Discussion  
+    Our discussion section will focus on effects of data augmentation setups, effects of 
+YOLO26 model size variants, implications, limitations and future work. 
+ 
+                                  4.1. Effect of Data Augmentation Setups 
+    The superior performance of GAS suggests that geometric transformations improve 
+the model's ability to learn appearance variations of adenovirus particles while maintain-
+ing realistic image content. In contrast, the addition of Mosaic transformations did not 
+ 
+ 
+consistently improve detection performance and was associated with less stable conver-
+gence and lower qualitative confidence. This may indicate that combining multiple TEM 
+images into a single training image introduces image compositions that are less repre-
+sentative of the natural appearance of adenovirus particles. 
+ 
+                                   4.2. Effect of YOLO26 Model Size Variants 
+The superior performance of YOLO26n indicates that increasing model capacity did not 
+provide additional discriminative power for the evaluated adenovirus dataset. This sug-
+gests that the visual characteristics of adenovirus particles can be effectively learned using 
+a compact model and that larger models may offer limited benefit for the evaluated ade-
+novirus dataset. 
+ 
+                                  4.3. Practical Implications 
+The experimental findings indicated that moving toward optimal adenovirus detection 
+required not the largest YOLO26 model size variant, but rather an appropriate combina-
+tion of model size variant and data augmentation setup. Among the evaluated data aug-
+mentation setups, the combination of YOLO26n and GAS provided the most favorable 
+balance between detection accuracy, convergence stability, and computational efficiency. 
+ 
+                               4.4. Study Limitations and Future Work 
+    Since the experiments were conducted using a single adenovirus TEM dataset, the 
+observed superiority of GAS and YOLO26n should not be assumed to generalize to other 
+virus types or electron microscopy datasets. Future studies should therefore validate these 
+findings on additional datasets, investigate whether similar trends are observed for other 
+object detection architectures, and evaluate the benchmarked data augmentation setups 
+for other virus types and TEM imaging conditions. 
+5. Conclusions 
+This study systematically benchmarked four data augmentation setups across five 
+YOLO26 model size variants to investigate their effects on adenovirus detection in TEM 
+images. The experimental results demonstrated that the GAS combined with YOLO26n 
+achieved the most favorable overall balance between detection accuracy, convergence sta-
+bility, and computational efficiency among the evaluated configurations. The findings fur-
+ther showed that increasing the YOLO26 model size did not necessarily improve detection 
+performance, highlighting the importance of selecting an appropriate combination of 
+model size variant and data augmentation setup rather than relying on larger models 
+alone. Overall, the proposed benchmarking provides practical guidance for moving to-
+ward optimal adenovirus detection using YOLO26 and establishes a foundation for future 
+evaluation on larger and more diverse TEM datasets. 
+ 
+Supplementary Materials: All developed Python source codes related to this work can be publicly 
+accessed via the Zenodo repository [28-29]. 
+Author Contributions: Conceptualization, O.R.; methodology, O.R.; software, O.R.; validation, 
+O.R.; formal analysis, O.R.; investigation, O.R.; resources, O.R.; data curation, O.R.; writing—origi-
+nal draft preparation, O.R.; writing—review and editing, O.R.; visualization, O.R.; supervision, 
+O.R.; project administration, O.R.; funding acquisition, O.R. The author has read and agreed to the 
+published version of the manuscript. 
+Funding: This research received no external funding.  
+Data Availability Statement: Data supporting this work are publicly available [7]. 
+Acknowledgments: The author would like to thank the University of Eastern Finland and FinVector 
+for encouragement. Additionally, the author would like to thank reviewers and editors for their 
+constructive comments. 
+ 
+ 
+Conflicts of Interest: The authors declare no conflicts of interest. The funders had no role in the 
+design of the study; in the collection, analyses, or interpretation of data; in the writing of the manu-
+script; or in the decision to publish the results. 
+References 
+ 
+1. 
+Roingeard P, Raynal PI, Eymieux S, Blanchard E. Virus detection by transmission electron microscopy: Still useful for diagnosis 
+and a plus for biosafety. Rev Med Virol. 2019 Jan;29(1):e2019.  
+2. 
+Colomb-Delsuc, M., Härmark, J., Eriksson, B., Nordström, R., Carvalho, V., Kylberg, G., & Sintorn, I. (2019). Advancing TEM-
+based biomedical nanoparticle characterization: GMP compliant TEM workflow in a BSL2 environment and automation using 
+MiniTEM. Microscopy and Microanalysis, 25(S2), 1066-1067 
+3. 
+Damian J. Matuszewski, Ida-Maria Sintorn, TEM virus images: Benchmark dataset and deep learning classification, Computer 
+Methods and Programs in Biomedicine, Volume 209, 2021, 106318, ISSN 0169-2607 
+4. 
+Rukundo O, Behanova A, De Feo R, Ronkko S, Oja J, Tohka J (2023) Convolutional neural networks for automatic detection of 
+intact adenovirus from TEM imaging with debris, broken and artefacts particles. arXiv preprint arXiv:2310.19630 
+5. 
+J. Redmon, S. Divvala, R. Girshick and A. Farhadi, "You Only Look Once: Unified, Real-Time Object Detection," 2016 IEEE 
+Conference on Computer Vision and Pattern Recognition (CVPR), Las Vegas, NV, USA, 2016, pp. 779-788. 
+6. 
+Jocher, G., Qiu, J., Liu, M., Lyu, S., Akyon, F. C., & Kalfaoglu, M. E. (2026). Ultralytics YOLO26: Unified Real-Time End-to-End 
+Vision Models. arXiv. https://doi.org/10.48550/arXiv.2606.03748 
+7. 
+Matuszewski, Damian; Sintorn, Ida-Maria (2021), “TEM virus dataset”, Mendeley Data, V3, doi: 10.17632/x4dwwfwtw3.3 
+8. 
+R. Girshick, J. Donahue, T. Darrell and J. Malik, "Rich Feature Hierarchies for Accurate Object Detection and Semantic Segmen-
+tation," 2014 IEEE Conference on Computer Vision and Pattern Recognition, Columbus, OH, USA, 2014, pp. 580-587, doi: 
+10.1109/CVPR.2014.81. 
+9. 
+R. Girshick, "Fast R-CNN," 2015 IEEE International Conference on Computer Vision (ICCV), Santiago, Chile, 2015, pp. 1440-
+1448, doi: 10.1109/ICCV.2015.169. 
+10. 
+Shaoqing Ren, Kaiming He, Ross Girshick, and Jian Sun. 2015. Faster R-CNN: Towards Real-Time Object Detection with Region 
+Proposal Networks. In Advances in Neural Information Processing Systems, C. Cortes, N. Lawrence, D. Lee, M. Sugiyama, and 
+R. Garnett (Eds.), Vol. 28. Curran Associates, Inc. 
+11. 
+Liu, W. et al. (2016). SSD: Single Shot MultiBox Detector. In: Leibe, B., Matas, J., Sebe, N., Welling, M. (eds) Computer Vision – 
+ECCV 2016. ECCV 2016. Lecture Notes in Computer Science, vol 9905. Springer, Cham. 
+12. 
+Carion, N., Massa, F., Synnaeve, G., Usunier, N., Kirillov, A., Zagoruyko, S. (2020). End-to-End Object Detection with Trans-
+formers. In: Vedaldi, A., Bischof, H., Brox, T., Frahm, JM. (eds) Computer Vision – ECCV 2020. ECCV 2020. Lecture Notes in 
+Computer Science(), vol 12346. Springer, Cham. 
+13. 
+Rukundo, O., Beyond Nearest Neighbor Interpolation in Data Augmentation, arXiv:2504.01527, 2026. 
+14. 
+Xu, M.; Yoon, S.; Fuentes, A.; Park, D.S. A Comprehensive Survey of Image Augmentation Techniques for Deep Learning. 
+Pattern Recognition 2023, 137, 109347.  
+15. 
+Bochkovskiy, A.; Wang, C.-Y.; Liao, H.-Y.M. YOLOv4: Optimal Speed and Accuracy of Object Detection. arXiv 2020, 
+arXiv:2004.10934.  
+16. 
+Rukundo, O. Optimal Methods Research on Grayscale Image Interpolation; China National Knowledge Infrastructure CNKI, 
+TP391.41: Beijing, China, 2012. 
+17. 
+Rukundo, O. Effects of improved-floor function on the accuracy of bilinear interpolation algorithm. Comput. Inf. Sci. 2015, 8, 
+1–25. 
+18. 
+Rukundo, O. Evaluation of Rounding Functions in Nearest Neighbour Interpolation. Int. J. Comput. Methods 2021, 18, 2150024. 
+19. 
+Rukundo, O.; Schmidt, S. Stochastic Rounding for Image Interpolation and Scan Conversion. Int. J. Adv. Comput. Sci. Appl. 
+2022, 13, 13–22. 
+20. 
+Rukundo, O. Non-extra pixel interpolation. Int. J. Image Graph. 2020, 20 (4), 2050031. 
+21. 
+Rukundo, O.; Huang, M.; Cao, H. Optimization of Bilinear Interpolation Based on Ant Colony Algorithm. In Proceedings of the 
+2nd International Conference Electrical and Electronics Engineering, Macao, China, 1–2 December 2011; pp. 571–580. 
+22. 
+Rukundo, O.; Wu, K.; Cao, H. Image Interpolation Based on The Pixel Value Corresponding to The Smallest Absolute Differ-
+ence. In Proceedings of the 4th International Workshop on Advanced Computational Intelligence, Wuhan, China, 19–21 October 
+2011; pp. 434–437. 
+23. 
+Rukundo, O.; Maharaj, B. Optimization of Image Interpolation based on Nearest Neighbour Algorithm. In Proceedings of the 
+9th International Conference on Computer Vision Theory and Applications (VISAPP 2014), Lisbon, Portugal, 5–8 January 2014; 
+pp. 641–647. 
+24. 
+Rukundo, O. Normalized weighting schemes for image interpolation algorithms. Appl. Sci. 2023, 13, 1741. 
+25. 
+Rukundo, O.; Cao, H. Advances on image interpolation based on ant colony algorithm. SpringerPlus 2016, 5, 403. 
+26. 
+Rukundo, O.; Schmidt, S. Extrapolation for image interpolation. In Proceedings of the SPIE/COS Photonics Asia, Beijing, China, 
+11–13 October 2018; Volume 10817. 
+27. 
+Rukundo, O.; Schmidt, S.E.; Von Ramm, O.T. Software implementation of optimized bicubic interpolated scan conversion in 
+echocardiography. arXiv 2020, arXiv:2005.11269. 
+ 
+ 
+28. 
+Olivier Rukundo, Ph.D. (2026). YOLO26 Adenovirus Detection (Version v1.0.0) [Computer software]. Zenodo. 
+https://doi.org/10.5281/zenodo.21419751 
+29. 
+Olivier Rukundo, Ph.D. (2026). Adenovirus Particle Positions to YOLO Bounding Boxes (Version v1.0.0) [Computer software]. 
+Zenodo. https://doi.org/10.5281/zenodo.21420471  
+30. 
+Powers, D.M.W. Evaluation: From Precision, Recall and F-Measure to ROC, Informedness, Markedness and Correlation. Journal 
+of Machine Learning Technologies 2011, 2, 37–63. 
+31. 
+Padilla, R.; Passos, W.L.; Dias, T.L.B.; Netto, S.L.; da Silva, E.A.B. A Comparative Analysis of Object Detection Metrics with a 
+Companion Open-Source Toolkit. Electronics 2021, 10, 279. 

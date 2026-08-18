@@ -1,0 +1,3048 @@
+Rethinking Heterogeneous LLM Merging: A Weighted Model Averaging
+Perspective
+Jiahe Fan1
+Yinghao Hou1
+Si Chen2
+Aiyuan Zhang1
+Hong Xie3
+Defu Lian3
+1University of Science and Technology of China
+2School of Information Science and Technology, Department of Automation,
+University of Science and Technology of China
+3School of Computer Science and Technology, University of Science and Technology of China
+fanjiahe@mail.ustc.edu.cn
+Abstract
+Can large language models with substantially
+different parameter spaces be merged by di-
+rect weighted averaging, without training or
+semantic alignment? Existing heterogeneous
+fusion methods typically introduce distillation,
+adapters, learned latent spaces, routing, or fea-
+ture alignment, leaving open whether a simpler
+recipe can work for genuinely different billion-
+parameter checkpoints. We revisit this counter-
+intuitive question through training-free dimen-
+sional adaptation followed by ratio-controlled
+interpolation. In union-style merging, we ex-
+pand the smaller model into the larger pa-
+rameter space; in intersection-style merging,
+we truncate the larger model into the smaller
+parameter space (Figure 1).
+Across Qwen-
+family model pairs and benchmarks covering
+mathematical reasoning, code generation, lan-
+guage understanding, commonsense reasoning,
+knowledge, and instruction following, deter-
+ministic expansion largely preserves the source
+model function, and small-ratio interpolation
+can improve over strong source checkpoints by
+transferring complementary capabilities. How-
+ever, near-balanced interpolation often col-
+lapses, and task-level results reveal a seesaw
+effect in which gains on some capabilities co-
+exist with regressions on others. These results
+show that simple parameter averaging, when
+paired with lightweight dimensional adapta-
+tion and carefully controlled ratios, is a surpris-
+ingly strong baseline for heterogeneous LLM
+merging, suggesting that the limits of direct
+weighted fusion may also bound what more
+complex heterogeneous merging methods can
+achieve at scale.
+1
+Introduction
+Model merging has become a compelling post-
+training paradigm for large language models, be-
+cause it offers a direct way to combine capabili-
+Figure 1: Two heterogeneous model merging strategies.
+(1) Union-style merging: expand the smaller model to
+match the larger model’s dimensionality, then merge.
+(2) Intersection-style merging: truncate the larger model
+to the smaller model’s dimensionality, then merge.
+ties from existing checkpoints without full retrain-
+ing (Yang et al., 2026; Song and Zheng, 2026;
+Lu et al., 2024).
+In homogeneous settings, a
+broad family of methods has been proposed, in-
+cluding weight averaging and Model Soups (Worts-
+man et al., 2022), task arithmetic (Ilharco et al.,
+2023), TIES-Merging (Yadav et al., 2023), Fisher-
+weighted averaging (Matena and Raffel, 2022),
+RegMean (Jin et al., 2023), and sparsity-based vari-
+1
+arXiv:2607.18026v1  [cs.AI]  20 Jul 2026
+ants (Davari and Belilovsky, 2024). Related modu-
+lar architectures also show the value of selectively
+routing computation across experts (Jiang et al.,
+2024). Yet these successes largely rely on a strong
+compatibility condition: the source checkpoints
+share architecture, parameter shapes, and at least
+partially aligned internal representations. This con-
+dition is increasingly restrictive, since real model
+pools contain checkpoints of different scales, spe-
+cializations, and design choices (Lu et al., 2024;
+Chen et al., 2025).
+Heterogeneous model merging relaxes this com-
+patibility condition, but existing solutions often
+pay for it with extra machinery. Training-based ap-
+proaches use distillation, generated data, adapters,
+modular skill storage, or learned latent spaces to
+transfer knowledge across models (Hinton et al.,
+2015; Pfeiffer et al., 2021; Wan et al., 2024a,b;
+Du et al., 2025a; Soro et al., 2026). Training-free
+approaches reduce mismatch through permutation
+matching, activation repair, feature zipping, seman-
+tic alignment, or coefficient selection (Ainsworth
+et al., 2023; Jordan et al., 2023; Stoica et al.,
+2024; Gu et al., 2025; Du et al., 2025b; Hackmann,
+2024). These methods are valuable, but they leave
+a sharper question unresolved: can we merge suffi-
+ciently different billion-parameter language mod-
+els with low cost, no additional training, and no
+explicit semantic alignment? This question is espe-
+cially important because direct weighted averaging
+across mismatched parameter spaces appears coun-
+terintuitive: a larger model and a smaller model
+do not even expose tensors of the same shape, and
+representational mismatch weakens the assump-
+tions behind neuron-wise or feature-wise corre-
+spondence.
+The technical challenge has two parts. First,
+parameter-shape mismatch prevents direct interpo-
+lation, so the models must be placed in a common
+parameter space before any weighted averaging is
+possible. Second, even after shape compatibility
+is enforced, interpolation can destroy capability
+if the two solutions are not connected by a stable
+low-loss path; related homogeneous studies show
+that interpolation depends strongly on mode con-
+nectivity, permutation alignment, and representa-
+tion similarity (Garipov et al., 2018; Frankle et al.,
+2020; Ainsworth et al., 2023; Raghu et al., 2017;
+Kornblith et al., 2019). Recent work on cross-scale
+fusion and scaling behavior further suggests that
+the effectiveness of merging rules may change at
+LLM scale (Chen et al., 2026; Wang et al., 2025).
+This motivates a controlled test of the simplest pos-
+sible hypothesis: after deterministic dimensional
+adaptation, is direct weighted averaging actually
+enough, provided that the mixing ratio is small?
+We answer this question through training-free di-
+mensional adaptation followed by ratio-controlled
+interpolation. In the union-style setting, we expand
+the smaller checkpoint into the larger parameter
+space before merging; in the intersection-style set-
+ting, we truncate the larger checkpoint into the
+smaller parameter space before merging. The re-
+sulting procedure uses no fine-tuning, no distil-
+lation data, no adapters, no routing module, no
+learned latent encoder, and no semantic alignment
+step. This makes the intervention deliberately sim-
+ple and interpretable: performance changes can be
+attributed primarily to dimensional adaptation, mix-
+ing ratio, and the compatibility of the two source
+checkpoints.
+Across Qwen-family model pairs at billion-
+parameter scale and diverse benchmark families,
+this simple procedure works more often than the
+standard intuition would suggest. Deterministic
+expansion largely preserves the smaller model’s
+function, showing that dimensional adaptation can
+act as a functional bridge rather than only a tensor-
+shape repair. Small-ratio interpolation can further
+improve performance by transferring complemen-
+tary capabilities; for example, in union-style merg-
+ing between Qwen2.5-14B and Qwen2.5-32B, the
+two source checkpoints obtain average scores of
+0.7044 and 0.7424, respectively, while the best
+merged model reaches 0.7525, and intersection-
+style merging improves Qwen2.5-3B from 0.5459
+to 0.5716 when a truncated 32B branch is injected
+with a small coefficient. At the same time, the
+method has clear limits: near-balanced interpola-
+tion often collapses, and task-level results reveal a
+seesaw effect where improvements on some capa-
+bilities coexist with regressions on others.
+These findings suggest that heterogeneous LLM
+merging may follow a trajectory similar to homo-
+geneous merging at scale: simple parameter aver-
+aging, when used in the right effective region, can
+be a surprisingly strong baseline, and the regimes
+where it fails may expose fundamental compatibil-
+ity bottlenecks that more complex methods cannot
+easily bypass. Our contributions are fourfold: (1)
+we formulate low-cost, training-free, alignment-
+free heterogeneous LLM merging under substantial
+parameter-scale mismatch; (2) we introduce union-
+style and intersection-style dimensional adapta-
+2
+tion as simple probes for direct weighted fusion;
+(3) we identify ratio-sensitive regimes of preserva-
+tion, transfer, and collapse across billion-parameter
+model pairs; and (4) we show that task-level com-
+plementarity and seesaw behavior are central di-
+agnostics for understanding when heterogeneous
+merging improves capability and when it merely
+redistributes or destroys it.
+2
+Related Work
+Recent surveys summarize model merging for
+LLMs, MLLMs, and related foundation-model set-
+tings (Yang et al., 2026; Song and Zheng, 2026).
+Homogeneous model merging.
+Prior work has
+largely focused on homogeneous settings, where
+models share architecture and parameter layout.
+Weight-based methods include weight averaging
+and Model Soups (Wortsman et al., 2022), task
+arithmetic (Ilharco et al., 2023), TIES-Merging (Ya-
+dav et al., 2023), and DARE-style variants (Yu
+et al., 2024). Geometry- or statistics-based meth-
+ods include SLERP (Shoemake, 1985), Fisher-
+weighted averaging (Matena and Raffel, 2022), and
+RegMean (Jin et al., 2023). Sparse-mask merg-
+ing reduces interference by retaining selected pa-
+rameter updates (Davari and Belilovsky, 2024),
+while MoE-style routing offers a related modular
+route for activating specialized experts (Jiang et al.,
+2024).
+Limitations in homogeneous settings.
+Homoge-
+neous merging relies on aligned parameter shapes,
+similar internal representations, and often care-
+ful hyperparameter tuning.
+More sophisticated
+strategies add optimization or engineering over-
+head, and scaling-law evidence suggests that merg-
+ing gains do not automatically scale with model
+size (Wang et al., 2025). In a recent in-the-wild
+evaluation with heterogeneous, potentially overlap-
+ping or conflicting fine-tuned checkpoints, Task
+Arithmetic was the only evaluated method that reli-
+ably yielded gains, while more complex subspace-
+or interference-aware methods often failed to pro-
+vide clear improvements (Hitit et al., 2026). These
+constraints limit reuse of diverse real-world model
+pools.
+Subspace-based merging and benchmarks.
+A
+closely related line reduces interference by localiz-
+ing or matching task-relevant parameter subspaces.
+TALL-masks localize sparse task information and
+use the resulting supports for compression and con-
+sensus merging (Wang et al., 2024); Localize-and-
+Stitch identifies compact task-localized regions
+and stitches them into a pretrained model through
+sparse task arithmetic (He et al., 2024); and MaTS
+formulates merging as matching models in task
+parameter subspaces through a linear-system so-
+lution (Tam et al., 2024). These methods are con-
+nected to our intersection-style setting because both
+restrict the region of parameter space that partici-
+pates in merging. The difference is that subspace-
+based methods usually estimate task supports or
+matching subspaces for shape-compatible task vec-
+tors, whereas our truncate-then-merge protocol first
+applies a deterministic architecture projection from
+a larger checkpoint to a smaller parameter space
+and then performs small-ratio interpolation. We
+therefore ask whether useful projected perturba-
+tions can be absorbed without learning a task sub-
+space, solving a matching problem, or requiring
+additional optimization. Recent benchmarks such
+as MergeBench further emphasize the need for ex-
+plicit evaluation of domain-specialized LLM merg-
+ing methods and failure modes (He et al., 2025);
+our setting is complementary because it focuses
+on cross-scale dimensional adaptation rather than
+standard same-shape merging.
+Heterogeneous model merging.
+Heterogeneous
+merging is more challenging because parameter-
+wise averaging is no longer obviously meaning-
+ful when source models differ in width, depth,
+module layout, or even modality.
+Existing ap-
+proaches therefore often introduce additional mech-
+anisms to make cross-model reuse feasible. One
+line of work uses training or learned intermedi-
+ate modules: knowledge distillation transfers be-
+havior through teacher–student optimization (Hin-
+ton et al., 2015), AdapterFusion composes trained
+adapters rather than raw checkpoints (Pfeiffer et al.,
+2021), FuseLLM and FuseChat fuse knowledge
+through model-generated data and subsequent train-
+ing (Wan et al., 2024a,b), GraftLLM stores capabil-
+ities in modular SkillPacks (Du et al., 2025a), and
+LS-Merge learns a latent weight space before merg-
+ing language models (Soro et al., 2026). These
+methods broaden the reuse of heterogeneous model
+assets, but their reliance on optimization, generated
+or curated data, trained modules, or latent encoders
+weakens the original appeal of model merging as a
+fast training-free operation.
+A second line seeks training-free compati-
+3
+Figure 2: Dimensional adaptation procedures for heterogeneous model merging. (a) Initialization scheme for
+heterogeneous layer extension. Compatible source tensors are copied into the target model; newly introduced
+attention and MLP branches are initialized to zero, and normalization scales are initialized to one. (b) Truncation
+procedure for intersection-style merging. A larger checkpoint is projected into the smaller parameter space by
+copying compatible tensors, slicing oversized tensors, and removing layers beyond the target depth.
+bility through alignment or repair.
+Git Re-
+Basin aligns models modulo permutation symme-
+tries (Ainsworth et al., 2023), REPAIR corrects ac-
+tivation statistics after permutation-based interpola-
+tion (Jordan et al., 2023), and ZipIt merges models
+by matching and zipping related features across net-
+works (Stoica et al., 2024). For language and multi-
+modal models, semantic-alignment and coefficient-
+selection methods further reduce mismatch before
+interpolation, as in SeMe and AdaMMS (Gu et al.,
+2025; Du et al., 2025b), while HM3 studies het-
+erogeneous multi-class classifier merging (Hack-
+mann, 2024). However, many of these methods
+either focus on relatively small networks, require
+explicit semantic or feature alignment, or study
+heterogeneity that remains close to a shared base
+or task structure. As a result, it remains unclear
+whether sufficiently different billion-parameter lan-
+guage models can be merged by a simpler recipe:
+adapt dimensions without training and then directly
+interpolate weights.
+Recent studies on cross-scale language-model
+fusion and model-merging scaling further moti-
+vate this question (Chen et al., 2026; Wang et al.,
+2025). In particular, if sophisticated merging rules
+become less distinguishable at larger scale (Yadav
+et al., 2025), heterogeneous LLM merging may
+follow a similar trajectory: carefully controlled
+simple weighted interpolation could be a stronger
+baseline than expected. Our work tests this pos-
+sibility directly by removing learned alignment,
+adapters, routing, and post-hoc training, and by
+asking whether dimensional adaptation plus small-
+ratio interpolation can preserve or improve capabil-
+ities across genuinely different LLM scales.
+Position of this work.
+We target training-free
+heterogeneous merging under parameter-scale mis-
+match with lightweight dimensional adaptation and
+ratio-controlled interpolation, preserving simple
+merging while extending it to broader model pairs.
+3
+Method
+3.1
+Problem Setup
+We consider two pretrained models, denoted by A
+and B, where model A is no larger than model B in
+parameter dimensionality. Let θA ∈RdA and θB ∈
+RdB denote their parameter vectors, with dA ≤dB.
+Let X denote the input space, D the evaluation
+distribution, and ℓthe task loss. We study two
+complementary merging settings, referred to as
+union-style merging and intersection-style merging,
+to characterize when heterogeneous merging can
+preserve capability and when it fails.
+3.2
+Union-Style Merging (Expand Then
+Merge)
+We first map model A to the larger space of model
+B through an expansion operator
+E : RdA →RdB,
+˜θA = E(θA).
+(1)
+Expansion deterministically copies compatible
+source tensors into the larger target tensors and
+initializes newly introduced dimensions to mini-
+mize functional perturbation, as illustrated in Fig-
+ure 2(a): newly introduced linear parameters are
+zero-initialized, normalization scales are initial-
+ized to neutral values, and additional Transformer
+blocks (Vaswani et al., 2017) are initialized as
+residual identity mappings. Architecture-aware
+4
+mappings preserve grouped-query attention struc-
+ture (Ainslie et al., 2023) and expand MLP ma-
+trices along their semantic input or output dimen-
+sions. Further normalization details are given in
+Appendix B. We then perform convex interpolation
+in the high-dimensional space:
+θ∪(λ) = (1 −λ)˜θA + λθB,
+λ ∈[0, 1]. (2)
+3.3
+Intersection-Style Merging (Truncate
+Then Merge)
+Complementary to expansion,
+we study an
+intersection-style setting that projects the larger
+model B into the smaller parameter space of model
+A via a truncation operator:
+T : RdB →RdA,
+˜θB = T (θB).
+(3)
+As shown in Figure 2(b), we instantiate the small-
+model configuration and initialize it from the large
+checkpoint by copying shape-compatible tensors,
+slicing oversized tensors, and removing layers be-
+yond the target depth. Unlike expansion, truncation
+discards parameters and is inherently lossy, so the
+truncated branch must remain a small perturba-
+tion. Merging is performed in the low-dimensional
+space:
+θ∩(µ) = (1 −µ)θA + µ˜θB,
+µ ∈[0, 1]. (4)
+3.4
+Evaluation Protocol
+Union-style and intersection-style merging are eval-
+uated as two separate experimental protocols. For
+each protocol, we search over its own ratio grid and
+select the best checkpoint by downstream valida-
+tion performance:
+θ∗
+∪= arg min
+λ∈Λ Leval
+ θ∪(λ)
+
+,
+(5)
+θ∗
+∩= arg min
+µ∈M Leval
+ θ∩(µ)
+
+,
+(6)
+where the corresponding ratio grids are specified in
+the Experiment section. The key empirical question
+is whether useful heterogeneous transfer appears in
+small-ratio neighborhoods of either anchor model,
+and where interpolation collapses within each pro-
+tocol.
+4
+Experiment
+We evaluate Qwen2.5 (Yang et al., 2024) and
+Qwen3 (Yang et al., 2025) model pairs rang-
+ing from 3B to 32B parameters.
+The bench-
+mark suite spans mathematical reasoning, code
+Family
+Benchmarks
+Math
+GSM8K, MATH-500
+Code generation
+HumanEvalPlus,
+MBPPPlus
+Instruction following
+IFEval
+QA and NLU
+MNLI, RTE, QNLI, PIQA,
+Winogrande, COPA,
+BoolQ
+Commonsense &
+knowledge
+ARC, HellaSwag, MMLU
+Comprehensive reasoning
+BBH
+Table 1: Benchmark families used in our experiments.
+ID
+Smaller model
+Larger model
+P1
+Qwen2.5-14B
+Qwen2.5-32B
+P2
+Qwen2.5-3B
+Qwen2.5-32B
+P3
+Qwen3-4B-Thinking-
+2507
+(Qwen
+Team,
+2025)
+Qwen3-8B
+P4
+Qwen3-14B
+Qwen3-32B
+Table 2: Model-pair configuration for heterogeneous
+merging.
+Dataset
+Base A
+Base B
+Merged
+gsm8k
+0.8779
+0.9014
+0.9045
+MATH-500
+0.5460
+0.6180
+0.6140
+humanevalplus
+0.5604
+0.6165
+(+0.03) 0.6494
+mbppplus
+0.6738
+0.7405
+0.7413
+BoolQ
+0.8532
+0.8740
+0.8719
+COPA
+0.9000
+0.8700
+(+0.01) 0.9100
+MNLI
+0.6689
+0.7217
+0.7300
+PIQA
+0.8248
+0.8243
+0.8254
+QNLI
+0.6771
+0.8596
+0.8594
+RTE
+0.7906
+0.8159
+0.8123
+Winogrande
+0.7569
+0.7569
+(+0.02) 0.7774
+ARC
+0.5241
+0.5320
+0.5341
+HellaSwag
+0.6911
+0.7175
+0.7156
+MMLU
+0.7094
+0.7620
+0.7630
+ifeval
+0.4424
+0.4832
+(+0.02) 0.5072
+BBH
+0.7731
+0.7852
+(+0.04) 0.8241
+Avg.
+0.7044
+0.7424
+(+0.01) 0.7525
+Table 3: Union merging results for the Qwen2.5-14B
+and Qwen2.5-32B pair. The merged checkpoint com-
+bines Qwen2.5-32B with the expanded Qwen2.5-14B
+model.
+generation, instruction following, NLU, com-
+monsense, knowledge, and comprehensive rea-
+soning, using GSM8K (Cobbe et al., 2021),
+MATH (Hendrycks et al., 2021; Lightman et al.,
+2024), HumanEval/EvalPlus (Chen et al., 2021; Liu
+et al., 2023), IFEval (Zhou et al., 2023), GLUE-
+style NLU tasks (Williams et al., 2018; Wang et al.,
+2019), PIQA (Bisk et al., 2020), Winogrande (Sak-
+aguchi et al., 2020), COPA (Roemmele et al.,
+2011), BoolQ (Clark et al., 2019), ARC (Clark
+et al., 2018), HellaSwag (Zellers et al., 2019),
+MMLU (Hendrycks et al., 2020), and BBH (Suz-
+gun et al., 2022). We use the EleutherAI LM Eval-
+uation Harness (Gao et al., 2023) and BigCode
+5
+Dataset
+Base A
+Base B
+Merged
+gsm8k
+0.8931
+0.8764
+0.9007
+MATH-500
+0.5100
+0.5300
+(+0.02) 0.5480
+humanevalplus
+0.5854
+0.6091
+(+0.07) 0.6768
+mbppplus
+0.4550
+0.6328
+0.6402
+BoolQ
+0.7477
+0.8673
+0.8709
+COPA
+0.8200
+0.8500
+(+0.02) 0.8700
+MNLI
+0.5849
+0.6220
+(+0.02) 0.6387
+PIQA
+0.7546
+0.7753
+0.7775
+QNLI
+0.5266
+0.7824
+0.7899
+RTE
+0.8123
+0.7762
+0.8123
+Winogrande
+0.6590
+0.6765
+0.6851
+ARC
+0.3887
+0.4640
+0.4610
+HellaSwag
+0.5152
+0.6125
+0.6094
+MMLU
+0.5854
+0.6695
+0.6722
+ifeval
+0.4652
+0.4233
+(+0.02) 0.4880
+BBH
+0.7380
+0.7889
+0.7852
+Avg.
+0.6276
+0.6848
+(+0.02) 0.7016
+Table 4: Union merging results for the Qwen3-4B-
+Thinking-2507 and Qwen3-8B pair. The merged check-
+point combines Qwen3-8B with the expanded Qwen3-
+4B-Thinking-2507 model.
+Figure 3: Knowledge-structure and merging-effect radar
+comparison. Intersecting but non-nested competence
+profiles leave complementary regions, and the merged
+model improves by about four percentage points over
+both sources; nested profiles offer limited new informa-
+tion, and accuracy changes only marginally.
+Evaluation Harness (Ben Allal et al., 2022). The
+benchmark families and model-pair configurations
+are summarized in Tables 1 and 2.
+Let θs and θl denote the smaller and larger check-
+points, and let Πs→l and Πl→s denote expansion
+and truncation operators. We evaluate:
+θunion(λ) = (1 −λ)Πs→l(θs) + λθl,
+(7)
+θinter(µ) = (1 −µ)θs + µΠl→s(θl),
+(8)
+We use fixed ratio grids for the two protocols. For
+union-style merging, λ ∈{0.02, 0.04, 0.96, 0.98}
+controls the contribution of the larger check-
+point.
+For intersection-style merging, µ
+∈
+{0.01, 0.02, 0.03, 0.04, 0.05} controls the contribu-
+tion of the truncated larger checkpoint. The merged
+Dataset
+Base A
+Base B
+Merged
+gsm8k
+0.9227
+0.9113
+0.9181
+MATH-500
+0.8160
+0.7740
+0.8180
+humanevalplus
+0.6707
+0.6890
+(+0.05) 0.7378
+mbppplus
+0.6878
+0.6402
+(+0.03) 0.7169
+BoolQ
+0.8924
+0.8633
+0.8896
+COPA
+0.9000
+0.9400
+(+0.02) 0.9600
+MNLI
+0.6706
+0.6989
+(+0.01) 0.7104
+PIQA
+0.7976
+0.8150
+0.8188
+QNLI
+0.8380
+0.8104
+(+0.02) 0.8543
+RTE
+0.7762
+0.7545
+(+0.01) 0.7906
+Winogrande
+0.7277
+0.7301
+0.7261
+ARC
+0.5093
+0.5341
+0.5352
+HellaSwag
+0.6619
+0.7065
+0.7061
+MMLU
+0.7135
+0.7621
+0.7604
+ifeval
+0.4484
+0.4652
+(+0.10) 0.5635
+BBH
+0.8500
+0.8639
+(+0.02) 0.8843
+Avg.
+0.7427
+0.7474
+(+0.03) 0.7744
+Table 5: Union merging results for the Qwen3-14B and
+Qwen3-32B pair. The merged checkpoint combines
+Qwen3-32B with the expanded Qwen3-14B model.
+Dataset
+Qwen2.5-3B
+Merged
+gsm8k
+0.6566
+(+0.06) 0.7210
+MATH-500
+0.3840
+(+0.02) 0.4060
+humanevalplus
+0.4390
+0.4329
+mbppplus
+0.5899
+(+0.02) 0.6058
+BoolQ
+0.7080
+(+0.02) 0.7272
+COPA
+0.7800
+(+0.02) 0.8000
+MNLI
+0.4598
+(+0.07) 0.5334
+PIQA
+0.7579
+0.7584
+QNLI
+0.5286
+(+0.02) 0.5526
+RTE
+0.6426
+(+0.13) 0.7726
+Winogrande
+0.6338
+0.6401
+ARC
+0.3442
+0.3430
+HellaSwag
+0.5094
+0.5087
+MMLU
+0.4496
+0.4514
+ifeval
+0.4041
+0.4113
+BBH
+0.4463
+(+0.03) 0.4806
+Avg.
+0.5459
+(+0.03) 0.5716
+Table 6: Intersection merging results for Qwen2.5-3B
+and a Qwen2.5-32B checkpoint truncated to 3B size.
+checkpoints are evaluated on the benchmark fami-
+lies reported for each protocol.
+5
+Main Results
+Across three union-style settings, direct weighted
+averaging after deterministic expansion consis-
+tently improves the average score over both source
+checkpoints (Tables 3–5). Intersection-style merg-
+ing also yields positive gains when the truncated
+larger checkpoint is injected with a small coef-
+ficient: Qwen2.5-3B improves from 0.5459 to
+0.5716, and Qwen2.5-14B improves from 0.7045
+to 0.7161 (Tables 6 and 7). The gains are largest
+when the two sources provide complementary com-
+petence rather than near-nested capabilities, sup-
+6
+Dataset
+Qwen2.5-14B
+Merged
+gsm8k
+0.8802
+0.8848
+MATH-500
+0.5460
+(+0.02) 0.5640
+humanevalplus
+0.5604
+0.5616
+mbppplus
+0.6738
+0.6775
+BoolQ
+0.8532
+0.8612
+COPA
+0.9000
+(+0.01) 0.9100
+MNLI
+0.6689
+(+0.02) 0.6880
+PIQA
+0.8248
+0.8254
+QNLI
+0.6771
+(+0.09) 0.7657
+RTE
+0.7906
+0.7978
+Winogrande
+0.7569
+(+0.02) 0.7774
+ARC
+0.5241
+0.5200
+HellaSwag
+0.6911
+0.6903
+MMLU
+0.7094
+0.7088
+ifeval
+0.4424
+0.4388
+BBH
+0.7731
+(+0.01) 0.7870
+Avg.
+0.7045
+(+0.01) 0.7161
+Table 7: Intersection merging results for Qwen2.5-14B
+and a Qwen2.5-32B checkpoint truncated to 14B size.
+Dataset
+Qwen3-14B
+Merged
+gsm8k
+0.9340
+0.9386
+MATH-500
+0.8160
+(+0.01) 0.8280
+humanevalplus
+0.7500
+(+0.02) 0.7683
+mbppplus
+0.7381
+0.7434
+BoolQ
+0.8924
+0.8933
+COPA
+0.9000
+0.9000
+MNLI
+0.6706
+0.6699
+PIQA
+0.7976
+0.8025
+QNLI
+0.8380
+0.8446
+RTE
+0.7762
+(+0.02) 0.7978
+Winogrande
+0.7277
+0.7340
+ARC
+0.5093
+0.5127
+HellaSwag
+0.6619
+0.6683
+MMLU
+0.7135
+0.7129
+ifeval
+0.4484
+(+0.02) 0.4712
+BBH
+0.8500
+(+0.01) 0.8602
+Avg.
+0.7515
+(+0.01) 0.7591
+Table 8: Intersection merging results for Qwen3-14B
+and a Qwen3-32B checkpoint truncated to 14B size.
+porting the view that heterogeneous merging can
+transfer useful signal without training or explicit
+alignment.
+5.1
+Knowledge-Structure Compatibility and
+Complementarity
+The experimental results indicate that heteroge-
+neous merging can produce meaningful comple-
+mentarity when the two source models encode par-
+tially distinct competence profiles. This profile-
+based view is related in spirit to representation-
+similarity analyses that compare learned structures
+across neural models (Raghu et al., 2017; Korn-
+blith et al., 2019). At the aggregate level, the best
+merged configuration can outperform both source
+checkpoints, and task-level results further show
+Dataset
+Qwen3-4B
+Merged
+gsm8k
+0.8863
+0.8840
+MATH-500
+0.5100
+(+0.03) 0.5380
+humanevalplus
+0.5220
+0.5055
+mbppplus
+0.5275
+0.5193
+BoolQ
+0.7477
+(+0.03) 0.7798
+COPA
+0.8200
+0.8100
+MNLI
+0.5849
+0.5887
+PIQA
+0.7546
+0.7563
+QNLI
+0.5266
+(+0.06) 0.5863
+RTE
+0.8123
+0.8087
+Winogrande
+0.6590
+0.6748
+ARC
+0.3887
+0.3872
+HellaSwag
+0.5152
+0.5146
+MMLU
+0.5854
+0.5940
+ifeval
+0.4652
+(+0.01) 0.4772
+BBH
+0.7380
+(+0.03) 0.7657
+Avg.
+0.6277
+(+0.01) 0.6369
+Table 9: Intersection merging results for Qwen3-4B-
+Thinking-2507 and a Qwen3-8B checkpoint truncated
+to 4B size.
+that gains are distributed across multiple categories
+rather than concentrated in a single outlier task.
+This supports a practical interpretation of “com-
+plementary transfer”: when knowledge structure is
+sufficiently different, merging can inherit strengths
+from both sides and realize a clear compensation
+effect.
+Figure 3 clarifies the structural condition behind
+this behavior. When the larger model nearly en-
+closes the smaller model, overlap dominates and
+merging changes accuracy only marginally. When
+the two models exhibit an intersecting but non-
+nested relationship, merging introduces comple-
+mentary signals and yields a visible gain of about
+four percentage points.
+5.2
+Scale Gap Drives Intersection Gains
+We further evaluate intersection-style merging by
+merging Qwen2.5-3B with a Qwen2.5-32B check-
+point truncated to the 3B parameter space. The
+merged model is computed as (1 −µ)Qwen2.5-3B
++µQwen2.5-32B-truncated, where µ is selected
+from {0.01, 0.02, 0.03, 0.04, 0.05}.
+Although truncation is lossy, injecting the trun-
+cated 32B model with a small coefficient still
+provides a useful performance gain. Tables 6–9
+show that Qwen2.5-3B improves from 0.5459 to
+0.5716, while Qwen2.5-14B improves from 0.7045
+to 0.7161. The gains in Tables 7–9 are milder
+because their dimensional gaps are smaller than
+the 3B–32B gap in Table 6. This suggests that
+intersection-style merging is most useful when the
+source models have a large capability gap, provided
+7
+that the truncated branch remains a small perturba-
+tion.
+6
+Analysis
+6.1
+Analysis of Gain Patterns
+As discussed in Section 5, gains concentrate when
+source models have partially distinct competence
+profiles. Figure 3 shows that intersecting but non-
+nested models leave transferable complementary
+regions, while the intersection-style results show
+that useful structure can survive truncation and be
+absorbed as a small perturbation (Table 6). The
+effect is more pronounced when the two models
+differ more substantially in scale.
+6.2
+Ratio Sensitivity and Effective Region
+Direct averaging is effective mainly near an anchor
+model. Appendix C and Tables 21–22 show two
+protocol-specific phase patterns. For union-style
+merging:
+λ ∈(0, 0.1) ∪(0.9, 1) ⇒stable transfer,
+(9)
+λ ∈(0.1, 0.9) ⇒severe performance collapse.
+(10)
+For intersection-style merging, where µ weights
+the truncated larger checkpoint:
+µ ∈(0, 0.1) ⇒stable transfer,
+(11)
+µ ∈(0.1, 1) ⇒severe performance collapse.
+(12)
+Thus, union-style merging has two endpoint neigh-
+borhoods, whereas intersection-style merging is
+one-sided because truncation is lossy. This ratio
+sensitivity is consistent with weight-space connec-
+tivity and alignment effects (Garipov et al., 2018;
+Frankle et al., 2020).
+6.3
+Seesaw Effect
+Heterogeneous merging is not monotonic.
+For
+Qwen2.5-14B and Qwen2.5-32B, the aggregate
+best merged configuration reaches 0.7525, above
+both sources (0.7044 and 0.7424; Table 3), but
+the task-level summary in Appendix A shows that
+the worst average falls to 0.7036 with task-level
+drops (Table 10). Aggregate gains can therefore
+hide capability-specific regressions; Appendix A
+provides additional details in Tables 11–16.
+6.4
+Perturbation Controls and Baseline
+Comparisons
+We further test whether the gains can be ex-
+plained by generic perturbation rather than cross-
+checkpoint transfer. Appendix C reports matched
+perturbation controls on the Qwen2.5-3B intersec-
+tion setting. Target-only scaling and matched noise
+sometimes improve individual tasks, but they do
+not match the merged checkpoint on the reported
+tasks. For example, on RTE, the baseline, target-
+only scaling, matched noise, and merge scores are
+0.6426, 0.6534, 0.6570, and 0.7256, respectively.
+On GSM8K, matched noise reaches 0.6808, while
+the merged checkpoint reaches 0.7028. This indi-
+cates that the improvement is not fully explained
+by adding a non-checkpoint perturbation of compa-
+rable scale.
+We also compare weighted averaging after trun-
+cation with several standard merging rules in the
+same small-model parameter space. The compari-
+son is not intended to show that weighted averaging
+dominates all possible merging algorithms. Instead,
+it tests whether the simplest zero-training, zero-
+alignment rule remains competitive after dimen-
+sional adaptation. On the reported average score,
+truncated-0.02 weighted averaging obtains 0.5551,
+close to TIES at 0.5587 and above SLERP, the 3B
+baseline, and DARE (Appendix C). Thus, dimen-
+sional adaptation should be viewed as a compati-
+bility operator that can support simple averaging
+and may also support stronger or complementary
+merging rules.
+7
+Conclusion
+We show that deterministic dimensional adaptation
+enables direct weighted averaging across hetero-
+geneous LLM scales. Across Qwen-family model
+pairs, small-ratio union and intersection merging
+can preserve source behavior and transfer com-
+plementary capabilities without training, adapters,
+routing, or semantic alignment. These results make
+simple weighted fusion a competitive zero-training
+baseline for probing heterogeneous LLM merging.
+At the same time, ratio sensitivity, perturbation con-
+trols, and seesaw effects show that compatibility
+is local and depends on the source pair, merging
+direction, and evaluation task. Task-level valida-
+tion therefore remains essential before treating a
+merged checkpoint as uniformly improved.
+8
+Limitations
+This study focuses on Qwen-family checkpoints,
+offline benchmarks, and representative ratios;
+broader evaluation of long-context, multilingual,
+tool-use, efficiency, calibration, robustness, and
+safety settings remains future work.
+Ethical Considerations
+Merged models may inherit unsafe or biased be-
+havior from source checkpoints, so deployment
+requires safety checks.
+References
+Joshua Ainslie, James Lee-Thorp, Michiel de Jong, Yury
+Zemlyanskiy, Federico Lebron, and Sumit Sanghai.
+2023. GQA: Training generalized multi-query trans-
+former models from multi-head checkpoints. In Pro-
+ceedings of the 2023 Conference on Empirical Meth-
+ods in Natural Language Processing, pages 4895–
+4901.
+Samuel K. Ainsworth, Jonathan Hayase, and Siddhartha
+Srinivasa. 2023. Git Re-Basin: Merging models mod-
+ulo permutation symmetries. In Proceedings of the
+11th International Conference on Learning Represen-
+tations.
+Jimmy Lei Ba, Jamie Ryan Kiros, and Geoffrey E. Hin-
+ton. 2016.
+Layer normalization.
+arXiv preprint
+arXiv:1607.06450.
+Loubna
+Ben
+Allal,
+Niklas
+Muennighoff,
+Lo-
+gesh
+Kumar
+Umapathi,
+Ben
+Lipkin,
+and
+Leandro
+von
+Werra.
+2022.
+A
+framework
+for
+the
+evaluation
+of
+code
+generation
+mod-
+els.
+https://github.com/bigcode-project/
+bigcode-evaluation-harness.
+Yonatan Bisk, Rowan Zellers, Ronan Le Bras, Jian-
+feng Gao, and Yejin Choi. 2020. PIQA: Reasoning
+about physical commonsense in natural language. In
+Proceedings of the AAAI Conference on Artificial
+Intelligence, volume 34, pages 7432–7439.
+Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan,
+Henrique Ponde de Oliveira Pinto, Jared Kaplan,
+Harri Edwards, Yuri Burda, Nicholas Joseph, Greg
+Brockman, and 1 others. 2021.
+Evaluating large
+language models trained on code. arXiv preprint
+arXiv:2107.03374.
+Shilian Chen, Jie Zhou, Qin Chen, Wen Wu, Xin
+Li, Qi Feng, and Liang He. 2026. Can heteroge-
+neous language models be fused?
+arXiv preprint
+arXiv:2604.01674.
+Zhijun Chen, Xiaodong Lu, Jingzheng Li, Pengpeng
+Chen, Zhuoran Li, Kai Sun, Yuankai Luo, Qian-
+ren Mao, Ming Li, Likang Xiao, Dingqi Yang, Xiao
+Huang, Yikun Ban, Hailong Sun, and Philip S. Yu.
+2025.
+Harnessing multiple large language mod-
+els: A survey on LLM ensemble. arXiv preprint
+arXiv:2502.18036.
+Christopher Clark, Kenton Lee, Ming-Wei Chang,
+Tom Kwiatkowski, Michael Collins, and Kristina
+Toutanova. 2019. BoolQ: Exploring the surprising
+difficulty of natural yes/no questions. In Proceedings
+of the 2019 Conference of the North American Chap-
+ter of the Association for Computational Linguistics:
+Human Language Technologies, Volume 1 (Long and
+Short Papers), pages 2924–2936.
+Peter Clark, Isaac Cowhey, Oren Etzioni, Tushar Khot,
+Ashish Sabharwal, Carissa Schoenick, and Oyvind
+Tafjord. 2018. Think you have solved question an-
+swering? try ARC, the AI2 reasoning challenge.
+arXiv preprint arXiv:1803.05457.
+Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian,
+Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias
+Plappert, Jerry Tworek, Jacob Hilton, Reiichiro
+Nakano, Christopher Hesse, and John Schulman.
+2021. Training verifiers to solve math word prob-
+lems. arXiv preprint arXiv:2110.14168.
+MohammadReza Davari and Eugene Belilovsky. 2024.
+Model breadcrumbs: Scaling multi-task model merg-
+ing with sparse masks. In Proceedings of the Euro-
+pean Conference on Computer Vision.
+Guodong Du, Zhuo Li, Xuanning Zhou, Junlin Li,
+Zesheng Shi, Wanyu Lin, Ho-Kin Tang, Xiucheng
+Li, Fangming Liu, Wenya Wang, Min Zhang, and
+Jing Li. 2025a.
+Knowledge fusion of large lan-
+guage models via modular SkillPacks. arXiv preprint
+arXiv:2505.18502.
+Yiyang Du, Xiaochen Wang, Chi Chen, Jiabo Ye,
+Yiru Wang, Peng Li, Ming Yan, Ji Zhang, Fei
+Huang, Zhifang Sui, Maosong Sun, and Yang Liu.
+2025b.
+AdaMMS: Model merging for heteroge-
+neous multimodal large language models with un-
+supervised coefficient optimization. arXiv preprint
+arXiv:2503.23733.
+Jonathan Frankle, Gintare Karolina Dziugaite, Daniel M.
+Roy, and Michael Carbin. 2020. Linear mode con-
+nectivity and the lottery ticket hypothesis. In Pro-
+ceedings of the 37th International Conference on
+Machine Learning, volume 119 of Proceedings of
+Machine Learning Research, pages 3259–3269.
+Leo Gao, Jonathan Tow, Baber Abbasi, Stella Bider-
+man, Sid Black, Anthony DiPofi, Charles Foster,
+Laurence Golding, Jeffrey Hsu, Alain Le Noac’h,
+Haonan Li, Kyle McDonell, Niklas Muennighoff,
+Chris Ociepa, Jason Phang, Laria Reynolds, Hailey
+Schoelkopf, Aviya Skowron, Lintang Sutawika, and
+5 others. 2023. A framework for few-shot language
+model evaluation.
+Timur Garipov, Pavel Izmailov, Dmitrii Podoprikhin,
+Dmitry P. Vetrov, and Andrew Gordon Wilson. 2018.
+Loss surfaces, mode connectivity, and fast ensem-
+bling of DNNs. In Advances in Neural Information
+Processing Systems, volume 31.
+9
+Jian Gu, Aldeida Aleti, Chunyang Chen, and Hongyu
+Zhang. 2025. SeMe: Training-free language model
+merging via semantic alignment.
+arXiv preprint
+arXiv:2505.20144.
+Stefan Hackmann. 2024.
+HM3:
+Heterogeneous
+multi-class
+model
+merging.
+arXiv
+preprint
+arXiv:2409.19173.
+Yifei He, Yuzheng Hu, Yong Lin, Tong Zhang, and Han
+Zhao. 2024. Localize-and-stitch: Efficient model
+merging via sparse task arithmetic. Transactions on
+Machine Learning Research.
+Yifei He, Siqi Zeng, Yuzheng Hu, Rui Yang, Tong
+Zhang, and Han Zhao. 2025. MergeBench: A bench-
+mark for merging domain-specialized LLMs. In Ad-
+vances in Neural Information Processing Systems.
+Dan Hendrycks, Collin Burns, Steven Basart, Andy Zou,
+Mantas Mazeika, Dawn Song, and Jacob Steinhardt.
+2020. Measuring massive multitask language under-
+standing. arXiv preprint arXiv:2009.03300.
+Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul
+Arora, Steven Basu, Eric Tang, Dawn Song, and Ja-
+cob Steinhardt. 2021. Measuring mathematical prob-
+lem solving with the MATH dataset. arXiv preprint
+arXiv:2103.03874.
+Geoffrey Hinton, Oriol Vinyals, and Jeff Dean. 2015.
+Distilling the knowledge in a neural network. arXiv
+preprint arXiv:1503.02531.
+O˘guz Ka˘gan Hitit, Leander Girrbach, and Zeynep Akata.
+2026. A systematic study of in-the-wild model merg-
+ing for large language models. Transactions on Ma-
+chine Learning Research.
+Gabriel Ilharco, Marco Tulio Ribeiro, Mitchell Worts-
+man, Suchin Gururangan, Ludwig Schmidt, Han-
+naneh Hajishirzi, and Ali Farhadi. 2023. Editing
+models with task arithmetic. In Proceedings of the
+11th International Conference on Learning Represen-
+tations.
+Albert Q. Jiang, Alexandre Sablayrolles, Antoine Roux,
+Arthur Mensch, Blanche Savary, Chris Bamford, De-
+vendra Singh Chaplot, Diego de las Casas, Emma
+Bou Hanna, Florian Bressand, Gianna Lengyel,
+Guillaume Bour, Guillaume Lample, Lélio Re-
+nard Lavaud, Lucile Saulnier, Marie-Anne Lachaux,
+Pierre Stock, Sandeep Subramanian, Sophia Yang,
+and 7 others. 2024. Mixtral of experts. arXiv preprint
+arXiv:2401.04088.
+Xisen Jin, Xiang Ren, Daniel Preotiuc-Pietro, and
+Pengxiang Cheng. 2023. Dataless knowledge fu-
+sion by merging weights of language models. In
+Proceedings of the 11th International Conference on
+Learning Representations.
+Keller Jordan, Hanie Sedghi, Olga Saukh, Rahim En-
+tezari, and Behnam Neyshabur. 2023.
+REPAIR:
+Renormalizing permuted activations for interpola-
+tion repair. In Proceedings of the 11th International
+Conference on Learning Representations.
+Simon Kornblith, Mohammad Norouzi, Honglak Lee,
+and Geoffrey Hinton. 2019. Similarity of neural net-
+work representations revisited. In Proceedings of
+the 36th International Conference on Machine Learn-
+ing, volume 97 of Proceedings of Machine Learning
+Research, pages 3519–3529.
+Hunter Lightman, Vineet Kosaraju, Yura Burda, Harri
+Edwards, Bowen Baker, Teddy Lee, Jan Leike, John
+Schulman, Ilya Sutskever, and Karl Cobbe. 2024.
+Let’s verify step by step. In Proceedings of the 12th
+International Conference on Learning Representa-
+tions.
+Jiawei Liu, Chunqiu Steven Xia, Yuyao Wang, and Ling-
+ming Zhang. 2023. Is your code generated by Chat-
+GPT really correct? rigorous evaluation of large lan-
+guage models for code generation. In Advances in
+Neural Information Processing Systems, volume 36.
+Jinliang Lu, Ziliang Pang, Min Xiao, Yaochen Zhu, Rui
+Xia, and Jiajun Zhang. 2024. Merge, ensemble, and
+cooperate! A survey on collaborative strategies in
+the era of large language models. arXiv preprint
+arXiv:2407.06089.
+Michael Matena and Colin Raffel. 2022. Merging mod-
+els with fisher-weighted averaging. In Advances in
+Neural Information Processing Systems, volume 35.
+Jonas Pfeiffer, Aishwarya Kamath, Andreas Rücklé,
+Kyunghyun Cho,
+and Iryna Gurevych. 2021.
+AdapterFusion: Non-destructive task composition
+for transfer learning. In Proceedings of the 16th Con-
+ference of the European Chapter of the Association
+for Computational Linguistics: Main Volume, pages
+487–503.
+Maithra Raghu, Justin Gilmer, Jason Yosinski, and
+Jascha Sohl-Dickstein. 2017. SVCCA: Singular vec-
+tor canonical correlation analysis for deep learning
+dynamics and interpretability. In Advances in Neural
+Information Processing Systems, volume 30.
+Melissa Roemmele, Cosmin Adrian Bejan, and An-
+drew S. Gordon. 2011. Choice of plausible alter-
+natives: An evaluation of commonsense causal rea-
+soning. In AAAI Spring Symposium: Logical Formal-
+izations of Commonsense Reasoning.
+Keisuke Sakaguchi, Ronan Le Bras, Chandra Bhaga-
+vatula, and Yejin Choi. 2020. WinoGrande: An ad-
+versarial Winograd schema challenge at scale. In
+Proceedings of the AAAI Conference on Artificial
+Intelligence, volume 34, pages 8732–8740.
+Ken Shoemake. 1985. Animating rotation with quater-
+nion curves. In Proceedings of the 12th Annual Con-
+ference on Computer Graphics and Interactive Tech-
+niques, pages 245–254.
+Mingyang Song and Mao Zheng. 2026. Model merg-
+ing in the era of large language models: Methods,
+applications, and future directions. arXiv preprint
+arXiv:2603.09938.
+10
+Bedionita Soro, Aoxuan Silvia Zhang, Bruno Andreis,
+Jaehyeong Jo, Song Chong, and Sung Ju Hwang.
+2026. LS-Merge: Merging language models in la-
+tent space. In Proceedings of the 14th International
+Conference on Learning Representations.
+George Stoica, Daniel Bolya, Jakob Bjorner, Pratik
+Ramesh, Taylor Hearn, and Judy Hoffman. 2024.
+ZipIt! merging models from different tasks without
+training. In Proceedings of the 12th International
+Conference on Learning Representations.
+Mirac Suzgun, Nathan Scales, Nathanael Schärli, Se-
+bastian Gehrmann, Yi Tay, Hyung Won Chung,
+Aakanksha Chowdhery, Quoc V. Le, Ed H. Chi,
+Denny Zhou, and Jason Wei. 2022.
+Challenging
+BIG-Bench tasks and whether chain-of-thought can
+solve them. arXiv preprint arXiv:2210.09261.
+Derek Tam, Mohit Bansal, and Colin Raffel. 2024.
+Merging by matching models in task parameter sub-
+spaces. Transactions on Machine Learning Research.
+Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob
+Uszkoreit, Llion Jones, Aidan N. Gomez, Lukasz
+Kaiser, and Illia Polosukhin. 2017. Attention is all
+you need. In Advances in Neural Information Pro-
+cessing Systems, volume 30.
+Fanqi Wan, Xinting Huang, Deng Cai, Xiaojun Quan,
+Wei Bi, and Shuming Shi. 2024a. Knowledge fu-
+sion of large language models.
+arXiv preprint
+arXiv:2401.10491.
+Fanqi Wan, Longguang Zhong, Ziyi Yang, Rui-
+jun Chen, and Xiaojun Quan. 2024b.
+FuseChat:
+Knowledge fusion of chat models. arXiv preprint
+arXiv:2408.07990.
+Alex Wang, Amanpreet Singh, Julian Michael, Felix
+Hill, Omer Levy, and Samuel R. Bowman. 2019.
+GLUE: A multi-task benchmark and analysis plat-
+form for natural language understanding. In Interna-
+tional Conference on Learning Representations.
+Ke Wang, Nikolaos Dimitriadis, Guillermo Ortiz-
+Jimenez, François Fleuret, and Pascal Frossard. 2024.
+Localizing task information for improved model
+merging and compression. In Proceedings of the
+41st International Conference on Machine Learning.
+Yuanyi Wang, Yanggan Gu, Yiming Zhang, Qi Zhou,
+Zhaoyi Yan, Congkai Xie, Xinyao Wang, Jianbo
+Yuan, and Hongxia Yang. 2025. Model merging scal-
+ing laws in large language models. arXiv preprint
+arXiv:2509.24244.
+Adina Williams, Nikita Nangia, and Samuel R. Bow-
+man. 2018. A broad-coverage challenge corpus for
+sentence understanding through inference. In Pro-
+ceedings of the 2018 Conference of the North Amer-
+ican Chapter of the Association for Computational
+Linguistics: Human Language Technologies, Volume
+1 (Long Papers), pages 1112–1122.
+Mitchell Wortsman, Gabriel Ilharco, Samir Ya Gadre,
+Rebecca Roelofs, Raphael Gontijo-Lopes, Ari S.
+Morcos, Hongseok Namkoong, Ali Farhadi, Yair Car-
+mon, Simon Kornblith, and Ludwig Schmidt. 2022.
+Model soups: Averaging weights of multiple fine-
+tuned models improves accuracy without increasing
+inference time. In Proceedings of the 39th Interna-
+tional Conference on Machine Learning, volume 162
+of Proceedings of Machine Learning Research, pages
+23965–23998.
+Prateek Yadav, Derek Tam, Leshem Choshen, Colin
+Raffel, and Mohit Bansal. 2023. TIES-Merging: Re-
+solving interference when merging models. In Ad-
+vances in Neural Information Processing Systems,
+volume 36.
+Prateek Yadav, Tu Vu, Jonathan Lai, Alexandra
+Chronopoulou, Manaal Faruqui, Mohit Bansal, and
+Tsendsuren Munkhdalai. 2025.
+What matters
+for model merging at scale?
+arXiv preprint
+arXiv:2410.03617.
+An Yang, Anfeng Li, Baosong Yang, Beichen Zhang,
+Binyuan Hui,
+Bo Zheng,
+Bowen Yu,
+Chang
+Gao, Chengen Huang, Chenxu Lv, and 1 others.
+2025.
+Qwen3 technical report.
+arXiv preprint
+arXiv:2505.09388.
+Qwen Team. 2025. Qwen3-4B-Thinking-2507. Hug-
+ging Face model card.
+An Yang, Baosong Yang, Beichen Zhang, Binyuan
+Hui, Bo Zheng, Bowen Yu, Chengyuan Li, Day-
+iheng Liu, Fei Huang, Haoran Wei, and 1 others.
+2024.
+Qwen2.5 technical report.
+arXiv preprint
+arXiv:2412.15115.
+Enneng Yang, Li Shen, Guibing Guo, Xingwei Wang,
+Xiaochun Cao, Jie Zhang, and Dacheng Tao. 2026.
+Model merging in LLMs, MLLMs, and beyond:
+Methods, theories, applications, and opportunities.
+ACM Computing Surveys, 58(8).
+Le Yu, Bowen Yu, Haiyang Yu, Fei Huang, and Yong-
+bin Li. 2024. Language models are Super Mario:
+Absorbing abilities from homologous models as a
+free lunch. In Proceedings of the 41st International
+Conference on Machine Learning.
+Rowan Zellers, Ari Holtzman, Yonatan Bisk, Ali
+Farhadi, and Yejin Choi. 2019. HellaSwag: Can
+a machine really finish your sentence? In Proceed-
+ings of the 57th Annual Meeting of the Association
+for Computational Linguistics, pages 4791–4800.
+Biao Zhang and Rico Sennrich. 2019. Root mean square
+layer normalization. In Advances in Neural Informa-
+tion Processing Systems, volume 32.
+Jeffrey Zhou, Tianjian Lu, Swaroop Mishra, Sid-
+dhartha Brahma, Sujoy Basu, Yi Luan, Denny Zhou,
+and Le Hou. 2023.
+Instruction-following evalu-
+ation for large language models.
+arXiv preprint
+arXiv:2311.07911.
+11
+A
+Additional Task-Level Results
+Dataset
+14B
+32B
+λ = 0.98
+λ = 0.96
+λ = 0.04
+λ = 0.02
+BEST
+WORST
+gsm8k
+0.8779
+0.9014
+0.9045
+0.8992
+0.8787
+0.8832
+0.9045
+0.8787
+MATH-500
+0.5460
+0.6180
+0.6140
+0.5860
+0.5380
+0.5560
+0.6140
+0.5380
+humanevalplus
+0.5604
+0.6165
+0.6482
+0.6494
+0.5628
+0.5591
+(+0.03) 0.6494
+0.5591
+mbppplus
+0.6738
+0.7405
+0.7413
+0.7392
+0.6791
+0.6833
+0.7413
+0.6791
+BoolQ
+0.8532
+0.8740
+0.8719
+0.8682
+0.8554
+0.8590
+0.8719
+0.8554
+COPA
+0.9000
+0.8700
+0.8900
+0.8900
+0.9000
+0.9100
+(+0.01) 0.9100
+0.8900
+MNLI
+0.6689
+0.7217
+0.7257
+0.7300
+0.6869
+0.6823
+0.7300
+0.6823
+PIQA
+0.8248
+0.8243
+0.8232
+0.8243
+0.8254
+0.8226
+0.8254
+0.8226
+QNLI
+0.6771
+0.8596
+0.8587
+0.8594
+0.7428
+0.7040
+0.8594
+0.7040
+RTE
+0.7906
+0.8159
+0.8123
+0.8123
+0.7870
+0.7906
+0.8123
+0.7870
+Winogrande
+0.7569
+0.7569
+0.7569
+0.7687
+0.7774
+0.7609
+(+0.02) 0.7774
+0.7569
+ARC
+0.5241
+0.5320
+0.5328
+0.5341
+0.5099
+0.5144
+0.5341
+0.5099
+HellaSwag
+0.6911
+0.7175
+0.7156
+0.7116
+0.6844
+0.6893
+0.7156
+0.6844
+MMLU
+0.7094
+0.7620
+0.7630
+0.7623
+0.7073
+0.7091
+0.7630
+0.7073
+ifeval
+0.4424
+0.4832
+0.4880
+0.5072
+0.4317
+0.4412
+(+0.02) 0.5072
+0.4317
+BBH
+0.7731
+0.7852
+0.8231
+0.8241
+0.7815
+0.7704
+(+0.04) 0.8241
+0.7704
+Avg.
+0.7044
+0.7424
+0.7481
+0.7479
+0.7093
+0.7085
+0.7525
+0.7036
+Table 10: Task-level best/worst outcomes for Qwen2.5-14B and Qwen2.5-32B under union-style merging.
+Dataset
+4B
+8B
+λ = 0.98
+λ = 0.96
+λ = 0.04
+λ = 0.02
+BEST
+WORST
+gsm8k
+0.8931
+0.8764
+0.9007
+0.8749
+0.8605
+0.8923
+0.9007
+0.8605
+MATH-500
+0.5100
+0.5300
+0.5480
+0.5460
+0.5180
+0.4680
+(+0.02) 0.5480
+0.4680
+humanevalplus
+0.5854
+0.6091
+0.6768
+0.6646
+0.5061
+0.5915
+(+0.07) 0.6768
+0.5061
+mbppplus
+0.4550
+0.6328
+0.6296
+0.6402
+0.4497
+0.4444
+0.6402
+0.4444
+BoolQ
+0.7477
+0.8673
+0.8682
+0.8709
+0.7569
+0.7538
+0.8709
+0.7538
+COPA
+0.8200
+0.8500
+0.8700
+0.8600
+0.7900
+0.8000
+(+0.02) 0.8700
+0.7900
+MNLI
+0.5849
+0.6220
+0.6298
+0.6387
+0.5849
+0.5930
+(+0.02) 0.6387
+0.5849
+PIQA
+0.7546
+0.7753
+0.7775
+0.7753
+0.7481
+0.7514
+0.7775
+0.7481
+QNLI
+0.5266
+0.7824
+0.7899
+0.7842
+0.5601
+0.5435
+0.7899
+0.5435
+RTE
+0.8123
+0.7762
+0.7762
+0.7834
+0.8123
+0.7978
+0.8123
+0.7762
+Winogrande
+0.6590
+0.6765
+0.6827
+0.6851
+0.6551
+0.6567
+0.6851
+0.6551
+ARC
+0.3887
+0.4640
+0.4610
+0.4601
+0.3849
+0.3868
+0.4610
+0.3849
+HellaSwag
+0.5152
+0.6125
+0.6094
+0.6050
+0.5039
+0.5086
+0.6094
+0.5039
+MMLU
+0.5854
+0.6695
+0.6722
+0.6716
+0.5921
+0.5918
+0.6722
+0.5918
+ifeval
+0.4652
+0.4233
+0.4077
+0.3777
+0.4880
+0.4868
+(+0.02) 0.4880
+0.3777
+BBH
+0.7380
+0.7889
+0.7833
+0.7852
+0.7537
+0.7509
+0.7852
+0.7509
+Avg.
+0.6276
+0.6848
+0.6927
+0.6889
+0.6228
+0.6261
+(+0.02) 0.7016
+0.6087
+Table 11: Task-level best/worst outcomes for Qwen3-4B-Thinking-2507 and Qwen3-8B under union-style merging.
+Dataset
+14B
+32B
+λ = 0.98
+λ = 0.96
+λ = 0.04
+λ = 0.02
+BEST
+WORST
+gsm8k
+0.9227
+0.9113
+0.9181
+0.8848
+0.9121
+0.9181
+0.9181
+0.8848
+MATH-500
+0.8160
+0.7740
+0.7740
+0.7580
+0.7920
+0.8180
+0.8180
+0.7580
+humanevalplus
+0.6707
+0.6890
+0.7378
+0.6890
+0.6646
+0.6585
+(+0.05) 0.7378
+0.6585
+mbppplus
+0.6878
+0.6402
+0.6587
+0.6984
+0.7169
+0.7116
+(+0.03) 0.7169
+0.6587
+BoolQ
+0.8924
+0.8633
+0.8752
+0.8789
+0.8887
+0.8896
+0.8896
+0.8752
+COPA
+0.9000
+0.9400
+0.9400
+0.9600
+0.8800
+0.8900
+(+0.02) 0.9600
+0.8800
+MNLI
+0.6706
+0.6989
+0.7104
+0.6951
+0.6918
+0.6847
+(+0.01) 0.7104
+0.6847
+PIQA
+0.7976
+0.8150
+0.8188
+0.8025
+0.8047
+0.8009
+0.8188
+0.8009
+QNLI
+0.8380
+0.8104
+0.8365
+0.8515
+0.8543
+0.8468
+(+0.02) 0.8543
+0.8365
+RTE
+0.7762
+0.7545
+0.7581
+0.7653
+0.7906
+0.7870
+(+0.01) 0.7906
+0.7581
+Winogrande
+0.7277
+0.7301
+0.7261
+0.7190
+0.7222
+0.7238
+0.7261
+0.7190
+ARC
+0.5093
+0.5341
+0.5352
+0.5245
+0.5178
+0.5160
+0.5352
+0.5160
+HellaSwag
+0.6619
+0.7065
+0.7061
+0.6782
+0.6678
+0.6655
+0.7061
+0.6655
+MMLU
+0.7135
+0.7621
+0.7604
+0.7248
+0.7099
+0.7129
+0.7604
+0.7099
+ifeval
+0.4484
+0.4652
+0.5360
+0.5635
+0.4580
+0.4688
+(+0.10) 0.5635
+0.4580
+BBH
+0.8500
+0.8639
+0.8843
+0.8593
+0.8583
+0.8620
+(+0.02) 0.8843
+0.8583
+Avg.
+0.7427
+0.7474
+0.7610
+0.7533
+0.7456
+0.7471
+(+0.03) 0.7744
+0.7326
+Table 12: Task-level best/worst outcomes for Qwen3-14B and Qwen3-32B under union-style merging.
+12
+Dataset
+3B
+µ = 0.01
+µ = 0.02
+µ = 0.03
+µ = 0.04
+µ = 0.05
+BEST
+WORST
+gsm8k
+0.6566
+0.6839
+0.7028
+0.7142
+0.7210
+0.7043
+(+0.06) 0.7210
+0.6839
+MATH-500
+0.3840
+0.4060
+0.3840
+0.3560
+0.3660
+0.3560
+(+0.02) 0.4060
+0.3560
+humanevalplus
+0.4390
+0.4329
+0.3671
+0.3232
+0.3354
+0.2927
+0.4329
+0.2927
+mbppplus
+0.5899
+0.5873
+0.6058
+0.5847
+0.5794
+0.5926
+(+0.02) 0.6058
+0.5794
+BoolQ
+0.7080
+0.7089
+0.7040
+0.7116
+0.7254
+0.7272
+(+0.02) 0.7272
+0.7040
+COPA
+0.7800
+0.7900
+0.7900
+0.7900
+0.8000
+0.8000
+(+0.02) 0.8000
+0.7900
+MNLI
+0.4598
+0.4817
+0.4919
+0.5037
+0.5203
+0.5334
+(+0.07) 0.5334
+0.4817
+PIQA
+0.7579
+0.7563
+0.7584
+0.7481
+0.7459
+0.7405
+0.7584
+0.7405
+QNLI
+0.5286
+0.5345
+0.5279
+0.5378
+0.5451
+0.5526
+(+0.02) 0.5526
+0.5279
+RTE
+0.6426
+0.6931
+0.7256
+0.7581
+0.7726
+0.7437
+(+0.13) 0.7726
+0.6931
+Winogrande
+0.6338
+0.6401
+0.6322
+0.6377
+0.6212
+0.6235
+(+0.01) 0.6401
+0.6212
+ARC
+0.3442
+0.3430
+0.3421
+0.3372
+0.3361
+0.3357
+0.3430
+0.3357
+HellaSwag
+0.5094
+0.5087
+0.5068
+0.5027
+0.5003
+0.4949
+0.5087
+0.4949
+MMLU
+0.4496
+0.4504
+0.4514
+0.4407
+0.4323
+0.4241
+0.4514
+0.4241
+ifeval
+0.4041
+0.3957
+0.4113
+0.4065
+0.3861
+0.3825
+(+0.01) 0.4113
+0.3825
+BBH
+0.4463
+0.4731
+0.4806
+0.4694
+0.4491
+0.4306
+(+0.03) 0.4806
+0.4306
+Avg.
+0.5459
+0.5554
+0.5551
+0.5514
+0.5523
+0.5459
+(+0.03) 0.5716
+0.5336
+Table 13: Task-level best and worst merging outcomes for Qwen2.5-3B under small-ratio intersection-style merging.
+Dataset
+14B
+µ = 0.01
+µ = 0.02
+µ = 0.03
+µ = 0.04
+µ = 0.05
+BEST
+WORST
+gsm8k
+0.8802
+0.8772
+0.8848
+0.8817
+0.8810
+0.8719
+0.8848
+0.8719
+MATH-500
+0.5460
+0.5640
+0.5520
+0.5520
+0.5460
+0.5400
+(+0.02) 0.5640
+0.5400
+humanevalplus
+0.5604
+0.5616
+0.5579
+0.5561
+0.5494
+0.5378
+0.5616
+0.5378
+mbppplus
+0.6738
+0.6775
+0.6767
+0.6640
+0.6624
+0.6542
+0.6775
+0.6542
+BoolQ
+0.8532
+0.8584
+0.8612
+0.8581
+0.8560
+0.8517
+0.8612
+0.8517
+COPA
+0.9000
+0.9000
+0.9100
+0.9100
+0.9100
+0.9000
+(+0.01) 0.9100
+0.9000
+MNLI
+0.6689
+0.6767
+0.6801
+0.6836
+0.6864
+0.6880
+(+0.02) 0.6880
+0.6767
+PIQA
+0.8248
+0.8232
+0.8254
+0.8232
+0.8237
+0.8177
+0.8254
+0.8177
+QNLI
+0.6771
+0.6943
+0.7031
+0.7262
+0.7386
+0.7657
+(+0.09) 0.7657
+0.6943
+RTE
+0.7906
+0.7978
+0.7978
+0.7906
+0.7906
+0.7906
+0.7978
+0.7906
+Winogrande
+0.7569
+0.7664
+0.7601
+0.7711
+0.7774
+0.7727
+(+0.02) 0.7774
+0.7601
+ARC
+0.5241
+0.5200
+0.5144
+0.5123
+0.5106
+0.5050
+0.5200
+0.5050
+HellaSwag
+0.6911
+0.6903
+0.6895
+0.6859
+0.6845
+0.6805
+0.6903
+0.6805
+MMLU
+0.7094
+0.7087
+0.7088
+0.7079
+0.7073
+0.7047
+0.7088
+0.7047
+ifeval
+0.4424
+0.4388
+0.4353
+0.4269
+0.4281
+0.4185
+0.4388
+0.4185
+BBH
+0.7731
+0.7694
+0.7694
+0.7759
+0.7852
+0.7870
+(+0.01) 0.7870
+0.7694
+Avg.
+0.7045
+0.7078
+0.7079
+0.7078
+0.7086
+0.7054
+(+0.01) 0.7161
+0.6983
+Table 14: Task-level best and worst merging outcomes for Qwen2.5-14B under small-ratio intersection-style
+merging.
+Dataset
+14B
+µ = 0.01
+µ = 0.02
+µ = 0.03
+µ = 0.04
+µ = 0.05
+BEST
+WORST
+gsm8k
+0.9340
+0.9363
+0.9378
+0.9386
+0.9348
+0.9242
+0.9386
+0.9242
+MATH-500
+0.8160
+0.8160
+0.8220
+0.8280
+0.8060
+0.8100
+(+0.01) 0.8280
+0.8060
+humanevalplus
+0.7500
+0.7622
+0.7500
+0.7561
+0.7561
+0.7683
+(+0.02) 0.7683
+0.7500
+mbppplus
+0.7381
+0.7354
+0.7434
+0.7381
+0.7407
+0.7354
+0.7434
+0.7354
+BoolQ
+0.8924
+0.8933
+0.8920
+0.8902
+0.8902
+0.8881
+0.8933
+0.8881
+COPA
+0.9000
+0.9000
+0.9000
+0.9000
+0.8900
+0.8800
+0.9000
+0.8800
+MNLI
+0.6706
+0.6699
+0.6653
+0.6633
+0.6569
+0.6533
+0.6699
+0.6533
+PIQA
+0.7976
+0.8009
+0.7982
+0.8025
+0.7998
+0.7982
+0.8025
+0.7982
+QNLI
+0.8380
+0.8376
+0.8402
+0.8420
+0.8431
+0.8446
+0.8446
+0.8376
+RTE
+0.7762
+0.7834
+0.7834
+0.7942
+0.7942
+0.7978
+(+0.02) 0.7978
+0.7834
+Winogrande
+0.7277
+0.7316
+0.7332
+0.7340
+0.7269
+0.7340
+0.7340
+0.7269
+ARC
+0.5093
+0.5095
+0.5121
+0.5127
+0.5112
+0.5119
+0.5127
+0.5095
+HellaSwag
+0.6619
+0.6642
+0.6657
+0.6661
+0.6666
+0.6683
+0.6683
+0.6642
+MMLU
+0.7135
+0.7129
+0.7117
+0.7105
+0.7095
+0.7061
+0.7129
+0.7061
+ifeval
+0.4484
+0.4664
+0.4700
+0.4616
+0.4460
+0.4712
+(+0.02) 0.4712
+0.4460
+BBH
+0.8500
+0.8370
+0.8426
+0.8546
+0.8602
+0.8074
+(+0.01) 0.8602
+0.8074
+Avg.
+0.7515
+0.7535
+0.7542
+0.7558
+0.7520
+0.7499
+(+0.01) 0.7591
+0.7448
+Table 15: Task-level best and worst merging outcomes for Qwen3-14B under small-ratio intersection-style merging.
+13
+Dataset
+4B
+µ = 0.01
+µ = 0.02
+µ = 0.03
+µ = 0.04
+µ = 0.05
+BEST
+WORST
+gsm8k
+0.8863
+0.8772
+0.8840
+0.8817
+0.8840
+0.8749
+0.8840
+0.8749
+MATH-500
+0.5100
+0.5240
+0.5120
+0.5380
+0.5140
+0.5200
+(+0.03) 0.5380
+0.5120
+humanevalplus
+0.5220
+0.5055
+0.4744
+0.4476
+0.4122
+0.3933
+0.5055
+0.3933
+mbppplus
+0.5275
+0.5193
+0.5079
+0.4942
+0.4878
+0.4452
+0.5193
+0.4452
+BoolQ
+0.7477
+0.7636
+0.7664
+0.7758
+0.7749
+0.7798
+(+0.03) 0.7798
+0.7636
+COPA
+0.8200
+0.8100
+0.8000
+0.7900
+0.7800
+0.7800
+0.8100
+0.7800
+MNLI
+0.5849
+0.5879
+0.5887
+0.5881
+0.5855
+0.5828
+0.5887
+0.5828
+PIQA
+0.7546
+0.7530
+0.7524
+0.7563
+0.7557
+0.7541
+0.7563
+0.7524
+QNLI
+0.5266
+0.5347
+0.5416
+0.5599
+0.5718
+0.5863
+(+0.06) 0.5863
+0.5347
+RTE
+0.8123
+0.8087
+0.8014
+0.8014
+0.8087
+0.8087
+0.8087
+0.8014
+Winogrande
+0.6590
+0.6622
+0.6646
+0.6740
+0.6748
+0.6693
+(+0.02) 0.6748
+0.6622
+ARC
+0.3887
+0.3872
+0.3842
+0.3840
+0.3819
+0.3791
+0.3872
+0.3791
+HellaSwag
+0.5152
+0.5146
+0.5136
+0.5094
+0.5081
+0.5036
+0.5146
+0.5036
+MMLU
+0.5854
+0.5923
+0.5940
+0.5919
+0.5912
+0.5908
+0.5940
+0.5908
+ifeval
+0.4652
+0.4700
+0.4592
+0.4772
+0.4700
+0.4748
+(+0.01) 0.4772
+0.4592
+BBH
+0.7380
+0.7574
+0.7574
+0.7574
+0.7657
+0.7519
+(+0.03) 0.7657
+0.7519
+Avg.
+0.6277
+0.6292
+0.6251
+0.6267
+0.6229
+0.6184
+(+0.01) 0.6369
+0.6117
+Table 16: Task-level best and worst merging outcomes for Qwen3-4B-Thinking-2507 under small-ratio intersection-
+style merging.
+B
+Dimensional Adaptation Details
+This appendix gives the implementation-level form of the two dimensional adaptation operators used in
+Section 3. We separate the operator that maps a smaller checkpoint into a larger architecture, denoted
+by EXPAND, from the operator that projects a larger checkpoint into a smaller architecture, denoted
+by TRUNCATE. These operators correspond to union-style merging and intersection-style merging,
+respectively. They are deterministic tensor maps applied before interpolation, not learned alignment
+modules.
+B.1
+Union-Style EXPAND
+Let the source checkpoint have hidden size hs, intermediate size ms, number of layers Ls, number of
+query heads Hs, number of key-value heads Ks, and head dimension dh. Let the target architecture
+have the corresponding quantities ht, mt, Lt, Ht, Kt, with target dimensions no smaller than the source
+dimensions for the expanded axes. We use a slot map
+πn→m(i) =
+im
+n
+
+,
+i = 0, . . . , n −1,
+(13)
+to place source coordinates or heads into deterministic target slots. For a tensor W ∈Ras×bs expanded
+along rows and columns, the generic zero-extension rule is
+
+E(W)
+
+πas→at(i), πbs→bt(j) = c Wij,
+
+E(W)
+
+uv = 0 otherwise,
+(14)
+where c is one for ordinary linear weights and may be set to
+p
+hs/ht for copied hidden-width normalization
+coordinates in width-changing expansions. In practice, hidden coordinates are placed at a head-dimension
+block granularity when the architecture exposes a fixed head dimension. This preserves contiguous
+per-head subspaces rather than scattering individual coordinates.
+Attention projections are expanded with grouped-query structure preserved. Query rows are mapped
+at whole-head granularity, while key and value rows are mapped at key-value-head granularity. The
+output projection applies the inverse placement on its input-head dimension and the hidden-coordinate
+placement on its output dimension. Thus the target architecture keeps its own attention scale 1/√dh
+and head dimension. New attention rows or columns are zero at initialization, so they do not introduce
+untuned high-variance logits before interpolation.
+The MLP expansion follows the semantic axes of the SwiGLU block. For gate and up projections,
+source rows are copied into the first or mapped ms intermediate slots and source hidden columns are
+14
+Pseudocode 1: EXPAND for union-style merging
+Input: source checkpoint θs, target architecture At, source and target configs.
+Output: expanded checkpoint ˜θs = E(θs) in the target parameter space.
+1
+Initialize a model with architecture At and obtain its target state dictionary.
+2
+Build slot maps for hidden coordinates, query heads, key-value heads, and intermediate MLP dimensions.
+3
+Copy embeddings and the language-model head into mapped hidden coordinates; set unmapped coordinates to zero.
+4
+For each source layer ℓ< Ls, copy normalization parameters into matched coordinates and initialize newly introduced
+normalization scales to neutral values when applicable.
+5
+Expand q, k, v, and o attention matrices by whole-head or key-value-head slots, preserving grouped-query attention structure.
+6
+Expand MLP gate/up/down matrices along their semantic input and output dimensions; zero-fill newly introduced SwiGLU
+coordinates.
+7
+For layers Ls, . . . , Lt −1, set attention and MLP branch weights to zero and set normalization scales to one, producing
+residual identity blocks.
+8
+Save the expanded checkpoint and use it in θ∪(λ) = (1 −λ)E(θs) + λθt.
+Table 17: EXPAND constructs a larger-architecture checkpoint by deterministic slot insertion, zero-filled new
+branches, and residual identity initialization for added layers.
+copied into mapped hidden slots. For the down projection, source hidden rows are copied into mapped
+hidden slots and source intermediate columns are copied into the retained intermediate slots. All newly
+introduced MLP coordinates are zero-filled. Because a SwiGLU branch has the form
+MLP(x) = Wdown (SwiGLU(Wgatex, Wupx)) ,
+(15)
+zero-filling new gate, up, and down coordinates prevents newly inserted nonlinear branches from con-
+tributing before interpolation.
+For additional layers, we use residual identity initialization. Consider a pre-normalization Transformer
+block with normalization operator Nℓand attention/MLP branch Gℓ:
+hℓ+1 = hℓ+ Gℓ
+ Nℓ(hℓ); Wℓ
+
+.
+(16)
+For a newly inserted layer, all attention and MLP branch weights are set to zero, while normalization scale
+parameters in the inserted layer are set to the neutral value one. This gives
+Gℓ
+ Nℓ(hℓ); W new
+ℓ
+
+= 0,
+hℓ+1 = hℓ,
+(17)
+so ∆hℓ= 0 at initialization. Normalization scales are not set to zero, because zero scales would collapse
+normalized feature variation. For LayerNorm (Ba et al., 2016),
+Nℓ(h) = γℓ⊙
+h −¯h
+p
+Var(h) + ϵ
++ βℓ,
+(18)
+and the local Jacobian scales with γℓ. Setting γℓ= 1 preserves a well-conditioned normalized signal. The
+same intuition applies to RMSNorm (Zhang and Sennrich, 2019).
+The stability claim for union-style merging is local. After expansion, interpolation can be written as
+θ∪(λ) = E(θs) + λ
+ θt −E(θs)
+
+.
+(19)
+For small λ, the expanded source checkpoint remains the anchor. For λ close to one, the target checkpoint
+becomes the anchor. Near-balanced interpolation does not have this protection, and nonlinear gates can
+amplify destructive interference. This explains why the method can work in endpoint neighborhoods
+while failing in the middle of the ratio range.
+B.2
+Intersection-Style TRUNCATE
+For intersection-style merging, we instantiate the small-model architecture and project the large checkpoint
+into that state dictionary. Let WB ∈Rs1×···×sr be a tensor from the larger checkpoint and let WA ∈
+15
+Pseudocode 2: TRUNCATE for intersection-style merging
+Input: large checkpoint θB, small architecture AA, small tokenizer/config metadata.
+Output: projected checkpoint ˜θB = T (θB) in the small parameter space.
+1
+Initialize a model with the small architecture AA and read its target state-dictionary keys and shapes.
+2
+For each target tensor key, find the tensor with the same key in the large checkpoint.
+3
+If the source and target shapes are identical, copy the source tensor with the target dtype.
+4
+If the ranks match but some dimensions are larger in the source tensor, copy the overlapping prefix slice into the target tensor.
+5
+If a large-model layer index is beyond the target depth, discard that layer.
+6
+If a target key is tied to the embedding matrix, reuse the target embedding tensor according to the small-model convention.
+7
+Save the projected checkpoint and tokenizer metadata from the small architecture.
+8
+Use the projection only as a perturbation in θ∩(µ) = (1 −µ)θA + µT (θB) with small µ.
+Table 18: TRUNCATE projects the large checkpoint into the small-model parameter space by same-key copying,
+prefix slicing of oversized tensors, and layer removal.
+Rt1×···×tr be the corresponding tensor shape in the smaller architecture. The truncation operator copies
+the overlapping prefix region:
+
+T (WB)
+
+i1,...,ir =
+
+WB
+
+i1,...,ir,
+0 ≤ij < min(sj, tj).
+(20)
+Dimensions outside the target shape are discarded. Identical-shape tensors are copied directly. Layers
+whose indices exceed the small model depth are removed. For MLP matrices, this corresponds to retaining
+the target intermediate width: gate and up projections are sliced on their output dimension, while down
+projections are sliced on their input-intermediate dimension. For tied embeddings, the output head follows
+the target small-model tying convention.
+Truncation is intentionally lossy. We therefore do not require T (θB) to be a strong standalone model.
+The merged checkpoint can be written as
+θ∩(µ) = θA + µ
+ T (θB) −θA
+
+,
+(21)
+so the residual stream, normalization scales, and attention computations remain anchored by θA when µ is
+small. If the local input-output map around θA is approximated by a locally Lipschitz function F, then
+F(θ∩(µ)) −F(θA)
+ ≲µL ∥T (θB) −θA∥,
+(22)
+up to higher-order nonlinear terms. This bound is only a local stability interpretation, not a guarantee.
+In particular, SwiGLU gates, residual-stream scale changes, and attention-logit entropy can make the
+middle-ratio regime unstable. Our experiments therefore treat attention entropy, task-level regressions,
+and collapse at µ ∈(0.1, 0.9) as diagnostics of the compatibility boundary rather than as contradictions
+of the small-ratio result.
+The absence of permutation or semantic alignment is deliberate. EXPAND and TRUNCATE assume
+architecture-compatible cross-scale models whose tensor names, module roles, and head structure are
+sufficiently comparable. The collapse regime marks where this assumption becomes too weak for direct
+weighted averaging.
+16
+C
+Additional Diagnostics
+C.1
+Ablation Controls and Baseline Comparisons
+We add two diagnostic comparisons to separate cross-checkpoint transfer from simpler alternative expla-
+nations. Table 19 compares intersection-style merging with target-only scaling and matched noise controls
+in the Qwen2.5-3B setting. Table 20 compares weighted averaging after truncation with representative
+merging rules evaluated in the same small-model parameter space.
+Setting
+Task
+Baseline
+Target-only scaling
+Matched noise
+Merge
+Intersection
+gsm8k
+0.6566
+0.6581
+0.6808
+0.7028
+Intersection
+mbppplus
+0.5899
+0.5847
+0.5767
+0.6058
+Intersection
+MNLI
+0.4598
+0.4586
+0.4691
+0.4919
+Intersection
+PIQA
+0.7579
+0.7568
+0.7530
+0.7584
+Intersection
+RTE
+0.6426
+0.6534
+0.6570
+0.7256
+Intersection
+MMLU
+0.4496
+0.4437
+0.4499
+0.4514
+Union diagnostic
+IFEval
+0.4652
+0.4820 (2% noise)
+0.5360 at λ = 0.98
+Table 19: Perturbation controls for the Qwen2.5-3B intersection setting and a union diagnostic on IFEval. Target-
+only scaling and matched noise test whether gains can be explained by non-checkpoint perturbations of comparable
+scale.
+Method
+Average score
+TIES
+0.5587
+Truncated-0.02 weighted averaging
+0.5551
+SLERP
+0.5474
+3B baseline
+0.5459
+DARE
+0.5110
+Table 20: Baseline comparison in the small-model parameter space. Weighted averaging is not claimed to dominate
+all merging rules, but remains competitive as a zero-training, zero-alignment baseline after truncation.
+C.2
+GSM8K Ratio Sensitivity
+Model/Ratio
+Flexible
+Strict
+Mean
+Var
+Mean
+Var
+Qwen2.5-32B
+0.9014
+0.0082
+0.8021
+0.0110
+Qwen2.5-14B
+0.8779
+0.0090
+0.7339
+0.0122
+Expand
+0.8802
+0.0089
+0.7346
+0.0122
+λ = 0.1
+0.8059
+0.0109
+0.7210
+0.0124
+λ = 0.2
+0.0781
+0.0074
+0.0197
+0.0038
+λ = 0.3
+0.0144
+0.0033
+0.0000
+0.0000
+λ = 0.4
+0.0045
+0.0019
+0.0000
+0.0000
+λ = 0.5
+0.0121
+0.0030
+0.0000
+0.0000
+λ = 0.6
+0.0227
+0.0041
+0.0023
+0.0013
+λ = 0.7
+0.4496
+0.0137
+0.2919
+0.0125
+λ = 0.8
+0.8597
+0.0096
+0.6285
+0.0133
+λ = 0.9
+0.9045
+0.0081
+0.6785
+0.0129
+Table 21: GSM8K ratio sensitivity for union-style
+merging.
+Model/Ratio
+Flexible
+Strict
+Mean
+Var
+Mean
+Var
+Qwen2.5-32B
+0.9014
+0.0082
+0.8021
+0.0110
+Qwen2.5-14B
+0.8779
+0.0090
+0.7339
+0.0122
+Truncate
+0.0114
+0.0029
+0.0000
+0.0000
+µ = 0.1
+0.8173
+0.0106
+0.7445
+0.0120
+µ = 0.2
+0.2176
+0.0114
+0.2146
+0.0113
+µ = 0.3
+0.0220
+0.0040
+0.0000
+0.0000
+µ = 0.4
+0.0159
+0.0034
+0.0000
+0.0000
+µ = 0.5
+0.0076
+0.0024
+0.0000
+0.0000
+µ = 0.6
+0.0000
+0.0000
+0.0000
+0.0000
+µ = 0.7
+0.0000
+0.0000
+0.0000
+0.0000
+µ = 0.8
+0.0053
+0.0020
+0.0000
+0.0000
+µ = 0.9
+0.0053
+0.0020
+0.0000
+0.0000
+Table 22: GSM8K ratio sensitivity for
+intersection-style merging.
+17

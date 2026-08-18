@@ -1,0 +1,994 @@
+Chemical filters for ultra-high-throughput materials
+screening and generation
+Kinga O. Mastej1, Panyalak Detrattanawichai1, Hyunsoo Park1, Anthony Onwuli1,
+Masahiro Negishi1, Aron Walsh1,∗
+1Department of Materials, Imperial College London, London SW7 2AZ, United Kingdom
+∗Corresponding author: a.walsh@imperial.ac.uk
+Abstract
+Generative artificial intelligence is rapidly transforming materials design by enabling de
+novo exploration of immense chemical spaces. Yet a large proportion of AI-generated com-
+positions remain implausible, violating established chemical principles, which limits the
+reliability and interpretability of generative materials design. Here, we introduce a chem-
+ical validity operator that recasts heuristic chemical rules as a configurable algorithmic
+prior for evaluating and guiding generative materials discovery. Built on the open-source
+SMACT package, a data-informed oxidation-state model exposes tunable thresholds, allowing
+users to interpolate continuously between permissive and conservative chemical constraints,
+while supporting both exploratory and conservative materials-design workflows.
+Bench-
+marking six state-of-the-art generative models for inorganic crystals shows that most re-
+produce stoichiometry but under-represent realistic oxidation-state combinations, and that
+filtering removes compositions reliant on rarely observed oxidation states while preserving
+low-energy compounds near the convex hull. Beyond screening, the same operator can also
+serve as a reinforcement-learning reward, steering a latent diffusion model towards chemi-
+cally grounded compositions. By encoding chemical heuristics and observations, this work
+establishes a foundation for oxidation-state-aware generative models.
+1
+Introduction
+Recent advances in generative artificial intelligence (AI) have opened a new paradigm in compu-
+tational materials design, enabling de novo exploration of vast chemical spaces beyond existing
+databases1,2. Deep generative models such as variational autoencoders, diffusion models, and
+autoregressive models can now rapidly propose millions of candidate chemical compositions
+or crystal structures3, promising a substantial acceleration in hypothesis generation. A large
+proportion of generated candidates, however, violate fundamental principles of solid-state chem-
+istry4, including charge neutrality, oxidation-state feasibility, and the electronegativity rule.
+Uncontrolled exploration of unphysical regions of chemical space poses a barrier to deployment,
+eroding trust in AI-guided discovery and wasting downstream computational and experimental
+effort on invalid compounds.
+An effective validity filter must be rapid enough to keep pace with generation, interpretable
+enough to justify its decisions, and general enough to accommodate the arbitrary compositions
+that generative models produce. A further requirement is less commonly recognised. Charge
+neutrality and the electronegativity rule constitute necessary but coarse criteria that most gen-
+erated compositions already satisfy, and the finer distinction between plausible and implausible
+candidates lies in how closely their oxidation states conform to commonly observed chemistry.
+This distinction has direct consequences for experimental validation, since compounds that rely
+on rarely observed oxidation states tend to be more difficult to synthesise, often requiring bespoke
+1
+arXiv:2607.17910v1  [cond-mat.mtrl-sci]  20 Jul 2026
+routes or conditions rather than established methods5. A failed synthesis is correspondingly dif-
+ficult to interpret, as it may reflect either an implausible candidate or merely an inadequate
+experimental route. The value of such compounds nonetheless depends on the objective, since
+rare oxidation states may represent a deliberate target in one workflow and an obstacle in an-
+other. As chemical plausibility is therefore a matter of degree rather than a binary property,
+a filter that returns only acceptance or rejection is insufficient. A more useful filter should af-
+ford adjustable control over how strongly empirical chemistry constrains its output. Oxidation
+states provide a particularly attractive basis for such a prior because they encode chemically
+interpretable constraints while remaining inexpensive to evaluate, making them well-suited to
+the large-scale screening and optimisation required by modern generative models.
+Data-driven surrogate models offer one route to post-generation filtering, but such models
+have been shown to degrade beyond their training distribution and to provide limited inter-
+pretability6,7. Chemical heuristics, by contrast, provide an interpretable means of enforcing
+physical plausibility by encoding established atomic and bonding principles. Established ap-
+proaches include Goldschmidt’s tolerance factor8 for filtering compositions on the basis of atomic
+radii and Pettifor structural maps9 that exploit chemical similarity. Such approaches are, how-
+ever, restricted to narrow structural families and cannot be applied to arbitrary compositions.
+Goldschmidt’s tolerance factor, for example, applies only to ABX3 compositions of the per-
+ovskite structure type. These limitations may be overcome by generalising heuristic chemistry
+into algorithmic filters that are independent of composition and structure type. An early ex-
+ample is the use of the octet rule for valence-electron counting to identify potentially stable
+multi-component semiconductors10. More recently, chemical and physical constraints have been
+embedded within the generative process itself rather than applied after sampling. CrysVCD11
+generates charge-balanced compositions by construction, pairing each element with an oxidation
+state drawn from a fixed set of common states, while PGCGM12 imposes interatomic-distance
+and symmetry constraints during training. Such built-in constraints improve validity, but each
+is intrinsic to its host model, cannot assess compositions generated by other models, and applies
+a single fixed level of strictness.
+The Semiconducting Materials by Analogy and Chemical Theory (SMACT) codebase was
+developed to explore large crystal chemical spaces at low computational cost13. Beginning from
+a set of chemical species and stoichiometric constraints, it enumerates the possible combinations
+and labels them according to established chemical rules. The package has since been extended
+from this enumeration role into a composition-level validity operator14,15, and this operator has
+been widely adopted as a standard test of the chemical plausibility of compositions produced by
+generative models16–20. In its established form, however, the operator returns a binary verdict
+based on predetermined oxidation-state assumptions, and has been applied almost exclusively
+as a passive screen on generated outputs.
+This work develops the operator in two complementary respects. First, it allows the strict-
+ness of the chemical constraint to be adjusted, so that a user can decide how closely gener-
+ated compositions must follow commonly observed oxidation-state chemistry, from permissive
+exploration to conservative screening. Second, we demonstrate that the operator can be incor-
+porated into the generative process rather than used solely as a passive screen. To this end,
+it is first employed as a post-hoc diagnostic across six state-of-the-art generative models for
+inorganic crystals1,16,21–24, quantifying how far each departs from experimentally dominant oxi-
+dation chemistry. Having established its value as an evaluation framework, we then employ the
+same operator as a reinforcement-learning reward to fine-tune Chemeleon217, a pretrained latent
+diffusion model, in both binary and continuous forms. Together, these developments establish a
+unified, oxidation-state-aware chemical-feasibility framework that not only evaluates generated
+compositions but also steers their generation.
+2
+2
+Results
+2.1
+A chemical validity operator for generative screening
+Figure 1: Oxidation state distributions across the periodic table. (a) Representative manganese
+oxides illustrating three accessible oxidation states: MnO (Mn2+), MnO2 (Mn4+), and Mn2O7
+(Mn7+). (b) Bar charts of the relative frequency of oxidation states for each element, derived
+from the Inorganic Crystal Structure Database25; colour encodes the oxidation state value (red:
+positive, blue: negative).
+Most generative models for inorganic materials operate at the level of a crystal structure,
+producing atom types together with their coordinates and the unit cell of the periodic lat-
+tice1,16,21–24. In each case, the identity of every atom is generated as a bare element, with no
+explicit notion of oxidation state. Chemical feasibility, however, is frequently determined at
+the level of species. The same element can correspond to several chemically distinct electronic
+arrangements, and not all of these are compatible with a given formula. Oxidation states there-
+fore provide a bridge between the element-level outputs of generative models and the valence
+constraints that govern whether a proposed composition is chemically plausible.
+Manganese illustrates this distinction. The element Mn can appear as Mn2+ in MnO, Mn4+
+in MnO2, and Mn7+ in Mn2O7. These species correspond to markedly different oxide chemistries
+(Figure 1a), differing in electron count, bonding preference, coordination environment and reac-
+tivity. The oxidation-state preferences are highly non-uniform across the elements of the periodic
+table (Figure 1b). Many main-group elements are dominated by one or two oxidation states,
+whereas transition-metal and f-block elements often exhibit broader, multimodal distributions.
+3
+Importantly, the empirical distributions are not simply binary lists of allowed and forbid-
+den states. Common oxidation states form dominant peaks, while rarer states appear as low-
+frequency, chemically-specific tails, which may require special structural stabilisation or external
+conditions such as temperature or pressure. This graded pattern provides the basis for a tun-
+able chemical-validity prior. Rather than imposing a fixed boundary between valid and invalid
+chemistry, the prior governs the extent to which rare chemistry is retained when screening or
+steering generated compositions.
+2.2
+Chemical validity rates across six generative models
+The data-driven filters were applied to six generative models for inorganic materials: ADiT21,
+CDVAE16, Chemeleon-DNG22, DiffCSP23, DiffCSP++24, and MatterGen1. For each model,
+10,000 compositions were generated unconditionally, duplicates retained, and screened under in-
+creasingly strict criteria (Table 1); full screening settings are given in the Methods. Only charge
+neutrality (q) together with the electronegativity rule (q + χ) act as necessary validity criteria.
+The consensus and commonality filters are not definitions of validity but increasingly conser-
+vative empirical priors, which quantify how reliably a given generative model reproduces the
+experimental oxidation-state distribution. Lower retention reflects greater sampling of rare, yet
+not forbidden, oxidation states, rather than a higher rate of chemically impossible compounds.
+Table 1: SMACT chemical validity of 10,000 compositions sampled from each model without
+property conditioning; values are the percentage of compositions retained. Filters are cumulative,
+so each column applies every constraint to its left and the one in its header. q: a charge-neutral
+assignment exists using a feasible oxidation state for each element. q + χ: that assignment also
+satisfies the Pauling electronegativity rule (Eq. 6). C=3: it uses only oxidation states observed
+in at least three ICSD entries (consensus, Eq. 1). The commonality columns require, in addition,
+that each oxidation state account for at least a fraction θ of all ICSD occurrences recorded for
+that element (Eq. 2), e.g. θ = 0.5 keeps only states making up at least half of an element’s
+occurrences.
+Commonality θ
+Model
+q
+q + χ
+C=3
+0.05
+0.1
+0.5
+MP-20 baseline16,26
+96.5%
+94.6%
+93.2%
+78.1%
+73.6%
+59.7%
+ADiT21
+96.5%
+94.8%
+93.1%
+76.2%
+71.5%
+54.9%
+CDVAE16
+97.3%
+95.6%
+91.4%
+59.3%
+53.4%
+41.8%
+Chemeleon-DNG22
+93.6%
+91.4%
+87.7%
+61.4%
+57.0%
+47.9%
+DiffCSP23
+93.1%
+90.8%
+86.8%
+60.2%
+57.2%
+48.9%
+DiffCSP++24
+95.8%
+93.8%
+90.0%
+61.0%
+56.5%
+47.2%
+MatterGen1
+95.0%
+92.5%
+88.6%
+60.7%
+56.4%
+47.7%
+As shown in Table 1, across all models 93–97% of generated compositions pass charge neu-
+trality and admit at least one oxidation-state assignment. When the electronegativity rule is
+applied (q + χ), a further 2–5% of compositions are rejected owing to chemically inconsistent
+redox assignments. Statistical oxidation-state filtering (C = 3) imposes a stronger empirical
+prior, reducing the fraction of retained compositions by a further 3–7%. The effect is strongest
+under the strictest commonality filter (θ = 0.5), where only 42–55% of compositions are re-
+tained. The MP-20 dataset comprises Materials Project structures with no more than 20 atoms
+per unit cell and lies within the training distribution of all six models. It therefore provides
+a reference against which the oxidation-state statistics reproduced by each generator can be
+compared. As shown in Table 1, all models closely track this reference under the weakest con-
+straints. Under the q +χ criterion, the retention fractions range from 90.8% to 95.6%, compared
+4
+with 94.6% for MP-20. This indicates that stoichiometric charge balance and qualitative re-
+dox ordering are broadly captured by the generated compositions. More substantial differences
+emerge only when the empirical oxidation-state prior is made more restrictive. At θ = 0.5,
+model retention falls to 41.8–54.9%, compared with 59.7% for MP-20. ADiT remains closest to
+the reference distribution (54.9%), CDVAE shows the largest deviation (41.8%), and the remain-
+ing four models cluster between 47% and 49%. Because the stricter filters remove statistically
+rare oxidation states rather than charge-forbidden compositions, retention under these criteria
+measures oxidation-state commonality, not absolute chemical validity. It therefore quantifies
+how closely each generator follows the dominant oxidation chemistry of MP-20, as opposed to
+sampling rarer but documented environments. Retention fractions were estimated from 10,000
+generated compositions, giving a maximum binomial standard error of 0.5%.
+Table 2: SMACT chemical validity for unique compositions only (7,000 samples); values are the
+percentage of compositions retained. The table demonstrates the robustness of the trends in
+Table 1 to polymorph duplication. Columns and filters are defined as in Table 1.
+Commonality θ
+Model
+q
+q + χ
+C=3
+0.05
+0.1
+0.5
+MP-20 baseline16,26
+96.5%
+94.3%
+92.6%
+76.9%
+72.0%
+58.9%
+ADiT21
+96.5%
+94.7%
+92.9%
+76.1%
+71.2%
+55.8%
+CDVAE16
+97.2%
+95.4%
+91.1%
+58.8%
+52.9%
+41.2%
+Chemeleon-DNG22
+93.6%
+91.5%
+87.7%
+60.6%
+56.1%
+46.8%
+DiffCSP23
+93.1%
+90.7%
+86.3%
+59.1%
+56.1%
+47.9%
+DiffCSP++24
+95.5%
+93.5%
+89.6%
+60.0%
+55.3%
+46.1%
+MatterGen1
+94.9%
+92.3%
+88.4%
+60.3%
+55.8%
+46.8%
+The same qualitative trends are observed when duplicate structures corresponding to identi-
+cal compositions (i.e. polymorphs) are removed (Table 2), confirming that the conclusions reflect
+compositional rather than structural sampling biases. The relationship between chemical plau-
+sibility and thermodynamic accessibility is examined next (Figure 2), quantified by the energy
+above the convex hull (Ehull) defined as the energy of a composition relative to the most stable
+combination of competing phases, where Ehull = 0 marks a thermodynamically stable com-
+pound on the hull and larger values indicate progressively less stable, metastable or unstable
+compounds. Stratifying the generated compositions by SMACT validity reveals a systematic corre-
+lation between oxidation-state inconsistency and thermodynamic instability. Across all models,
+SMACT-valid compositions occupy similar regions of the Ehull distribution irrespective of the va-
+lidity definition applied, while SMACT-invalid compositions are increasingly concentrated in the
+high-Ehull tail under more conservative oxidation-state priors. Quantitatively, this separation
+grows with filter strictness. Under the charge neutrality filter alone (q) the median Ehull of
+invalid and valid compositions differs by only 0.011 eV/atom, whereas at the strictest setting
+(C = 3, θ = 0.5) the median Ehull of SMACT-invalid compositions (0.152 eV/atom) exceeds that
+of valid compositions (0.063 eV/atom) by 0.089 eV/atom, with 65% of invalid compositions ly-
+ing above 0.1 eV/atom27 compared with 38% of valid ones (Mann–Whitney U test, p < 10−300,
+n = 58,469). Importantly, this behaviour reflects correlations within the generative outputs
+rather than any effect of the screening procedure itself, since SMACT is applied strictly as a post
+hoc diagnostic and does not modify the sampling process.
+A single-core timing benchmark using the same 10,000-composition sets and filtering path
+as Table 1 required 121 to 262 seconds per model and filter setting, corresponding to 38 to 82
+compositions per second. These timings are conservative because the current implementation
+reconstructs the oxidation-state table on each call. The filters are therefore fast enough for
+routine post hoc evaluation of benchmark-scale generated composition sets, with full timing
+5
+0
+5
+10
+15
+ADiT
+q
+q + 
+C = 3,  = 0%
+C = 3,  = 10%
+C = 3,  = 50%
+0
+5
+10
+15
+CDVAE
+0
+5
+10
+15
+Chemeleon
+0
+5
+10
+15
+DiffCSP
+0
+5
+10
+15
+DiffCSP++
+-0.2
+0.0
+0.2
+0.4
+0.6
+0
+5
+10
+15
+MatterGen
+-0.2
+0.0
+0.2
+0.4
+0.6 -0.2
+0.0
+0.2
+0.4
+0.6 -0.2
+0.0
+0.2
+0.4
+0.6 -0.2
+0.0
+0.2
+0.4
+0.6
+Ehull (eV/atom)
+valid
+invalid
+Figure 2: Distributions of energy above the convex hull (Ehull) for compositions generated by
+six generative models under progressively stricter SMACT validity definitions. For each model,
+generated compositions are stratified post hoc into valid (blue) and invalid (pink) subsets under
+the specified chemical criterion, without altering the underlying generative distribution. While
+the overall shape and central tendency of the Ehull distributions remain largely unchanged across
+validity definitions, SMACT-invalid compositions are increasingly enriched in the high-energy tail
+as more conservative oxidation-state priors are applied. By contrast, valid compositions con-
+sistently populate the low-Ehull region near the convex hull across all filtering levels, which
+indicates a correlation between chemical inconsistency and thermodynamic instability rather
+than an explicit stability bias imposed by the strict chemical filters.
+6
+details reported in Supplementary Table S1.
+2.3
+Tunable chemical control
+Figure 3: Number of oxidation states retained for each element under four filtering settings. The
+permissive setting retains 490 element oxidation-state pairs across 93 elements. Increasing the
+consensus threshold from C = 1 to C = 3 removes weakly supported states, while increasing the
+commonality threshold θ suppresses states that are rare relative to the other recorded states of
+the same element. At C = 3 and θ = 0.50, 81 element oxidation-state pairs remain and each
+retained element has a single accessible oxidation state. The colour and number in each tile
+indicate how many oxidation states remain for that element, with navy tiles marking elements
+for which no oxidation state survives.
+Figure 3 shows how the filtering thresholds alter the oxidation-state search space before
+complete compositions are evaluated.
+Under the most permissive setting, the ICSD-derived
+table contains 490 element oxidation-state pairs across 93 elements. Increasing the consensus
+threshold from C = 1 to C = 3 at θ = 0 removes 85 pairs, corresponding to a 17.3% reduction,
+while retaining the same number of elements with at least one accessible state.
+The larger
+contraction occurs when the commonality threshold is introduced. Raising θ to 0.10 removes
+a further 256 pairs, and the strictest setting retains only 81 pairs across 81 elements. At this
+setting, every retained element has exactly one accessible oxidation state.
+The reduction is
+therefore not uniform across the periodic table. The p and d blocks contain the largest number
+of retained pairs under permissive filtering, with 181 and 178 pairs respectively, but collapse to
+22 and 24 pairs under the strictest setting. This establishes that the commonality threshold acts
+primarily by suppressing rare alternative oxidation states for multivalent elements, rather than
+by applying a uniform reduction to all elements.
+Figure 4 shows how the species level pruning in Figure 3 propagates to complete compositions
+7
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Commonality threshold 
+0
+2000
+4000
+6000
+8000
+10000
+Number of compositions
+Materials Project
+unique structures
+unique compositions
+low
+medium
+high
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Commonality threshold 
+0
+2000
+4000
+6000
+8000
+10000
+Number of compositions
+ICSD
+unique structures
+unique compositions
+low
+medium
+high
+Figure 4: Retention of Materials Project and ICSD entries as a function of the oxidation state
+commonality threshold. Solid lines show counts for unique structures and unique reduced com-
+positions. Vertical dashed lines mark the low, medium, and high threshold settings at θ = 0.05,
+θ = 0.10, and θ = 0.50. A threshold of θ = 0 corresponds to the unfiltered reference set, while
+increasing θ requires each oxidation state in an accepted composition to account for a larger
+fraction of the ICSD occurrences recorded for that element.
+in reference databases. Both show a smooth decrease in retention as θ increases, indicating that
+the commonality threshold provides graded control over the admitted composition space. The
+largest loss occurs immediately when the threshold is raised from θ = 0 to θ = 0.05, which
+removes 2402 Materials Project structures and 2863 ICSD structures. This corresponds to losses
+of 24.0% and 28.6%, respectively, and shows that a small commonality requirement removes
+many compositions containing very rare oxidation states. Further increases in θ continue to
+contract the retained space more gradually. At the high setting of θ = 0.50, 4859 Materials
+Project structures and 5024 ICSD structures are retained, corresponding to 48.6% and 50.2%
+of the initial structure sets. The unique structure and unique composition curves follow the
+same trend, with the largest separation already present at θ = 0, indicating that the threshold
+response is driven primarily by oxidation state chemistry rather than polymorph duplication.
+Figure 5 tests how the same filtering choices act in a chemically interpretable ABX3 design
+space. Under the most permissive setting, SMACT admits 11091 oxide and halide compositions.
+Raising the consensus threshold from C = 1 to C = 3 removes 787 compositions, whereas
+introducing θ = 0.10 removes a further 8371 compositions.
+The main contraction therefore
+arises from suppressing oxidation states that are rare relative to the dominant states of the same
+element, rather than from removing states with limited absolute database support alone. At
+the strictest setting, 781 compositions remain, corresponding to a 93.0% reduction relative to
+the permissive space. Experimentally reported Materials Project perovskites are also removed
+by stricter filtering, with their retention decreasing from 90.7% to 34.9%. However, the broader
+hypothetical design space contracts more strongly, so known perovskites constitute a larger
+fraction of the retained set, increasing from 5.4% to 29.4% of possible compositions. The filter
+therefore does not merely reduce the number of candidates. It preferentially contracts the search
+space towards compositions supported by common formal valence assignments, while retaining
+a smaller set of known perovskites and additional candidates for downstream structural and
+thermodynamic screening.
+Together, these analyses show that the consensus and commonality thresholds provide graded
+8
+Figure 5: Pruning of the ABX3 perovskite compositional design space under progressively stricter
+SMACT filtering settings. Each panel shows admissible A and B element combinations for oxide
+and halide perovskites with X = O, Cl, Br, or I. Blue markers denote compositions satisfying
+the specified SMACT criteria, while red markers indicate experimentally reported perovskites
+from the Materials Project. Across the four settings, the number of admissible compositions
+decreases from 11091 to 781, while the fraction of admissible compositions corresponding to
+known Materials Project perovskites increases from 5.4% to 29.4%.
+9
+and chemically structured control over the admitted chemical space. The largest contraction
+arises from commonality filtering, which suppresses rare oxidation states for multivalent elements
+and propagates from the species table to reference databases and the ABX3 design space. The
+retained space is therefore not reduced uniformly, but enriched in compositions supported by
+common formal valence assignments.
+2.4
+Reinforcement learning with chemically informed rewards
+0
+40
+80
+120
+160
+200
+Step
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Training reward
+a
+SMACT reward (binary)
+SMACT reward (continuous)
+mSUN
+Uniqueness
+Novelty
+Metastability
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Score
+b
+no RL
+SMACT reward (binary)
+SMACT reward (continuous)
+metric-targeted reward
+Figure 6: Reinforcement learning of Chemeleon2 with chemically informed rewards. (a) Training
+reward trajectories for binary and continuous SMACT rewards.
+The binary reward saturates
+rapidly, whereas the continuous reward increases more gradually because it retains information
+about oxidation state commonality. (b) Downstream performance of the pretrained model, the
+two SMACT reward models, and the evaluation metric reward model across mSUN, uniqueness,
+novelty, metastability. The continuous SMACT reward increases mSUN and metastability relative
+to the pretrained model, while the evaluation metric reward gives the highest mSUN and novelty.
+Figure 6(a) shows that the binary and continuous rewards provide different optimisation
+signals. The binary reward is already high before fine tuning, increasing only from 0.834 to
+0.940 over the plotted interval and reaching a plateau at step 56. This indicates that most
+sampled compositions already satisfy the binary SMACT validity criterion, so the reward rapidly
+loses resolution as a training objective. By contrast, the continuous reward increases from 0.538
+to 0.849 and reaches a plateau only near the end of training, with a final 20 step mean of 0.894.
+The continuous formulation therefore provides a more informative optimisation signal because it
+continues to distinguish between valid compositions according to oxidation state commonality.
+Figure 6(b) shows the downstream effect of these objectives. The binary reward does not
+improve the overall generative metrics relative to the pretrained model, with mSUN, the frac-
+tion of generated structures that are simultaneously metastable, unique, and novel (Methods),
+decreasing from 0.0764 to 0.0703, uniqueness from 0.9619 to 0.9544, and novelty from 0.7082 to
+0.6958. Metastability changes only marginally, from 0.3279 to 0.3298. This is consistent with
+the saturation observed during training, since an already high binary validity score provides
+little additional information for reshaping the generated distribution. The continuous reward
+gives a clearer effect, increasing mSUN to 0.0908 and metastability to 0.4310, while reducing
+uniqueness to 0.8446 and novelty to 0.6315. Thus, the graded oxidation-state reward shifts the
+model towards more metastable outputs, but at the cost of sample diversity and novelty.
+The evaluation metric reward gives the largest mSUN and novelty values, reaching 0.2604
+and 0.9650, respectively, because the training objective is directly aligned with the reported
+10
+evaluation metrics. However, this improvement is accompanied by lower uniqueness than the
+pretrained model, at 0.7947, and lower metastability than the continuous SMACT reward, at
+0.4090 compared with 0.4310.
+These results show that SMACT-based rewards do not simply
+reproduce metric-targeted optimisation. The binary reward is limited by saturation, whereas
+the continuous reward provides a chemically defined training signal that can alter the balance
+between metastability, uniqueness, and novelty.
+3
+Discussion
+This work develops SMACT from a simple composition enumerator into a tunable screening tool
+for generative materials design. By combining charge neutrality, oxidation-state feasibility, elec-
+tronegativity ordering, and empirical oxidation-state statistics, the framework allows us to eval-
+uate the outputs of generative models as well as steer generation towards oxidation states that
+are frequently observed in experimental crystal-structure data. This distinction is important, as
+a candidate may be charge-balanced and chemically possible while still relying on rare oxidation
+states that are weakly represented in available experimental data. In this form, SMACT provides
+a fast, interpretable, and model-agnostic layer between unconstrained generative sampling and
+more expensive thermodynamic or structural evaluation.
+Benchmarking across six generative crystal models shows that charge-balanced stoichiometry
+is largely captured by contemporary architectures, whereas agreement with empirical oxidation-
+state commonality varies more substantially. The stricter consensus and commonality filters
+therefore quantify how closely a generated distribution follows dominant oxidation-state chem-
+istry in experimental reference data. This makes SMACT useful as a diagnostic supplement to
+conventional generative metrics such as uniqueness, novelty, and metastability, which measure
+distributional or energetic outcomes but do not directly test whether a formula is chemically
+plausible at the level of formal valence assignments. The adjustable consensus and commonality
+thresholds provide a mechanism for navigating the realism–novelty trade-off. Permissive set-
+tings retain rare documented oxidation environments and are appropriate when the aim is broad
+exploration, including candidates that may require unusual stabilisation mechanisms or synthe-
+sis conditions. Stricter settings favour compositions built from oxidation states with stronger
+empirical support and are better suited to conservative screening or synthesis-oriented downse-
+lection. The perovskite design-space analysis illustrates that this control is chemically justified
+as filtering preferentially removes charge-inconsistent regions of the configurational space while
+retaining known families and plausible unexplored compositions. Taken together, the Ehull re-
+sults support this interpretation, with SMACT-invalid compositions substantially more likely than
+valid compositions to lie above the 0.1 eV atom−1 metastability threshold under the strictest
+filter, at 65% compared with 38%.
+The reinforcement learning results show how the SMACT formalism can be used to construct
+chemical objectives with different levels of resolution. The binary SMACT reward reaches a high
+training value rapidly, consistent with a pass or fail validity test that provides a strong and di-
+rect optimisation signal. Once a generated composition satisfies the validity operator, however,
+this reward does not distinguish between common and rare oxidation state assignments. The
+continuous reward addresses this limitation by ranking charge neutral assignments according to
+the experimental frequency of the oxidation states involved. This additional resolution gives the
+model a richer chemical signal, improving mSUN and metastability at the cost of reduced unique-
+ness and novelty. This trade-off is expected as steering generation towards commonly observed
+oxidation chemistry necessarily concentrates sampling in better-charted regions of composition
+space, mirroring the realism–novelty trade-off that the tunable thresholds expose in the screening
+setting. The evaluation metric reward achieves the highest novelty, as expected from its direct
+alignment with the reported metrics, but the SMACT rewards offer a more interpretable route for
+steering generation. These results suggest that oxidation state based rewards are most useful as
+11
+chemically grounded auxiliary objectives that can complement direct optimisation of stability,
+diversity, or novelty. Because SMACT rewards are independent of the underlying generator, they
+can serve either as a post hoc filter on sampled outputs, as in the screening experiments, or as
+a model-agnostic in-training reward, as is the case here. This portability lets oxidation-state-
+aware objectives be layered onto current and future generative architectures without retraining
+or architectural modification.
+Nonetheless, the framework remains bounded by the information it encodes. It operates at
+the composition level and therefore does not evaluate coordination geometry, site ordering, local
+bonding motifs, magnetism, pressure- or temperature-stabilised phases, or kinetic accessibility.
+Its empirical priors also inherit the coverage and reporting biases of the underlying crystallo-
+graphic data, and stringent thresholds can penalise rare but real chemistry. These limitations
+define the appropriate role of the method as SMACT is a lightweight chemical prior, not a complete
+model of materials formation. Coupling oxidation-state-aware filtering with structure-level va-
+lidity tests, learned thermodynamic models, synthesisability predictors, and electronic-structure
+feedback offers a route towards generative materials workflows that are both scalable and more
+faithful to the chemical constraints governing inorganic compounds.
+4
+Methods
+4.1
+Oxidation states set
+The allowed set Ωfiltered is built from Inorganic Crystal Structure Database (ICSD) oxidation-
+state frequencies using two filters, where each candidate state is a species Eq (E the element, q
+its oxidation state). The consensus filter removes states that appear infrequently in the ICSD,
+δC(Eq) =
+(
+1
+if f(Eq) ≥C,
+0
+otherwise,
+(1)
+where f(Eq) is the number of ICSD occurrences of Eq and C is the consensus threshold. For
+example, the default C = 3 removes species seen only once or twice while retaining those with
+support from multiple studies. The commonality filter removes states that are rare relative to
+other states of the same element,
+γθ(Eq) =
+
+
+
+1
+if
+f(Eq)
+P
+q′ f(Eq′) ≥θ,
+0
+otherwise,
+(2)
+comparing each species against the total occurrences of its element rather than an absolute
+count. For example, θ = 0.1 retains a state only if it accounts for at least one tenth of that
+element’s recorded occurrences, while increasing θ tightens the prior towards each element’s
+dominant oxidation chemistry. The filtered set is
+Ωfiltered = {Eq | δC(Eq) = 1 ∧γθ(Eq) = 1}.
+(3)
+4.2
+Chemical validity screening
+In the SMACT framework a chemical formula is first reduced to its stoichiometric form c =
+P
+i xiEi, where xi correspond to the stoichiometric coefficients and Ei to the distinct elements.
+Subsequently, SMACT enumerates every candidate assignment (q1, . . . , qn) of elemental charge
+drawn from the allowed set of oxidation states Ωfiltered(Ei),
+qi ∈Ωfiltered(Ei)
+∀i.
+(4)
+12
+A valid combination must meet further requirements of charge neutrality,
+X
+i
+xiqi = 0.
+(5)
+and the electronegativity rule,
+(χi −χj)(qi −qj) ≤0
+∀i, j,
+(6)
+where χi is the Pauling electronegativity of element i. A composition is valid only when all three
+constraints are satisfied,
+V(c) =
+(
+1
+if Eqs. (4)–(6) are satisfied,
+0
+otherwise.
+(7)
+For example, Mg2O is rejected because none of the candidate assignments is charge-neutral at
+the 2 : 1 ratio. The only allowed states are Mg2+ and O2−, and the states that would balance
+the formula (Mg+ or O4−) are electronically unstable and hence absent from Ωfiltered.
+Full pseudocode for the chemical validity screening is given in Algorithm 1.
+Algorithm 1 SMACT chemical validity screening algorithm
+1: Input: composition c
+2: Parameters: use_pauling_test, include_alloys, check_metallicity, oxidation_states_set,
+consensus, include_zero, commonality
+3: if c has only one element then
+4:
+return True
+5: end if
+6: if include_alloys and all elements in c are metals then
+7:
+return True
+8: end if
+9: if check_metallicity and metallicity(c) ≥threshold then
+10:
+return True
+11: end if
+12: (elements, stoich) ←reduced_stoichiometry(c)
+13: if oxidation_states_set is None then
+14:
+Ωfiltered ←ICSD24Filter(consensus, include_zero, commonality)
+15: else
+16:
+Ωfiltered ←preset_ox_states
+17: end if
+18: for each (q1, . . . , qn) ∈Q
+i Ωfiltered(Ei) do
+19:
+if ¬ charge_neutral({qi}, stoich) then
+20:
+continue
+21:
+end if
+22:
+if use_pauling_test then
+23:
+en_ok ←pauling_test({qi}, elements)
+▷fallback to True on missing EN
+24:
+if ¬ en_ok then
+25:
+continue
+26:
+end if
+27:
+end if
+28:
+return True
+▷short-circuit
+29: end for
+30: return False
+13
+4.3
+Benchmarking generative models
+Validity rates in Tables 1 and 2 were computed with SMACT v4.0.013, setting include_alloys=True,
+check_metallicity=True and include_zero=False.
+The consensus threshold was fixed at
+C = 3 for the oxidation-state columns and the commonality threshold θ varied as reported; the
+q and q + χ columns use C = 0 with the Pauling electronegativity rule disabled and enabled
+respectively. For each model, 10,000 compositions were sampled without conditioning. For the
+unique-composition analysis (Table 2), samples were deduplicated by reduced formula and 7,000
+unique compositions were then drawn at random from each model’s deduplicated set, so that all
+models are compared on an equal sample size.
+4.4
+Thermodynamic stability evaluation
+Generated structures were relaxed with the MACE-MPA-0 (medium) foundation interatomic
+potential28 in float64 precision, using batched FIRE optimisation with a Frechet cell filter, which
+relaxes atomic positions and lattice parameters simultaneously, as implemented in torch-sim29.
+The energy above the convex hull was computed for each relaxed structure using pymatgen’s
+PatchedPhaseDiagram, constructed from all Materials Project entries (snapshot of 9 April 2025,
+archived at doi.org/10.6084/m9.figshare.30589436) with uncorrected GGA/GGA+U total
+energies, consistent with the uncorrected DFT energies on which MACE-MPA-0 is trained; this
+follows the convention of Matbench Discovery30. Values below the current hull were retained
+rather than clipped at zero. Structures whose MACE relaxation failed to converge (25 structures,
+0.04%) and all Yb-containing compositions (1,506 structures, 2.5%), for which the Materials
+Project snapshot contains no reference entries and Ehull is therefore undefined, were excluded,
+leaving n = 58,469 structures for the analysis in Figure 2. A structure is considered metastable
+when Ehull < 0.1 eV/atom. Because MLIP-predicted formation energies carry errors of a few
+tens of meV/atom, individual Ehull values are approximate; the analysis in Figure 2 therefore
+rests on distributional comparisons between valid and invalid subsets rather than per-compound
+stability claims.
+4.5
+Reinforcement-learning fine-tuning
+The pretrained Chemeleon2 latent diffusion model17 was fine-tuned under three reward formu-
+lations. The binary reward is the validity operator itself, Rbin(c) = V(c), with Ωfiltered(Ei)
+constructed from the icsd24 oxidation-state set. The continuous reward Rcont(c) scores a com-
+position by how strongly its charge-neutral assignments rely on commonly observed species, using
+the per-element ICSD24 proportions f(Eqi
+i ) (the fraction of element Ei’s recorded occurrences
+in oxidation state qi; C = 3, include_zero=False),
+Rcont(c) =
+
+
+
+
+
+
+
+
+
+
+
+
+
+1,
+single element, or all elements metallic,
+0,
+∃Ei /∈ICSD24 table,
+max
+(q1,...,qn)∈N(c)
+ n
+Y
+i=1
+f(Eqi
+i )
+100
+!1/n
+,
+otherwise,
+(8)
+where n is the number of distinct elements and N(c) is the set of charge-neutral assignments,
+each qi restricted to that element’s recorded states.
+The evaluation-metric reward is the default Chemeleon2 “DNG” objective17 with a weighted
+sum of a creativity term (uniqueness and novelty via the minimum AMD distance to same-
+formula references), an energy term (clamped, negated Ehull), and structural and compositional
+diversity terms (maximum mean discrepancy against the reference set), with weights 1.0, 1.0,
+0.1 and 1.0. A structure is metastable when Ehull < 0.1 eV/atom against a Materials Project
+14
+phase diagram, unique when it is not a duplicate of another generated structure, and novel
+when it does not appear in the MP-20 reference set; mSUN is the fraction of structures that are
+simultaneously metastable, unique and novel.
+All three rewards were optimised with Group Relative Policy Optimisation (GRPO)31 using
+a clipped surrogate objective, group-relative advantage normalisation over groups of 64 samples,
+a k3-estimator KL penalty to the pretrained model (weight 1.0) and an entropy bonus (weight
+10−5). Generations used DDIM32 sampling with 50 steps. Optimisation used AdamW33 with
+learning rate 10−5, no weight decay, a constant schedule and gradient clipping at norm 1.0,
+batch size 5 and 400 update steps.
+Data availability
+The data and scripts required to reproduce the figures and analyses in this study are available
+at https://github.com/KingaMas/ultra-fine-filters.
+Code availability
+The SMACT library used for filtering, analysis, and materials screening is openly available at
+https://github.com/WMD-group/SMACT.
+Acknowledgements
+This work was supported by EPSRC project EP/X037754/1. The authors also benefited from
+the AI for Chemistry: AIchemy hub (EPSRC grant EP/Y028775/1 and EP/Y028759/1). The
+authors thank Junkil Park for valuable feedback and suggestions that improved the manuscript.
+Author contributions
+K.O.M.: Conceptualisation, methodology, formal analysis, software, visualisation, writing – orig-
+inal draft. P.D.: Formal analysis, visualisation, writing – review & editing. H.P.: Supervision.
+A.O.: Software. M.N.: Data curation, writing – review & editing. A.W.: Conceptualisation,
+supervision, funding acquisition, writing – review & editing.
+Competing interests
+A.W. is Chief Scientific Officer at CuspAI. A.O. is a Machine Learning Scientist at MatNex.
+The remaining authors declare no competing interests.
+References
+[1] Zeni, C. et al. A generative model for inorganic materials design. Nature 639, 624–632
+(2025).
+[2] Handoko, A. D. & Made, R. I. Artificial intelligence and generative models for materials
+discovery – a review. Preprint at https://arxiv.org/abs/2508.03278 (2025).
+[3] Merchant, A. et al. Scaling deep learning for materials discovery. Nature 624, 80–85 (2023).
+[4] Betala, S. et al. LeMat-GenBench: a unified evaluation framework for crystal generative
+models. Preprint at https://arxiv.org/abs/2512.04562 (2025).
+15
+[5] Achary, S. N. & Tyagi, A. K.
+Synthesis of materials with unusual oxidation state.
+in
+Handbook on Synthesis Strategies for Advanced Materials: Volume-III: Materials Specific
+Synthesis Strategies (eds Tyagi, A. K. & Ningthoujam, R. S.) 137–158 (Springer, 2021).
+[6] Deng, B. et al. Systematic softening in universal machine learning interatomic potentials.
+npj Comput. Mater. 11, 9 (2025).
+[7] Sanocki, M. & Zavadlav, J. Generalization of long-range machine learning potentials in
+complex chemical spaces. Preprint at https://arxiv.org/abs/2512.10989 (2025).
+[8] Goldschmidt, V. M. Die Gesetze der Krystallochemie. Naturwissenschaften 14, 477–485
+(1926).
+[9] Pettifor, D. G. A chemical scale for crystal-structure maps. Solid State Commun. 51, 31–34
+(1984).
+[10] Pamplin, B. R. A systematic method of deriving new semiconducting compounds by struc-
+tural analogy. J. Phys. Chem. Solids 25, 675–684 (1964).
+[11] Cheng, M. et al. Enhancing materials discovery with valence constrained design in genera-
+tive modeling. Preprint at https://arxiv.org/abs/2507.19799 (2025).
+[12] Zhao, Y. et al. Physics guided deep learning for generative design of crystal materials with
+symmetry constraints. npj Comput. Mater. 9, 38 (2023).
+[13] Davies, D. W. et al. Computational screening of all stoichiometric inorganic materials.
+Chem 1, 617–627 (2016).
+[14] Davies, D. W., Butler, K. T., Isayev, O. & Walsh, A. Materials discovery by chemical
+analogy: role of oxidation states in structure prediction. Faraday Discuss. 211, 553–568
+(2018).
+[15] Davies, D. W. et al. SMACT: semiconducting materials by analogy and chemical theory.
+J. Open Source Softw. 4, 1361 (2019).
+[16] Xie, T., Fu, X., Ganea, O.-E., Barzilay, R. & Jaakkola, T. S. Crystal diffusion variational
+autoencoder for periodic material generation.
+in International Conference on Learning
+Representations (2022).
+[17] Park, H. & Walsh, A. Guiding generative models to uncover diverse and novel crystals via
+reinforcement learning. Preprint at https://arxiv.org/abs/2511.07158 (2025).
+[18] Qiu, Z. et al. Massive discovery of crystal structures across dimensionalities by leveraging
+vector quantization. npj Comput. Mater. 11, 184 (2025).
+[19] Yan, L., Kang, B. S., Hanisch, M. D., Ma, J. & Anandkumar, A. MGB: the material gen-
+eration benchmark. Preprint at https://openreview.net/forum?id=K15Dqxm0ge (2025).
+[20] Wei, L. et al. Crystal composition transformer: self-learning neural language model for
+generative and tinkering design of materials. Adv. Sci. 11, 2304305 (2024).
+[21] Joshi, C. K. et al. All-atom diffusion transformers: unified generative modelling of molecules
+and materials. in International Conference on Machine Learning (2025).
+[22] Park, H., Onwuli, A. & Walsh, A. Exploration of crystal chemical space using text-guided
+generative artificial intelligence. Nat. Commun. 16, 4379 (2025).
+16
+[23] Jiao, R. et al. Crystal structure prediction by joint equivariant diffusion. in Advances in
+Neural Information Processing Systems, vol. 36, 17464–17497 (2023).
+[24] Jiao, R., Huang, W., Liu, Y., Zhao, D. & Liu, Y. Space group constrained crystal generation.
+in International Conference on Learning Representations (2024).
+[25] Zagorac, D., Müller, H., Ruehl, S., Zagorac, J. & Rehme, S.
+Recent developments in
+the Inorganic Crystal Structure Database: theoretical crystal structure data and related
+features. J. Appl. Crystallogr. 52, 918–925 (2019).
+[26] Jain, A. et al.
+Commentary: The Materials Project: a materials genome approach to
+accelerating materials innovation. APL Mater. 1, 011002 (2013).
+[27] Sun, W. et al. The thermodynamic scale of inorganic crystalline metastability. Sci. Adv. 2,
+e1600225 (2016).
+[28] Batatia, I. et al. A foundation model for atomistic materials chemistry. J. Chem. Phys.
+163, 184110 (2025).
+[29] Cohen, O. et al. TorchSim: an efficient atomistic simulation engine in PyTorch. AI Sci. 1,
+025003 (2025).
+[30] Riebesell, J. et al. A framework to evaluate machine learning crystal stability predictions.
+Nat. Mach. Intell. 7, 836–847 (2025).
+[31] Shao, Z. et al.
+DeepSeekMath: pushing the limits of mathematical reasoning in open
+language models. Preprint at https://arxiv.org/abs/2402.03300 (2024).
+[32] Song, J., Meng, C. & Ermon, S.
+Denoising diffusion implicit models.
+in International
+Conference on Learning Representations (2021).
+[33] Loshchilov, I. & Hutter, F. Decoupled weight decay regularization. in International Con-
+ference on Learning Representations (2019).
+17
+Supplementary Information
+Figure S1: Number of oxidation states listed per element in each of the five built-in oxidation-
+state lists. Each list is a fixed catalogue compiled from a different source, and no further filtering
+is applied: (a) the original SMACT list, (b) a list drawn from the ICSD in 2016, (c) an updated
+ICSD list from 2024, (d) the list used by the pymatgen structure predictor, and (e) the list
+reported on Wikipedia.
+The colour and the number in each tile show how many oxidation
+states are listed for that element, with navy tiles marking elements that are absent from the
+corresponding list.
+Computational cost of chemical screening
+The benchmark was run on an AMD EPYC 7742 64-core processor using Python 3.12.12,
+SMACT 4.0.0 and pymatgen 2025.10.7.
+One CPU core was used per timed screening process.
+The reported timings are conservative for the current implementation, because the manuscript
+18
+Table S1: Single-core timing benchmark for SMACT screening of generated compositions. Timings
+were measured using the same six 10,000-composition model outputs and the same screening
+path used for Table 1.
+Each model and filter setting was screened sequentially in a single
+Python process with OMP_NUM_THREADS=1, after a warm-up pass, and each timing was repeated
+five times. Values report the mean wall time across the six model sets. Across all model and filter
+combinations, the full observed range was 121–262 s per 10,000 compositions, corresponding to
+12.1–26.2 ms per composition and 38–82 compositions s−1.
+Filter setting
+Mean wall time for
+10,000 compositions / s
+Mean time per
+composition / ms
+Mean throughput
+/ compositions s−1
+q
+155
+15.5
+64.5
+q + χ
+183
+18.3
+54.6
+C = 3
+166
+16.6
+60.2
+C = 3, θ = 0.05
+197
+19.7
+50.8
+C = 3, θ = 0.10
+202
+20.2
+49.5
+C = 3, θ = 0.50
+148
+14.8
+67.6
+screening path reconstructs the ICSD24 oxidation-state table on each call rather than caching
+the filtered table between compositions.
+19

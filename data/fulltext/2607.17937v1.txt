@@ -1,0 +1,1820 @@
+How Agent Skills Fail under Long Contexts:
+A White-Box Study in Code Auditing
+Yue Xue
+Independent Researcher
+Abstract
+Agent Skills package procedural instructions, references,
+and checks for use by general-purpose coding agents.
+Loading a skill, however, does not guarantee that ev-
+ery requirement remains active throughout a long tool-
+using trajectory. We examine this gap in a deliberately
+bounded setting: a production-derived, white-box code-
+audit workflow whose instructions, edited files, tool logs,
+and expected checks are observable. We hold the task
+and 24 artifact checks fixed, vary the surrounding con-
+text, and classify the first visible location of each failure.
+The resulting taxonomy contains four classes: lost re-
+quirements, editing drift, failed checking, and non-agent
+failures caused by the evaluator or runtime.
+On the main task, Codex with gpt-5.4-mini passes
+8/10 runs in a 10,991-character clean context but only
+3/10 in both a 299,140-character relevant context and an
+equal-length irrelevant context. The 50-percentage-point
+difference is large, although the two-sided Fisher tests
+remain trend-level (p = 0.0698). Aggregate requirement
+coverage stays high—98.8% in clean and above 92% in
+both long conditions—showing how a few omitted require-
+ments can invalidate an otherwise complete artifact. A
+second task passes all clean and long runs, so the evidence
+does not support a universal context-length threshold. A
+detailed external checklist passes 10/10 runs, compared
+with 5/10 for a generic self-check (p = 0.0325). Small
+scaffold probes suggest that coding agents can help by se-
+lecting a smaller working set, but do not eliminate failures
+or isolate a scaffold-only effect. In addition, only 29 of
+57 attempts in the extension produce scoreable outputs,
+exposing infrastructure reliability as a separate source of
+missing data.
+We do not introduce context rot, a new monitoring
+language, or a general theory of agent failure. Instead, we
+contribute a transparent case study, a practical classifica-
+tion procedure for white-box code auditing, and evidence
+about when simple external checks help. The findings
+motivate larger preregistered studies across tasks, models,
+and agent scaffolds.
+1
+Introduction
+Coding agents increasingly rely on reusable skills: instruc-
+tion packages that tell an agent which files to inspect,
+which transformations to perform, which evidence to col-
+lect, and when the work is complete. This packaging is
+attractive because it turns an informal workflow into a
+repeatable asset. Yet a skill is still text and files consumed
+during inference. The agent can load the right package,
+locate the right artifact, make a mostly correct edit, and
+still omit one mandatory array, overwrite a protected field,
+stop after half the requested subtasks, or accept a result
+contradicted by its own tool output. In code auditing,
+any one of these narrow misses can invalidate the artifact.
+This paper studies that reliability problem in a white-
+box code-audit setting. White box means that we can
+inspect the skill instructions, files read by the agent, edits,
+tool logs, completion message, and an externally scored
+artifact. We do not inspect or require private chain-of-
+thought. The setting is narrower than general software
+engineering, but it provides a useful scientific advantage:
+the evaluator knows the mandatory requirements before
+a run begins and can identify exactly which visible re-
+quirement disappeared. Instead of asking only whether
+the final task passed, we can ask whether the agent lost
+a requirement, drifted while editing, failed to react to
+contradictory evidence, or was blamed for an evaluator
+or runtime fault.
+Long-context research already establishes that a
+model’s usable context can be smaller and less uniform
+than its advertised window [7, 1, 4, 3]. Agentic instruc-
+tions add another difficulty: they are long, structurally
+complex, and mix constraints about tools, conditions, and
+completion [10]. Coding-agent benchmarks usually sum-
+marize the final repository state [5], while recent trajectory
+studies show that failures may begin early, remain hidden,
+and take forms that a final score cannot explain [15, 9, 11].
+Skill benchmarks further show that curated procedural
+knowledge can help, but its benefit varies substantially
+across tasks [6, 16]. These lines of work leave a focused
+empirical gap: when a fixed skill-based task is placed in
+different working contexts, which stated requirements fail,
+and can a simple external checklist prevent the failures?
+We address this gap with ordinary white-box testing
+rather than a new monitoring formalism. We extract
+mandatory instructions from a production-derived au-
+dit workflow, translate them into 24 observable checks,
+and test the checker with positive and negative artifacts.
+We then rebuild a clean workspace for each run, remove
+answer-bearing history, and freeze the starting artifact
+1
+arXiv:2607.17937v1  [cs.SE]  20 Jul 2026
+and checker. The main comparison varies only the sur-
+rounding context: a minimal clean condition, a long rele-
+vant condition containing production material from the
+same workflow, and an equal-length irrelevant condition
+containing natural but unrelated archival text. Saved
+artifacts and logs support a four-part classification based
+on the first visible failure location.
+The main experiment shows a large but uncertain as-
+sociation between long context and task failure. Clean
+context passes 8/10 runs, while both 299K-character long
+contexts pass 3/10. The observed failure rate rises by 50
+percentage points, but the two-sided Fisher tests yield
+p = 0.0698 and the Wilson intervals remain wide. More-
+over, a second task passes every clean, relevant-long, and
+irrelevant-long run. We therefore interpret the main re-
+sult as evidence of a high-variance reliability loss on one
+model–task pair, not as a universal threshold or proof
+that every long context causes decay.
+Two further results sharpen this interpretation. First,
+average check coverage remains above 92% even when
+only 3/10 runs pass, and a historical mixed-condition
+inventory passes 97.98% of individual checks despite 44
+failed trajectories. Context-related failure can therefore
+be sparse: a nearly complete artifact may still violate
+a critical requirement. Second, a detailed checklist that
+restates all 24 obligations passes 10/10 runs, whereas
+a similarly sized generic instruction to “validate every
+constraint” passes 5/10. The generic validator often in-
+herits the same omission as the edit it is checking; the
+detailed checklist restores the omitted requirement before
+completion.
+This study is a technical report rather than a claim of
+a finished benchmark. It includes sparse probes across
+five models, two coding-agent shells where protocols per-
+mit, several cross-task gates, an audit of 28 resultless or
+unusable attempts, and a complete equivalent-cost ledger.
+These additions expose boundary conditions and mea-
+surement problems that a single headline pass rate would
+hide. They also separate three questions that are often
+conflated: whether the model can perform the clean task,
+whether added context changes reliability, and whether
+the surrounding agent infrastructure produces a scoreable
+run.
+The paper makes four bounded contributions:
+• a controlled white-box study design that keeps a
+code-audit task and its checks fixed while changing
+the surrounding context;
+• a four-class taxonomy of visible failures—lost require-
+ments, editing drift, failed checking, and non-agent
+failures—with explicit decision rules and concrete
+saved-run examples;
+• empirical evidence and counterevidence: a 50-point
+observed pass-rate loss on the main task, equal binary
+results for relevant and irrelevant long context, het-
+erogeneous model behavior, and a stable cross-task
+counterexample; and
+• a mitigation result showing that a concrete external
+checklist outperforms a generic self-check on the main
+model–task pair, alongside evidence that selective
+retrieval may explain some coding-agent benefit.
+The rest of the paper defines the setting, explains the
+experimental controls, answers five research questions,
+and discusses what the results do and do not support.
+The appendices provide the classification guide, condition
+inventory, interrupted-attempt audit, and reproduction
+checklist needed to scrutinize or extend the study.
+2
+Setting and Definitions
+2.1
+Agent Skills in White-Box Code Au-
+diting
+An Agent Skill is a versioned package of instructions and
+supporting files that supplies procedural knowledge at
+inference time. In our code-audit setting, the package
+tells the agent which source material to read, which audit
+tasks to create, what evidence each task needs, which
+fields it may edit, and which conditions must hold be-
+fore completion. The target artifact is structured data
+rather than free-form prose, so many requirements can
+be checked deterministically.
+We call the setting white box because the evaluator can
+observe the instruction package, workspace, tool activity,
+edited files, and final completion message. White-box ac-
+cess does not imply access to hidden reasoning. It instead
+lets us connect a requirement stated before execution to
+a visible event or file state after execution. This distinc-
+tion matters: a final answer may look plausible while the
+saved artifact reveals that a required field is absent or a
+protected value changed.
+The main workflow contains four audit tasks. Its checks
+answer six practical questions: Was the correct workflow
+used? Were required source materials consulted? Does
+each audit task contain the required fields and allowed
+cardinalities? Does each task cite the expected form of
+evidence? Does the final file satisfy its schema? Did the
+agent preserve content it was forbidden to change? These
+checks are conventional executable assertions, not a new
+language for agent contracts.
+2.2
+Operational Meaning of Context Rot
+We use context rot in the established broad sense that a
+model or agent becomes less reliable as its working con-
+text grows, becomes cluttered, or accumulates competing
+state. The term describes an observed degradation pat-
+tern, not a single internal mechanism. Long context may
+affect retrieval, prioritization, task tracking, tool use, or
+completion behavior, and our experiment cannot directly
+distinguish these latent causes.
+For the main comparison, a failure is treated as context-
+associated only when the task, starting artifact, model
+2
+settings, available tools, and final checks remain fixed
+while the surrounding context changes. A clean passing
+rate establishes a capability baseline. It does not imply
+deterministic clean success: stochastic agents can fail in
+any condition. We therefore compare repeated rates and
+retain clean failures rather than discarding inconvenient
+runs.
+The unit of analysis is a valid run, defined as one
+attempt with a completed run record, non-null usage, and
+checker output. A valid run can pass or fail the task. An
+attempt that never produces a scoreable artifact is an
+infrastructure failure; it is reported separately because
+it provides no evidence about whether the edited audit
+artifact would have passed.
+2.3
+Outcome Measures
+Let a run have K applicable critical checks and let zi ∈
+{0, 1} indicate whether check i passes. We report two
+complementary outcomes:
+RequirementCoverage = 1
+K
+K
+X
+i=1
+zi,
+(1)
+TaskSuccess = I
+" K
+X
+i=1
+zi = K
+#
+.
+(2)
+Requirement coverage measures how much of the artifact
+is correct. Task success is deliberately strict: every critical
+check must pass. The distinction captures a common audit
+property—one missing required field can invalidate a file
+that is otherwise 99% correct.
+A silent failure occurs when the agent explicitly reports
+success, safety, or completion even though at least one
+critical check fails. Silent failure concerns the mismatch
+between the completion message and the artifact; it does
+not require us to infer whether the agent “knew” about
+the error.
+2.4
+Visible Failure Locations
+For each failed run, we identify the earliest saved evidence
+that supports one of four classes. A lost requirement is
+visible when a mandatory item is absent from the agent’s
+task representation or final artifact, with no evidence that
+it was preserved as an active obligation. Editing drift
+occurs when the requirement is present but the resulting
+edit violates it, for example by overwriting protected con-
+tent or solving a nearby problem. Failed checking occurs
+when the artifact or tool output exposes an error but the
+agent’s validation fails to reopen or correct the task. A
+non-agent failure is caused by the evaluator or runtime,
+such as a semantic false negative or a disconnected stream
+before any scoreable edit.
+These categories locate where a failure first becomes
+visible in the recorded evidence. They are descriptive, may
+co-occur within one run, and should not be interpreted
+as a universal taxonomy of model cognition. Section 5
+Skill instructions + fixed code-audit task
+↓extract mandatory observable requirements
+Positive/negative fixtures →frozen 24-check verifier
+↓rebuild answer-free workspace
+Add clean, relevant-long, or irrelevant-long context
+↓run coding agent and retain artifacts
+Score artifact →classify first visible failure location
+Figure 1: White-box study pipeline. The task, starting
+artifact, tools, and 24 checks remain fixed while the sur-
+rounding context changes.
+gives decision rules and representative cases; Appendix A
+provides the full coding guide.
+3
+White-Box Study Design
+3.1
+Design Goals
+The study isolates a modest but testable question: does
+changing the working context alter an agent’s ability to
+satisfy a fixed set of audit requirements? Three design
+goals follow. First, the correct result and checker must
+not change across context conditions. Second, historical
+outputs must not leak the answer. Third, a failed score
+must be traceable to an observable requirement rather
+than an opaque global judgment.
+Figure 1 summarizes the pipeline. We begin with a
+skill-like production workflow and extract its mandatory
+requirements. We validate a deterministic checker against
+positive and negative fixtures, build a sanitized workspace,
+inject one context condition, run the coding agent, and
+retain the complete observable record. Classification hap-
+pens after scoring so that failure labels cannot alter the
+pass criterion.
+3.2
+From
+Instructions
+to
+Observable
+Checks
+We extract five kinds of normative text from the workflow:
+explicit requirements, prohibitions, conditional branches,
+field-count limits, and completion rules. Each item is
+rewritten as a predicate over a visible event or saved file
+state. For example, “all plural evidence fields must be
+arrays, including an empty array when no evidence exists”
+becomes a presence-and-type check for each task. “Do
+not alter the protected core” becomes an equality check
+between the initial and final protected subtree.
+The checker intentionally avoids enforcing a unique
+reasoning trace. Several valid work plans can satisfy the
+same predicate. Conversely, a syntactically valid JSON
+file is insufficient if it omits a required array or changes
+protected content. We also include discriminators that
+separate the requested audit issue from a nearby but
+3
+different issue, which reduces the chance that fluent but
+off-target text receives credit.
+Before model execution, we test every checker family
+on at least one positive fixture and one targeted negative
+fixture. A semantic matcher that rejected the equivalent
+wording “quote truncates to zero” illustrates why this
+step matters: we corrected and re-scored that evaluator
+failure without rerunning the model. The frozen main
+checker contains 24 equally weighted critical checks across
+four audit tasks. Appendix B lists their families.
+3.3
+Workspace Sanitization and Leakage
+Control
+Answer-bearing files can turn a reasoning experiment into
+answer retrieval. Early pilot workspaces contained his-
+torical bundles, later-cycle findings, and prior evaluation
+reports. We therefore exclude those contaminated guard
+runs from independent effect claims and construct the
+reported main workspace from an allowlist. The sanitizer
+removes prior outputs, target findings, experiment sum-
+maries, later-cycle artifacts, and bundles that contain the
+desired edit.
+Each attempt starts from a fresh copy of the sanitized
+workspace. We record file hashes where available, the
+exact prompt, model and scaffold identifiers, changed files,
+tool output, final response, usage counters, checker output,
+and process status. Retries receive distinct suffixes; failed
+starts are never overwritten by the eventual successful
+attempt. This record supports both task scoring and the
+separate audit of infrastructure censoring.
+3.4
+Context Construction
+Table 1 defines the five main prompt conditions. The clean
+condition contains the minimum complete task context.
+Relevant long adds production material from the same
+workflow. Irrelevant long adds a natural unrelated archive
+truncated to the same character count. Character match-
+ing provides a reproducible gross-size control; it does not
+guarantee equal token counts, structural complexity, or
+retrieval paths.
+The relevant-versus-irrelevant contrast tests a simple
+semantic hypothesis: same-domain material may compete
+more strongly with the target requirements than unrelated
+material of equal length. The design does not isolate
+every property of context. Smaller exploratory pilots vary
+aligned versus conflicting old rules, stale failure history,
+prompt position, and prompt size; we use these runs to
+discover failure forms but do not pool them into the main
+effect estimate.
+3.5
+Checklist Intervention
+The mitigation comparison changes only the completion
+instruction in the relevant-long condition. The Generic
+prompt tells the agent to mechanically validate every
+explicit constraint before finishing. The Detailed prompt
+lists the 24 concrete artifact checks and asks the agent
+to mark them complete before stopping. The prompts
+differ by only 649 characters, making prompt length an
+implausible explanation for a large benefit, although their
+information content intentionally differs.
+The intervention is externalized because a generic self-
+check can inherit the same omission that occurred during
+generation. If the agent has dropped one required array
+from its active task representation, a self-generated val-
+idator may also omit that array. Restating the frozen
+checks gives the final phase a requirement source inde-
+pendent of the agent’s current summary. We test only
+this prompt-level intervention; we do not implement the
+larger contract-aware runtime proposed in the original
+research plan.
+3.6
+Scaffold Variants
+The scaffold probe asks whether tool-mediated selective
+retrieval can reduce the effective working set.
+Direct
+receives the target file and task prompt without tools.
+Bundled Direct additionally receives the smallest evidence
+bundle used by a successful coding-agent trajectory. Full
+Direct receives all 299K relevant material in one request.
+Codex can search files, edit the workspace, and run shell
+checks. Claude Code is attempted where the gateway
+protocol accepts the model.
+This probe is diagnostic rather than a fair product
+comparison. Direct and coding-agent runs have different
+token budgets; the successful evidence bundle is selected
+retrospectively; and the gateway exposes no model that
+works through both Codex and Claude Code native pro-
+tocols. We therefore use the probe to distinguish two
+possible mechanisms—tools themselves versus a smaller
+active evidence set—not to rank agent shells.
+4
+Empirical Method
+4.1
+Research Questions
+Table 2 maps each research question to its comparison
+and evidentiary status. RQ1 and RQ4 have ten valid
+repetitions per condition and planned exact tests. RQ2
+shares the main repeated experiment. RQ3 uses saved-
+artifact classification. RQ5 remains exploratory because
+token budgets and protocols are not matched.
+4.2
+Primary Subject and Execution Con-
+figuration
+The primary subject is the sanitized operation-sl017
+Stage 4CD workflow derived from an industrial code-audit
+scanner. The agent must fill four structured audit tasks
+while preserving protected source content. The frozen
+checker applies 24 critical checks to each final artifact.
+This workflow was selected because it combines deter-
+4
+Table 1: Main and mitigation conditions on the Stage 4CD task. The last two rows use the relevant-long context.
+Condition
+Chars
+Valid n
+Purpose
+Clean
+10,991
+10
+Capability baseline with minimum complete context
+Relevant long
+299,140
+10
+Production-derived same-workflow material
+Irrelevant long
+299,140
+10
+Equal-character natural archive control
+Generic check
+299,433
+10
+Generic instruction to validate all constraints
+Detailed check
+300,082
+10
+Explicit list of all 24 checks before stopping
+Table 2: Research questions, comparisons, and primary outcomes.
+RQ
+Question
+Comparison
+Outcome
+1
+Does long context increase failures on the main
+task?
+Clean vs. each long condition
+Task success; check cov-
+erage
+2
+Does semantic relevance worsen the effect?
+Relevant vs. equal-length irrele-
+vant
+Task
+success;
+failure
+depth
+3
+What visible forms do failures take?
+Saved failed artifacts and logs
+First visible class; silent
+closure
+4
+Does an explicit checklist outperform a generic self-
+check?
+Generic vs. Detailed
+Task success; check cov-
+erage
+5
+Can a coding-agent scaffold reduce failure through
+selective retrieval?
+Direct, Bundled, Full, Codex
+Descriptive success and
+tokens
+ministic structural requirements, task-specific evidence,
+preservation constraints, and a clear completion state.
+The repeated main experiment uses Codex with
+gpt-5.4-mini at medium reasoning effort.
+We col-
+lect ten valid runs for Clean, Relevant long, Irrel-
+evant long, Generic, and Detailed.
+Smaller probes
+cover gpt-5.6-luna, gpt-5.5, deepseek-v4-pro, and
+deepseek-v4-flash. Cross-task experiments use sepa-
+rate ParagonDEX and Revert fixtures. A candidate task
+enters a long-context comparison only after passing two
+clean capability runs; unstable clean tasks remain mecha-
+nism examples rather than context-effect evidence.
+All calls use the same gateway, but model-specific pro-
+tocol support differs. The runner retains model identifiers,
+reasoning effort, prompt paths, copied workspaces, raw
+final output, usage, and checker output. The model is the
+subject that performs the edit; the frozen checker supplies
+the outcome. Human inspection supplies only the post
+hoc descriptive failure label.
+4.3
+Sampling and Extension Policy
+The study began as a pilot with five valid runs per main
+condition and three runs per checklist condition. The
+irrelevant-long pass estimate changed from 0/5 to 3/10
+after extension, demonstrating that the initial cells were
+too unstable. We therefore extend all primary context
+cells to ten valid runs and both checklist cells to ten valid
+runs. The extension narrows uncertainty but remains
+small for heterogeneous stochastic agents.
+Because the decision to extend followed inspection of
+the five-run estimates, the final analysis is not a preregis-
+tered fixed-n confirmatory experiment. We disclose the
+sequence and avoid interpreting p-values as definitive ev-
+idence. Future work should fix the number of attempts
+and retry policy before observing results.
+4.4
+Statistical Analysis
+For each condition, we report the strict task-success count,
+total passed checks, and a 95% Wilson interval for the
+failure rate.
+For each planned 2 × 2 comparison, we
+use a two-sided Fisher exact test at α = 0.05 because
+the cells are small. One-sided values are secondary and
+reported only for the directional checklist hypothesis. We
+report percentage-point differences directly; we do not fit
+a multivariable model to these small data.
+The binary and check-level outcomes answer different
+questions. Binary success estimates the probability that
+the entire audit artifact is acceptable. Check coverage
+describes failure depth. Checks within one run are cor-
+related and therefore are not treated as 240 independent
+samples for significance testing. Cross-model, cross-task,
+and scaffold cells are descriptive boundary checks with
+no inferential ranking.
+4.5
+Failure Coding Procedure
+We rescore each saved artifact with the frozen verifier, then
+inspect the artifact and tool log to identify the earliest
+visible evidence of failure.
+Coders apply the ordered
+rules in Appendix A: non-agent failures are separated
+first; otherwise an absent active requirement is coded
+as Lost Requirement, a violated present requirement as
+Editing Drift, and an uncorrected visible contradiction as
+Failed Checking. Completion is recorded as an additional
+attribute when the final message claims success despite
+failure.
+5
+This procedure permits multiple observations in one
+run but assigns one first-visible class for summary pur-
+poses. For example, omitting a required array is Lost
+Requirement even if the final self-check later fails to notice
+it; the failed check is recorded as a secondary observa-
+tion. An evaluator false negative is not attributed to the
+agent. Raw artifacts remain authoritative for ambiguous
+completion wording.
+4.6
+Valid Runs and Interrupted Attempts
+A valid run must contain a completed result.json, non-
+null usage, and frozen-verifier output. A verifier FAIL is
+a valid outcome. An attempt that stops before produc-
+ing a scoreable edit is excluded from the model-success
+denominator and retained in the operational denominator.
+The n = 10 extension contains 29 new valid runs and 28
+excluded attempts, so only 50.9% of attempts produce a
+scoreable output. Exclusions consist of seven process-start
+failures, 14 first-token stream disconnects, four host ter-
+minations, two other resultless starts, and one null-usage
+record without a usable edit. Twenty exclusions occur
+in the irrelevant-long condition. Because missingness is
+strongly imbalanced and may not be random, success
+among valid runs and operational scoreability must be
+interpreted separately.
+4.7
+Usage and Equivalent Cost
+We compute cost only from returned usage. To compare
+heterogeneous calls consistently, the ledger applies one
+Luna-equivalent schedule: USD 2 per million uncached
+input tokens, USD 0.20 per million cached input tokens,
+and USD 6 per million output tokens. The confirmed
+ledger contains 167,442,549 logical tokens: 16,469,855 un-
+cached input, 147,916,544 cached input, and 3,056,150
+output tokens.
+The corresponding equivalent cost is
+USD 56.022111.
+This accounting is an auditable lower bound, not an
+invoice. It excludes cache-write premiums, long-context
+surcharges that cannot be reconstructed from aggregate
+trajectories, and any interrupted attempt for which the
+gateway returned no usage. We report it to make the
+exploratory scale visible and to prevent resultless retries
+from disappearing from the study narrative.
+5
+Results
+5.1
+RQ1: Long Context Has a Lower Pass
+Rate on the Main Task
+Table 3 reports ten valid runs per condition. Clean context
+passes 8/10 runs. Relevant long and irrelevant long each
+pass 3/10. The observed failure rate therefore rises from
+20% to 70%, an absolute increase of 50 percentage points
+and a descriptive 3.5-fold increase. The repeated failure
+pattern is not merely a parser problem: runs omit manda-
+tory arrays, exceed field cardinalities, or leave whole task
+components unfinished.
+Table
+3:
+Main
+Stage
+4CD
+task
+with
+Codex
++
+gpt-5.4-mini. CI is the 95% Wilson interval for fail-
+ure rate; coverage is descriptive because checks within a
+run are correlated.
+Context
+Pass
+Coverage
+Failure CI
+Clean
+8/10
+237/240 (98.8%)
+5.7–51.0%
+Relevant long
+3/10
+221/240 (92.1%)
+39.7–89.2%
+Irrelevant long
+3/10
+225/240 (93.8%)
+39.7–89.2%
+The effect is large but uncertain. Clean versus Relevant
+and Clean versus Irrelevant each yield a two-sided Fisher
+p = 0.0698. Neither comparison crosses the prespecified
+α = 0.05 threshold, and the failure-rate intervals over-
+lap widely. Extending Irrelevant from five to ten runs
+changes its pass estimate from 0/5 to 3/10; the earlier
+five-run significance does not survive. This movement is
+direct evidence that very small agent samples can produce
+unstable headlines.
+The check totals reveal a second pattern. Relevant long
+passes 92.1% of all checks and Irrelevant long passes 93.8%,
+yet only 30% of complete artifacts pass. Failures are often
+narrow: losing one required array converts an otherwise
+correct 23/24 run into a failed audit artifact. However,
+long context can also deepen failure. One Irrelevant run
+completes only the first two of four tasks and passes 14/24
+checks.
+Answer to RQ1.
+On this model–task pair, both long
+conditions have a 50-point lower observed pass rate than
+Clean. The evidence supports a large, high-variance relia-
+bility loss worth replicating, not a statistically confirmed
+universal effect or deterministic length threshold.
+5.2
+RQ2: Relevance Does Not Order the
+Two Long Conditions
+Relevant and equal-length Irrelevant contexts have the
+same binary result, 3/10 pass, and Fisher p = 1.0 between
+them. Relevant loses four more checks in aggregate, but
+Irrelevant contains the deepest single failure. The data
+therefore provide no stable ordering in which same-domain
+material is necessarily more harmful than unrelated ma-
+terial.
+Exploratory rule probes lead to the same caution.
+Aligned and conflicting old-rule conditions each pass 2/3;
+one conflicting run adopts an obsolete permission, while
+the other two do not. A stale failed-history condition
+reproduces a known missing field and protected-field drift
+in 1/3 runs, but the matched unrelated archive passes
+its three pilot runs. These cases show that semantically
+competing state can be absorbed, yet the effect is stochas-
+tic and not consistently larger than generic long-context
+6
+load.
+Answer to RQ2.
+The experiment rejects a simple “rele-
+vant is worse than irrelevant” ordering. Length, structure,
+active-task count, prior state, and random variation re-
+main entangled.
+A factorial experiment is needed to
+estimate their separate contributions.
+5.3
+RQ3: Four Visible Failure Classes
+Table 4 defines the four classes and their decision bound-
+ary. The classes describe observable failure locations in
+this workflow. They do not assign hidden cognitive causes
+and are not proposed as an exhaustive taxonomy for all
+agents.
+5.3.1
+Lost requirements
+The
+recurring
+main-task
+example
+is
+the
+omitted
+state relation lenses array in task T002. The instruc-
+tion requires every plural evidence field to exist even when
+empty. Failed runs produce a valid JSON object and cor-
+rectly populate nearby fields, but omit this array and
+later report completion. The error appears in Clean, Rel-
+evant, Irrelevant, and Generic runs, so it is not unique to
+long context; its higher frequency in the two long main
+conditions motivates the context comparison.
+A more severe Irrelevant run demonstrates partial com-
+pletion rather than a single field miss. It fully prepares
+T001 and T002 but leaves T003 and T004 without five
+required components each. The artifact passes only 14/24
+checks, yet the trajectory terminates normally. This case
+matters because it resembles completion truncation: the
+agent does not corrupt every task, but its active worklist
+ends before the requested work does.
+5.3.2
+Editing drift
+Editing drift preserves the broad task but violates a
+local invariant.
+DeepSeek Pro changes the protected
+version field in two usable clean runs and also rewrites
+rewardPerToken inside a protected function description.
+A Flash pilot changes the version once but passes two
+sanitized clean reruns, illustrating why a single artifact
+should identify a failure form rather than establish a
+stable model trait.
+Another form is adjacent substitution. In a Stage 6
+reasoning task, the agent recognizes that integer division
+can discard precision but attaches the decisive loss to
+a later token-decimal conversion rather than the earlier
+mulDiv operation named by the task.
+The produced
+explanation is locally plausible but closes the wrong root
+cause.
+5.3.3
+Failed checking
+The Generic checklist failures show that tool use is not
+equivalent to coverage. Agents run JSON parsers and
+field spot-checks, then state that all constraints pass. The
+validation commands omit the same required array that
+generation omitted. In a separate Stage 6 case, the agent’s
+own tool prints two values that differ from the expected
+values by 1000×, but the final answer still declares the
+scale correct. Both examples expose contradictory evi-
+dence before completion; the failure lies in the validation
+step’s coverage or response to evidence.
+5.3.4
+Non-agent failures
+One semantic evaluator initially rejects “quote truncates
+to zero,” although that phrase states the expected effect.
+Correcting the matcher changes the score without a new
+model run, so the error belongs to measurement. Runtime
+failures are even clearer: a process that never starts or
+a stream that disconnects before the first token provides
+no edited artifact to classify. Combining these cases with
+agent mistakes would inflate the apparent model failure
+rate and obscure infrastructure reliability.
+Across the frozen historical inventory, 38 of 44 failed
+rows contain an explicit success, safe, or completion clo-
+sure.
+The 86.4% figure mixes tasks, models, and ex-
+ploratory conditions and is not a population estimate. It
+nevertheless confirms the practical point that a comple-
+tion message cannot substitute for artifact-level checks.
+Answer to RQ3.
+The saved runs exhibit lost require-
+ments, editing drift, failed checking, and non-agent fail-
+ures. The most informative cases occur after successful
+file discovery: the active requirement set becomes incom-
+plete, the edit departs from a local invariant, or validation
+fails to react to evidence.
+5.4
+RQ4: A Detailed Checklist Outper-
+forms a Generic Self-Check
+Table 5 compares the two completion prompts in Relevant
+long.
+Detailed passes 10/10 runs and all 240 checks.
+Generic passes 5/10 and 234/240 checks. The observed
+pass-rate difference is 50 percentage points; the two-sided
+Fisher test gives p = 0.0325, and the directional one-sided
+value is p = 0.0163.
+The five Generic failures are concrete requirement viola-
+tions: four omit the T002 required array, one of those also
+exceeds T001 cardinality, and the remaining run violates
+T002 cardinality. None is a parser crash or known checker
+defect. Detailed prevents every observed failure in this
+sample by presenting the final check phase with a frozen
+external list rather than asking it to reconstruct that list.
+The result is promising but bounded. Ten successes do
+not prove zero failure probability; the 95% Wilson upper
+bound remains 27.8%. The comparison covers one task,
+model, and long-context construction, and does not isolate
+which checklist item or formatting property produces the
+gain.
+7
+Table 4: White-box failure classification and representative evidence.
+Class
+Decision rule
+Representative evidence
+Lost requirement
+A mandatory item is absent from the active
+task or final artifact
+Missing T002 array; only two of four tasks com-
+pleted
+Editing drift
+A present requirement is violated during
+editing
+Protected version changed; adjacent root cause
+substituted
+Failed checking
+Visible artifact or tool evidence contradicts
+completion but is not repaired
+JSON spot-check omits the missing field; 1000×
+mismatch ignored
+Non-agent failure
+The runtime or evaluator prevents or mis-
+scores a usable result
+Stream ends before first token; equivalent wording
+rejected
+Table 5: Checklist comparison in Relevant long. The
+prompts differ by 649 characters.
+Prompt
+Pass
+Coverage
+Failure CI
+Generic validation
+5/10
+234/240 (97.5%)
+23.7–76.3%
+Detailed checklist
+10/10
+240/240 (100%)
+0.0–27.8%
+Answer to RQ4.
+A concrete checklist is significantly
+better than a generic request to self-check in the targeted
+comparison. The likely mechanism is restoration of omit-
+ted requirements, but replication on independent tasks is
+needed.
+5.5
+RQ5: Scaffold Benefit Is Conditional
+and Partly Explained by Selection
+Table 6 summarizes the paired scaffold probe.
+For
+gpt-5.5, Full Direct passes 1/3, while both Bundled
+Direct and Codex Relevant pass 3/3. Because the smaller
+bundle succeeds without tools and with far fewer logical
+tokens, selective evidence provision can explain the Codex
+advantage over Full Direct. The experiment does not
+show that shell tools alone cause the difference.
+For gpt-5.4-mini, Direct, Bundled Direct, and Full
+Direct each miss the same T002 array. Codex passes clean
+pilot runs but reaches only 3/10 in the repeated Relevant
+condition. The scaffold can help the model find and edit
+files without guaranteeing that all requirements survive
+into completion.
+A strict Codex–Claude Code comparison remains
+unidentified. GPT models fail on the gateway’s Claude
+Code path, while tested DeepSeek models reject the Codex
+custom-tool payload. This protocol mismatch is a non-
+agent system constraint, not evidence that either shell is
+better.
+Answer to RQ5.
+Coding-agent scaffolds can mitigate
+a large injected context by retrieving a smaller working
+set, but the current data neither isolate a tools-only effect
+nor show that scaffolds eliminate context-related failures.
+5.6
+Cross-Task and Cross-Model Bound-
+ary Conditions
+Table 7 reports the main boundary probes. Revert SL-007
+is a stable counterexample: all eight clean and long runs
+pass. Revert SL-005 also remains strong, with a single
+irrelevant-long format failure followed by two passing rep-
+etitions. Four other candidates fail or fluctuate in Clean
+and therefore cannot support a context-effect estimate.
+These results move the unit of claim from “long con-
+texts” to a model–task–scaffold–context construction. A
+character count that is unreliable for one workflow can be
+harmless for another, and a model that fails clean cannot
+identify a context-induced loss. We have one well-repeated
+positive task and no independent positive replication.
+5.7
+Operational Reliability and Missing
+Attempts
+The extension requires 57 attempts to obtain 29 new
+scoreable runs, an overall scoreable-attempt rate of 50.9%.
+Table 8 shows substantial variation by condition. Irrele-
+vant long produces only 5 scoreable runs from 25 attempts
+because first-token disconnects cluster there. Generic and
+Detailed have higher scoreability, although each also ex-
+periences a host termination.
+We cannot assume these missing attempts are random.
+If longer or more difficult generations are more likely to
+disconnect, success among surviving runs may be opti-
+mistic. If disconnects are unrelated gateway incidents,
+assigning them as model failures would be unfair. The de-
+fensible response is dual reporting: artifact success among
+scoreable runs, plus attempt-level scoreability and a fixed
+retry policy. Appendix C lists the exclusion categories.
+5.8
+High Coverage Can Hide Invalid Ar-
+tifacts
+The main and historical data expose a measurement trap.
+In the repeated long conditions, more than 92% of checks
+pass while 70% of runs fail. In the broader frozen in-
+ventory, 2,857 of 2,916 checks pass (97.98%), yet 44 of
+121 saved valid rows fail at least one critical check. The
+historical inventory mixes subjects and cannot estimate
+an overall failure rate, but the logical mismatch is real:
+8
+Table 6: Scaffold probe. Token budgets differ, so cells are descriptive rather than a controlled ranking.
+Model
+Setup
+Pass
+Main observation
+GPT-5.5
+Full Direct
+1/3
+Two cardinality failures
+GPT-5.5
+Bundled Direct
+3/3
+Small selected working set; no tools
+GPT-5.5
+Codex Relevant
+3/3
+File retrieval and tools; more tokens
+GPT-5.4 mini
+Direct variants
+0/3 variants
+Same T002 array omitted in each
+GPT-5.4 mini
+Codex Clean
+3/3 pilot
+Tools help at clean endpoint
+GPT-5.4 mini
+Codex Relevant
+3/10 main
+Benefit does not survive long context
+Table 7: Cross-task and cross-model probes. Sparse cells define boundaries, not rankings.
+Subject
+Clean
+Relevant
+Irrelevant
+Interpretation
+Revert SL-007
+2/2
+3/3
+3/3
+Stable long-context counterexample
+Revert SL-005
+2/2
+5/5
+4/5
+One format drift; later runs pass
+Luna, main task
+3/3
+2/3
+–
+One relevant omission
+GPT-5.5, Codex
+3/3
+3/3
+3/3
+No observed degradation in sparse probe
+Flash, sanitized
+2/2
+1/1
+–
+Passes available probes
+Pro, sanitized
+0/2
+–
+–
+Fails clean capability gate
+Table 8: Operational scoreability in the n = 10 extension.
+These rates measure the runner/gateway path, not audit
+accuracy.
+Condition
+Scoreable
+Attempts
+Rate
+Clean extension
+5
+7
+71.4%
+Relevant extension
+5
+8
+62.5%
+Irrelevant extension
+5
+25
+20.0%
+Generic extension
+7
+8
+87.5%
+Detailed extension
+7
+9
+77.8%
+Total
+29
+57
+50.9%
+mean coverage rewards nearly complete artifacts, whereas
+strict task success reflects an all-critical audit contract.
+For safety- or audit-oriented tasks, both views are nec-
+essary. Coverage distinguishes a one-field omission from
+a half-finished file and supports failure analysis. Strict
+success preserves the fact that either artifact may be un-
+usable. Reporting coverage alone would make the long
+conditions look highly reliable; reporting success alone
+would hide that most failures are sparse and potentially
+amenable to a targeted checklist.
+6
+Discussion
+6.1
+The Central Finding Is Sparse Incom-
+pleteness
+The most consistent pattern is not total task collapse.
+Agents usually find the correct workspace, edit the in-
+tended file, preserve most structure, and produce a plau-
+sible completion message. Failure often consists of one
+missing array, one excess item, one protected-field change,
+or one task that silently remains unfinished. This explains
+the apparent tension between high requirement coverage
+and low strict success: a small number of omissions can
+determine whether the artifact is valid.
+This pattern matters for how context rot is studied. A
+coarse benchmark may treat a 23/24 artifact as nearly
+solved, while a code-audit consumer may reject it. Con-
+versely, binary failure alone makes the model look uni-
+formly incompetent and hides that a narrow external
+reminder can repair the result. Future work should pair
+strict success with requirement-level depth, not choose
+one metric over the other.
+6.2
+Long Context Is a Condition, Not a
+Complete Explanation
+Both long contexts perform worse than Clean on the
+main task, but relevance does not distinguish them and
+another task remains perfect. These observations rule
+out a simple story in which one character threshold or
+same-domain distractor automatically causes failure. The
+studied context manipulations also change the number of
+visible files, possible search paths, textual structure, and
+volume of state the agent may treat as active.
+We therefore interpret “context rot” as an empirical
+umbrella for reliability loss under expanded or cluttered
+context, not as a diagnosed internal cause. The next
+causal experiment should cross context length, semantic
+similarity, active obligation count, evidence location, his-
+tory staleness, and tool-output volume. Repeating each
+cell across tasks would reveal whether omissions track raw
+size, competing rules, task bookkeeping, or a particular
+scaffold behavior.
+6.3
+Why the Detailed Checklist Helps
+The Generic and Detailed prompts differ in a crucial way:
+Generic asks the agent to reconstruct the validation set,
+whereas Detailed supplies that set independently. When
+9
+generation loses a requirement, self-generated validation
+can reproduce the same blind spot. The Generic trajec-
+tories demonstrate this directly by running checks that
+never test the omitted array. Detailed reintroduces the
+requirement at the completion boundary and prevents all
+observed failures in ten runs.
+This mechanism suggests a separation of responsibilities.
+The skill explains how to perform the audit; the exter-
+nal checklist preserves a compact set of non-negotiable
+completion conditions. A final checker then evaluates
+the saved artifact independently. The checklist prevents
+some errors, while the checker detects errors that remain.
+These components should be versioned together because
+a stale checklist can be as misleading as a stale skill.
+The result does not justify an elaborate new runtime
+by itself. For tasks with a small deterministic schema, a
+plain checklist and test script may provide most of the
+benefit. More complex reasoning tasks could require richer
+evidence obligations, boundary witnesses, or a rule that
+contradictory tool output blocks completion, but those
+mechanisms remain proposals until tested on repeated
+independent tasks.
+6.4
+Coding Agents Can Reduce the Ac-
+tive Working Set
+The scaffold probes suggest that context management can
+occur through selection rather than larger windows. GPT-
+5.5 succeeds both with Codex and with a smaller direct
+evidence bundle, while Full Direct fails twice. This agrees
+with evidence that file-using coding agents can process
+large collections by retrieving relevant pieces instead of
+injecting everything at once [2].
+Selection is not automatically safe. A coding agent may
+retrieve the right files but still drop one requirement from
+its plan, compress a trajectory too aggressively, or validate
+only the fields it remembers. The weaker model exhibits
+exactly this boundary: Codex helps at the clean endpoint
+but not under Relevant long. A useful scaffold should
+therefore externalize both evidence selection and the small
+pending-requirement list; file search alone addresses only
+the first problem.
+6.5
+Relation to Broader Coding-Agent
+Failure Studies
+Large trajectory studies show that coding-agent failure
+often develops before the final step and that agents can
+appear productive while remaining misaligned with user
+rules [15, 11]. Our four classes should be read as a domain-
+specific projection of that broader space. The white-box
+artifact lets us distinguish requirement omission from
+editing drift and failed checking with unusually concrete
+evidence, but it covers only failures expressible against
+known audit requirements.
+The classification is useful when deciding where to
+intervene. Lost requirements call for a stable external
+task list; editing drift calls for protected-field checks or
+smaller edit scopes; failed checking calls for independent
+validators and contradiction handling; non-agent failures
+call for evaluator tests, runner instrumentation, and retry
+policy. One global “agent failed” label cannot provide
+this routing information.
+6.6
+Practical Recommendations
+For skill authors, mandatory constraints should be few,
+explicit, and paired with executable positive and negative
+tests. Long explanatory material can remain available
+through files, while the completion checklist should con-
+tain only critical obligations. Requirements that protect
+existing content should be checked by diff or subtree
+equality, not trusted to prose.
+For agent-platform builders, the pending obligation set
+should live outside the growing conversational transcript.
+Tool output that contradicts an expected result should re-
+open the task automatically. Compaction should preserve
+unresolved requirements and evidence provenance rather
+than only a narrative summary. These are design impli-
+cations from the observed cases, not evaluated product
+claims.
+For researchers, clean capability gates and operational
+attempt rates should accompany context-effect estimates.
+Resultless attempts should not be silently retried until
+a desired n appears. Reports should preserve attempt
+identifiers, distinguish valid FAIL from no score, state the
+retry rule, and show how conclusions change as repeated
+samples accumulate.
+6.7
+Infrastructure Reliability Is Part of
+the Deployed System
+Excluding a first-token disconnect from model accuracy
+is methodologically correct, but deployed users still expe-
+rience a failed attempt. The extension’s 50.9% scoreable-
+attempt rate makes this distinction impossible to ignore.
+A complete reliability report therefore needs two layers:
+conditional artifact quality given a scoreable run, and
+end-to-end probability that an attempt returns a valid
+artifact at all.
+The observed imbalance also creates a missing-data
+problem. Irrelevant long requires many more retries than
+other conditions.
+We cannot determine whether that
+cluster comes from context-specific request size, transient
+gateway state, or random operational incidents. Larger
+studies should randomize condition order, cap retries,
+preserve request metadata, and analyze attempt-level
+outcomes in addition to valid-run outcomes.
+6.8
+A More Focused Research Program
+The original proposal envisioned a broad benchmark and
+a contract-aware execution runtime. The present evidence
+supports a smaller next step. First replicate the main com-
+parison across several independently authored white-box
+10
+audit skills. Then test whether the checklist advantage
+persists and whether the same four visible classes cover
+most failures. Only after those results should a larger
+runtime be justified. This sequence keeps the scientific
+contribution centered on a falsifiable classification and
+measured boundary conditions rather than a speculative
+system architecture.
+7
+Threats to Validity
+7.1
+Construct Validity
+The checks measure visible instruction following, not at-
+tention, memory, comprehension, or any private internal
+mechanism. Our use of context rot therefore refers to a
+behavioral reliability change under context manipulation.
+It should not be read as evidence for a particular neural
+or cognitive explanation.
+Character counts are reproducible but do not equal
+tokenizer-specific lengths. Relevant and Irrelevant match
+in characters, not tokens, syntax, semantic density, file
+layout, or expected search behavior. The experiment tests
+two concrete context constructions rather than a pure
+scalar length treatment.
+The 24 checks are strongest for field presence, types,
+cardinality, protected content, and file structure. They
+score semantic evidence less completely. A run can there-
+fore pass the checker while still producing a shallow audit.
+We mitigate this risk with task-specific discriminators and
+saved raw artifacts, but the reported task success should
+be understood as success under the frozen operational
+definition.
+The four failure classes record first visible evidence.
+An earlier hidden error may exist, and two classes can
+occur in one trajectory. For example, a lost requirement
+can later cause failed checking. The ordered coding rule
+improves consistency but does not prove causal ordering.
+Independent double-coding would strengthen a larger
+study.
+7.2
+Internal Validity
+Model output is stochastic, and gateway routing or back-
+end versions may change. We freeze the prompt construc-
+tion, workspace, runner settings, and checker, but exact
+tool paths and token use still vary. The same nominal
+model identifier may not guarantee an immutable served
+checkpoint.
+The study extends sample sizes after inspecting pilot
+results. Although all runs and changed estimates are
+disclosed, the final Fisher tests are not equivalent to a
+preregistered fixed-n confirmatory analysis. The Irrele-
+vant estimate’s movement from 0/5 to 3/10 shows why
+this matters. A replication should specify n, exclusions,
+and stopping rules in advance.
+Infrastructure missingness is the largest internal threat.
+Twenty-eight attempts in the extension do not produce
+usable scores, and 20 exclusions occur in Irrelevant long.
+If generations likely to fail the artifact also disconnect
+more often, valid-run pass rates are biased upward; if the
+incidents are independent gateway failures, treating them
+as model failures biases rates downward. The current logs
+cannot identify which scenario holds.
+Early workspaces contained answer-bearing bundles
+and findings. The reported main comparison uses a sani-
+tized allowlist workspace, and contaminated pilot guard
+runs do not contribute to the checklist effect estimate.
+Nevertheless, sanitization may also remove realistic repos-
+itory context. The design trades some ecological realism
+for protection against answer leakage.
+7.3
+Conclusion Validity
+The main context comparisons yield p = 0.0698 and broad
+Wilson intervals. We describe a trend and observed effect
+size, not statistical confirmation. The Detailed–Generic
+result reaches p = 0.0325, but one significant comparison
+with ten runs per cell remains vulnerable to effect-size
+inflation and task-specificity.
+Check totals are not independent observations because
+24 checks share one generation. We therefore do not com-
+pute significance from 240 check outcomes. Historical
+aggregate coverage mixes models, tasks, and conditions
+and serves only to illustrate the difference between cover-
+age and strict success.
+Cross-task, cross-model, and scaffold cells are sparse.
+Their purpose is to falsify overbroad claims and expose
+protocol constraints, not estimate stable comparative
+performance. No correction for multiple exploratory com-
+parisons is applied; we avoid confirmatory language for
+those results.
+7.4
+External Validity
+The repeated evidence covers one production-derived code-
+audit workflow, one main model, and one coding-agent
+scaffold. The workflow has structured output and deter-
+ministic preservation rules, which make white-box check-
+ing easier than open-ended vulnerability discovery. Re-
+sults may not transfer to browser use, document editing,
+data analysis, or conversational tasks.
+The stable Revert SL-007 counterexample shows that
+the main effect is not universal even within code auditing.
+Four other candidate tasks fail clean gates and cannot
+identify context-induced degradation. We lack a second in-
+dependent task that passes reliably in Clean and degrades
+reliably in long context.
+The five model families are not sampled evenly, and
+model/scaffold compatibility is constrained by the internal
+gateway.
+Prices are normalized to a Luna-equivalent
+schedule rather than actual provider bills. These choices
+support an auditable engineering case study but not a
+market-wide comparison.
+11
+7.5
+Reproducibility and Researcher Judg-
+ment
+Failure labels depend on human interpretation of saved
+artifacts, although task success does not.
+We expose
+decision rules, representative examples, and raw paths to
+make these judgments auditable. An anonymized release
+should include the sanitized builder, prompt manifests,
+checker tests, valid-run list, excluded-attempt list, and
+exact analysis commands. Secrets, gateway identifiers,
+and proprietary source fragments must remain excluded.
+8
+Related Work
+8.1
+Long-Context Use and Instruction
+Following
+Long-context evaluation has moved beyond advertised
+window size toward effective use.
+Lost in the Middle
+shows that answer quality depends on where evidence
+appears [7]. LongBench evaluates long-document under-
+standing across 21 bilingual datasets [1], while RULER
+uses controlled tasks to estimate how much of a nomi-
+nal context window a model uses reliably [4]. Controlled
+context-rot experiments further vary length, distractor
+similarity, and document structure, finding non-uniform
+and model-specific degradation [3]. These works establish
+the phenomenon and motivate our context manipulation;
+we do not introduce the term.
+Agentic prompts add structured constraints to the re-
+trieval problem. AgentIF collects long instructions from
+realistic applications, averaging 11.9 constraints and in-
+cluding detailed tool and conditional rules, and reports
+that current models struggle with complex constraint
+structures [10]. Our study shares its requirement-level
+interest but observes a tool-using coding agent in a fixed
+workspace. We additionally distinguish an omitted re-
+quirement from an edit or validation failure in the saved
+artifact.
+8.2
+Agent and Coding-Agent Evaluation
+AgentBench evaluates language-model agents across inter-
+active environments [8], and τ-bench measures tool-agent-
+user interaction with final environment state and repeated-
+trial reliability [14]. SWE-bench evaluates whether agents
+resolve real repository issues [5]. These benchmarks make
+final success concrete and executable, but their aggregate
+outcome does not by itself explain which instruction was
+lost.
+SWE-agent and OpenHands demonstrate that agent-
+computer interfaces, file tools, and persistent workspaces
+can improve repository work [13, 12]. More recent work
+argues that coding agents can act as effective long-context
+processors by traversing files rather than consuming one
+monolithic prompt [2]. Our scaffold probe examines this
+selective-working-set mechanism. Because budgets and
+protocols are unmatched, we treat the result as mechanism
+evidence rather than a scaffold leaderboard.
+8.3
+Coding-Agent Failure Analysis
+Trajectory studies increasingly treat failure as a process
+rather than a final bit. Majgaonkar et al. compare suc-
+cessful and failed trajectories across several code agents
+and find that failures can still localize relevant files while
+missing the required modification [9]. Zhao et al. manu-
+ally analyze 1,794 valid trajectories and more than 63,000
+execution steps, studying onset, evolution, and recov-
+ery [15]. Tang et al. analyze 20,574 real-world sessions
+and identify user-visible forms that include rule-following
+problems and inaccurate progress reports [11].
+These studies are broader and much larger than ours.
+Our narrower distinction is experimental control and re-
+quirement visibility: we deliberately change context while
+holding one audit task fixed, and every critical require-
+ment is known before execution. The four classes are
+therefore not competitors to broader taxonomies. They
+are a practical projection for deciding whether a white-box
+failure first appears as an omitted obligation, a drifting
+edit, a failed validation, or a non-agent fault.
+8.4
+Agent Skill Evaluation
+SkillsBench treats Agent Skills as a first-class experimen-
+tal object, evaluating 86 tasks and 7,308 trajectories under
+no-skill, curated-skill, and generated-skill conditions [6].
+Curated skills improve average pass rate but yield nega-
+tive deltas on some tasks, and focused packages can out-
+perform comprehensive documentation. SkillLearnBench
+evaluates continual skill learning at skill, trajectory, and
+outcome levels [16]. Together, these works show that
+procedural packages must be evaluated empirically rather
+than assumed beneficial.
+Our study keeps the skill and desired artifact fixed
+rather than measuring skill uplift or skill generation. It
+asks how the same requirements survive different contexts
+and where visible deviations appear. The contribution
+is consequently a bounded white-box failure study and
+classification procedure, not a new general skill benchmark
+or monitoring framework.
+8.5
+Position of This Work
+The closest conceptual intersection combines effective-
+context evaluation, agentic constraint following, coding-
+agent trajectory analysis, and Skill evaluation. Existing
+work covers each component at substantially greater scale.
+What it does not jointly provide is a controlled context
+comparison on a production-derived audit task with pre-
+declared artifact-level requirements and an independently
+tested checker. This paper fills that narrow empirical gap
+while making its limited task and sample scope explicit.
+12
+9
+Conclusion
+This technical report examines how failures become visible
+when a coding agent follows a known procedure in a white-
+box code-audit workflow. It does not propose context rot,
+a new monitoring formalism, or a universal taxonomy.
+Its contribution is a controlled case study in which a
+fixed task, starting artifact, and 24 checks make narrow
+requirement failures observable.
+On the main model–task pair, Clean passes 8/10 runs
+while two 299K-character contexts each pass 3/10. The
+50-point observed difference is substantial but remains
+statistically uncertain, and a second task passes every
+context condition. Relevant and Irrelevant long have iden-
+tical binary outcomes, so semantic relevance alone does
+not explain the effect. The strongest repeated interven-
+tion is a detailed external checklist: 10/10 pass versus
+5/10 for a generic self-check.
+The saved artifacts support four practical failure classes.
+Requirements can disappear from the active work, edits
+can drift from present constraints, final checks can ignore
+visible errors, and the evaluator or runtime can fail inde-
+pendently of the agent. These distinctions matter because
+each class suggests a different response. They also explain
+why high average requirement coverage can coexist with
+low strict task success and confident completion messages.
+The evidence is sufficient for an arXiv technical report
+and for designing a stronger study, but not for a broad
+causal claim. The next experiment should preregister
+sample size and retry policy, repeat several independently
+authored white-box audit tasks, randomize context con-
+ditions, and test the checklist on every task. A larger
+contract-aware runtime becomes scientifically justified
+only if those replications show that externalized obliga-
+tions consistently repair the same failure classes.
+Data Availability
+The research package contains the original proposal, re-
+quirements manifest, clean-workspace builders, condition
+prompts, runners, checker tests, frozen checker and sum-
+mary scripts, valid-run manifests, per-run records, re-
+turned usage, failure catalog, interrupted-attempt audit,
+and cost ledger. Raw result directories retain failed and in-
+terrupted attempt suffixes rather than overwriting retries.
+The package also records which early workspaces were
+contaminated by answer-bearing history and excludes
+them from the reported independent mitigation result.
+An anonymized archival URL will be inserted before pub-
+lic release; model credentials, internal gateway identifiers,
+proprietary source text, and user-specific absolute paths
+are excluded.
+A
+Failure-Coding Guide
+This appendix makes the descriptive classification repro-
+ducible. Coding begins only after the frozen checker has
+assigned PASS or FAIL. The coder reads the initial ar-
+tifact, final artifact, tool log, and completion message.
+Private reasoning is neither requested nor inferred.
+A.1
+Ordered Decision Procedure
+For each failed run, apply the following rules in order:
+1. Separate non-agent faults. If no usable artifact
+exists because the process never starts, the response
+disconnects before work, or the host terminates the
+runner, label the attempt Non-agent/Runtime. If the
+saved artifact satisfies the intended requirement but
+the checker rejects semantically equivalent content,
+label the run Non-agent/Evaluator and correct the
+score transparently.
+2. Test for a lost requirement. Compare the frozen
+requirement list with any visible plan, generated
+validator, and final artifact. If a mandatory item has
+no satisfying output and no evidence that it remained
+active, label the first visible failure Lost Requirement.
+3. Test for editing drift. If the requirement remains
+visible but the final edit violates it—for example, a
+protected field changes or a nearby problem replaces
+the requested one—label the failure Editing Drift.
+4. Test for failed checking. If the artifact, a checker
+invocation, or tool output visibly contradicts the
+completion claim and the agent does not repair or
+reopen the task, label the failure Failed Checking.
+5. Record
+completion
+separately.
+Mark
+silent=yes
+when
+the
+final
+response
+states
+success, safety, completion, or no unresolved work
+despite a critical failure.
+Completion does not
+replace the first-visible class.
+The ordered rule prevents double-counting the same
+chain. A missing array followed by an incomplete self-
+check is primarily Lost Requirement and secondarily
+Failed Checking. A protected field explicitly listed in
+the task but overwritten during editing is Editing Drift.
+A tool-output contradiction in an otherwise complete
+artifact is Failed Checking.
+A.2
+Class Boundaries and Counterexam-
+ples
+The classification is intentionally conservative about
+causality. “Lost requirement” does not mean the model
+never read the text; it means the requirement is absent
+from the observable active work. “Failed checking” does
+not mean the model internally understood the contradic-
+tion; it means the contradiction was available before the
+completion decision.
+13
+Table 9: Inclusion and exclusion examples for the four classes.
+Class
+Include
+Do not include
+Lost requirement
+Required array absent; full subtask untouched;
+cardinality rule absent from generated checks
+Present rule implemented incorrectly for a value
+Editing drift
+Protected subtree changed; schema type copied
+from adjacent field; nearby root cause substi-
+tuted
+Requirement never appears in work product
+Failed checking
+Contradictory tool result ignored; validator
+omits decisive check; premature safe closure
+Error exists but no checking evidence is visible
+Non-agent failure
+First-token disconnect; host kill; verified se-
+mantic false negative
+Valid artifact that fails a frozen requirement
+B
+Condition and Check Inventory
+B.1
+Main Check Families
+The 24 checks cover four audit tasks, T001–T004. Each
+task contributes checks from the following families, with
+task-specific applicability:
+• required plural fields exist and use arrays, including
+empty arrays where permitted;
+• field cardinalities remain within the stated maximum;
+• task-specific evidence and discriminators are present;
+• output values use the required schema types;
+• protected identity and core fields equal their initial
+values; and
+• the final artifact is parseable, structurally complete,
+and limited to the requested edit scope.
+The exact requirement manifest and checker source
+are release artifacts. We describe families rather than
+proprietary field semantics in the anonymous paper, but
+the run-level checker output names each failed predicate.
+B.2
+Experimental Matrix
+B.3
+Why Some Pilot Runs Are Not
+Pooled
+Pilot conditions differ in task, model, scaffold, prompt
+construction, contamination status, and verifier maturity.
+Pooling them would create a large but uninterpretable
+sample. The historical inventory is used only to show
+observed failure forms, silent closure, and the logical dif-
+ference between check coverage and strict success. Effect
+estimates use the sanitized repeated cells only.
+C
+Interrupted-Attempt Audit
+The extension preserves every excluded suffix. Table 11
+lists the operational categories and their treatment.
+Transient reconnects inside runs that eventually return
+complete usage and checker output are not excluded. A
+checker FAIL is always a valid model outcome.
+This
+distinction prevents a retry from erasing a genuine artifact
+failure while also preventing an empty stream from being
+mislabeled as an audit mistake.
+The recommended future policy is attempt-based: pre-
+register a maximum number of attempts per condition,
+randomize condition order, report both scoreable-attempt
+rate and pass rate among scoreable attempts, and per-
+form sensitivity analyses that bound end-to-end success
+if every missing attempt is treated as either a pass or a
+failure. Such bounds are wide in the present study, which
+is why we avoid using the operational data to strengthen
+the context-effect claim.
+D
+Usage and Cost Accounting
+The cost ledger records logical tokens as the sum of un-
+cached input, cached input, and output tokens returned
+by each backend. We convert these counters with a single
+reference schedule rather than mixing provider-specific
+prices:
+Costeq = 2Iu/106 + 0.2Ic/106 + 6O/106,
+(3)
+where Iu is uncached input, Ic is cached input, and O
+is output. Applying the formula to 16,469,855 uncached
+input, 147,916,544 cached input, and 3,056,150 output
+tokens gives USD 56.022111.
+The n = 10 extension alone accounts for 32,921,773
+logical tokens and USD 16.280576 equivalent cost across
+29 new valid runs. Attempts without returned usage are
+absent from monetary totals, so the cost is a confirmed
+lower bound. The ledger should not be read as the price
+of reproducing the paper on another gateway because
+caching semantics and retry rates may differ.
+E
+Reproduction Checklist
+A reproduction should complete the following steps in
+order:
+1. pin the skill package, task fixture, runner revision,
+model identifier, reasoning effort, and checker revi-
+sion;
+14
+Table 10: Status of the experimental matrix. “Repeated” denotes ten valid runs in each primary cell; other cells are
+descriptive probes.
+Experiment
+Subject
+Repetition
+Role
+Main contexts
+Stage 4CD, GPT-5.4 mini, Codex
+10 each
+Clean/Relevant/Irrelevant
+com-
+parison
+Generic/Detailed
+Stage 4CD, GPT-5.4 mini, Codex
+10 each
+Checklist intervention
+Revert SL-007
+GPT-5.4 mini, Codex
+2/3/3
+Stable counterexample
+Revert SL-005
+GPT-5.4 mini, Codex
+2/5/5
+Cross-task boundary
+Five-model probes
+Stage 4CD
+1–3 cells
+Model heterogeneity and clean
+gates
+Scaffold variants
+Stage 4CD
+1–3 cells
+Direct/Bundled/Full/Codex mech-
+anism probe
+Context-factor pilots
+Multiple workflows
+1–3 cells
+Rule/history/position failure dis-
+covery only
+Table 11: Excluded attempts in the n = 10 extension.
+Type
+Count
+Scoring treatment
+Process could not start
+7
+No run directory or artifact; operational failure
+Stream disconnected before first token
+14
+Initialized root but no model work; operational failure
+Host SIGTERM/exit 143 or exit 137
+4
+No complete scoreable record; operational failure
+Other resultless/indeterminate start
+2
+Retained as unresolved operational failure
+Null usage and no usable edit
+1
+Excluded from valid n; retained in audit
+Total
+28
+Never converted into model PASS or FAIL
+2. build the workspace from the sanitizer allowlist and
+verify that answer-bearing files are absent;
+3. run positive and targeted negative checker fixtures
+before any model calls;
+4. predeclare conditions, valid-run criteria, maximum
+attempts, retry policy, sample size, and statistical
+comparisons;
+5. randomize or interleave condition order to reduce
+temporal gateway confounding;
+6. save the exact prompt, starting artifact hash, changed
+files, raw output, tool log, usage, process status, and
+checker result for every attempt;
+7. retain failed and resultless attempts under unique
+identifiers rather than overwriting them;
+8. compute strict success, requirement coverage, failure-
+rate Wilson intervals, and planned Fisher tests from
+a frozen valid-run manifest;
+9. classify failures only after scoring, using the ordered
+guide in Appendix A; and
+10. publish an anonymized package with analysis com-
+mands, exclusion audit, cost ledger, and a record of
+any evaluator rescores.
+F
+Additional Research Questions
+for a Larger Study
+The current results motivate five focused extensions. First,
+does failure probability change monotonically with con-
+text length when all other dimensions are fixed? The
+present study compares only one clean and one long end-
+point. Second, does the Detailed checklist replicate across
+independently authored audit skills, or is its benefit spe-
+cific to array and cardinality constraints? Third, which
+manipulation drives lost requirements: semantic similar-
+ity, number of active obligations, evidence position, stale
+history, or tool-output volume? Fourth, can the same
+model be compared across Direct, Codex, and Claude
+Code under equal tool and token budgets?
+Fifth, do
+the four visible classes remain sufficient when the output
+is a code patch or vulnerability finding rather than a
+structured task file?
+A preregistered study should prioritize task replication
+over deeper analysis of the current workflow. A reason-
+able first target is at least five white-box audit skills, two
+models, three context levels, and ten or more valid runs
+per cell, with an attempt cap and hierarchical analysis
+across tasks. Such a design would test whether the ob-
+served taxonomy and checklist benefit generalize while
+estimating task-to-task variation rather than hiding it.
+15
+References
+[1] Yushi Bai, Xin Lv, Jiajie Zhang, Hongchang Lyu,
+Jiankai Tang, Zhidian Huang, Zhengxiao Du, Xiao
+Liu, Aohan Zeng, Lei Hou, Yuxiao Dong, Jie Tang,
+and Juanzi Li. Longbench: A bilingual, multitask
+benchmark for long context understanding. In Pro-
+ceedings of ACL, 2024.
+[2] Weili Cao, Xunjian Yin, Bhuwan Dhingra, and
+Shuyan Zhou.
+Coding agents are effective long-
+context processors, 2026.
+[3] Kelly Hong, Anton Troynikov, and Jeff Huber. Con-
+text rot: How increasing input tokens impacts LLM
+performance. Technical report, Chroma, July 2025.
+[4] Cheng-Ping Hsieh, Simeng Sun, Samuel Kriman,
+Shantanu Acharya, Dima Rekesh, Fei Jia, Yang
+Zhang, and Boris Ginsburg. RULER: What’s the real
+context size of your long-context language models?
+In Proceedings of COLM, 2024.
+[5] Carlos E. Jimenez, John Yang, Alexander Wettig,
+Shunyu Yao, Kexin Pei, Ofir Press, and Karthik
+Narasimhan.
+SWE-bench: Can language models
+resolve real-world GitHub issues? In Proceedings of
+ICLR, 2024.
+[6] Xiangyi Li, Wenbo Chen, Yimin Liu, Shenghan
+Zheng, Xiaokun Chen, Yifeng He, Yubo Li, et al.
+Skillsbench: Benchmarking agent skills across diverse
+tasks, 2026.
+[7] Nelson F. Liu, Kevin Lin, John Hewitt, Ashwin
+Paranjape, Michele Bevilacqua, Fabio Petroni, and
+Percy Liang. Lost in the middle: How language mod-
+els use long contexts. Transactions of the Association
+for Computational Linguistics, 12:157–173, 2024.
+[8] Xiao Liu, Hao Yu, Hanchen Zhang, Yifan Xu, Xu-
+anyu Lei, Hanyu Lai, Yu Gu, Hangliang Ding, Kai-
+wen Men, Kejuan Yang, Shudan Zhang, Xiang Deng,
+Aohan Zeng, Zhengxiao Du, Chenhui Zhang, Sheng
+Shen, Tianjun Zhang, Yu Su, Huan Sun, Minlie
+Huang, Yuxiao Dong, and Jie Tang. Agentbench:
+Evaluating LLMs as agents, 2023.
+[9] Oorja Majgaonkar, Zhiwei Fei, Xiang Li, Federica
+Sarro, and He Ye. Understanding code agent be-
+haviour: An empirical study of success and failure
+trajectories, 2025.
+[10] Yunjia Qi, Hao Peng, Xiaozhi Wang, Amy Xin,
+Youfeng Liu, Bin Xu, Lei Hou, and Juanzi Li. Agen-
+tIF: Benchmarking instruction following of large lan-
+guage models in agentic scenarios, 2025.
+[11] Ningzhi Tang, Chaoran Chen, Gelei Xu, Yiyu Shi,
+Yu Huang, Collin McMillan, Tao Dong, and Toby
+Jia-Jun Li. How coding agents fail their users: A
+large-scale analysis of developer-agent misalignment
+in 20,574 real-world sessions, 2026.
+[12] Xingyao Wang, Boxuan Li, Yufan Song, Frank F.
+Xu, Xiangru Tang, Mingchen Zhuge, Jiayi Pan, et al.
+Openhands: An open platform for AI software devel-
+opers as generalist agents. In Proceedings of ICLR,
+2025.
+[13] John Yang, Carlos E. Jimenez, Alexander Wettig,
+Kilian Lieret, Shunyu Yao, Karthik Narasimhan, and
+Ofir Press. SWE-agent: Agent-computer interfaces
+enable automated software engineering, 2024.
+[14] Shunyu Yao, Noah Shinn, Pedram Razavi, and
+Karthik Narasimhan. τ-bench: A benchmark for
+tool-agent-user interaction in real-world domains,
+2024.
+[15] Xiangxin Zhao, Han Li, Shuaiting Li, Tianyi Zhao,
+Earl T. Barr, Federica Sarro, and He Ye. Failure as
+a process: An anatomy of CLI coding agent trajecto-
+ries, 2026.
+[16] Shanshan Zhong, Yi Lu, Jingjie Ning, Yibing Wan,
+Lihan Feng, Yuyi Ao, Leonardo F. R. Ribeiro,
+Markus Dreyer, Sean Ammirati, and Chenyan Xiong.
+Skilllearnbench: Evaluating continual skill learning
+in language agents, 2026.
+16

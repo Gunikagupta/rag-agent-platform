@@ -1,0 +1,2718 @@
+FlashPDE: A Drop-in Fused Triton Operator Library
+for Neural PDE Solvers
+Peiyu Zang1, Bosen Xie2, Ruoxiang Xu1, Yongqiang Cai1,∗
+1School of Mathematical Sciences, Beijing Normal University
+2Beijing University of Posts and Telecommunications
+202421130105@mail.bnu.edu.cn
+caiyq.math@bnu.edu.cn
+Abstract
+Training Physics-Informed Neural Networks (PINNs) typically relies on automatic
+differentiation to compute high-order PDE residuals, a process that retains nested
+computation graphs and causes substantial memory overhead on 3D domains.
+While output-grid finite-difference (FD) approximations eliminate these tracking
+graphs and reduce memory footprints, native PyTorch implementations suffer from
+kernel launch fragmentation, incurring substantial memory-bound I/O and dispatch
+overhead. We present FlashPDE, a fused-kernel operator library for grid-based
+SciML. FlashPDE provides 14 differentiable PDE operators implemented with
+hand-derived discrete adjoints and custom Triton kernels, covering 17 benchmark
+configurations across diverse 1D–3D scalar and multi-field PDEs. Each operator is
+exposed as an architecture-independent, drop-in torch.autograd.Function that
+consumes grid-aligned physical fields from compatible PyTorch models and uses
+three Triton launches: a fused forward stencil, an analytic-adjoint backward kernel,
+and a boundary-gradient correction kernel. The same operators support MLP and
+CNN field generators without changes to the operator implementation, outer loss
+construction, or boundary conditions. We evaluate six representative main cases
+in detail and report supplementary results across all 17 configurations. FlashPDE
+achieves median T2S speedups of up to 2.30× over the eager PyTorch FD baseline,
+while maintaining comparable case-specific accuracy metrics across backends,
+and up to 19.2× kernel-level acceleration on the largest evaluated grids. The FD
+discretization reduces memory of complex four-field fluid simulations (tgv 3d)
+from > 40 GB under vanilla autograd to 3.4 GB, which FlashPDE maintains while
+providing the throughput speedup. FlashPDE extends Triton kernel fusion to
+differentiable PDE stencil workloads, connecting fused GPU execution with the
+native PyTorch ecosystem.
+1
+Introduction
+Physics-Informed Neural Networks (PINNs) and broader scientific machine learning (SciML) method-
+ologies solve partial differential equations (PDEs) by incorporating physical constraints into neural-
+network training through residual minimization [1–4]. With the development of neural operators
+and learned physical models [5–8], PyTorch [9] has become a widely adopted platform for SciML
+research. However, integrating deep-learning frameworks with high-performance numerical compu-
+tation remains a fundamental challenge. Traditional HPC stencil systems achieve high throughput
+through explicit memory-access control and hardware-aware scheduling [10–12]. Combining such
+optimized numerical kernels with differentiable neural training requires bridging the gap between
+framework-level flexibility and hardware-level efficiency.
+Inside PyTorch, evaluating higher-order PDE derivatives introduces two fundamental bottlenecks:
+Preprint.
+arXiv:2607.18020v1  [cs.LG]  20 Jul 2026
+Eager PyTorch FD
+FlashPDE
+Coordinate Autograd
+Eager Pytorch FD
+FlashPDE
+x
+y
+z
+Neural
+Model
+MLP / CNN
+Coordinate Autograd
+ OOM Crash
+＞40 GB Memory
+Eager Finite Difference
+Eager PyTorch FD
+Tensor Ops
+I/O Bound
+934 Kernel Launches /
+Full Training Step
+U
+V
+P
+GPU
+HBM
+(Global
+Memory)
+Load
+Block,
+Ghost
+Cells
+On-Chip SRAM
+(Shared Memory)
+Forward:
+5-Point Stencil
+Backward:
+Discrete Analytic Adjoint
+Boundary:
+Gradient Correction
+Three Triton Launches per Operator
+① Forward Stencil       ② Analytic Adjoint       ③ Boundary Correction
+PDE
+Residuals
+Field
+Gradients
+(∂L/∂u, ∂L/∂v, ∂L/∂p, …)
+No Nested
+Coordinate-
+Derivative
+Graph
+Kernel-Level Speedup (3D TGV)
+Up to 19.2x
+Kernel-Level Speedup
+1. Model Integration
+2. Native PyTorch
+Bottlenecks
+3. FlashPDE: Fused Differentiable
+PDE Operator
+4. Performance Summary
+Peak GPU Memory (3D TGV)
+＞40 GB(OOM)
+3.4GB
+3.4GB
+Zero Architecture
+Changes
+Unlocking 3D Scalability
+Figure 1: Overview of FlashPDE. (a) Drop-in integration. (b) Native PyTorch bottlenecks. (c) Fused
+differentiable operators. (d) Performance improvements.
+• Autograd Memory Overhead: Standard PINN implementations rely on torch.autograd
+to compute spatial derivatives. Higher-order derivatives require retaining nested computa-
+tion graphs through create graph=True, resulting in substantial memory overhead from
+derivative-related intermediate tensors [2]. For large three-dimensional PDE systems, this
+memory overhead can become the dominant limitation and prevent training on available
+GPU resources.
+• Kernel Launch Fragmentation: CAN-PINN [13] reduces reliance on purely coordinate-
+based automatic differentiation by coupling automatic and numerical differentiation. Output-
+grid finite-difference formulations provide a separate alternative: they evaluate PDE deriva-
+tives directly from neighboring network outputs, avoiding nested coordinate-derivative
+graphs and substantially reducing memory usage. However, native PyTorch FD imple-
+mentations express stencils through tensor slicing and element-wise operations, causing
+many independent CUDA kernel launches and repeated global-memory traffic. Existing
+compilation systems improve tensor execution in many deep-learning workloads [14], but
+structured-grid PDE operators with multi-field coupling and complex stencil dependencies
+are not automatically fused in typical eager execution workflows.
+For example, in the evaluated 3D TGV case, coordinate autograd exceeds the 40 GB device capacity,
+while output-grid FD reduces peak allocation to 3.39 GB. However, a profiled forward–loss–backward
+iteration using eager PyTorch FD still records 934 CUDA kernel launches, compared with 267 for
+FlashPDE.
+To address this gap, we propose FlashPDE (see Figure 1), a fused-kernel operator library for grid-
+based SciML. FlashPDE replaces PyTorch-native PDE residual evaluation with custom differentiable
+operators implemented through Triton GPU kernels [15]. Each operator combines the forward finite-
+difference stencil, an analytic discrete-adjoint backward pass, and boundary gradient corrections
+inside a unified torch.autograd.Function. The current library contains 14 differentiable PDE
+operators implemented with hand-derived discrete adjoints and custom Triton kernels, supporting 17
+PDE configurations across 1D–3D elliptic, parabolic, hyperbolic, conservation-law, phase-field, and
+incompressible/compressible-flow problems.
+FlashPDE operates as an architecture-independent execution layer between neural field generators
+and PDE residual evaluation. Because its operators consume grid-aligned physical field tensors
+rather than network internals, the same implementation can be used with compatible MLP, CNN, or
+other PyTorch field generators without modifying the neural architecture, optimization procedure, or
+boundary-condition formulation.
+Developing FlashPDE requires addressing the challenge of differentiating through fused nonlinear
+PDE operators. While forward stencil evaluation only requires local neighborhood accesses, back-
+2
+ward propagation involves the transpose discrete Jacobian of the residual operator. This becomes
+particularly challenging for nonlinear and multi-field equations, where one variable can affect multiple
+neighboring residual terms. FlashPDE resolves this issue by deriving analytic adjoint formulations
+and implementing the complete forward–backward computation within fused Triton kernels.
+Our contributions are summarized as follows:
+1. Architecture-Independent Differentiable PDE Operator Library: We develop Flash-
+PDE, a collection of 14 drop-in differentiable PDE operators covering 17 SciML PDE
+configurations. Each operator consumes grid-aligned physical field tensors independently of
+the neural field generator and integrates forward FD evaluation, discrete adjoint backward
+propagation, and boundary-gradient correction within a unified PyTorch interface. The same
+operator implementations can therefore be reused across compatible MLP and CNN models.
+2. Memory and Execution Attribution: We provide a component-level analysis separating
+the memory benefits of finite-difference formulations from the execution improvements
+introduced by GPU kernel fusion. FlashPDE preserves the low-memory characteristics of
+FD while reducing the kernel-launch and intermediate-memory overhead of eager PyTorch
+implementations.
+3. Performance and Accuracy Evaluation: We evaluate FlashPDE across six representa-
+tive PDE benchmarks spanning 1D–3D problems and Navier–Stokes systems. FlashPDE
+achieves up to 2.30× end-to-end time-to-solution speedup over eager PyTorch FD baselines,
+with kernel-level acceleration reaching 19.2× on the largest evaluated grids.
+2
+FlashPDE Kernel Design and Discrete Analytic Adjoints
+FlashPDE replaces the eager PyTorch evaluation of supported finite-difference (FD) residual oper-
+ators with custom Triton operators exposed through torch.autograd.Function. Each operator
+integrates three components: a fused forward stencil evaluation, a discrete analytic-adjoint backward
+pass, and boundary-gradient corrections. The operator consumes physical field tensors defined on
+regular Cartesian grids and is independent of the neural architecture used to generate these fields.
+2.1
+Fused Forward Stencil
+Consider the steady two-dimensional incompressible Navier–Stokes equations. At an interior grid
+point (i, j), the momentum and continuity residuals are
+resi,j
+u = ui,jui,j
+x + vi,jui,j
+y + pi,j
+x −ν
+ ui,j
+xx + ui,j
+yy
+
+,
+resi,j
+v
+= ui,jvi,j
+x + vi,jvi,j
+y + pi,j
+y −ν
+ vi,j
+xx + vi,j
+yy
+
+,
+resi,j
+div = ui,j
+x + vi,j
+y .
+An eager PyTorch FD implementation evaluates these derivatives and residual expressions through
+tensor slicing and element-wise operations. Although tensor views may avoid explicit copies,
+subsequent arithmetic operations are executed as independent CUDA kernels and may materialize
+intermediate derivative tensors in global memory. As the PDE residual becomes more complex, this
+execution pattern introduces substantial kernel-launch and memory-access overhead (Appendix A.2).
+FlashPDE assigns each Triton program instance to a spatial tile. Required field values are loaded
+through coalesced memory accesses, while centered derivatives, nonlinear terms, and residual
+expressions are evaluated within the same kernel. Only the final residual fields are written back to
+global memory. Therefore, the complete forward PDE residual evaluation is reduced to a single Triton
+launch with autotuned block configuration (Appendix A.6). Representative forward pseudocode is
+provided in Appendix A.4.
+Figure 2 contrasts the two execution paths. Table 1 summarizes the execution and memory character-
+istics of the six main cases. FlashPDE reduces the number of CUDA kernel launches by 1.7×–3.5×
+relative to eager PyTorch FD.
+3
+Eager PyTorch FD
+FlashPDE Fused Forward
+Physical Fields
+U, V, P
+Tensor Slices
+u_x
+u_y
+u_xx
+u_yy
+v_x
+v_y
+v_xx
+v_yy
+p_x
+p_y
+…
+Residual Assembly
+Residual Fields
+Physical Fields
+U, V, P
+One Triton Tile
+Load Local Stencil
+Compute Derivatives On Chip
+Assemble PDE Residuals
+Residual Fields
+Figure 2: Execution comparison between eager PyTorch finite-difference operators and FlashPDE
+fused Triton kernels. FlashPDE fuses stencil evaluation and PDE residual computation into one
+forward kernel.
+Table 1: Execution and memory comparison across the six main cases. CUDA kernel-launch reduction
+compares FlashPDE with eager PyTorch FD, whereas memory reduction compares output-grid FD
+with coordinate-based automatic differentiation. Launch counts are measured per forward–loss–
+backward iteration, excluding the optimizer update; OOM indicates that coordinate autograd exceeds
+the 40 GB device capacity.
+CUDA Kernel Launches
+Peak GPU Memory
+Case
+PyTorch FD
+FlashPDE
+Reduction
+Autograd (GB)
+FD (GB)
+Reduction
+1D Burgers
+129
+76
+1.7×
+1.075
+0.183
+5.9×
+2D Diffusion
+192
+84
+2.3×
+3.254
+0.356
+9.1×
+2D LDC
+321
+137
+2.3×
+1.321
+0.086
+15.4×
+2D TGV
+452
+182
+2.5×
+7.830
+0.399
+19.6×
+3D LDC
+727
+231
+3.1×
+17.59
+0.47
+37.0×
+3D TGV
+934
+267
+3.5×
+OOM
+3.39
+—
+Additional results for all 17 PDE configurations are reported in Appendices A.8 and B.2.
+2.2
+Discrete Analytic-Adjoint Backward
+The backward computation is the main implementation challenge in constructing fused differentiable
+PDE operators. During loss.backward(), the custom operator receives the upstream residual
+sensitivities
+Gu =
+∂L
+∂resu
+,
+Gv =
+∂L
+∂resv
+,
+Gdiv =
+∂L
+∂resdiv
+.
+Discrete-adjoint methods compute the action of the transpose discrete Jacobian [16]. FlashPDE
+computes this action for the PDE residual operator with respect to its input physical fields.
+For linear self-adjoint operators, the backward operation may share similar structures with the forward
+stencil. However, nonlinear multi-field systems require explicitly accumulating all local, neighboring,
+and cross-variable dependencies. In the two-dimensional Navier–Stokes example, the value ui,j
+contributes not only to the local horizontal momentum residual, but also to neighboring momentum
+equations and continuity constraints. Therefore, the backward operator cannot be obtained by simply
+reusing the forward stencil.
+4
+Applying the chain rule to the centered finite-difference residual gives the following discrete adjoint
+expression for the gradient with respect to ui,j:
+∂L
+∂ui,j = Gi,j
+u
+
+ui,j
+x + 2ν
+∆x2 + 2ν
+∆y2
+
++ Gi−1,j
+u
+ui−1,j
+2∆x −
+ν
+∆x2
+
++ Gi+1,j
+u
+
+−ui+1,j
+2∆x −
+ν
+∆x2
+
++ Gi,j−1
+u
+vi,j−1
+2∆y −
+ν
+∆y2
+
++ Gi,j+1
+u
+
+−vi,j+1
+2∆y −
+ν
+∆y2
+
++ Gi,j
+v vi,j
+x + Gi−1,j
+div
+−Gi+1,j
+div
+2∆x
+.
+(1)
+Equation (1) explicitly represents three types of gradient contributions: (1) local residual derivatives,
+(2) neighboring stencil dependencies induced by finite differences, and (3) cross-field coupling
+between velocity components and the divergence constraint. FlashPDE implements Equation (1)
+directly in the backward Triton kernel, avoiding the intermediate derivative graphs required by eager
+automatic differentiation.
+The backward kernel loads the required forward fields and upstream sensitivities, evaluates the
+discrete adjoint terms within the same kernel, and writes the resulting field gradients. A representative
+derivation and backward-kernel pseudocode are provided in Appendices A.3 and A.4.
+2.3
+Boundary Gradient Correction
+Finite-difference stencils near domain boundaries differ from the regular interior formulation because
+neighboring points may be unavailable or replaced by boundary conditions. Directly incorporating all
+boundary cases into the interior kernel would introduce additional conditional branches and reduce
+execution efficiency.
+FlashPDE therefore separates boundary handling from the interior adjoint computation. The main for-
+ward and backward kernels operate on regular interior tiles, while boundary-specific gradient terms are
+evaluated through an independent one-dimensional correction kernel. This design preserves efficient
+interior execution while supporting the required boundary-condition treatment (Appendix A.5).
+The complete differentiable PDE operator therefore consists of one fused forward-stencil kernel, one
+interior analytic-adjoint kernel, and one boundary-gradient correction kernel. These three launches
+apply only to the PDE operator; neural-network, loss, and optimizer operations remain separate.
+The resulting operator remains compatible with torch.autograd.Function, while avoiding the
+materialization of individual derivative operations used in eager PyTorch implementations.
+2.4
+Numerical Verification
+Because the backward operators are derived manually, implementation errors in indexing or algebraic
+expressions represent a potential source of numerical discrepancy. FlashPDE therefore validates each
+operator against a double precision PyTorch FD reference implementation using matched physical
+fields.
+For each operator, we measure the scalar residual-loss difference and input-gradient difference:
+eloss = |LTriton −LPyTorch| ,
+egrad = ∥gTriton −gPyTorch∥∞.
+Across all 14 operators and five deterministic trials per operator, the maximum observed scalar-loss
+discrepancy is 2.28×10−7, with a corresponding relative discrepancy of 6.20×10−11. The maximum
+absolute input-gradient discrepancy is 1.88 × 10−6, and the maximum infinity-norm relative gradient
+discrepancy is 4.25 × 10−8. Complete per-operator results are reported in Appendix A.7.
+These tests show close numerical agreement between FlashPDE operators and the corresponding
+PyTorch FD references for the same discrete operators. They do not evaluate discretization accuracy
+5
+or PDE solution accuracy, which depend on the underlying stencil order, grid resolution, boundary
+treatment, and neural network optimization.
+3
+Memory Analysis
+Coordinate-based PINNs compute higher-order spatial derivatives through repeated automatic differ-
+entiation. Using create graph=True keeps the first-derivative operations differentiable and retains
+the associated graph tensors for subsequent derivatives and backward propagation. The resulting
+memory cost grows with the number of fields, spatial dimensions, derivative order, and network
+activations.
+For example, in the profiled three-dimensional heat problem (heat 3d), model activations account
+for 0.82 GB, whereas constructing the three second-order spatial derivatives raises peak allocated
+memory to 16.4 GB. The complete step-by-step allocation trace is provided in Appendix B.1.
+Applying finite differences (FD) to the network outputs avoids these nested coordinate-derivative
+graphs. The ordinary neural-network autograd graph remains, but spatial derivatives are evaluated
+from field values on a Cartesian grid. The memory columns of Table 1 show the resulting reduction
+for the six main cases.
+Among the completed coordinate-autograd runs, FD reduces peak allocation by 5.9×–37.0×. For the
+four-field 3D TGV case, coordinate autograd exceeds 40 GB, whereas the FD formulation requires
+3.39 GB.
+These memory savings result from the change in differentiation strategy and are shared by eager
+PyTorch FD (eager fd) and FlashPDE. FlashPDE does not eliminate any additional neural-network
+graph or introduce a new memory-saving formulation. Instead, it preserves the low-memory charac-
+teristics of the FD operator while improving its execution efficiency through fused stencil evaluation
+and reduced kernel-launch overhead.
+Peak memory is measured using torch.cuda.max memory allocated over the model forward
+pass, PDE evaluation, loss, and backward pass. Detailed measurements for all 17 cases and the
+complete protocol are reported in Appendices B.2 and B.3.
+4
+Experiments
+We evaluate FlashPDE in terms of forward–backward throughput, time-to-solution (T2S), and kernel-
+only scaling. All experiments use one NVIDIA A100-SXM4-40GB GPU with PyTorch 2.9.1 and
+Triton 3.5.1. Training uses float32; operator correctness is evaluated separately in float64 in
+Section 2.4. Complete configurations and measurement protocols are provided in Appendix C.1.
+The six main cases are 1D Burgers, 2D diffusion, two- and three-dimensional lid-driven cavity (LDC),
+and two- and three-dimensional Taylor–Green vortex (TGV). These cases span one to three spatial
+dimensions, steady and unsteady equations, and single- to four-field systems [17–19]. Results for the
+remaining 11 configurations are reported in Appendix C.5.
+We compare four backends: vanilla, which uses coordinate-based automatic differentiation;
+eager fd, an eager PyTorch implementation of the output-grid finite-difference residual; compile,
+which compiles the neural network while leaving the FD residual in eager mode; and FlashPDE. The
+compile results therefore measure model compilation rather than full-graph stencil fusion.
+4.1
+Forward–Backward Throughput
+Table 2 reports the median latency over five runs. Each run contains 100 warm-up iterations followed
+by 2,900 measured iterations. The timed region includes the model forward pass, PDE residual, loss,
+and backward pass, but excludes the optimizer update.
+FlashPDE improves eager FD latency on all six cases, with speedups from 1.12× to 2.28×. The
+largest gains occur when eager PDE evaluation constitutes a substantial fraction of the iteration. The
+benefit is not determined by dimension or field count alone: 3D TGV obtains only 1.12× because
+more of its execution time remains outside the fused operator.
+6
+Table 2: Forward–backward latency and speedup over eager PyTorch FD. Coordinate autograd is
+omitted for 3D LDC due to high latency and for 3D TGV due to GPU OOM.
+Case
+vanilla
+eager FD
+compile
+FlashPDE
+Speedup
+1D Burgers
+10.11
+2.85
+3.06
+2.34
+1.22×
+2D Diffusion
+31.68
+3.73
+3.81
+3.00
+1.24×
+2D LDC
+18.12
+6.52
+6.16
+3.84
+1.70×
+2D TGV
+78.53
+7.61
+7.59
+4.26
+1.79×
+3D LDC
+—
+11.93
+12.01
+5.24
+2.28×
+3D TGV
+—
+24.40
+20.27
+21.71
+1.12×
+Table 3: Time-to-solution for the six main cases. Results are median ± standard deviation over five
+seeds for eager fd and FlashPDE, and single-seed values for compile. Speedups use the median
+eager fd result, and case-specific errors are reported as eager fd/FlashPDE. Error definitions and
+reference solutions are provided in Appendix C.3.
+Case
+eager FD T2S (s)
+compile T2S (s)
+FlashPDE T2S (s)
+Speedup
+Reported error
+1D Burgers
+48.5 ± 31.1
+212.0
+47.8 ± 29.3
+1.01×
+0.51% / 0.45%
+2D Diffusion
+133.3 ± 11.6
+94.8
+109.7 ± 20.5
+1.22×
+2.02% / 2.07%
+2D LDC
+76.9 ± 34.2
+591.0
+43.9 ± 10.6
+1.75×
+4.93% / 4.66%
+2D TGV
+1026.0 ± 144.2
+1136.2
+696.1 ± 25.6
+1.47×
+3.24% / 3.27%
+3D LDC
+268.4 ± 51.9
+186.5
+116.6 ± 29.6
+2.30×
+0.26% / 0.32%
+3D TGV
+866.7 ± 68.5
+454.0
+805.0 ± 68.8
+1.08×
+3.03% / 3.08%
+Compiling the model has case-dependent effects and is fastest for 3D TGV. Because the FD residual is
+not included in the compiled graph, this comparison does not evaluate TorchInductor’s ability to fuse
+stencil expressions. A detailed breakdown of acceleration mechanisms is provided in Appendix A.9.
+4.2
+Time-to-Solution
+T2S is the wall-clock time at which the PDE loss first crosses a fixed case-specific threshold, with a
+maximum budget of 300,000 epochs. Thresholds are selected in pilot runs and fixed before timing. For
+eager fd and FlashPDE, we report results over five paired seeds (42–46); vanilla and compile
+use one seed. Compilation, autotuning, optimizer execution, and other cold-start costs are included in
+T2S. Complete aggregate results, threshold definitions, epochs, and effective step times are provided
+in Appendices C.2 and C.4.
+Although FlashPDE and eager PyTorch FD implement the same discrete stencil, different floating-
+point evaluation orders can produce different optimization trajectories. Operator equivalence is
+therefore evaluated independently in Section 2.4.
+FlashPDE has the lowest reported T2S in four cases and improves the median eager fd T2S in
+all six. The largest improvement is 2.30× for 3D LDC. The 1.01× result for 1D Burgers is small
+relative to its across-seed variation and should be interpreted as parity.
+The single-seed compiled-model baseline reports the lowest T2S for 2D diffusion and 3D TGV.
+Together with the forward–backward results for 3D TGV, this indicates that model-side optimization
+can be important in workloads where neural-network execution constitutes a large fraction of the
+training step. FlashPDE and eager fd produce similar median solution errors. Figure 3 provides
+two complementary checks: 2D LDC is compared with the Ghia et al. reference data, while 3D
+TGV compares the solution fields and kinetic-energy trajectories produced by eager PyTorch FD and
+FlashPDE.
+4.3
+Kernel-Only Scaling
+We isolate forward PDE evaluation by benchmarking FlashPDE and eager PyTorch FD
+on random field tensors without a neural network or backward pass.
+Measurements use
+triton.testing.do bench with 50 warm-up and 100 timed iterations.
+7
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+x
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+y
+PyTorch FD: speed
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+x
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+y
+FlashPDE: speed
+0.2
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+u
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+y
+Centerline velocity
+PyTorch FD
+FlashPDE
+Ghia et al.
+0.0000
+0.1306
+0.2612
+0.3918
+0.5224
+0.6530
+0.7836
+0.9142
+0.0000
+0.1306
+0.2612
+0.3918
+0.5224
+0.6530
+0.7836
+0.9142
+0
+2
+4
+6
+x
+0
+1
+2
+3
+4
+5
+6
+y
+PyTorch FD: speed at t=1.0
+0
+2
+4
+6
+x
+0
+1
+2
+3
+4
+5
+6
+y
+FlashPDE: speed at t=1.0
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Time
+0.70
+0.75
+0.80
+0.85
+0.90
+0.95
+1.00
+Normalized kinetic energy, E(t) / E0
+Kinetic-energy trajectories
+PyTorch FD
+FlashPDE
+0.0000
+0.1086
+0.2172
+0.3257
+0.4343
+0.5429
+0.6515
+0.7600
+0.0000
+0.1086
+0.2172
+0.3257
+0.4343
+0.5429
+0.6515
+0.7600
+Figure 3: Result comparisons for (a) 2D LDC against Ghia et al. [17] and (b) PyTorch FD and
+FlashPDE solution fields and normalized kinetic-energy trajectories for the 3D TGV configuration.
+50×512
+100×1024
+200×2048
+500×2048
+1000×2048
+0
+5
+10
+15
+20
+Speedup (×)
+1D Burgers
+10x32
+20x128
+50x256
+200x256
+100x512
+2D Diffusion
+32²
+128²
+512²
+2048²
+4096²
+2D LDC
+20×64²
+50×256²
+100×256²
+200×256²
+100×512²
+2D TGV
+32³
+64³
+128³
+192³
+256³
+3D LDC
+10×32³
+10×64³
+10×96³
+20×96³
+20×128³
+3D TGV
+Figure 4: Kernel-only speedup of FlashPDE over eager PyTorch FD, reaching 19.2× on the largest
+evaluated 3D TGV grid.
+Kernel speedup generally increases for the larger multidimensional problems, reaching 19.2× for
+3D TGV at approximately 42 million space–time points. The trend is not universal: 1D Burgers
+remains non-monotonic and has a smaller large-grid gain. Fusion efficiency therefore depends on
+stencil structure, launch geometry, and arithmetic intensity in addition to grid size.
+The gap between the maximum kernel-level speedup (19.2×) and forward–backward speedup (2.28×)
+reflects the unchanged neural-network work. The same operators can also be used with compatible
+CNN field generators; the corresponding results are provided in Appendix C.7.
+5
+Related Work
+5.1
+Grid-Based SciML and HPC Solvers
+To alleviate the memory and computational overhead of coordinate-based automatic differentiation in
+PINNs [1, 2], recent work has explored grid-based discretizations and numerical-differentiation formu-
+lations. CAN-PINN [13] combines automatic and numerical differentiation, while frameworks using
+RBF-FD (DTPINN [20]), hash encodings (HASH [21]), and tensor formulations (FastVPINNs [22])
+improve training efficiency. However, these methods do not explicitly optimize the GPU execution of
+structured-grid stencil operators.
+Beyond coordinate-based MLPs, physics-guided convolutional models have been used to generate
+physical fields on structured domains. PhyCNN incorporates governing dynamics into convolutional
+models for seismic response prediction [23], Spline-PINN uses Hermite-spline CNN representations
+for data-free PDE solving [24], and Physics-informed ConvNet constructs physical fields with
+a shallow convolutional architecture [25]. These approaches primarily modify the neural field
+representation. FlashPDE is complementary: it operates on the resulting grid-aligned field tensors
+and leaves the neural architecture unchanged.
+Prior work has also optimized high-order stencil computations on GPUs [10]. Traditional structured-
+grid code-generation systems, including Devito [11], STELLA [12], and OpenSBLI [26], generate
+optimized stencil programs. GPU-accelerated CFD solvers have also demonstrated high throughput
+using specialized CUDA and multi-GPU implementations [27]. These systems are primarily designed
+for standalone numerical simulation rather than neural PDE training within PyTorch.
+Discrete-adjoint systems such as dolfin-adjoint [16] automatically derive adjoint models from high-
+level finite-element programs. FlashPDE instead targets structured-grid finite-difference residual
+operators and implements their discrete adjoints directly as fused Triton kernels exposed through the
+PyTorch ecosystem.
+8
+5.2
+Hardware-Aware ML Systems
+Triton [15] has become a widely used framework for hardware-aware GPU kernel optimization,
+enabling systems such as FlashAttention [28], inference engines (FlashInfer [29], vLLM [30]), and
+operator libraries such as FlagGems [31]. However, most Triton-based optimizations have focused
+on machine-learning operators, including attention, matrix operations, and inference workloads,
+rather than structured scientific computing kernels. PyTorch compilation systems optimize and fuse
+tensor programs [14], whereas FlashPDE provides explicitly derived forward and discrete-adjoint
+implementations for structured PDE operators.
+Differentiable simulation systems such as DiffTaichi [32] generate efficient gradient kernels for
+physical simulators. FlashPDE focuses instead on reusable PDE residual operators embedded in
+native PyTorch training workflows. Unlike dense machine-learning operators, PDE stencils involve
+spatial neighborhood accesses, multi-field coupling, and discrete adjoint computations. FlashPDE
+extends fused-kernel execution principles to these physics-driven workloads.
+6
+Limitations and Conclusion
+FlashPDE currently targets physical fields defined on regular Cartesian grids and therefore does
+not directly support random collocation points, irregular geometries, or unstructured meshes. Each
+new PDE operator also requires a manually derived discrete adjoint and a corresponding Triton
+implementation. Moreover, FlashPDE preserves the accuracy of the underlying FD discretization
+rather than improving it; accuracy remains limited by the stencil, grid resolution, boundary treatment,
+and neural-network optimization. Finally, FlashPDE accelerates only PDE evaluation, so full-step
+gains are smaller when network computation dominates. The present evaluation compares against
+eager PyTorch FD rather than expert-optimized hand-written CUDA stencil implementations; a direct
+comparison with such baselines remains for future work. The present experiments are limited to
+one NVIDIA A100 GPU, and performance portability across other devices and multi-GPU systems
+remains to be evaluated.
+We presented FlashPDE, a PyTorch-integrated Triton library for fused structured-grid PDE operators.
+Its custom torch.autograd.Function implementations combine a fused forward stencil, a discrete
+analytic-adjoint backward pass, and boundary-gradient correction. The current library contains 14
+architecture-independent, drop-in differentiable PDE operators covering 17 PDE configurations.
+Because these operators consume grid-aligned physical field tensors rather than network internals,
+the same implementations can be reused across compatible MLP and CNN field generators.
+Across six representative cases, FlashPDE achieves 1.12×–2.28× forward–backward speedups and
+up to 2.30× median time-to-solution speedup over eager PyTorch FD. Kernel-only speedup reaches
+19.2× on the largest evaluated grid. Output-grid FD reduces the 3D TGV memory footprint from
+more than 40 GB to 3.4 GB, while FlashPDE preserves this low-memory formulation and reduces the
+execution overhead of the resulting FD operators.
+Future work includes automatic generation of discrete adjoints and Triton kernels, support for higher-
+order and irregular-grid discretizations, evaluation on additional GPU architectures, and integration
+with full-graph compilation. The implementation is available at https://github.com/factnn/
+FlashPDE.
+9
+References
+[1] Maziar Raissi, Paris Perdikaris, and George E. Karniadakis. Physics-informed neural networks:
+A deep learning framework for solving forward and inverse problems involving nonlinear partial
+differential equations. J. Comput. Phys., 378:686–707, 2019. doi: 10.1016/J.JCP.2018.10.045.
+URL https://doi.org/10.1016/j.jcp.2018.10.045.
+[2] Lu Lu, Xuhui Meng, Zhiping Mao, and George Em Karniadakis. Deepxde: A deep learning
+library for solving differential equations. SIAM Rev., 63(1):208–228, 2021. doi: 10.1137/
+19M1274067. URL https://doi.org/10.1137/19M1274067.
+[3] Aditi S. Krishnapriyan, Amir Gholami, Shandian Zhe, Robert M. Kirby, and Michael W.
+Mahoney. Characterizing possible failure modes in physics-informed neural networks. In
+Marc’Aurelio Ranzato, Alina Beygelzimer, Yann N. Dauphin, Percy Liang, and Jennifer Wort-
+man Vaughan, editors, Advances in Neural Information Processing Systems 34: Annual Confer-
+ence on Neural Information Processing Systems 2021, NeurIPS 2021, December 6-14, 2021, vir-
+tual, pages 26548–26560, 2021. URL https://proceedings.neurips.cc/paper/2021/
+hash/df438e5206f31600e6ae4af72f2725f1-Abstract.html.
+[4] Salvatore Cuomo, Vincenzo Schiano Di Cola, Fabio Giampaolo, Gianluigi Rozza, Maziar
+Raissi, and Francesco Piccialli. Scientific machine learning through physics-informed neural
+networks: Where we are and what’s next. J. Sci. Comput., 92(3):88, 2022. doi: 10.1007/
+S10915-022-01939-Z. URL https://doi.org/10.1007/s10915-022-01939-z.
+[5] Lu Lu, Pengzhan Jin, Guofei Pang, Zhongqiang Zhang, and George Em Karniadakis. Learning
+nonlinear operators via deeponet based on the universal approximation theorem of operators.
+Nat. Mach. Intell., 3(3):218–229, 2021. doi: 10.1038/S42256-021-00302-5. URL https:
+//doi.org/10.1038/s42256-021-00302-5.
+[6] Zongyi Li, Nikola Borislavov Kovachki, Kamyar Azizzadenesheli, Burigede Liu, Kaushik
+Bhattacharya, Andrew M. Stuart, and Anima Anandkumar. Fourier neural operator for para-
+metric partial differential equations. In 9th International Conference on Learning Represen-
+tations, ICLR 2021, Virtual Event, Austria, May 3-7, 2021. OpenReview.net, 2021. URL
+https://openreview.net/forum?id=c8P9NQVtmnO.
+[7] Maziar Raissi, Alireza Yazdani, and George Em Karniadakis. Hidden fluid mechanics: Learning
+velocity and pressure fields from flow visualizations. Science, 367(6481):1026–1030, 2020.
+[8] Alvaro Sanchez-Gonzalez, Jonathan Godwin, Tobias Pfaff, Rex Ying, Jure Leskovec, and
+Peter W. Battaglia. Learning to simulate complex physics with graph networks. In Proceedings
+of the 37th International Conference on Machine Learning, ICML 2020, 13-18 July 2020, Virtual
+Event, volume 119 of Proceedings of Machine Learning Research, pages 8459–8468. PMLR,
+2020. URL http://proceedings.mlr.press/v119/sanchez-gonzalez20a.html.
+[9] Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer, James Bradbury, Gregory Chanan,
+Trevor Killeen, Zeming Lin, Natalia Gimelshein, Luca Antiga, Alban Desmaison, Andreas
+K¨opf, Edward Z. Yang, Zachary DeVito, Martin Raison, Alykhan Tejani, Sasank Chilamkurthy,
+Benoit Steiner, Lu Fang, Junjie Bai, and Soumith Chintala. Pytorch: An imperative style,
+high-performance deep learning library.
+In Hanna M. Wallach, Hugo Larochelle, Alina
+Beygelzimer, Florence d’Alch´e-Buc, Emily B. Fox, and Roman Garnett, editors, Advances
+in Neural Information Processing Systems 32: Annual Conference on Neural Information
+Processing Systems 2019, NeurIPS 2019, December 8-14, 2019, Vancouver, BC, Canada,
+pages 8024–8035, 2019. URL https://proceedings.neurips.cc/paper/2019/hash/
+bdbca288fee7f92f2bfa9f7012727740-Abstract.html.
+[10] Ryuichi Sai, John M. Mellor-Crummey, Xiaozhu Meng, Keren Zhou, Mauricio Araya-Polo,
+and Jie Meng. Accelerating high-order stencils on gpus. Concurr. Comput. Pract. Exp., 34(20),
+2022. doi: 10.1002/CPE.6467. URL https://doi.org/10.1002/cpe.6467.
+[11] Mathias Louboutin, Michael Lange, Fabio Luporini, Navjot Kukreja, Philipp A. Witte, Felix J.
+Herrmann, Paulius Velesko, and Gerard J. Gorman. Devito (v3.1.0): an embedded domain-
+specific language for finite differences and geophysical exploration. Geoscientific Model
+Development, 12(3):1165–1187, 2019. doi: 10.5194/gmd-12-1165-2019.
+10
+[12] Tobias Gysi, Carlos Osuna, Oliver Fuhrer, Mauro Bianco, and Thomas C. Schulthess. STELLA:
+a domain-specific tool for structured grid methods in weather and climate models. In Jackie Kern
+and Jeffrey S. Vetter, editors, Proceedings of the International Conference for High Performance
+Computing, Networking, Storage and Analysis, SC 2015, Austin, TX, USA, November 15-
+20, 2015, pages 41:1–41:12. ACM, 2015. doi: 10.1145/2807591.2807627. URL https:
+//doi.org/10.1145/2807591.2807627.
+[13] Pao-Hsiung Chiu, Jian Cheng Wong, Chinchun Ooi, My Ha Dao, and Yew-Soon Ong. Can-pinn:
+A fast physics-informed neural network based on coupled-automatic–numerical differentiation
+method. Computer Methods in Applied Mechanics and Engineering, 395:114909, 2022.
+[14] Jason Ansel, Edward Z. Yang, Horace He, Natalia Gimelshein, Animesh Jain, Michael Vozne-
+sensky, Bin Bao, Peter Bell, David Berard, Evgeni Burovski, Geeta Chauhan, Anjali Chourdia,
+Will Constable, Alban Desmaison, Zachary DeVito, Elias Ellison, Will Feng, Jiong Gong,
+Michael Gschwind, Brian Hirsh, Sherlock Huang, Kshiteej Kalambarkar, Laurent Kirsch,
+Michael Lazos, Mario Lezcano, Yanbo Liang, Jason Liang, Yinghai Lu, C. K. Luk, Bert Maher,
+Yunjie Pan, Christian Puhrsch, Matthias Reso, Mark Saroufim, Marcos Yukio Siraichi, Helen
+Suk, Shunting Zhang, Michael Suo, Phil Tillet, Xu Zhao, Eikan Wang, Keren Zhou, Richard
+Zou, Xiaodong Wang, Ajit Mathews, William Wen, Gregory Chanan, Peng Wu, and Soumith
+Chintala. Pytorch 2: Faster machine learning through dynamic python bytecode transformation
+and graph compilation. In Rajiv Gupta, Nael B. Abu-Ghazaleh, Madan Musuvathi, and Dan
+Tsafrir, editors, Proceedings of the 29th ACM International Conference on Architectural Support
+for Programming Languages and Operating Systems, Volume 2, ASPLOS 2024, La Jolla, CA,
+USA, 27 April 2024- 1 May 2024, pages 929–947. ACM, 2024. doi: 10.1145/3620665.3640366.
+URL https://doi.org/10.1145/3620665.3640366.
+[15] Philippe Tillet, Hsiang-Tsung Kung, and David D. Cox. Triton: an intermediate language
+and compiler for tiled neural network computations. In Tim Mattson, Abdullah Muzahid,
+and Armando Solar-Lezama, editors, Proceedings of the 3rd ACM SIGPLAN International
+Workshop on Machine Learning and Programming Languages, MAPL@PLDI 2019, Phoenix,
+AZ, USA, June 22, 2019, pages 10–19. ACM, 2019. doi: 10.1145/3315508.3329973. URL
+https://doi.org/10.1145/3315508.3329973.
+[16] Patrick E. Farrell, David A. Ham, Simon W. Funke, and Marie E. Rognes. Automated derivation
+of the adjoint of high-level transient finite element programs. SIAM J. Sci. Comput., 35(4), 2013.
+doi: 10.1137/120873558. URL https://doi.org/10.1137/120873558.
+[17] U. Ghia, K. N. Ghia, and C. T. Shin. High-Re solutions for incompressible flow using the
+Navier–Stokes equations and a multigrid method. Journal of Computational Physics, 48(3):
+387–411, 1982. doi: 10.1016/0021-9991(82)90058-4.
+[18] Geoffrey Ingram Taylor and Albert Edward Green. Mechanism of the production of small eddies
+from large ones. Proceedings of the Royal Society of London. Series A, 158(895):499–521,
+1937.
+[19] Harry Bateman. Some recent researches on the motion of fluids. Monthly Weather Review, 43
+(4):163–170, 1915.
+[20] Ramansh Sharma and Varun Shankar.
+Accelerated training of physics-informed neu-
+ral networks (pinns) using meshless discretizations.
+In Sanmi Koyejo, S. Mohamed,
+A. Agarwal, Danielle Belgrave, K. Cho, and A. Oh, editors, Advances in Neural In-
+formation Processing Systems 35:
+Annual Conference on Neural Information Process-
+ing Systems 2022, NeurIPS 2022, New Orleans, LA, USA, November 28 - Decem-
+ber 9, 2022, 2022.
+URL http://papers.nips.cc/paper_files/paper/2022/hash/
+0764db1151b936aca59249e2c1386101-Abstract-Conference.html.
+[21] Xinquan Huang and Tariq Alkhalifah. Efficient physics-informed neural networks using hash
+encoding. J. Comput. Phys., 501:112760, 2024. doi: 10.1016/J.JCP.2024.112760. URL
+https://doi.org/10.1016/j.jcp.2024.112760.
+[22] Thivin Anandh, Divij Ghose, Himanshu Jain, and Sashikumaar Ganesan. Fastvpinns: Tensor-
+driven acceleration of vpinns for complex geometries. SIAM J. Sci. Comput., 47(3):578, 2025.
+doi: 10.1137/24M1658620. URL https://doi.org/10.1137/24m1658620.
+11
+[23] Ruiyang Zhang, Yang Liu, and Hao Sun. Physics-guided convolutional neural network (phycnn)
+for data-driven seismic response modeling. Engineering Structures, 215:110704, 2020.
+[24] Nils Wandel, Michael Weinmann, Michael Neidlin, and Reinhard Klein. Spline-pinn: Ap-
+proaching pdes without data using fast, physics-informed hermite-spline cnns. In Thirty-Sixth
+AAAI Conference on Artificial Intelligence, AAAI 2022, Thirty-Fourth Conference on Inno-
+vative Applications of Artificial Intelligence, IAAI 2022, The Twelveth Symposium on Edu-
+cational Advances in Artificial Intelligence, EAAI 2022 Virtual Event, February 22 - March
+1, 2022, pages 8529–8538. AAAI Press, 2022. doi: 10.1609/AAAI.V36I8.20830. URL
+https://doi.org/10.1609/aaai.v36i8.20830.
+[25] Pengpeng Shi, Zhi Zeng, and Tianshou Liang. Physics-informed convnet: Learning physical
+field from a shallow neural network. Commun. Nonlinear Sci. Numer. Simul., 132:107911,
+2024. doi: 10.1016/J.CNSNS.2024.107911. URL https://doi.org/10.1016/j.cnsns.
+2024.107911.
+[26] Christian T. Jacobs, Satya P. Jammy, and Neil D. Sandham. Opensbli: A framework for the
+automated derivation and parallel execution of finite difference solvers on a range of computer
+architectures. J. Comput. Sci., 18:12–23, 2017. doi: 10.1016/J.JOCS.2016.11.001. URL
+https://doi.org/10.1016/j.jocs.2016.11.001.
+[27] Yuhang Wang, Guiyu Cao, and Liang Pan. Multiple-gpu accelerated high-order gas-kinetic
+scheme for direct numerical simulation of compressible turbulence. J. Comput. Phys., 476:
+111899, 2023. doi: 10.1016/J.JCP.2022.111899. URL https://doi.org/10.1016/j.jcp.
+2022.111899.
+[28] Tri Dao, Daniel Y. Fu, Stefano Ermon, Atri Rudra, and Christopher R´e.
+Flashattention:
+Fast and memory-efficient exact attention with io-awareness.
+In Sanmi Koyejo, S. Mo-
+hamed, A. Agarwal, Danielle Belgrave, K. Cho, and A. Oh, editors, Advances in Neu-
+ral Information Processing Systems 35: Annual Conference on Neural Information Pro-
+cessing Systems 2022, NeurIPS 2022, New Orleans, LA, USA, November 28 - Decem-
+ber 9, 2022, 2022.
+URL http://papers.nips.cc/paper_files/paper/2022/hash/
+67d57c32e20fd0a7a302cb81d36e40d5-Abstract-Conference.html.
+[29] Zihao Ye, Lequn Chen, Ruihang Lai, Wuwei Lin, Yineng Zhang, Stephanie Wang, Tianqi Chen,
+Baris Kasikci, Vinod Grover, Arvind Krishnamurthy, and Luis Ceze. Flashinfer: Efficient and
+customizable attention engine for LLM inference serving. In Matei Zaharia, Gauri Joshi, and
+Yingyan (Celine) Lin, editors, Proceedings of the Eighth Conference on Machine Learning and
+Systems, MLSys 2025, Santa Clara, CA, USA, May 12-15, 2025. OpenReview.net/mlsys.org,
+2025. URL https://openreview.net/forum?id=RXPofAsL8F.
+[30] Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng, Cody Hao Yu,
+Joseph Gonzalez, Hao Zhang, and Ion Stoica. Efficient memory management for large language
+model serving with pagedattention. In Jason Flinn, Margo I. Seltzer, Peter Druschel, Antoine
+Kaufmann, and Jonathan Mace, editors, Proceedings of the 29th Symposium on Operating
+Systems Principles, SOSP 2023, Koblenz, Germany, October 23-26, 2023, pages 611–626.
+ACM, 2023. doi: 10.1145/3600006.3613165. URL https://doi.org/10.1145/3600006.
+3613165.
+[31] The FlagOS contributors. Flagos/flaggems: An operator library for large language models imple-
+mented in the triton language., 2024. URL https://github.com/flagos-ai/FlagGems.
+[32] Yuanming Hu, Luke Anderson, Tzu-Mao Li, Qi Sun, Nathan Carr, Jonathan Ragan-Kelley,
+and Fr´edo Durand. Difftaichi: Differentiable programming for physical simulation. In 8th
+International Conference on Learning Representations, ICLR 2020, Addis Ababa, Ethiopia,
+April 26-30, 2020. OpenReview.net, 2020. URL https://openreview.net/forum?id=
+B1eB5xSFvr.
+[33] Gary A. Sod. A survey of several finite difference methods for systems of nonlinear hyperbolic
+conservation laws. Journal of Computational Physics, 27(1):1–31, 1978.
+[34] Samuel M. Allen and John W. Cahn. A microscopic theory for antiphase boundary motion and
+its application to antiphase domain coarsening. Acta Metallurgica, 27(6):1085–1095, 1979.
+12
+Table 4: FlashPDE operator coverage. Multiple benchmark configurations may share one operator
+implementation when their discrete residual structure is identical.
+Operator ID
+Domain
+Benchmark configuration(s)
+Equation class
+1d steady
+1D
+burgers 1d steady
+Steady Burgers
+1d unsteady
+1D+T
+burgers 1d unsteady
+Unsteady Burgers
+1d heat
+1D+T
+diffusion 1d
+Diffusion / heat
+2d compressible
+1D+T
+sod 1d
+Compressible Euler
+2d poisson
+2D
+poisson 2d
+Elliptic
+2d transport
+2D+T
+transport 2d, diffusion 2d, heat 2d
+Transport / diffusion
+2d wave
+2D+T
+wave 2d
+Hyperbolic wave
+2d allencahn
+1D+T
+allen cahn
+Reaction–diffusion
+2d ns steady
+2D
+ldc 2d
+Steady Navier–Stokes
+2d ns unsteady
+2D+T
+tgv 2d
+Unsteady Navier–Stokes
+3d ns steady
+3D
+ldc 3d
+Steady Navier–Stokes
+3d ns unsteady
+3D+T
+tgv 3d, tgv 3d smooth
+Unsteady Navier–Stokes
+3d poisson
+3D
+poisson 3d
+Elliptic
+3d heat
+3D+T
+heat 3d
+Diffusion / heat
+Eager PyTorch FD
+# Tensor slices followed by eager arithmetic
+u x = (U[2:,1:-1] - U[:-2,1:-1]) / (2*dx)
+u y = (U[1:-1,2:]
+- U[1:-1,:-2]) / (2*dy)
+u xx = (U[2:,1:-1] - 2*U[1:-1,1:-1]
++ U[:-2,1:-1]) / dx**2
+u yy = (U[1:-1,2:]
+- 2*U[1:-1,1:-1]
++ U[1:-1,:-2]) / dy**2
+v x = (V[2:,1:-1] - V[:-2,1:-1]) / (2*dx)
+[...
+additional derivatives ...]
+res u = uc*u x + vc*u y + p x
+- nu*(u xx + u yy)
+res v = uc*v x + vc*v y + p y
+- nu*(v xx + v yy)
+res div = u x + v y
+# Multiple launches and intermediate tensors
+FlashPDE Fused Forward Kernel
+# One Triton program processes one tile
+@triton.jit
+def ldc fwd kernel(U, V, P, resU, ...):
+pid x = program id(0)
+pid y = program id(1)
+# Load the local field stencil
+u c = load(U[ix, iy])
+u xp = load(U[ix+1, iy])
+u xm = load(U[ix-1, iy])
+[...
+remaining field values ...]
+# Evaluate derivatives on chip
+u x = (u xp - u xm) / (2*dx)
+u xx = (u xp - 2*u c + u xm) / dx**2
+[...
+remaining derivatives ...]
+# Evaluate and store the final residuals
+res u = u c*u x + v c*u y + p x
+- nu*(u xx + u yy)
+[...
+res v and res div ...]
+store(resU, resV, resDiv)
+# One launch for the complete forward residual
+Figure 5: Representative eager PyTorch FD and fused FlashPDE forward implementations. FlashPDE
+evaluates the derivative and residual expressions in one Triton launch instead of materializing the
+individual derivative tensors.
+A
+Operator Design Details
+A.1
+Operator Coverage
+FlashPDE contains 14 differentiable PDE operators covering 17 benchmark configurations. Several
+operators are reused across PDE configurations that share the same stencil structure but differ in
+coefficients, initial conditions, or forcing terms. The extended set includes the Sod shock-tube and
+Allen–Cahn benchmarks [33, 34].
+A.2
+Eager PyTorch and Fused Triton Implementations
+Figure 5 illustrates how an eager PyTorch finite-difference residual is mapped to a fused Triton
+forward kernel. Tensor slices are commonly views, but the arithmetic operations that combine them
+produce separate kernels and derivative intermediates. FlashPDE evaluates the same stencil inside
+one forward kernel and writes only the residual fields.
+13
+A.3
+Discrete Analytic-Adjoint Derivation for the u-Velocity Field
+This section derives the horizontal-velocity component of the discrete adjoint for the steady two-
+dimensional incompressible Navier–Stokes operator. At each interior grid point (i, j), the residuals
+are
+resi,j
+u = ui,jui,j
+x + vi,jui,j
+y + pi,j
+x −ν
+ ui,j
+xx + ui,j
+yy
+
+,
+resi,j
+v
+= ui,jvi,j
+x + vi,jvi,j
+y + pi,j
+y −ν
+ vi,j
+xx + vi,j
+yy
+
+,
+resi,j
+div = ui,j
+x + vi,j
+y .
+For a scalar field q, the centered differences are
+qi,j
+x
+= qi+1,j −qi−1,j
+2∆x
+,
+qi,j
+xx = qi+1,j −2qi,j + qi−1,j
+∆x2
+,
+qi,j
+y
+= qi,j+1 −qi,j−1
+2∆y
+,
+qi,j
+yy = qi,j+1 −2qi,j + qi,j−1
+∆y2
+.
+The custom autograd.Function receives
+Gu =
+∂L
+∂resu
+,
+Gv =
+∂L
+∂resv
+,
+Gdiv =
+∂L
+∂resdiv
+.
+A perturbation of ui,j affects the local u-momentum residual, four neighboring u-momentum residu-
+als, the local v-momentum residual, and two neighboring continuity residuals:
+∂L
+∂ui,j = Gi,j
+u
+∂resi,j
+u
+∂ui,j + Gi−1,j
+u
+∂resi−1,j
+u
+∂ui,j
++ Gi+1,j
+u
+∂resi+1,j
+u
+∂ui,j
++ Gi,j−1
+u
+∂resi,j−1
+u
+∂ui,j
++ Gi,j+1
+u
+∂resi,j+1
+u
+∂ui,j
++ Gi,j
+v
+∂resi,j
+v
+∂ui,j
++ Gi−1,j
+div
+∂resi−1,j
+div
+∂ui,j
++ Gi+1,j
+div
+∂resi+1,j
+div
+∂ui,j
+.
+(2)
+The local contribution is
+∂resi,j
+u
+∂ui,j
+= ui,j
+x + 2ν
+∆x2 + 2ν
+∆y2 .
+The horizontal-neighbor contributions are
+∂resi−1,j
+u
+∂ui,j
+= ui−1,j
+2∆x −
+ν
+∆x2 ,
+∂resi+1,j
+u
+∂ui,j
+= −ui+1,j
+2∆x −
+ν
+∆x2 .
+The vertical-neighbor contributions are
+∂resi,j−1
+u
+∂ui,j
+= vi,j−1
+2∆y −
+ν
+∆y2 ,
+∂resi,j+1
+u
+∂ui,j
+= −vi,j+1
+2∆y −
+ν
+∆y2 .
+The cross-equation contributions are
+∂resi,j
+v
+∂ui,j
+= vi,j
+x ,
+∂resi−1,j
+div
+∂ui,j
+=
+1
+2∆x,
+∂resi+1,j
+div
+∂ui,j
+= −
+1
+2∆x.
+14
+Forward kernel: ldc 2d
+Input:
+U, V, P, dx, dy, nu
+Output:
+res u, res v, res div
+px, py = program id(0), program id(1)
+for (i,j) in interior tile:
+load u c, u xp, u xm, u yp, u ym
+load v c, v xp, v xm, v yp, v ym
+load p xp, p xm, p yp, p ym
+u x = (u xp - u xm) / (2*dx)
+u y = (u yp - u ym) / (2*dy)
+u xx = (u xp - 2*u c + u xm) / dx**2
+u yy = (u yp - 2*u c + u ym) / dy**2
+[evaluate v and p derivatives]
+res u = u c*u x + v c*u y + p x
+- nu*(u xx + u yy)
+res v = u c*v x + v c*v y + p y
+- nu*(v xx + v yy)
+res div = u x + v y
+store(res u, res v, res div)
+Backward kernel: u-field component
+Input:
+U, V, G u, G v, G div, grid params
+Output:
+grad U, grad V, grad P
+idx = 1 / (2*dx); idx2 = 1 / dx**2
+idy = 1 / (2*dy); idy2 = 1 / dy**2
+for (i,j) in interior tile:
+load required U and V stencil values
+load neighboring upstream sensitivities
+u x = (u xp - u xm) * idx
+v x = (v xp - v xm) * idx
+grad u = g u c * (u x + 2*nu*idx2
++ 2*nu*idy2)
+grad u += g u xm * (u xm*idx - nu*idx2)
+grad u += g u xp * (-u xp*idx - nu*idx2)
+grad u += g u ym * (v ym*idy - nu*idy2)
+grad u += g u yp * (-v yp*idy - nu*idy2)
+grad u += g v c * v x
+grad u += (g div xm - g div xp) * idx
+[evaluate grad v and grad p]
+store(grad u, grad v, grad p)
+Figure 6: Representative pseudocode for the ldc 2d fused forward and backward kernels. Other
+operators follow the same pattern but differ in field count, stencil geometry, residual definition, and
+boundary treatment.
+Substitution into Equation (2) gives
+∂L
+∂ui,j = Gi,j
+u
+
+ui,j
+x + 2ν
+∆x2 + 2ν
+∆y2
+
++ Gi−1,j
+u
+ui−1,j
+2∆x −
+ν
+∆x2
+
++ Gi+1,j
+u
+
+−ui+1,j
+2∆x −
+ν
+∆x2
+
++ Gi,j−1
+u
+vi,j−1
+2∆y −
+ν
+∆y2
+
++ Gi,j+1
+u
+
+−vi,j+1
+2∆y −
+ν
+∆y2
+
++ Gi,j
+v vi,j
+x + Gi−1,j
+div
+−Gi+1,j
+div
+2∆x
+.
+(3)
+FlashPDE implements Equation (3) directly in the backward Triton kernel. The remaining field
+gradients are derived in the same way from the transpose of the corresponding discrete residual
+Jacobian.
+A.4
+Representative Forward and Backward Kernel Pseudocode
+Figure 6 gives representative pseudocode for the two-dimensional LDC operator. The backward panel
+expands the u-field component; the implemented kernel also evaluates the v- and p-field gradients.
+A.5
+Boundary-Gradient Correction
+The fused backward kernel evaluates the regular interior transpose stencil. Boundary points require
+different contributions because prescribed values, one-sided formulas, or omitted neighbors change
+the discrete dependency graph. FlashPDE applies these terms in a separate one-dimensional correction
+kernel rather than branching over boundary cases inside the interior kernel.
+For the current operators, one differentiable PDE evaluation therefore consists of one forward-stencil
+launch, one interior analytic-adjoint launch, and one boundary-gradient correction launch. This count
+applies only to the PDE operator; model, loss, and optimizer kernels remain separate.
+15
+Table 5: Numerical verification for all 14 FlashPDE operators against the double-precision PyTorch
+FD reference using five deterministic float64 trials per operator (standard-normal inputs, seeds 42–46).
+Each entry is the maximum over the five trials.
+Operator ID
+eloss
+egrad
+egrad,rel
+1d steady
+1.819 × 10−12
+2.274 × 10−13
+2.415 × 10−16
+1d unsteady
+2.842 × 10−14
+3.880 × 10−8
+1.186 × 10−9
+1d heat
+0
+9.095 × 10−13
+2.811 × 10−16
+2d compressible
+2.283 × 10−7
+7.171 × 10−8
+1.181 × 10−10
+2d poisson
+0
+7.276 × 10−12
+2.054 × 10−16
+2d transport
+0
+4.466 × 10−9
+1.123 × 10−8
+2d wave
+4.547 × 10−13
+1.881 × 10−6
+4.251 × 10−8
+2d allencahn
+7.105 × 10−15
+1.051 × 10−7
+8.618 × 10−9
+2d ns steady
+2.274 × 10−13
+1.421 × 10−14
+2.894 × 10−16
+2d ns unsteady
+1.421 × 10−14
+4.110 × 10−9
+7.740 × 10−9
+3d ns steady
+1.705 × 10−13
+9.538 × 10−8
+7.942 × 10−9
+3d ns unsteady
+7.105 × 10−15
+8.800 × 10−9
+3.094 × 10−8
+3d poisson
+4.366 × 10−11
+1.364 × 10−12
+4.462 × 10−16
+3d heat
+1.776 × 10−15
+6.033 × 10−10
+4.315 × 10−9
+A.6
+Triton Autotuning
+Each FlashPDE kernel uses @triton.autotune to select a launch configuration from a predefined
+candidate set. On the first invocation for a new key, Triton benchmarks the supplied configurations,
+caches the fastest observed candidate, and reuses it in subsequent calls.
+For example, the two-dimensional steady Navier–Stokes forward kernel uses
+@triton.autotune(
+configs=[
+triton.Config({’BLOCK_X’: 8,
+’BLOCK_Y’: 8}),
+triton.Config({’BLOCK_X’: 16, ’BLOCK_Y’: 16}),
+triton.Config({’BLOCK_X’: 32, ’BLOCK_Y’: 32}),
+triton.Config({’BLOCK_X’: 16, ’BLOCK_Y’: 32}),
+],
+key=[’Nx’, ’Ny’],
+)
+One-dimensional kernels use linear block sizes between 64 and 512. The current three-dimensional
+kernels flatten the spatial domain and evaluate block sizes up to 512. Autotuning selects the best
+configuration among the supplied candidates; it does not guarantee a globally optimal configuration.
+A.7
+Numerical Verification for All Operators
+Every operator is compared with a double-precision PyTorch FD reference in five deterministic trials.
+Input fields are sampled from a standard normal distribution with seeds 42–46; the compressible
+case additionally transforms density and energy to physically admissible positive values. The scalar
+residual losses are differentiated with respect to every physical input field. The table reports the
+absolute scalar-loss discrepancy eloss and the maximum absolute input-gradient discrepancy egrad
+over all grid entries and physical fields and five trials. The table also reports the maximum relative
+gradient discrepancy egrad,rel = egrad/∥gPyTorch∥∞.
+A.8
+Profiler Breakdown
+Table 6 reports CUDA launch counts for one forward–loss–backward iteration, including the model
+forward pass, PDE residual, boundary-condition loss, and backward pass, but excluding the optimizer
+update. Counts are obtained from torch.profiler traces by counting GPU kernel activity records
+within the measured forward–loss–backward region. CUDA memory-copy and memory-set activity
+records are not counted as kernel launches.
+16
+Table 6: CUDA kernel launches per forward–loss–backward iteration for all 17 cases.
+Case
+PyTorch FD
+FlashPDE
+Reduction
+burgers 1d steady
+94
+70
+1.3×
+burgers 1d unsteady
+129
+76
+1.7×
+diffusion 1d
+107
+86
+1.2×
+sod 1d
+335
+309
+1.1×
+ldc 2d
+321
+137
+2.3×
+tgv 2d
+452
+182
+2.5×
+poisson 2d
+115
+76
+1.5×
+transport 2d
+192
+84
+2.3×
+diffusion 2d
+192
+84
+2.3×
+heat 2d
+154
+84
+1.8×
+wave 2d
+172
+113
+1.5×
+allen cahn
+125
+94
+1.3×
+ldc 3d
+727
+231
+3.1×
+tgv 3d
+934
+267
+3.5×
+tgv 3d smooth
+934
+267
+3.5×
+poisson 3d
+170
+93
+1.8×
+heat 3d
+216
+127
+1.7×
+A.9
+Sources of Operator-Level Acceleration
+A.9.1
+Triton Implementation Rationale
+FlashPDE uses Triton rather than handwritten CUDA extensions to provide differentiable fused
+PDE operators within the PyTorch ecosystem. A specialized CUDA implementation can potentially
+achieve higher peak performance for a fixed kernel, but requires additional integration effort for
+custom autograd operators, memory management, and architecture-specific optimization. Triton
+provides a programmable GPU kernel abstraction with direct integration into PyTorch workflows,
+making it suitable for developing a reusable operator library across multiple PDE configurations. The
+goal of FlashPDE is therefore not to replace highly optimized application-specific CUDA solvers,
+but to provide a practical execution layer that combines GPU kernel fusion with differentiable PDE
+training.
+FlashPDE’s operator-level speedup comes from four related mechanisms:
+1. Fewer kernel launches. Eager FD decomposes a residual into multiple arithmetic and
+reduction kernels. FlashPDE uses one forward launch and two additional launches for
+analytic backpropagation and boundary correction.
+2. Reduced global-memory traffic. Quantities such as ux, uxx, and vy are consumed inside
+the fused operator instead of being written to and read from global-memory intermediates.
+3. Fewer temporary tensor allocations. FlashPDE still allocates residual outputs, saved
+tensors, and field gradients, but avoids many short-lived derivative tensors created by the
+eager expression.
+4. Autotuned launch configurations. Triton benchmarks a finite set of block configurations
+and caches the fastest observed candidate for the current key and device.
+The contribution of each mechanism depends on field count, stencil width, tensor geometry, and the
+fraction of the full training step spent in PDE evaluation.
+B
+Memory Attribution Details
+B.1
+Step-by-Step Autograd Memory Trace
+We profile the three-dimensional unsteady heat equation (heat 3d) on an NVIDIA A100-SXM4-
+40GB GPU. The configuration contains 10 × 323 space–time points and uses a five-layer MLP with
+hidden width 128. Table 7 reports the allocated memory observed after each construction stage.
+The peak of 16.38 GB occurs at the third second-order derivative; after backward(), retained graph
+17
+Table 7: Allocated GPU memory observed after each residual-construction stage for heat 3d. The
+peak is reached at step 6; after backward(), graph tensors are released.
+Step
+Operation
+Allocated (GB)
+1
+Input coordinates
+0.005
+2
+Model activations
+0.820
+3
+First-order derivatives
+2.430
+4
+∂2/∂x2 (create graph=True)
+7.080
+5
+∂2/∂y2 (create graph=True)
+11.730
+6
+∂2/∂z2 (create graph=True)
+16.380
+7
+PDE residual and loss
+16.400
+8
+After backward()
+0.210
+Table 8: Peak PyTorch-allocated GPU memory across all 17 configurations. OOM indicates that
+coordinate autograd exceeds the 40 GB device capacity.
+Case
+Grid
+Autograd
+FD
+Reduction
+(GB)
+(GB)
+burgers 1d steady
+256
+0.021
+0.019
+1.1×
+burgers 1d unsteady
+1024 × 100
+1.075
+0.183
+5.9×
+diffusion 1d
+128 × 50
+0.083
+0.028
+3.0×
+sod 1d
+1000 × 200
+11.57
+1.26
+9.2×
+ldc 2d
+1282
+1.321
+0.086
+15.4×
+tgv 2d
+642 × 20
+7.830
+0.399
+19.6×
+poisson 2d
+642
+0.179
+0.036
+5.0×
+transport 2d
+642 × 20
+3.254
+0.356
+9.1×
+diffusion 2d
+642 × 20
+3.254
+0.356
+9.1×
+heat 2d
+642 × 20
+3.253
+0.356
+9.1×
+wave 2d
+642 × 20
+4.428
+0.356
+12.4×
+allen cahn
+100 × 256
+1.100
+0.220
+5.0×
+ldc 3d
+483
+17.59
+0.47
+37.0×
+tgv 3d
+323 × 10
+OOM
+3.39
+—
+tgv 3d smooth
+323 × 10
+OOM
+3.39
+—
+poisson 3d
+323
+1.783
+0.154
+11.6×
+heat 3d
+323 × 10
+17.83
+1.200
+14.9×
+tensors are released and allocation drops to 0.21 GB. The full forward–loss–backward peak for
+heat 3d is 17.83 GB (Table 8), which is higher because it includes loss evaluation and backward
+propagation in addition to residual construction.
+The model activations raise the allocated memory to 0.82 GB. Constructing the three second-order
+spatial derivatives raises it to 16.38 GB, with an increase of approximately 4.65 GB per additional
+derivative in this configuration. About 95% of the observed peak relative to the coordinate and model
+allocations is associated with retained derivative graphs and their intermediates. This percentage is
+specific to the profiled setup and is not assumed to hold for all PDEs or network architectures.
+B.2
+Memory Results for All Cases
+Table 8 reports peak allocated memory under coordinate-based automatic differentiation and output-
+grid FD. Eager PyTorch FD and FlashPDE use the same differentiation strategy and have the same
+reported peak allocation to the displayed precision.
+B.3
+Memory Measurement Protocol
+Peak active allocation is measured using torch.cuda.max memory allocated. Before each mea-
+surement, torch.cuda.reset peak memory stats clears the recorded peak. The measured region
+includes model forward evaluation, PDE residual construction, loss evaluation, and backward propa-
+gation, and ends before optimizer.step().
+18
+The metric reports active allocations managed by PyTorch’s CUDA allocator. It excludes reserved-
+but-unused allocator blocks, the CUDA context, driver-managed allocations, and memory allocated
+outside PyTorch. Optimizer state is excluded from the measurement; Adam would otherwise add
+approximately two parameter-sized buffers to every backend. All compared backends use the same
+network, grid, data type, and field values.
+C
+Experimental Details and Full Results
+C.1
+Training and Measurement Configuration
+All experiments use the following setup:
+• Hardware and software: one NVIDIA A100-SXM4-40GB GPU, CUDA 12.x, Python
+3.10, PyTorch 2.9.1, and Triton 3.5.1.
+• Precision: training uses float32; numerical verification uses float64.
+• Optimizer: full-batch Adam with learning rate 10−3 and default PyTorch β values.
+• MLP models: all MLPs use Tanh activations. The per-case configurations are:
+Case
+Input dim
+Width
+Hidden layers
+Output fields
+burgers 1d steady
+2
+64
+4
+1
+burgers 1d unsteady
+2
+64
+4
+1
+diffusion 1d
+2
+64
+4
+1
+sod 1d
+2
+256
+4
+3
+ldc 2d
+2
+128
+5
+3
+tgv 2d
+3
+128
+6
+3
+poisson 2d
+2
+128
+5
+1
+transport 2d
+3
+128
+5
+1
+diffusion 2d
+3
+128
+5
+1
+heat 2d
+3
+128
+5
+1
+wave 2d
+3
+128
+5
+1
+allen cahn
+2
+128
+5
+1
+ldc 3d
+3
+128
+5
+4
+tgv 3d
+4
+256
+4
+4
+tgv 3d smooth
+4
+256
+4
+4
+poisson 3d
+3
+128
+5
+1
+heat 3d
+4
+128
+5
+1
+• CNN models: CNN experiments use a four-layer convolutional encoder with 32 channels,
+kernel size 5, padding 2, and Tanh activations. The convolution dimension matches the
+spatial dimension of each case: 1D cases use Conv1d, 2D cases use Conv2d, and 3D cases
+use Conv3d. The input channel count equals the number of coordinate inputs (1–4 depending
+on dimension and time dependence); the output channel count equals the number of PDE
+fields (1–4).
+• torch.compile
+baseline:
+torch.compile(model, mode="default",
+fullgraph=False, dynamic=False) is applied only to the neural network.
+The
+FD residual remains in eager PyTorch.
+• Warm forward–backward benchmark: each timing run uses 100 warm-up iterations
+followed by 2,900 measured iterations. Five runs are performed and the median latency is
+reported. The timed region includes model forward evaluation, the PDE residual, loss, and
+backward propagation, but excludes optimizer.step().
+• Time-to-solution benchmark: T2S is recorded at the first threshold crossing, subject to
+a maximum budget of 300,000 epochs. Some runs continue after the crossing to collect
+additional convergence data; consequently, the reported total epoch count may exceed
+the epoch at which T2S is recorded. The timed region includes optimizer execution and
+one-time compilation or autotuning overhead. Triton compilation and autotuning take
+approximately 2–5 s in the evaluated environment and are included in the first step; the
+initial torch.compile cost is treated in the same way.
+19
+Table 9: PDE-loss thresholds used in the MLP time-to-solution experiments.
+Case
+Threshold
+burgers 1d steady
+10−5
+burgers 1d unsteady
+10−3
+diffusion 1d
+2 × 10−2
+sod 1d
+10−1
+ldc 2d
+8 × 10−2
+tgv 2d
+10−4
+poisson 2d
+8 × 10−2
+transport 2d
+10−3
+diffusion 2d
+10−3
+heat 2d
+10−3
+wave 2d
+2 × 10−3
+allen cahn
+10−4
+ldc 3d
+4.2 × 10−1
+tgv 3d
+3.5 × 10−3
+tgv 3d smooth
+4 × 10−3
+poisson 3d
+2 × 10−1
+heat 3d
+5 × 10−3
+Table 10: Definitions of the reported main-case accuracy metrics.
+Case
+Metric and reference
+1D Burgers
+Full field; numerical reference solution
+2D Diffusion
+Full scalar field; analytic solution
+2D LDC
+Centerline u; Ghia benchmark data
+2D TGV
+Combined full-field u, v; analytic solution
+3D LDC
+PDE residual-loss proxy; no reference solution
+3D TGV
+Combined u, v, w, p at t = 0; analytic initial condition
+• Seeds: eager fd and FlashPDE use five paired seeds, 42–46. torch.manual seed,
+torch.cuda.manual seed all, and np.random.seed are called before model construc-
+tion so paired runs begin from the same initialization and sampled data. The vanilla and
+compile T2S results use one seed.
+• Synchronization: torch.cuda.synchronize() is called at timing boundaries so asyn-
+chronous GPU work is included in wall-clock measurements.
+C.2
+Convergence Thresholds
+Thresholds are calibrated in pilot runs and fixed before timed evaluation. The main six cases use
+thresholds reached reliably by the non-vanilla backends. The extended evaluation also includes
+diagnostic cases in which one or more backends fail to reach the selected threshold.
+C.3
+Main-Case Accuracy Metrics
+For cases with an exact or numerical reference field, relative error is ∥qpred −qref∥2/∥qref∥2. The
+evaluated fields and reference data are case-specific:
+The 3D LDC value is not a solution relative error, and the 3D TGV value measures initial-condition
+reproduction rather than full-trajectory accuracy.
+C.4
+Complete Main-Case Time-to-Solution Results
+For eager fd and FlashPDE, epochs, effective milliseconds per step, and reported error metrics are
+medians over five seeds; T2S is reported as median ± standard deviation. The effective milliseconds
+per step include optimizer execution and amortized cold-start overhead. The vanilla and compile
+rows use one seed.
+20
+Table 11: Complete time-to-solution and convergence results for the six main cases. Speedup is
+relative to the median eager fd T2S.
+Case (threshold)
+Backend
+Epochs
+ms/step
+T2S (s)
+Speedup
+Reported error
+1D Burgers
+vanilla
+14,468
+10.30
+149.2
+0.33×
+0.12%
+(10−3)
+eager fd
+15,189
+3.16
+48.5 ± 31.1
+Base
+0.51%
+compile
+68,501
+3.06
+212.0
+0.23×
+0.09%
+FlashPDE
+15,301
+3.01
+47.8 ± 29.3
+1.01×
+0.45%
+2D Diffusion
+vanilla
+31,583
+31.87
+1004.9
+0.13×
+1.90%
+(10−3)
+eager fd
+25,212
+5.29
+133.3 ± 11.6
+Base
+2.02%
+compile
+19,460
+4.76
+94.8
+1.41×
+1.90%
+FlashPDE
+22,059
+4.82
+109.7 ± 20.5
+1.22×
+2.07%
+2D LDC
+vanilla
+240,117
+17.10
+4105.9
+0.02×
+7.13%
+(8 × 10−2)
+eager fd
+13,189
+5.92
+76.9 ± 34.2
+Base
+4.93%
+compile
+99,568
+6.04
+591.0
+0.13×
+1.77%
+FlashPDE
+13,784
+3.35
+43.9 ± 10.6
+1.75×
+4.66%
+2D TGV
+vanilla
+180,659
+78.78
+14233.8
+0.07×
+1.60%
+(10−4)
+eager fd
+106,244
+9.68
+1026.0 ± 144.2
+Base
+3.24%
+compile
+129,304
+8.75
+1136.2
+0.90×
+3.31%
+FlashPDE
+107,259
+6.49
+696.1 ± 25.6
+1.47×
+3.27%
+3D LDC
+vanilla
+—
+OOM
+—
+—
+—
+(4.2 × 10−1)
+eager fd
+18,613
+14.36
+268.4 ± 51.9
+Base
+0.26%
+compile
+13,873
+12.91
+186.5
+1.44×
+0.017%
+FlashPDE
+15,174
+7.66
+116.6 ± 29.6
+2.30×
+0.32%
+3D TGV
+vanilla
+—
+OOM
+—
+—
+—
+(3.5 × 10−3)
+eager fd
+20,785
+41.64
+866.7 ± 68.5
+Base
+3.03%
+compile
+18,775
+24.20
+454.0
+1.91×
+2.93%
+FlashPDE
+20,284
+39.37
+805.0 ± 68.8
+1.08×
+3.08%
+Table 12: Extended forward–backward latency in milliseconds. Speedup compares FlashPDE with
+eager PyTorch FD.
+Case
+vanilla
+eager FD
+compile
+FlashPDE
+Speedup
+1D Steady Burgers
+4.35
+1.98
+2.35
+1.99
+0.99×
+Allen–Cahn
+6.01
+1.48
+—
+1.20
+1.23×
+1D Sod Shock Tube
+104.28
+11.82
+9.96
+11.57
+1.02×
+1D Heat Equation
+5.10
+2.43
+2.64
+2.33
+1.04×
+2D Scalar Transport
+31.66
+3.62
+3.81
+3.05
+1.19×
+2D Poisson
+8.49
+2.89
+3.06
+2.41
+1.20×
+2D Heat Equation
+31.68
+3.64
+3.98
+3.08
+1.18×
+2D Wave Equation
+43.36
+4.00
+4.33
+3.32
+1.20×
+3D Poisson
+414.40
+28.08
+22.36
+27.67
+1.01×
+3D TGV Smooth
+—
+24.16
+20.68
+21.95
+1.10×
+3D Heat Equation
+194.55
+15.75
+16.86
+17.24
+0.91×
+C.5
+Extended MLP Results
+C.5.1
+Extended Forward–Backward Throughput
+The extended cases show that FlashPDE’s full-step benefit is workload-dependent. It improves eager
+FD latency on eight cases, is approximately neutral on 1D steady Burgers, 1D Sod, and 3D Poisson,
+and is slower on 3D heat.
+C.5.2
+Extended Time-to-Solution Results
+In Table 13, Epochs denotes the total number of executed epochs, whereas T2S is the time of the first
+threshold crossing and may therefore occur before the final reported epoch. A speedup relative to
+eager fd is shown only when that backend reaches the threshold.
+21
+Table 13: Extended MLP time-to-solution results. “Div.” denotes numerical divergence; “—” denotes
+an unavailable or undefined metric.
+Case (threshold)
+Backend
+Epochs
+T2S (s)
+Speedup
+Error
+1D Steady Burgers
+vanilla
+2,674
+12.2
+0.47×
+31.9%
+(10−5)
+eager fd
+2,601
+5.7
+Base
+50.9%
+compile
+2,620
+7.2
+0.79×
+44.1%
+FlashPDE
+2,574
+6.3
+0.90×
+39.1%
+Allen–Cahn
+vanilla
+13,671
+212.0
+0.92×
+—
+(10−4)
+eager fd
+69,454
+194.7
+Base
+6.56 × 10−5
+compile
+67,172
+521.0
+0.37×
+—
+FlashPDE
+62,626
+176.6
+1.10×
+7.60 × 10−5
+2D Scalar Transport
+vanilla
+37,181
+1184.2
+0.13×
+4.90%
+(10−3)
+eager fd
+32,037
+154.2
+Base
+4.90%
+compile
+33,750
+153.1
+1.01×
+4.95%
+FlashPDE
+29,195
+106.6
+1.45×
+4.93%
+1D Sod Shock
+vanilla
+—
+—
+—
+Div.
+(10−1)
+eager fd
+—
+—
+—
+Div.
+compile
+—
+—
+—
+Div.
+FlashPDE
+141,990
+1608.7
+—
+49.9%
+2D Poisson
+vanilla
+1,531
+13.1
+43.9×
+0.17%
+(8 × 10−2)
+eager fd
+197,646
+575.7
+Base
+2.25%
+compile
+64,012
+193.3
+2.98×
+0.24%
+FlashPDE
+190,459
+495.8
+1.16×
+0.17%
+3D Poisson
+vanilla
+126,667
+233.0
+1.50×
+0.02%
+(2 × 10−1)
+eager fd
+300,000
+350.0
+Base
+0.14%
+compile
+300,000
+294.0
+1.19×
+0.14%
+FlashPDE
+300,000
+345.0
+1.01×
+0.14%
+1D Heat Equation
+vanilla
+647
+3.4
+32.1×
+0.04%
+(2 × 10−2)
+eager fd
+40,941
+109.2
+Base
+0.76%
+compile
+1,090
+3.0
+36.4×
+0.08%
+FlashPDE
+53,065
+130.5
+0.84×
+0.78%
+3D TGV Smooth
+vanilla
+—
+—
+—
+—
+(4 × 10−3)
+eager fd
+19,731
+574.3
+Base
+2.93%
+compile
+21,204
+540.1
+1.06×
+2.93%
+FlashPDE
+13,773
+314.0
+1.83×
+2.93%
+2D Heat Equation
+vanilla
+37,354
+1189
+0.17×
+7.78%
+(10−3)
+eager fd
+47,128
+198
+Base
+11.51%
+compile
+47,631
+191
+1.04×
+11.88%
+FlashPDE
+49,035
+177
+1.12×
+11.88%
+2D Wave Equation
+vanilla
+21,166
+922
+0.29×
+19.26%
+(2 × 10−3)
+eager fd
+59,872
+268
+Base
+21.96%
+compile
+61,129
+261
+1.03×
+21.83%
+FlashPDE
+61,862
+243
+1.10×
+21.79%
+3D Heat Equation
+vanilla
+27,065
+4411
+0.19×
+8.87%
+(5 × 10−3)
+eager fd
+33,195
+840
+Base
+7.89%
+compile
+31,309
+767
+1.10×
+8.91%
+FlashPDE
+33,736
+848
+0.99×
+9.11%
+C.6
+Additional Kernel-Scaling Results
+Figure 7 reports kernel-only speedups for the eight operators not displayed in the main scaling figure.
+22
+262144
+1048576
+4194304
+16777216
+67108864
+5
+10
+15
+Speedup (×)
+burgers_1d_steady
+500x2048
+1000x2048
+2000x4096
+4000x4096
+4000x8192
+diffusion_1d
+500x2000
+1000x4000
+2000x4000
+4000x4000
+2000x8000
+sod_1d
+50x256
+100x256
+200x256
+100x512
+200x512
+wave_2d
+1000x2048
+2000x2048
+4000x2048
+8000x2048
+8000x4096
+5
+10
+15
+allen_cahn
+512
+1024
+2048
+4096
+8192
+poisson_2d
+96
+128
+160
+192
+256
+poisson_3d
+10x96
+20x64
+20x96
+20x128
+40x96
+heat_3d
+Figure 7: Kernel-only FlashPDE speedup over eager PyTorch FD for the eight additional operators.
+Most cases show an overall increase with grid size, although several trajectories are non-monotonic
+at intermediate or maximum evaluated sizes.
+Table 14: CNN forward–backward latency and peak allocated memory. Each backend entry is
+milliseconds per step / GB.
+Case
+CNN eager FD
+cnn compile
+cnn FlashPDE
+Speedup
+1D Steady Burgers
+2.11 / 0.018
+2.26 / 0.018
+1.85 / 0.018
+1.14×
+1D Heat Equation
+2.55 / 0.024
+2.79 / 0.024
+2.38 / 0.024
+1.07×
+1D Sod Shock Tube
+5.63 / 0.178
+5.86 / 0.180
+3.36 / 0.180
+1.68×
+2D Scalar Transport
+4.22 / 0.244
+4.30 / 0.244
+3.79 / 0.244
+1.11×
+2D Poisson
+2.67 / 0.066
+2.85 / 0.066
+2.48 / 0.066
+1.08×
+2D Heat Equation
+4.12 / 0.244
+3.98 / 0.244
+3.84 / 0.244
+1.07×
+2D Wave Equation
+4.15 / 0.244
+4.51 / 0.244
+3.91 / 0.244
+1.07×
+3D Poisson
+75.36 / 0.251
+74.21 / 0.252
+74.44 / 0.252
+1.01×
+3D TGV Smooth
+31.83 / 0.307
+31.55 / 0.313
+29.65 / 0.311
+1.07×
+3D Heat Equation
+44.15 / 0.290
+43.52 / 0.292
+43.48 / 0.291
+1.02×
+C.7
+CNN Results
+The same FlashPDE operators are used with CNN field generators without changing the operator
+implementations. These experiments do not propose a new CNN architecture; instead, they test
+whether FlashPDE can be reused when the field generator is changed from an MLP to a convolutional
+model.
+C.7.1
+CNN Forward–Backward Throughput
+C.7.2
+CNN Time-to-Solution
+Some CNN runs are terminated after the loss plateaus. A dash in the T2S column indicates that the
+selected threshold was not reached.
+23
+Table 15: CNN convergence results for eight additional configurations.
+Case (threshold)
+Backend
+Epochs
+T2S (s)
+Error
+1D Steady Burgers
+CNN eager FD
+218,510
+460.6
+0.243
+(10−5)
+cnn compile
+212,581
+502.4
+0.425
+cnn FlashPDE
+201,469
+381.4
+0.373
+1D Heat Equation
+CNN eager FD
+171,363
+444.6
+0.17%
+(2 × 10−2)
+cnn compile
+168,873
+481.9
+0.18%
+cnn FlashPDE
+178,831
+428.8
+0.19%
+1D Sod Shock
+CNN eager FD
+36,221
+225.6
+40.3%
+(5 × 10−2)
+cnn compile
+52,434
+326.4
+41.0%
+cnn FlashPDE
+41,071
+192.0
+—
+2D Scalar Transport
+CNN eager FD
+75,179
+445.3
+—
+(10−3)
+cnn compile
+101,607
+604.8
+—
+cnn FlashPDE
+76,693
+355.0
+—
+2D Poisson
+CNN eager FD
+300,000
+—
+0.07%
+(8 × 10−2)
+cnn compile
+300,000
+—
+0.21%
+cnn FlashPDE
+300,000
+—
+0.18%
+2D Heat Equation
+CNN eager FD
+129,169
+—
+2.79%
+(10−3)
+cnn compile
+79,018
+—
+2.86%
+cnn FlashPDE
+31,786
+—
+2.92%
+2D Wave Equation
+CNN eager FD
+300,000
+—
+7.30%
+(2 × 10−3)
+cnn compile
+300,000
+—
+6.01%
+cnn FlashPDE
+300,000
+—
+7.72%
+Allen–Cahn
+CNN eager FD
+24,033
+71.1
+1.92 × 10−4
+(10−4)
+cnn compile
+—
+—
+—
+cnn FlashPDE
+25,042
+63.3
+2.84 × 10−4
+24

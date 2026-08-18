@@ -1,0 +1,1063 @@
+Benchmarking NACTI Species Recognition
+in Long-Tailed Regimes
+Zehua Liu1[0009−0004−5353−7028] and Tilo Burghardt1[0000−0002−8506−012X]
+School of Computer Science, University of Bristol,
+MVB Woodland Rd, BS8 1UB, Bristol, UK
+bw19062@bristol.ac.uk; tilo@cs.bris.ac.uk
+Abstract. As with most “in the wild” collections of the natural world,
+the North America Camera Trap Images (NACTI) dataset exhibits long-
+tailed class imbalance, with the largest class covering over 50% of its 3.7M
+images. Building on the PyTorch Wildlife model, we systematically eval-
+uate Long-Tail Recognition (LTR) methodologies to benchmark species
+recognition performance, including specialised loss functions and LTR-
+sensitive regularisation. Our optimised configuration achieves state-of-
+the-art 99.40% Top-1 accuracy on the NACTI test split, significantly out-
+performing standard baselines and previously reported top performances.
+To assess robustness under domain shifts (e.g., night-time captures, oc-
+clusion, motion-blur), we extend our evaluation across three independent
+reduced-bias test sets (including ENA-Detection, Caltech Camera Traps
+and Missouri Camera Traps). Across these out-of-distribution (OOD)
+evaluations, our LTR-enhanced model consistently demonstrates sub-
+stantially stronger generalisation capabilities compared to standard cross-
+entropy approaches. However, qualitative and quantitative analyses un-
+derline that current LTR optimisations cannot fully overcome represen-
+tational bottlenecks, resulting in catastrophic predictive breakdown for
+rare ‘Tail’ classes under severe domain shift. For maximum reproducibil-
+ity, all dataset splits, key code, and network weights are published with
+this paper at https://github.com/ZehuaLiuY/Species-Classification.
+Keywords: Long-tail Classification · Animal Biometrics · AI for Ecol-
+ogy · AI for Conservation · Computer Vision.
+1
+Introduction
+The Challenging NACTI Wildlife Dataset. The North American Camera Trap
+Images (NACTI) dataset [15] – visually exemplified in Figure 1 contains 3.7M
+images across 48 animal classes where over half of its samples belong to a single
+species (domestic cow). Following Perrett et al. [22], 5 classes form the ‘Head’,
+37 form the ‘Long Tail’, and 6 few-shot classes sit at the extreme end of the dis-
+tribution. Beyond this stark statistical imbalance, the camera trap corpus suffers
+from a multitude of visual challenges encountered in the natural world: variations
+arXiv:2607.18033v1  [cs.CV]  20 Jul 2026
+2
+Zehua Liu and Tilo Burghardt
+Fig. 1: Representative Samples from the NACTI Dataset. Shown is one
+representative image per species class from the overall 48 classes in total, exclud-
+ing empty and vehicle frames. Note challenging occlusions, background clutter,
+motion blur, infrared shots, and small animal areas. Red bounding boxes in-
+dicate detections using MegaDetectorV6 [2], applied during the pre-processing
+stage. The NACTI dataset is long-tailed with over half of the samples belonging
+to a single species (domestic cow). Following [22], 5 classes are categorised as the
+head, 37 form the ‘long tail’, and 6 occupy the few-shot end of the distribution.
+in lighting, motion blur, and inter-class species similarities all have the poten-
+tial to degrade performance. Furthermore, the dataset’s untrimmed images lack
+ground-truth bounding boxes or auxiliary per-instance metadata making fine-
+grained species ID challenging. Note, in this work we derive pseudo labels auto-
+matically using MegaDetector [2] (see Section 3.2) while keeping the downstream
+task definition at image level, i.e. we treat NACTI as an image-level species clas-
+sification problem rather than a joint detection-and-classification task.
+Motivation and the Long-tail Challenge Accurate animal classification is essen-
+tial for biodiversity conservation and ecological monitoring. With advances in
+computer vision, deep learning models, particularly Convolutional Neural Net-
+works (CNNs), have demonstrated remarkable capabilities in learning discrimi-
+Benchmarking NACTI in Long-Tailed Regimes
+3
+native features from vast amounts of image data [12]. Tools like MegaDetector [2]
+and SpeciesNet [7] are trained on many millions of images and offer a strong
+foundation for general animal detection. However, they do not fully resolve the
+core issue of species-level classification under truly severe class imbalance. In
+real-world monitoring of local wildlife, datasets almost invariably exhibit the
+long-tail phenomenon and show often severe class imbalance. A substantial pro-
+portion of annotated data is typically comprised of common species, whereas
+only a small fraction represents rare, shy or endangered species. This skewed
+distribution affects machine learning models to often become biased towards
+majority classes, yielding high overall accuracy but catastrophically failing to
+identify rare specimen [4] - arguably the most valuable observation targets in
+conservation settings.
+Our Approach and Contributions. Towards tackling this critical issue in com-
+puter vision for wildlife monitoring [26], our work presents a systematic, loss-
+centric study focused on improving minority class detection performance in
+the large-scale, real-world NACTI setting as discussed in the associated con-
+ference paper [28]. We develop and present a scalable, multi-GPU pipeline to
+fine-tune state-of-the-art CNN architectures on the full NACTI corpus. Using
+this pipeline, we conduct a head-to-head comparison of Long-Tail Recognition
+(LTR) scheduling [1] and losses: focal loss [18], weighted cross-entropy [5], and
+label-distribution-aware margin (LDAM) loss [3]. Resulting from this analysis,
+Figure 2 summarises best model accuracy improvements over the baseline at
+class level. In addition to [28], here we also benchmark results across out-of-
+distribution (OOD) settings and discuss wider implications of species detection
+under unbalanced regimes and robustness under distributional shift. The line
+of work discussed in this paper has the following contributions, noting that the
+article is an extended version of the work presented at [28]:
+1. Systematic NACTI LTR Evaluation. In line with [28] we discuss the
+first head-to-head evaluation of LTR-sensitive scheduling in tandem with Fo-
+cal, WCE, and LDAM losses for large-scale wildlife classification, analysing
+trade-offs between minority-class recall and overall accuracy.
+2. Extensive Cross-Dataset OOD Robustness Analysis. Moving the stan-
+dard in-domain testing and extending [28] here, we rigorously evaluate model
+generalisation by constructing and testing against three independent reduced-
+bias datasets (including ENA-Detection, Caltech Camera Traps, and Mis-
+souri Camera Traps). We demonstrate that while standard cross-entropy
+suffers under scheduled learning, the synergy between margin-aware LTR
+losses and schedulers yields substantial robustness gains guarding against
+some adverse effects of domain shifts.
+3. Reproducible State-of-the-Art. The line of work finally establishes and
+discuss here in full detail a reproducible 99.40% Top-1 accuracy result on
+the NACTI test split [28]. We open-source our complete multi-GPU pipeline,
+data splits, and network weights to support transparent community research
+at [28].
+4
+Zehua Liu and Tilo Burghardt
+domestic cow
+red deer
+wild boar
+unidentified deer
+mule deer
+unidentified bird
+raccoon
+california ground squirrel
+american black bear
+eastern gray squirrel
+bobcat
+elk
+coyote
+cougar
+snowshoe hare
+striped skunk
+moose
+gray fox
+nine-banded armadillo
+wild turkey
+unidentified rabbit
+california quail
+american red squirrel
+donkey
+domestic dog
+red fox
+american marten
+unidentified chipmunk
+virginia opossum
+unidentified corvus
+black-tailed jackrabbit
+north american river otter
+unidentified pack rat
+north american porcupine
+yellow-bellied marmot
+unidentified accipitrid
+horse
+unidentified deer mouse
+european badger
+gray jay
+long-tailed weasel
+dark-eyed junco
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Accuracy
+Stacked Accuracy Comparison
+Basement
+Best Improvement
+101
+102
+103
+104
+#Images
+Fig. 2: LTR Performance Improvements across NACTI Species vs.
+Baseline. Per-class Top-1 accuracies on the NACTI dataset comparing the base-
+line model (cross-entropy with Adam) against our best-performing configuration,
+which combines a Label-distribution-aware margin (LDAM) loss, an alternative
+AdamW optimiser, and a learning-rate scheduler. The results are reported on a
+10% random test split. The blue bars indicate classes with a positive improve-
+ment relative to the baseline.
+2
+Key Related Work
+Paper Context. This article is an extended version of work originally presented at
+the 21st International Joint Conference on Computer Vision, Imaging and Com-
+puter Graphics Theory and Applications (VISAPP) [28]. While the conference
+paper established the baseline long-tailed recognition pipeline on the NACTI
+dataset, this manuscript significantly expands upon the previous research in
+several key dimensions. Specifically, this extended version introduces:
+– Comprehensive OOD Evaluation: We extend generalisation testing from
+a single biased evaluation to a robust, cross-dataset validation framework
+utilizing three independent reduced-bias test sets, notably incorporating the
+Missouri Camera Traps (MCT) and ENA-Detection datasets.
+– Failure Mode Analysis: We provide a substantially expanded quantita-
+tive and qualitative analysis of predictive collapse on tail classes (e.g., horse
+and wild turkey), demonstrating that representational bottlenecks persist
+across all experimental configurations.
+– Generalisation Limitations: We introduce new insights into the interplay
+between learning rate schedulers and LTR-specific loss functions under se-
+vere domain shift, concluding that purely optimisation-based methods are
+insufficient for bridging the representational gap in real-world wildlife mon-
+itoring.
+Benchmarking NACTI in Long-Tailed Regimes
+5
+2.1
+Species Recognition in NACTI
+General ResNet-based Approaches. Prior art on species recognition in NACTI
+goes back several years, but most published works lack reproducibility and pub-
+lished descriptions/code that would allow for a fair and detailed comparison of
+approaches to illuminate the effect of chosen architectures regarding the long-tail
+distribution issue. Tabak et al. [25], for instance, trained a ResNet-50 architec-
+ture on the NACTI dataset (70/30 split) using SGD with momentum – however,
+the paper does not explicitly specify the loss function used; though one would as-
+sume a softmax-cross-entropy setting was applied. They reported ≈86% accuracy
+on the validation set. Performance dropped significantly for under-represented
+species (recall <70%), highlighting persistent long-tailed bias in CamTrap data.
+Cross-Study MLWIC2 Project. Tabak et al. [24] also trained MLWIC2, that is a
+ResNet-18 on > 3M images from 18 North American studies (including NACTI),
+reporting 96.8% Top-1 accuracy for the species model. To mitigate imbalance,
+the authors capped each class at 100,000 images. Despite these measures, rare
+species still showed weaker recall, indicating unresolved long-tail effects. For
+out-of-sample evaluations, reported Top-5 accuracy ranged from 65.2% to 93.8%
+depending on the dataset. We note, that the paper does neither specify optimiser
+nor loss function used.
+Active Learning. Norouzzadeh et al. [20] combined a ResNet-50 with active
+learning techniques to iteratively select informative, unlabelled images for anno-
+tation. After 30,000 queries, the classifier reached 93.2% accuracy on NACTI.
+In their pipeline, the embedding network is trained either using softmax-cross-
+entropy or with triplet loss settings. However, the exact evaluation split is not
+specified and the optimiser used for these experiments is not explicitly specified
+in the paper either (SGD is discussed only as general background), so we treat
+it as unspecified.
+Domain-aware DANAS Approach. Jia et al. [10] introduced DANAS, a domain-
+aware neural architecture search tailored for camera-trap species classification.
+On the NACTI-a subset, DANAS showed that lightweight CNNs can match con-
+ventional performance baselines (e.g., ResNet-18) within Top-1/Top-5 accuracy
+charts while using far fewer parameters and lower compute, enabling edge deploy-
+ment at average accuracy ≈92.9%. During the search phase, candidate networks
+were trained with AMSGrad (learning rate = 0.005, batch size = 32) and guided
+by a customised, theoretically derived losses (Witch-of-Agnesi–based) that en-
+courage high accuracy with few parameters. The optimiser used for the final
+training of the discovered DANAS networks is not explicitly stated, while base-
+lines were stated and trained with Nesterov-SGD under a cosine loss regime [10].
+2.2
+Regularisers and Losses for LTR
+Scheduling for LTR. Addressing class imbalance, a central challenge in real-
+world data [27], has led to various strategies. Recent study [1] have highlighted
+6
+Zehua Liu and Tilo Burghardt
+the importance of weight decay in mitigating classifier bias towards dominant
+classes, which is a key challenge in long-tailed recognition tasks. Alshammari et
+al. [1] showed that models trained without weight decay tend to assign dispro-
+portionately large classifier weights to frequent classes, resulting in poor gen-
+eralisation for rare classes. By carefully tuning weight decay parameters, they
+significantly improved recognition performance on long-tailed datasets. Unlike
+conventional L1 or L2 regularisation, their method effectively balanced per-class
+classifier weights, thereby preventing common species from dominating learn-
+ing. Furthermore, their study demonstrated that simple weight decay tuning
+outperformed many sophisticated LTR methods, suggesting that parameter reg-
+ularisation should be of primary consideration when addressing class imbalance.
+Decoupled Learning Strategies. A seminal work by Kang et al. [11] proposed de-
+coupling feature representation learning from classifier learning. They observed
+that standard instance-balanced sampling yields high-quality representations,
+while the classifier benefits from a class-balanced perspective, e.g. re-weighting
+or re-sampling. Their work also introduced LDAM-DRW, which combines the
+LDAM loss with a Deferred Re-weighting (DRW) schedule, delaying the applica-
+tion of class-balancing until later in training. This concept strongly aligns with
+our findings, where combining the LDAM loss with a learning rate (LR) sched-
+uler (ReduceLROnPlateau) yielded best results (see Section 4.2 for details).
+Problem-specific LTR Loss Concepts. To systematically address the severe class
+imbalance in the NACTI dataset, we implemented, compared, and evaluated
+three state-of-the-art loss functions that modify the standard cross-entropy in
+complementary ways. Our goal was to isolate the most effective strategy for im-
+proving performance on minority classes within a large-scale, real-world setting.
+Focal Loss. Focal loss [18] reduces the weight of easily classified samples, en-
+couraging the model to focus more on hard-to-classify examples. This improves
+few-sample performance.
+Weighted Cross-Entropy (WCE) Loss. The WCE concept [5] addresses class
+imbalance by assigning greater weights to minority classes, thereby encouraging
+the model to focus more on under-represented categories during training and
+improving their recognition rates. However, this can lead to overfitting, causing
+the model to prioritise minority classes at the expense of overall performance.
+Label-Distribution-Aware Margin (LDAM) Loss. LDAM [3] addresses class im-
+balance by encouraging larger decision margins for minority classes. It modifies
+the standard cross-entropy loss by subtracting a class-dependent margin from
+the logit of the true class. This formulation gently penalises confident predictions
+for frequent classes while imposing stronger regularisation on minority classes.
+As a result, LDAM improves generalisation across the label distribution, espe-
+cially for under-represented classes. It can also be combined with re-weighting
+or re-sampling strategies for further performance gains.
+Benchmarking NACTI in Long-Tailed Regimes
+7
+domestic cow
+red deer
+wild boar
+unidentified deer
+mule deer
+unidentified bird
+raccoon
+california ground squirrel
+american black bear
+eastern gray squirrel
+bobcat
+elk
+coyote
+cougar
+snowshoe hare
+striped skunk
+gray fox
+moose
+nine-banded armadillo
+unidentified rabbit
+american red squirrel
+wild turkey
+donkey
+california quail
+red fox
+unidentified chipmunk
+virginia opossum
+american marten
+domestic dog
+black-tailed jackrabbit
+unidentified corvus
+unidentified pack rat
+north american river otter
+north american porcupine
+yellow-bellied marmot
+unidentified accipitrid
+european badger
+horse
+unidentified deer mouse
+gray jay
+long-tailed weasel
+ermine
+dusky grouse
+dark-eyed junco
+unidentified mouse
+house wren
+steller's jay
+unidentified pocket gopher
+Species
+100
+101
+102
+103
+104
+105
+Count (log scale)
+100000
+100000
+100000
+96115
+85395
+67070
+37875
+33866
+28770
+27167
+25434
+22143
+20968
+14756
+13868
+11485
+10225
+9960
+9856
+4487
+4029
+3643
+2665
+2275
+1723
+1533
+1527
+1433
+1224
+1150
+1040
+715
+557
+546
+309
+208
+157
+133
+128
+77
+36
+29
+8
+5
+4
+4
+3
+1
+Head ( 50% cumulative)
+Tail (>50%)
+Few-shot ( 20)
+Fig. 3: NACTI Species Distribution after Sample Balancing. Logarithmic
+visualisation of the cardinality of all 48 (sub)species classes of NACTI after
+capping classes at 100k. Colouration of the class distribution after [22] breaking
+the distribution into ‘Head’ (blue), ‘Tail’ (pink), and ‘Few-shot’ species.
+3
+Data Preparation
+3.1
+Dataset Statistics
+The NACTI Dataset. Published in the LILA Dataset collection [15], NACTI
+contains 3.7M camera-trap images from spanning 48 (sub)species. Figure 1 dis-
+plays representative images from each species class, illustrating the wide vari-
+ability in appearance, lighting, and environmental conditions. These samples
+exemplify common visual challenges encountered in camera trap imagery, includ-
+ing occlusions, background clutter, motion blur, and significant class imbalance.
+Such factors complicate the training process significantly particularly for under-
+represented classes where few images are available to capture species-distinctive
+features.
+Species Distribution Details. The class distribution is extremely long-tailed; do-
+mestic cow alone contributes 2,109,009 images (approx. 54% of all samples).
+To reduce overfitting and speed up training, we cap each class at 100k images,
+following Tabak etal. [24]. This yields 816,495 balanced samples (see Fig. 3 for
+statistics) while preserving all 48 classes. The visualisation approach follows that
+of Perrett et al. [22], where the dataset is divided into three groups: ‘Head’ classes
+(blue) contain > 50% of total samples, ‘Tail’ classes (pink) cover most species,
+while ‘Few-shot’ classes (green) include those with < 20 samples.
+8
+Zehua Liu and Tilo Burghardt
+3.2
+Data Preprocessing
+Our workflow converts the raw image NACTI archive into an analysis-ready
+dataset in three stages.
+(i) Automatic Animal Localisation. All images are first processed for entity de-
+tection with MegaDetectorV6 to obtain bounding boxes and confidence scores.
+The resulting JSON files are merged with the original metadata such that each
+record includes both species labels and coordinates for the detected animal re-
+gion. In this study we crop the highest-confidence detection with a fixed margin
+and use that crop as the input that is resized.
+(ii) Class-Balanced Resampling. Following Tabak et al., we cap every category at
+100,000 samples, discard empty/vehicle frames, and retain all 48 animal classes.
+This produces 816,495 images with a more balanced distribution profile shown
+in Figure 3.
+(iii) Split Strategy and Reduced-Bias Evaluation. The balanced pool is split
+80/10/10 (train/validation/test) with a fixed seed, acknowledging that visually
+similar burst information may still be spread across subsets in this setting. To
+gauge towards bias reduction and better generalisation we also construct and
+publish a reduced-bias test set using the ENA Dataset [14], filtering to the nine
+classes shared with NACTI and removing any temporal/spatial overlap. All nine
+fall in the distribution ‘Tail’, providing a stringent domain-shift benchmark.
+Final Pre-processing Steps. Images are resized to 256×256 px as per Tabak et
+al., converted to tensors, and normalised with µ = [0.485, 0.456, 0.406], σ =
+[0.229, 0.224, 0.225] to stabilise optimisation. Each training sample is finally
+stored as an information tuple (image, {bbox, label, conf}).
+Method Overview. We adopt the pre-trained ResNet-50 AI4GAmazonRainforest
+framework as our feature extractor backbone and fine-tune a 48-way SoftMax
+classifier head for NACTI species prediction. We systematically compare stan-
+dard cross-entropy results against three long-tail-aware alternatives – focal loss,
+class-balanced weighted cross-entropy (WCE), and label-distribution-aware mar-
+gin (LDAM) loss—in their standard formulations from the literature. The result-
+ing models are evaluated on the balanced NACTI test split and the reduced-bias
+test sets, isolating loss and scheduling choices for in- and out-of-domain perfor-
+mance.
+4
+Experiments
+4.1
+Baseline Model
+Hardware Specification. All training is conducted utilising 11 NVIDIA Tesla
+P100 GPUs (Pascal architecture) to efficiently distribute computation across
+multiple devices and reduce training time. All inference was performed locally
+on an NVIDIA GeForce RTX 3090 GPU (Ampere architecture).
+Benchmarking NACTI in Long-Tailed Regimes
+9
+0
+5
+10
+15
+20
+25
+30
+Epochs
+0.90
+0.92
+0.94
+0.96
+0.98
+1.00
+Accuracy
+Train Accuracy
+Val Accuracy
+0
+5
+10
+15
+20
+25
+30
+Epochs
+0.04
+0.03
+0.02
+0.01
+0.00
+0.01
+0.02
+0.03
+0.04
+Accuracy Difference
+Difference (Train - Val)
+Fig. 4: Training Dynamics - Accuracy. Accuracy development during model
+training, the left plot shows train and validation while the right plots show
+the train-validation gap. Note, the dashed lines marking early-stopping point
+determined based on val performance.
+Full Network Training Details. All experiments fine-tune the ResNet-50 [8] back-
+bone of AI4GAmazonRainforest [9] with its standard pre-trained weights, using
+AdamW [19] (weight-decay 10−2, initial learning rate 10−4) and importantly
+a ReduceLROnPlateau scheduler that lowers the learning rate by factor 0.1
+when validation metrics stagnate. To avoid premature termination or overfit-
+ting caused by fluctuations in validation performance we employ early stopping
+(see Figure 5) with patience 10 and check-pointing, dynamically selecting the
+best model based on validation recall (see published code).
+4.2
+Experimental Results
+Scheduler Impact on NACTI Results. Table 1 compares various combinations
+of LTR-sensitive learning rate scheduling and LTR loss functions+optimisers
+against baselines, evaluated in terms of both overall accuracy and performance
+on the ‘Tail’ classes. Introducing a learning rate scheduler from PyTorch [21]
+resulted in substantial performance gains across all configurations, with overall
+accuracy consistently exceeding 99% on the biased test set. The overall best
+result was achieved by combining LDAM loss with the AdamW optimiser and the
+ReduceLROnPlateau scheduler, yielding an accuracy of 99.40%—an improvement
+of approximately 2.66 percentage points over the same configuration without a
+scheduler (96.74%).
+NACTI Tail Results. A similar trend was observed for the ‘Tail’ classes: ac-
+curacy increased from 96.17% to 99.22%, representing a relative improvement
+of 3.05%. Although all configurations achieved comparable performance on the
+‘Tail’ classes following scheduler integration, the LDAM + AdamW combination
+attained the highest overall accuracy and is henceforth referred to as best (LTR)
+configuration.
+10
+Zehua Liu and Tilo Burghardt
+Table 1: NACTI Test Accuracy (LTR Methods vs. Baselines) Compari-
+son of (Overall/‘Tail’) accuracy on the biased NACTI test set across all configu-
+rations. Note that ‘Tail’ performance stats are saturated with the top accuracy
+of 99.22% is shared by three configurations.
+LOSS + OPTIMISER
+BASELINES
+LTR LR
+CONFIGURATION
+(NO SCHEDULER)
+SCHEDULER
+BASELINES
+Cross-Entropy + Adam
+95.51% / 94.30%
+- not tested -
+Cross-Entropy + AdamW
+96.77% / 95.64%
+99.34% / 99.22%
+LTR LOSSES
+Focal Loss + AdamW
+96.65% / 95.96%
+99.31% / 99.20%
+WCE + AdamW
+96.69% / 96.16%
+99.35% / 99.22%
+LDAM Loss + AdamW
+96.71% / 96.17%
+99.40% / 99.22%
+Cross-Dataset OOD Evaluation Results. To comprehensively assess generalisa-
+tion performance under severe distribution shift, all configurations are addition-
+ally evaluated across three independent out-of-distribution benchmarks. Specif-
+ically, we constructed three distinct Reduced-Bias Test Sets derived from the
+ENA-Detection, Missouri Camera Traps (MCT), and Caltech Camera Traps
+(CCT) datasets, respectively. Table 2 summarises this task set, showing ex-
+pected and substantial accuracy drops across the board relative to the biased
+in-domain evaluation setup.
+Nuanced Impact of LTR Losses and Scheduling. While performance degrades
+in all OOD settings, the integration of LTR-specific loss functions and learn-
+ing rate schedulers reveals a profound and nuanced trade-off depending on the
+class frequency distribution of the target domain. For benchmarks predominantly
+composed of ‘Tail’ classes (ENA and CCT), the synergy between margin-aware
+LTR losses and scheduled learning generally yields strong robustness. For in-
+Table 2: Cross-Dataset OOD Generalisation Accuracy (%). Accuracy on
+ENA, MCT, and CCT datasets. Exact mappings of class labels are given in full in
+the code base. The combination of LDAM and LR scheduling yields the highest
+robustness and improve benchmarks slightly compared to stronger collapse in
+baseline settings.
+Configuration
+ENA
+MCT
+CCT
+Base. Sched. Base. Sched. Base. Sched.
+CE (Adam)
+39.48
+-
+32.78
+-
+55.56
+-
+CE (AdamW)
+38.27
+48.27
+33.50
+31.91
+52.90
+62.09
+Focal Loss (AdamW)
+37.62
+49.78
+15.49
+22.45
+51.13
+62.99
+WCE (AdamW)
+45.03
+51.20
+24.53
+32.71
+64.45
+63.66
+LDAM Loss (AdamW)
+38.77
+52.55
+38.95
+35.71
+52.55
+63.75
+Benchmarking NACTI in Long-Tailed Regimes
+11
+0
+5
+10
+15
+20
+25
+30
+Epochs
+0.0000
+0.0025
+0.0050
+0.0075
+0.0100
+0.0125
+0.0150
+0.0175
+Loss
+Train Loss
+Val Loss
+0
+5
+10
+15
+20
+25
+30
+Epochs
+0.006
+0.004
+0.002
+0.000
+0.002
+0.004
+0.006
+0.008
+Loss Difference
+Difference (Val - Train)
+Fig. 5: Training Dynamics - Loss. Loss development during model training,
+the left plot shows train and validation while the right plots show the train-
+validation gap. Note the dashed lines marking early-stopping point, where stop-
+ping is determined on val accuracy not loss (see Fig 4 for this).
+stance, the LDAM loss combined with a scheduler achieves 52.55% on ENA and
+63.75% on CCT, securing substantial gains over standard cross-entropy base-
+lines. However, a starkly different pattern emerges on the MCT dataset, where
+both standard and LTR configurations perform significantly worse overall, and
+the application of a scheduler actively degrades performance for the LDAM loss
+(dropping from 38.95% to 35.71%). This divergence indicates that LTR opti-
+misations do not uniformly improve cross-domain generalisation, pointing to a
+class-specific representational bottleneck.
+5
+Discussion
+5.1
+Generalisation Considerations
+Testing Bias and Performance Saturation. As discussed in Section 3.1, the stan-
+dard NACTI Test Set – using the standard random selection process for test-
+ing NACTI so far – contains numerous visually similar frames originating from
+camera-trap burst capture, making it especially vulnerable to biased testing. As
+a result, test accuracy fails to reflect generalisability and leading to saturated
+99%+ performances. However, the model’s ability to generalise is shown on the
+reduced-bias test set where different LTR loss functions can offer minor accu-
+racy improvements as seen in Table 2. The dramatic performance gap between
+biased and reduced-bias test sets underscores the need for model-external OOD
+evaluation particularly for wildlife data like NACTI where significant context
+changes are part of environmental variability.
+Per-Class Generalisation Analysis. To understand the generalisation behaviour
+of the best-performing model further on the Reduced-Bias Dataset, per-class
+accuracies for the 9 classes in this dataset are reported in Table 3. Note that
+all listed species belong to the ‘Tail’ of the training distribution. While the
+model demonstrates relatively strong performance on classes such as coyote and
+12
+Zehua Liu and Tilo Burghardt
+Table 3: Per-class Accuracy and Prevalence. Results are for the ENA-
+Detection under our best configuration.
+CLASS
+ACCURACY (%) PREVALENCE
+virginia opossum
+65.79%
+725
+bobcat
+61.26%
+333
+american black bear
+77.05%
+475
+eastern gray squirrel
+45.51%
+312
+wild turkey
+0.00%
+427
+striped skunk
+21.55%
+297
+red fox
+54.72%
+413
+horse
+0.00%
+63
+coyote
+87.79%
+344
+american black bear, accuracy varies considerably across species. Notably, some
+classes like wild turkey and horse receive 0% accuracy. These results underscore
+the difficulty of long-tailed generalisation under distribution shift. These find-
+ings suggest that while optimisation strategies such as LTR loss functions and
+learning rate schedules can improve overall accuracy, operation on rare classes
+may underperform catastrophically under distribution shift. Persistently low or
+zero accuracy on certain species across all configurations indicates that repre-
+sentational limitations play a more significant role unrecoverable by means of
+current learning alterations, potentially requiring a data-centric approach.
+5.2
+ENA Detection dataset Failure Mode Analysis
+Predictive Collapse for Tail Classes. Two classes – horse (n = 63) and wild
+turkey (n = 148) – consistently rank among the lowest-performing classes in the
+biased NACTI test set across all configurations and accuracy for both classes
+collapses to approximate 0% in the Reduced-Bias Test Set. Tables 4 exemplifies
+this collapse quantitatively. The model struggles to learn fine-grained distinctions
+between semantically or morphologically similar species when the training data
+does not contain sufficient examples of classes that actually contain species-
+determining features. This poses an ill-posed task of recognition of species who
+have little to no definition during the training phase in the first place. The
+consistent yet unsurprising misclassification into frequent categories confirms a
+strong prediction bias toward ‘Head’ classes, reflecting the model’s defaulting to
+dominating features learned from majority categories.
+Qualitative Evidence. Figures 6 and 7 juxtapose representative images for chal-
+lenging tail classes (e.g., horse and wild turkey) from the NACTI training set
+and the Reduced-Bias Test Set, illustrating severe visual domain discrepancies.
+For the horse class, training images are often blurry or partially occluded, mak-
+ing them suboptimal for learning robust features. In contrast, the reduced-bias
+test instances frequently introduce night-time infrared captures, unusual poses,
+Benchmarking NACTI in Long-Tailed Regimes
+13
+Fig. 6: Qualitative Examples regarding Domain Shift for Horse Class.
+Train-test contrast of horse class with little image evidence in training where
+catastrophic performance breakdown was observed under distribution shift. Top
+row shows examples from bias-reduced test set whilst bottom row shows samples
+from the training set. Training images are often blurry or occlude major animal
+parts, whereas reduced-bias test images involve night scenes, partial views etc.
+or display only a partial view of the animal. This forces the model to rely on
+visual fragments, leading to prediction errors where horses are misclassified as
+visually similar, more frequent classes such as red deer or domestic cow.
+A similarly pronounced domain gap is observed for the wild turkey class.
+While its training samples are typically high-resolution and captured in clear
+natural outdoor environments, test set images frequently suffer from heavy par-
+tial occlusion, cluttered backgrounds, motion blur, and poor lighting. Without
+full-body visibility or clear contextual cues, wild turkeys in the test set may ap-
+pear visually similar to other species in terms of body shape or feather texture.
+This visual ambiguity prompts the model to systematically default to visually
+proximate categories like unidentified bird or dominant head classes like wild
+boar. These visual discrepancies form a significant representational gap, yielding
+unreliable feature representations and poorly defined decision boundaries that
+severely restrict the model’s capacity for effective generalisation. Ultimately, two
+interacting factors contribute to this total detection collapse:
+1. Class-Imbalance Bias. Misclassifications of severely under-represented classes
+during training occur due to the network defaulting to dominant visual cues
+learned from the majority classes, yielding skewed posteriors that rely on
+class distribution priors rather than class-indicative image data.
+2. Domain Shift. Compared with training images, our Reduced-Bias Test
+shots exhibit different lighting, more partial occlusion, night scenes and
+stronger motion blur overall. These discrepancies widen the representational
+14
+Zehua Liu and Tilo Burghardt
+Table 4: Collapse in OOD Classification for Class ‘horse’. Distribution
+of class recognitions (all false) of best performing LTR model in the Reduced-
+Bias Test Set confirms catastrophic collapse of classification with the classifier
+defaulting to head classes even under maximal use of LTR adjustments.
+PREDICTED CLS
+COUNT
+PERCENT (%)
+domestic cow
+28
+44.4
+red deer
+19
+30.2
+coyote
+6
+9.5
+cougar
+4
+6.3
+american black bear
+3
+4.8
+unidentified deer
+1
+1.6
+mule deer
+1
+1.6
+unidentified bird
+1
+1.6
+gap and can lead to total detection collapse (see Table 4 for ’horse’ class
+and Table 5 for ’wild turkey’ class).
+Partial View Considerations. For many tail classes including horse, the network
+almost invariably predicts dominant classes, for horse mainly red deer or domes-
+tic cow whenever a full body is not visible. This not only reflects the model’s
+bias towards the most frequent ‘Head’ classes under uncertainty, but points par-
+ticularly to a problem of ‘unseen’ views. This observation points in the direction
+of future work to analyse data augmentation and the simulation of partial view
+detection and related generative data strategies to compliment LTR scheduling.
+5.3
+MCT Dataset Failure Mode Analysis
+The LTR Trade-off on Head Classes under Domain Shift. To understand the
+catastrophic breakdown and the negative impact of scheduling on the MCT
+dataset, we must analyse its species composition through the lens of LTR loss
+mechanisms. Unlike ENA and CCT which consist entirely of ‘Tail’ species, the
+MCT dataset prominently features major ‘Head’ classes from the NACTI train-
+ing distribution, specifically red deer and wild boar. LTR optimisation strate-
+gies, particularly LDAM and weighted configurations, are explicitly designed
+to penalise frequent classes by enforcing stricter margins or down-weighting
+their gradients, thereby forcing the model to allocate more representational ca-
+pacity to rare species. While this “suppress the head to boost the tail” logic
+succeeds in-domain, our MCT results expose its fragility under domain shift.
+Because the decision boundaries for ‘Head’ classes are artificially restricted dur-
+ing LTR training, the model’s feature representation for these species becomes
+highly sensitive. When faced with degraded, out-of-distribution images of red
+deer or wild boar in the MCT dataset, these shifted features easily fall outside
+Benchmarking NACTI in Long-Tailed Regimes
+15
+Fig. 7: Qualitative Examples regarding Domain Shift for Turkey Class.
+Train-test contrast of turkey class with, like horses, a small image corpus in
+training in the first place. Top row shows examples from bias-reduced test set
+whilst bottom row shows samples from the training set. Test images again involve
+night scenes, extreme shadows, and partial occlusions.
+their restricted margins. Consequently, further applying a learning rate sched-
+uler—which aggressively cements these LTR decision boundaries during late-
+stage training—exacerbates the misclassification of OOD ‘Head’ classes, explain-
+ing the counter-intuitive performance drop (e.g., LDAM dropping to 35.71%).
+Misclassification Patterns of OOD Head Classes. To quantitatively substanti-
+ate this trade-off, Table 6 isolates the performance of the two dominant ‘Head’
+classes (red deer and wild boar) within the MCT dataset. The data reveals a
+stark performance degradation or total predictive collapse when the learning rate
+scheduler is introduced to the LDAM loss. For instance, the accuracy for red deer
+explicitly drops from 71.55% to 65.48%, with the model increasingly defaulting
+to visually proximate but incorrect overarching classes such as domestic cow.
+Similarly, wild boar suffers from near-total detection failure (0.05% accuracy),
+being systematically misclassified into the other prominent majority class, red
+deer. This targeted predictive collapse directly correlates with the overall perfor-
+mance drop observed in Table 2. It provides empirical evidence that while LTR
+scheduling refines decision boundaries for rare species in-domain, it impacts the
+generalisation potential for the feature subspace of majority classes. When these
+majority classes undergo severe environmental shifts in natural OOD scenarios
+as in wildlife data, they are often pushed outside their #margins towards alter-
+native dominant priors leading to degradation of OOD performance even in head
+classes. This highlights that current training datasets like NACTI may contain
+rich species information, but the naturally possible variation of species’ appear-
+ance is not captured in them fully with significant need for further research.
+16
+Zehua Liu and Tilo Burghardt
+Table 5: Collapse in OOD Classification for Class ‘wild turkey’. Dis-
+tribution of class recognitions (all false) of best performing LTR model in the
+Reduced-Bias Test Set confirms catastrophic collapse of classification with the
+classifier defaulting to head classes even under maximal use of LTR adjustments.
+PREDICTED CLS
+COUNT
+PERCENT (%)
+unidentified bird
+193
+45.2
+wild boar
+113
+26.5
+nine-banded armadillo
+26
+6.1
+red deer
+19
+4.4
+mule deer
+17
+4.0
+unidentified corvus
+16
+3.7
+domestic cow
+15
+3.5
+domestic dog
+9
+2.1
+virginia opossum
+8
+1.9
+american black bear
+6
+1.4
+unidentified chipmunk
+2
+≈0.0
+coyote
+1
+≈0.0
+horse
+1
+≈0.0
+california quail
+1
+≈0.0
+Table 6: Predictive Collapse of ‘Head’ Classes on the MCT Dataset.
+Comparison of LDAM performance with and without a learning rate scheduler
+for the two dominant ‘Head’ species. The scheduler exacerbates accuracy degra-
+dation for OOD majority classes, forcing reliance on alternative dominant priors.
+Head Class
+Accuracy (%)
+Top Misclassified
+Class (Sched.)
+LDAM (Base) LDAM + Sched.
+red deer
+71.55%
+65.48%
+domestic cow
+wild boar
+0.00%
+0.05%
+red deer
+6
+Conclusions
+Reproducible NACTI SOTA Performance. In this line of work we delivered
+a reproducible improvement in long-tailed species recognition for the NACTI
+dataset. To make these capabilities accessible to the community, we publish the
+end-to-end pipeline that processes raw NACTI frames and fine-tunes a ResNet-
+50-based architecture with LTR losses under Adam/AdamW optimisers. We con-
+firm experimentally that a scheduled LDAM/AdamW configuration will yield
+overall 99.4% Top-1 accuracy, setting a new reference point for NACTI wildlife
+species recognition under long-tailed conditions. We publish full code, weights,
+and complete data split information for reproducibility.
+Benchmarking NACTI in Long-Tailed Regimes
+17
+OOD Analysis and Recommendation. We also provided a significantly extended
+domain-shift evaluation across three independent benchmarks (ENA, MCT, and
+CCT), exposing a critical representational trade-off in current long-tailed recog-
+nition methods. We demonstrated that while combining margin-aware LDAM
+losses with learning rate scheduling yields optimal generalisation for ‘Tail’-heavy
+OOD sets (e.g., ENA and CCT), this identical configuration may aggressively
+degrade performance on OOD ‘Head’ classes (MCT) in different settings. This
+shows an unfavourable interaction between domain shifts in natural settings and
+LTR adjustments to counteract long-tail distributions. Thus, given these insights
+in context with previous work [1], the recommendation of LDAM-scheduler se-
+tups as a starting point for boosting rare species detection must be given with
+the caveat that purely optimisation-based LTR methods remain insufficient for
+holistic cross-domain robustness across the entire data distribution. By estab-
+lishing a transparent benchmark, detailing these failure modes, and releasing
+reproducible SOTA pipelines, we hope to encourage the development of robust,
+data-centric, and transparent solutions in the evolving field of computer vision
+for wildlife monitoring.
+References
+1. Alshammari, S., Wang, Y.-X., Ramanan, D., Kong, S.: Long-tailed recognition via
+weight balancing. In: Proceedings of the IEEE/CVF Conference on Computer Vision
+and Pattern Recognition, pp. 6897–6907 (2022)
+2. Beery, S., Morris, D., Yang, S., Simon, M., Norouzzadeh, A., Joshi, N.: Efficient
+pipeline for automating species id in new camera trap projects. Biodiversity Infor-
+mation Science and Standards 3, e37222 (2019)
+3. Cao, K., Wei, C., Gaidon, A., Aréchiga, N., Ma, T.: Learning imbalanced datasets
+with label-distribution-aware margin loss. In: Neural Information Processing Sys-
+tems (2019)
+4. Chen, G., Liaw, A., Breiman, L.: Class imbalance in ecology and conservation: A
+review of methods and applications. Ecol. Informatics 24, 35–43 (2014)
+5. Cui, Y., Jia, M., Lin, T.-Y., Song, Y., Belongie, S. J.: Class-balanced loss based on
+effective number of samples. In: IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (CVPR), pp. 9260–9269 (2019)
+6. Dosovitskiy, A., Beyer, L., Kolesnikov, A., Weissenborn, D., Zhai, X., Unterthiner,
+T., Dehghani, M., Minderer, M., Heigold, G., Gelly, S., Uszkoreit, J., Houlsby, N.:
+An image is worth 16x16 words: Transformers for image recognition at scale. arXiv
+abs/2010.11929 (2020)
+7. Gadot, T., Istrate, S., Kim, H., Morris, D., Beery, S., Birch, T., Ahumada, J.: To
+crop or not to crop: Comparing whole-image and cropped classification on a large
+dataset of camera trap images. IET Computer Vision 18(8), 1193–1208 (2024)
+8. He, K., Zhang, X., Ren, S., Sun, J.: Deep residual learning for image recognition. In:
+Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition,
+pp. 770–778 (2016)
+9. Hernandez, A., Miao, Z., Vargas, L., Beery, S., Dodhia, R., Lavista, J.: Pytorch-
+wildlife: A collaborative deep learning framework for conservation (2024)
+10. Jia, L., Tian, Y., Zhang, J.: Domain-aware neural architecture search for classifying
+animals in camera trap images. Animals: an Open Access Journal from MDPI 12
+(2022)
+18
+Zehua Liu and Tilo Burghardt
+11. Kang, B., Xie, S., Rohrbach, M., Yan, Z., Gordo, A., Feng, J., Kalantidis, Y.:
+Decoupling representation and classifier for long-tailed recognition. In: Eighth In-
+ternational Conference on Learning Representations (ICLR) (2020)
+12. Krizhevsky, A., Sutskever, I., Hinton, G.E.: Imagenet classification with deep con-
+volutional neural networks. In: Pereira, F., Burges, C., Bottou, L., Weinberger, K.
+(eds.) Advances in Neural Information Processing Systems, vol. 25. Curran Asso-
+ciates, Inc. (2012)
+13. Kühl, H.S., Burghardt, T.: Animal biometrics: quantifying and detecting pheno-
+typic appearance. Trends in Ecology & Evolution 28(7), 432–441 (2013)
+14. LILA Science: ENA24-detection, https://lila.science/datasets/ena24detection, last
+accessed 2025/10/23
+15. LILA
+Science:
+NACTI
+Dataset:
+North
+American
+Camera
+Trap
+Images,
+https://lila.science/datasets/nacti, last accessed 2025/10/23
+16. LILA Science: Missouri Camera Traps https://lila.science/datasets/missouricameratraps,
+last accessed 2026/07/06
+17. LILA Science: Caltech Camera Traps https://lila.science/datasets/caltech-camera-
+traps, last accessed 2026/07/06
+18. Lin, T.-Y., Goyal, P., Girshick, R.B., He, K., Dollár, P.: Focal loss for dense object
+detection. IEEE Transactions on Pattern Analysis and Machine Intelligence 42,
+318–327 (2017)
+19. Loshchilov, I., Hutter, F.: Decoupled weight decay regularization. In: International
+Conference on Learning Representations (2017)
+20. Norouzzadeh, M.S., Morris, D., Beery, S., Joshi, N., Jojic, N., Clune, J.: A deep
+active learning system for species identification and counting in camera trap images.
+Methods in Ecology and Evolution 12(1), 150–161 (2021)
+21. Paszke, A., Gross, S., Massa, F., Lerer, A., Bradbury, J., Chanan, G., Killeen,
+T., Lin, Z., Gimelshein, N., Antiga, L., et al.: Pytorch: An imperative style, high-
+performance deep learning library. In: Advances in Neural Information Processing
+Systems 32, pp. 8024–8035 (2019)
+22. Perrett, T., Sinha, S., Burghardt, T., Mirmehdi, M., Damen, D.: Use your head:
+Improving long-tail video recognition. In: Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, pp. 2415–2425 (2023)
+23. Reynolds, S.A., Beery, S., Burgess, N., Burgman, M., Butchart, S.H., Cooke, S.J.,
+Coomes, D., Danielsen, F., Di Minin, E., Durán, A.P., et al.: The potential for ai
+to revolutionize conservation: a horizon scan. Trends in Ecology & Evolution 40(2),
+191–207 (2025)
+24. Tabak, M.A., Norouzzadeh, M.S., Wolfson, D.W., Newton, E.J., Boughton, R.K.,
+Ivan, J.S., Odell, E.A., Newkirk, E.S., Conrey, R.Y., Stenglein, J.L., Iannarilli, F.,
+Erb, J., Brook, R.K., Davis, A.J., Lewis, J.S., Walsh, D.P., Beasley, J.C., Ver-
+Cauteren, K.C., Clune, J., Miller, R.S.: Improving the accessibility and transfer-
+ability of machine learning algorithms for identification of animals in camera trap
+images: mlwic2. Ecology and Evolution 10(22), 12757–12767 (2020)
+25. Tabak, M.A., Norouzzadeh, M.S., Wolfson, D.W., Sweeney, S.J., VerCauteren,
+K.C., Snow, N.P., Halseth, J.M., Di Salvo, P.A., Lewis, J.S., Teton, A.M., Boughton,
+R.K., Miller, R.S.: Cameratrapdetector: Automatically detect, classify, and count
+animals in camera trap images using artificial intelligence. bioRxiv (2022)
+26. Tuia, D., Kellenberger, B., Beery, S., Costelloe, B.R., Zuffi, S., Risse, B., Mathis, A.,
+Mathis, M.W., Van Langevelde, F., Burghardt, T., et al.: Perspectives in machine
+learning for wildlife conservation. Nature Communications 13(1), 1–15 (2022)
+Benchmarking NACTI in Long-Tailed Regimes
+19
+27. Zhang, Y., Kang, B., Hooi, B., Yan, S., Feng, J.: Deep long-tailed learning: A
+survey. IEEE Transactions on Pattern Analysis and Machine Intelligence 45, 10795–
+10816 (2021)
+28. Liu, Z. and Burghardt, T. (2026). Long-Tailed Species Recognition in the NACTI
+Wildlife Dataset. In Proceedings of the 21st International Conference on Computer
+Vision Theory and Applications - Volume 2, ISBN 978-989-758-804-4, ISSN 2184-
+4321, pages 357-365. DOI: 10.5220/0014342200004084

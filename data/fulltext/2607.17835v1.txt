@@ -1,0 +1,859 @@
+New Number Formats for FFT IP Cores in Optical
+OFDM Transceivers
+Lukas Krupp∗, Gustavo Magalh˜aes Gomes De Souza∗, Sani Nassif† and Norbert Wehn∗
+∗RPTU University Kaiserslautern-Landau, Kaiserslautern, Germany
+†Radyalis LLC, Austin, TX, USA
+Abstract—Many state-of-the-art digital signal processing (DSP)
+implementations use fixed-point arithmetic due to its reduced
+hardware complexity and high throughput compared to conven-
+tional floating-point arithmetic. In contrast, machine learning
+accelerators exhibit substantial gains from reduced-precision
+floating-point formats, enabling improvements in energy effi-
+ciency and peak throughput. These advances motivate a re-
+evaluation of numerical representations for classical DSP work-
+loads. A central question is whether reduced-precision floating-
+point formats can achieve competitive power, performance, and
+area compared to fixed-point implementations, while providing
+advantages in dynamic range and numerical robustness. This
+paper presents a new cross-layer co-design methodology for
+DSP kernels that jointly optimizes numerical representations,
+arithmetic units, and application-level performance. As a case
+study, we focus on the fast Fourier transform (FFT), a funda-
+mental DSP block across many applications. The FFT is eval-
+uated within optical orthogonal frequency-division multiplexing
+(OFDM) transceivers, where it dominates power consumption
+and silicon area as FFT size and modulation order scale to
+support data rates beyond 100 Gbit/s. We compare fixed-point
+and reduced-precision floating-point formats using post-layout
+power and area results in a 12 nm FinFET technology and
+demonstrate system-level performance in terms of bit error rate
+(BER) versus Eb/N0. For a 256-point FFT engine in a 128 Gbit/s
+transceiver, we show that 11- and 12-bit custom floating-point
+formats preserve BER performance close to a 32-bit floating-point
+reference across multiple modulation orders, while reducing FFT
+core power by up to 19.8% and area by up to 12.0% compared to
+representative fixed-point designs. To the best of our knowledge,
+this is the first investigation of custom reduced-precision floating-
+point arithmetic for FFT cores in optical OFDM transceivers.
+Index Terms—low-precision arithmetic, custom floating-point
+formats, fast Fourier transform (FFT), optical OFDM
+I. INTRODUCTION
+Many state-of-the-art digital signal processing (DSP) imple-
+mentations rely on fixed-point arithmetic, enabling low hard-
+ware complexity, reduced power consumption, high through-
+put, and deterministic behavior compared to floating-point
+arithmetic. Consequently, fixed-point formats have long been
+the preferred choice for performance-critical kernels in com-
+munication systems, multimedia, and other DSP applications.
+Recent advances in machine learning (ML) accelerators
+have demonstrated that reduced-precision floating-point arith-
+metic can deliver dramatic improvements in energy efficiency
+and computational throughput. Over the past decade, the
+performance of ML accelerators has increased by nearly two
+This paper was partly funded by the German Federal Ministry of Research,
+Technology and Space as part of the project Open6GHub+ (16KIS2406).
+orders of magnitude every 24 months [1]. The most significant
+gains originate from architectural and numerical innovations.
+Aggressive reduction of floating-point precision has proven
+to be a key enabler. These techniques have seen widespread
+adoption both in industry, e.g., by GPU architectures from
+NVIDIA [2], and in academia, e.g., within the open-source
+RISC-V architectures from the PULP Platform [3].
+These developments motivate a re-evaluation of numer-
+ical representations for classical DSP workloads. Floating-
+point formats inherently provide a larger dynamic range
+and improved numerical robustness. However, it remains
+open whether reduced-precision floating-point arithmetic can
+achieve competitive power consumption, silicon area, and
+throughput compared to fixed-point implementations. The key
+question addressed in this work is therefore whether the
+efficiency gains achieved with reduced-precision floating-point
+arithmetic in ML can be transferred to DSP kernels.
+To answer this question, we adopt a cross-layer perspective
+that links numerical representation, hardware implementation,
+and system-level performance. As a case study, we focus on
+the fast Fourier transform (FFT), a foundational DSP kernel
+required in a wide range of DSP applications. The FFT
+is evaluated in the context of optical orthogonal frequency-
+division multiplexing (OFDM) transceivers, where it repre-
+sents one of the dominant contributors to power consumption
+and silicon area [4]. The use case is highly relevant for next-
+generation data-center interconnects and high-speed serial-
+izer–deserializer (SerDes) links, where optical OFDM enables
+high spectral efficiency under strict energy-per-bit constraints
+[5]. In this paper, we make the following key contributions:
+• A
+value-distribution-based
+optimization
+framework
+that systematically derives application-aware reduced-
+precision number formats for DSP kernels.
+• A detailed design-space exploration of an FFT IP core tar-
+geting a 128 Gbit/s optical OFDM transceiver, including
+post-layout power and area analysis using a state-of-the-
+art 12 nm FinFET technology.
+• A system-level validation within the OFDM transceiver,
+demonstrating that custom reduced-precision floating-
+point architectures outperform fixed-point implementa-
+tions in combined accuracy, power, and area efficiency.
+To the best of our knowledge, this is the first investigation
+of custom reduced-precision floating-point arithmetic for FFT
+cores in optical OFDM transceivers.
+This work has been submitted to the IEEE for possible publication. Copyright may be transferred without notice, after which this version may no longer be
+accessible.
+arXiv:2607.17835v1  [cs.AR]  20 Jul 2026
+II. BACKGROUND AND RELATED WORK
+A. Optical OFDM Transceivers
+The relevance of optical OFDM transceivers is strongly
+increasing due to current ML trends. In the era of large
+language models (LLMs), the rapid growth of model sizes
+has led to exponentially increasing demands on both inference
+and training performance. Two fundamental scaling strate-
+gies exist to meet these demands: scale-up, which increases
+the performance of individual compute nodes, and scale-out,
+which distributes workloads across massively parallel nodes.
+As single-node scaling struggles to keep pace with model
+growth, scale-out has become a necessity. Data centers deploy
+hundreds of thousands of interconnected accelerators [6].
+This architectural shift places high pressure on data-center
+interconnect bandwidth. Optical links, and in particular co-
+packaged optics (CPO), have emerged as state-of-the-art so-
+lutions due to their superior bandwidth density and energy
+efficiency in terms of pJ/bit compared to electrical intercon-
+nects [7]. The bottleneck in such systems lies in the electrical
+front-end, in particular in the SerDes pipelines [5].
+While current high-speed optical links [8] rely on non-
+return-to-zero (NRZ) and pulse-amplitude modulation (PAM-
+4), OFDM is explored as a promising candidate for next-
+generation optical SerDes. OFDM enables data rates beyond
+200 Gbit/s per wavelength through high spectral efficiency and
+improved robustness against channel impairments. However,
+these advantages come at the cost of DSP complexity [4]. In
+optical OFDM transceivers, FFT and IFFT blocks dominate
+the digital power and silicon area as FFT sizes and modulation
+orders scale to achieve peak throughputs. Consequently, FFT
+IP cores become a key determinant of the achievable energy
+efficiency and throughput of optical OFDM systems.
+N Parallel Data Channels
+Transmitter
+Receiver
+QAM Modulation
+Parallel to Serial + DAC
+ADC + Serial to Parallel
+IFFT
+FFT
+QAM Demodulation
+Equalization
+Fiber Optic 
+Channel
+TX
+Laser
+Ref.
+Laser
+IQ 
+Mod.
+IQ 
+Dem.
+I
+Q
+I
+Q
+N Parallel Data Channels
+M = 64
+M = 256
+M = 1024
+Fig. 1: Optical OFDM transceiver employing M-QAM mod-
+ulation with N parallel data channels.
+Fig. 1 shows the architecture of an optical OFDM
+transceiver. To increase spectral efficiency and throughput,
+optical OFDM systems scale along two dimensions: the QAM
+modulation order M and the FFT size N. Increasing M
+densifies the signal constellation, as shown in Fig. 1, reducing
+the minimum Euclidean distance between constellation points.
+This increases sensitivity to noise and tightens the signal-to-
+noise ratio (SNR) requirements. Higher-order QAM imposes
+stricter precision requirements on the underlying DSP blocks.
+Increasing the FFT size N enables finer subcarrier gran-
+ularity and higher degrees of parallelism, thereby supporting
+higher aggregate data rates. However, larger FFTs also increase
+the internal dynamic range due to signal accumulation across
+multiple stages and raise the number of arithmetic operations.
+As a result, FFT blocks dominate the power consumption and
+silicon area of the digital baseband as N scales. In high-
+throughput coherent optical links, the joint scaling of M and
+N is a key driver of both performance and implementation
+cost. Due to the resulting relevance of dynamic range and nu-
+merical precision, application-specific number formats emerge
+as a natural design lever to balance power, area, and numerical
+robustness in next-generation optical OFDM transceivers.
+B. Related Work
+The interest in custom number formats has been driven by
+deep neural networks (DNNs). The transition from IEEE-754
+floating-point to reduced-precision floating-point formats (e.g.,
+BF16, FP8, or FP4) has demonstrated substantial improve-
+ments in energy efficiency and throughput while maintaining
+model accuracy [9]. In the context of DNNs, automated
+optimization flows for custom floating-point systems have
+been proposed [10]. However, DNN workloads are inherently
+tolerant to quantization noise, unlike classical DSP applica-
+tions, where numerical errors directly affect signal integrity.
+Custom floating-point arithmetic has further been explored
+in high-level synthesis (HLS) frameworks targeting FPGA
+implementations [11]. While such approaches demonstrate
+architectural flexibility and resource savings, also within se-
+lected applications [12], system-level performance metrics
+are not incorporated into the precision selection process and
+accelerators are treated as stand-alone components.
+In FFT-based OFDM transceivers, prior work has focused
+on word-length optimization to balance quantization noise and
+hardware cost [13]. Adaptive-precision FFT architectures have
+been proposed to reduce energy consumption under BER con-
+straints. However, these approaches rely on fixed-point arith-
+metic and do not investigate reduced-precision floating-point
+formats. To the best of our knowledge, this work is the first
+to investigate custom reduced-precision floating-point formats
+in optical OFDM transceivers, jointly considering hardware
+implementation cost and communication performance.
+III. METHODOLOGY
+Fig. 2 shows the proposed cross-layer co-design methodol-
+ogy. The flow starts from a DSP application like optical OFDM
+and its specification. The parameters define the operating
+regime of the signal processing chain and directly influence
+the numerical requirements imposed on its DSP kernels.
+A. Overview
+The methodology first represents the DSP kernels under
+investigation, such as FFT or IFFT blocks, as executable
+Number Format
+Fitting
+Synthesis
+Place & Route
+Characteristic 
+Input 
+Distributions
+Empirical Intermediate Distributions
+System-level
+Model
+Configuration
+Candidates
+System-level
+Accuracy Metrics
+PPA Metrics
+N Parallel Data Channels
+Transmitter
+Receiver
+QAM Modulation
+Parallel to Serial + DAC
+ADC + Serial to Parallel
+IFFT
+FFT
+QAM Demodulation
+Equalization
+Fiber Optic 
+Channel
+TX
+Laser
+Ref.
+Laser
+IQ 
+Mod.
+IQ 
+Dem.
+I
+Q
+I
+Q
+N Parallel Data Channels
+DSP Application
++
++
++
++
++
++
+-
+-
+-
++
+y1,r
+y1,i
+y2,r
+y2,i
+x1,r
+x1,i
+x2,r
+x2,i
+wr
+wi
+Radix-2
+x[0]
+x[4]
+x[2]
+x[6]
+x[1]
+x[5]
+x[3]
+x[7]
+X[0]
+X[1]
+X[2]
+X[3]
+X[4]
+X[5]
+X[6]
+x[7]
+Radix-22
+Stage 1
+Stage 2
+Stage 3
+DSP Kernel Graph
+Pareto Front & Trade-off
+Fig. 2: Cross-layer co-design methodology for number formats in digital signal processing systems.
+directed acyclic graphs (DAGs) and embeds these models into
+a system-level simulation of the target DSP application. Rep-
+resentative input signal distributions are propagated through
+the DAG to obtain empirical value distributions and dynamic
+ranges at the internal nodes. These distributions are then used
+to fit candidate number formats to individual operations or
+groups of operations, after which the corresponding arithmetic
+units are instantiated in register-transfer level (RTL) microar-
+chitectures. The resulting designs are finally evaluated with
+respect to application-level accuracy and implementation effi-
+ciency, quantified through post-place-and-route (P&R) power,
+performance, and area (PPA) analysis. In this work, the FFT
+is used as a representative DSP kernel. The FFT is modeled
+as a composition of radix-2 butterfly units, as shown for an
+eight-input example in Fig. 2. Each butterfly is expressed as
+a DAG of real-valued arithmetic operations.
+Since multiple number formats may satisfy the system-level
+accuracy constraints, the approach yields a set of design points.
+The candidates form a Pareto front capturing the trade-offs
+between implementation efficiency and numerical accuracy.
+B. Distribution-based Number Format Fitting
+Based on the described DAG representation, number format
+selection is driven by empirical value distributions at internal
+nodes of the DSP kernel. Given a set of representative input
+vectors extracted from the application-level model, the DAG is
+executed and intermediate values are recorded at each node.
+Let Dv denote the empirical value distribution observed at
+node v. To characterize the numerical range requirements,
+multiple statistical descriptors are extracted from Dv. These
+include tail statistics derived from selected percentiles (e.g.,
+upper quartiles) and the maximum observed absolute values.
+The custom reduced-precision floating-point format consists
+of one sign bit, be exponent bits, bm mantissa bits, and an
+explicit exponent bias B, resulting in a real value
+x = (−1)S(1 + m)2e−B,
+(1)
+where e denotes the stored exponent value and m the fractional
+mantissa value. The exponent bit width be determines the
+dynamic range, while the mantissa bit width bm controls
+the precision. The bias B shifts the representable range. A
+custom floating-point format is denoted as FP⟨1 + be + bm⟩
+with E⟨be⟩M⟨bm⟩B⟨B⟩. Unlike standard floating-point, the
+parameters (be, bm, B) are treated as tunable variables and
+are aligned to the empirical node distributions Dv. To reduce
+hardware complexity, features associated with IEEE-compliant
+floating-point like exception handling are omitted.
+Number format fitting is performed using an iterative
+scheme. The exponent width, mantissa width, and bias are
+swept. For each candidate format, the representable range is
+compared against the statistical descriptors of the correspond-
+ing DAG node or node group distributions.
+IV. EXPERIMENTAL SETUP AND IMPLEMENTATION
+We implement a graph-based framework in C++ that models
+DSP kernels as executable DAGs. Using this library, FFT
+computation graphs are constructed. The FFT-DAG is wrapped
+as a Python function that mirrors the interface of the stan-
+dard NumPy FFT. The function accepts complex-valued input
+vectors and the format configuration F, which specifies the
+numerical representation evaluated.
+A. Optical OFDM Transceiver Simulation
+The FFT and IFFT implementations are integrated into a
+coherent optical OFDM transceiver simulation built on the
+OptiCommPy Python library [14]. A high-throughput optical
+OFDM configuration is evaluated, as summarized in Table I.
+The data rate is fixed to 128 Gbit/s, while the modulation order
+M is varied across a wide range to reflect increasing spectral-
+efficiency targets. This setup enables a systematic study of
+tightening SNR and quantization-noise requirements as both
+modulation order and internal FFT dynamic range increase.
+TABLE I: Experimental setup and simulation parameters
+Parameter
+Value
+Data rate
+128 Gbit/s
+FFT size N
+256
+QAM orders M
+64, 256, 1024, 4096
+Channel model
+AWGN
+Channel estimation
+Pilot-based, frequency-domain
+Equalization
+Single-tap per subcarrier (ZF)
+Number of OFDM frames
+1000
+Metric
+BER vs. Eb/N0
+B. FFT Microarchitecture
+The FFT hardware is implemented as a parametrizable IP
+core based on a single-path delay feedback (SDF) radix-22
+pipeline architecture. The SDF-FFT architecture [15] is widely
+adopted and provides a controlled microarchitectural base-
+line to compare arithmetic formats. For fixed-point designs,
+dynamic-range growth is controlled by stage-wise scaling, i.e.,
+division by two after the butterfly stages. This state-of-the-art
+technique avoids the accumulation of integer bits. Fixed-point
+operands use signed two’s-complement, where bi denotes the
+number of integer bits and bf the number of fractional bits.
+The total word length is W = bi +bf. For a given input distri-
+bution, bi is fitted so that changing W only changes fractional
+precision. We denote fixed-point configurations as INT⟨W⟩.
+Floating-point designs use the same format throughout the
+pipeline and do not employ scaling. The per-stage bit width
+assignment is not yet considered.
+All hardware variants are synthesized with the same target
+clock frequency of 500 MHz. Achieving the full system-level
+throughput of an optical OFDM transceiver may require par-
+allel SDF-FFT lanes. Therefore, the reported results focus on
+relative area, power, and accuracy trends between arithmetic
+formats under the same architecture, rather than claiming that
+a single SDF lane alone realizes the complete transceiver rate.
+C. Accuracy and Hardware Metrics
+For all candidate FFT cores synthesis and P&R are per-
+formed in a 12 nm FinFET technology using an industrial
+design flow based on Synopsys Design Compiler and IC Com-
+piler II. For each configuration, we report post-P&R silicon
+area as well as the estimated total power consumption. To
+capture the system-level impact of numerical distortions, BER-
+based accuracy metrics are adopted as the primary criterion for
+evaluating the numerical robustness of the FFT cores.
+For each arithmetic configuration and modulation order
+M, simulations of the OFDM transceiver are performed,
+and the resulting BER curves are evaluated over a sweep
+of SNR measured as Eb/N0. All BER results are evaluated
+relative to a 32-bit floating-point reference implementation.
+Let BERF(SNRi) denote the BER obtained with a given
+arithmetic format at SNR point SNRi, and let BERT(SNRi)
+denote the target BER with 32-bit floating-point precision. The
+excess logarithmic BER at each operating point is defined as
+∆i = log10(BERF(SNRi)) −log10(BERT(SNRi)) .
+(2)
+This logarithmic formulation reflects the exponential sen-
+sitivity of BER in practical systems and allows aggregation
+across operating points. Positive values of ∆i indicate a degra-
+dation relative to the reference, while ∆i = 0 corresponds
+to identical performance. From the set of SNR values where
+both target and reduced-precision BER are non-zero, the mean
+(µ∆) and the maximum (∆max) excess logarithmic BER are
+extracted. They capture the typical performance loss across
+the operating region and the worst-case behavior.
+V. RESULTS
+We first analyze the stage-wise unscaled value distributions
+of the FFT under representative optical OFDM input signals.
+At the FFT input, the signal magnitudes are clustered around
+unity due to the QAM constellation in the OFDM transmitter,
+as shown in Fig. 1. As the signal propagates through the
+FFT, the dynamic range increases gradually across stages, as
+expected due to additions in the butterflies. A key outcome
+of the fitting process is that the required dynamic range fits
+within a custom floating-point format with be = 4 and B = 8.
+A. System-Level Accuracy
+Once the exponent range covers the observed value growth,
+the remaining bit budget can be allocated to the mantissa
+(bm) to meet the precision requirements of the application.
+Therefore, we evaluate the BER performance of the optical
+OFDM transceiver for multiple QAM modulation orders using
+different numerical representations within the FFT. Fig. 3
+shows BER curves as a function of Eb/N0 for 64-QAM to
+4096-QAM. Results are reported for a full-precision FP32 FFT
+as reference, several reduced-precision floating-point candi-
+dates (FP10, FP11, and FP12 with be = 4 and B = 8), and a
+set of fixed-point implementations (INT13 to INT16).
+For reduced-precision floating-point formats, BER perfor-
+mance depends primarily on the available mantissa width. For
+lower-order modulations such as 64-QAM, even aggressive
+formats (e.g., FP10) achieve BER curves nearly indistinguish-
+able from FP32 over the evaluated Eb/N0 range. As the mod-
+ulation order increases, constellation points become denser
+and the system becomes increasingly sensitive to numerical
+noise introduced by reduced-precision arithmetic. This trend is
+particularly evident for 1024-QAM and 4096-QAM, where in-
+sufficient mantissa precision leads to a pronounced BER floor
+at moderate to high Eb/N0. Among the evaluated floating-
+point candidates, FP12 consistently tracks the FP32 reference
+across all QAM orders, while FP11 represents a marginal but
+still acceptable configuration depending on the target BER.
+FP10 exhibits early saturation for higher modulation orders.
+Fixed-point implementations show a similar behavior, with
+BER performance improving monotonically as fractional pre-
+cision increases. However, fixed-point formats require more
+fractional bits to approach the floating-point baseline.
+0
+5
+10
+15
+20
+25
+30
+Eb/N0 [dB]
+3.5
+3.0
+2.5
+2.0
+1.5
+1.0
+0.5
+0.0
+log10 (BER)
+fixed
+float
+FP32
+FP10 (E4M5B8)
+FP11 (E4M6B8)
+FP12 (E4M7B8)
+INT13
+INT14
+INT15
+INT16
+Theory
+(a) 64-QAM
+0
+5
+10
+15
+20
+25
+30
+Eb/N0 [dB]
+3.5
+3.0
+2.5
+2.0
+1.5
+1.0
+0.5
+0.0
+log10 (BER)
+fixed
+float
+FP32
+FP10 (E4M5B8)
+FP11 (E4M6B8)
+FP12 (E4M7B8)
+INT13
+INT14
+INT15
+INT16
+Theory
+(b) 256-QAM
+0
+5
+10
+15
+20
+25
+30
+Eb/N0 [dB]
+3.5
+3.0
+2.5
+2.0
+1.5
+1.0
+0.5
+0.0
+log10 (BER)
+fixed
+float
+FP32
+FP10 (E4M5B8)
+FP11 (E4M6B8)
+FP12 (E4M7B8)
+INT13
+INT14
+INT15
+INT16
+Theory
+(c) 1024-QAM
+0
+5
+10
+15
+20
+25
+30
+Eb/N0 [dB]
+3.5
+3.0
+2.5
+2.0
+1.5
+1.0
+0.5
+0.0
+log10 (BER)
+fixed
+float
+FP32
+FP10 (E4M5B8)
+FP11 (E4M6B8)
+FP12 (E4M7B8)
+INT13
+INT14
+INT15
+INT16
+Theory
+(d) 4096-QAM
+Fig. 3: BER versus Eb/N0 for increasing QAM modulation orders comparing FP32, reduced-precision floating-point, and
+fixed-point FFT/IFFT implementations.
+B. Hardware Results and Trade-Off
+Table II reports post-P&R power and area for the fixed-point
+and floating-point FFT cores implemented in a 12 nm FinFET
+technology. In addition, the table includes the application-
+level accuracy metrics introduced in Section IV-C. We omit
+configurations FP10 (E4M5B8) and INT13, which are shown
+in Fig. 3, since their numerical robustness degrades rapidly.
+Among fixed-point implementations, increasing the frac-
+tional precision monotonically improves the numerical robust-
+ness, but at the cost of higher power and silicon area. INT16
+exhibits the highest power consumption (8.2 mW) and largest
+area (0.027 mm2) among the designs. In contrast, floating-
+point formats achieve a more favorable balance between
+accuracy and hardware cost. FP11 (E4M6B8) reduces power
+by approximately 19.8% and area by 12.0% relative to INT16,
+while FP12 (E4M7B8) achieves reductions of 17.1% in power
+and 7.4% in area. From an accuracy perspective, FP12 exhibits
+low mean and bounded worst-case BER degradation across all
+QAM orders, closely matching the results of INT16.
+The advantage of floating-point over fixed-point can be
+attributed to two structural effects. First, fixed-point formats
+are uniformly distributed across their value range. In contrast,
+floating-point formats exploit exponent scaling to cover rare
+large-magnitude events while preserving mantissa precision
+where it matters most. Second, when the exponent range is
+constrained and arithmetic units are simplified, floating-point
+adders and multipliers can be implemented efficiently.
+Fig. 4 provides a complementary design-space view by
+plotting the per-M Pareto fronts for post-P&R power and area.
+For small QAM orders (M = 64 and M = 256), multiple
+configurations cluster near the low-BER, low-power region,
+indicating that aggressive precision reduction is feasible with
+minimal system-level impact. As M increases, the Pareto
+fronts shift to the right, reflecting the growing sensitivity to
+quantization noise as the QAM constellations tighten. Across
+all QAM orders, FP11 and FP12 lie on the Pareto-optimal
+frontier, offering lower power and area than INT16 at compa-
+rable accuracy levels. FP11 trades modest BER degradation for
+additional efficiency gains compared to FP12. As M increases,
+the accuracy gap between INT16 and FP11/FP12 widens.
+It is important to note that the floating-point formats consid-
+ered in this study were fitted with M = 256 as the operating
+point. Consequently, their bit width allocation reflects a trade-
+off between dynamic range and precision optimized for small-
+to medium-order constellations. Re-fitting the floating-point
+parameters for higher QAM orders would likely reduce the
+gap. This also explains why the mean excess log10(BER) for
+M = 256 is in some cases lower than for M = 64.
+VI. CONCLUSION
+In this paper, we revisited number formats for classical DSP
+in view of the recent success of reduced-precision floating-
+point arithmetic in ML accelerators. We proposed a cross-
+TABLE II: Post-P&R power and area in 12 nm FinFET and numerical robustness metrics for FFT core variants. Reported
+values show mean and maximum excess log10(BER) relative to floating-point reference for different modulation orders M.
+Format
+Power (mW)
+Area (mm2)
+M=64
+M=256
+M=1024
+M=4096
+µ∆
+∆max
+µ∆
+∆max
+µ∆
+∆max
+µ∆
+∆max
+INT14
+7.6
+0.023
+0.0665
+0.4260
+0.1532
+0.9353
+0.3084
+1.7889
+0.4077
+2.1288
+INT15
+8.1
+0.025
+0.0421
+0.3979
+0.0793
+0.5677
+0.1924
+1.2759
+0.3125
+1.8296
+INT16
+8.2
+0.027
+0.0138
+0.0969
+0.0190
+0.1165
+0.0357
+0.7097
+0.0807
+0.9983
+FP11 (E4M6B8)
+6.5
+0.022
+0.0723
+0.7792
+0.0725
+0.3865
+0.1908
+1.2492
+0.3141
+1.8921
+FP12 (E4M7B8)
+6.8
+0.025
+0.0351
+0.2632
+0.0178
+0.1946
+0.0430
+0.3979
+0.1348
+1.0000
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+0.35
+0.40
+Mean Excess log10(BER)
+6.50
+6.75
+7.00
+7.25
+7.50
+7.75
+8.00
+8.25
+Power [mW]
+INT14
+INT15
+INT16
+FP11 (E4M6B8)
+FP12 (E4M7B8)
+fixed
+float
+M = 64
+M = 256
+M = 1024
+M = 4096
+(a) Accuracy–power per-M Pareto fronts.
+0.00
+0.05
+0.10
+0.15
+0.20
+0.25
+0.30
+0.35
+0.40
+Mean Excess log10(BER)
+0.022
+0.023
+0.024
+0.025
+0.026
+0.027
+Area [mm2]
+INT14
+FP12 (E4M7B8)
+INT15
+INT16
+FP11 (E4M6B8)
+fixed
+float
+M = 64
+M = 256
+M = 1024
+M = 4096
+(b) Accuracy–area per-M Pareto fronts.
+Fig. 4: Joint multi-objective visualization of arithmetic design points for the FFT core. Marker size represents total bit width.
+layer co-design methodology that links (i) application-driven
+value distributions, (ii) fitting of custom number formats,
+(iii) arithmetic-unit instantiation, and (iv) joint evaluation of
+system-level performance and post-P&R PPA metrics. As a
+case study, we investigated a 256-point FFT engine embedded
+in a 128 Gbit/s optical OFDM transceiver and implemented
+in a 12 nm FinFET technology. We showed that fitted 11–12-
+bit custom floating-point formats preserve BER performance
+close to a 32-bit floating-point reference, while reducing power
+by up to 19.8% and silicon area by up to 12.0% compared to
+fixed-point designs. The results indicate that reduced-precision
+floating-point arithmetic can be beneficial for DSP kernels
+when the format is aligned to the application-level require-
+ments. Future work includes investigating fitting techniques
+beyond the global assignment, approximate arithmetic, and ap-
+plying the methodology to other DSP kernels and applications.
+REFERENCES
+[1] M. Verhelst, L. Benini, and N. Verma, “How to keep pushing ML
+accelerator performance? know your rooflines!,” IEEE J. Solid-State
+Circuits, vol. 60, no. 6, pp. 1888–1905, 2025.
+[2] F. Abecassis et al., “Pretraining large language models with NVFP4,”
+2025. [Online]. Available: https://arxiv.org/abs/2509.25149
+[3] K. Chapman, F.-J. Shen, J.-K. Lin, and J.-K. Lee, “Extending a RISC-V
+core with sub-FP8 support for machine learning,” in Proc. Int. Conf.
+Hardware/Software Codesign Syst. Synthesis (CODES+ISSS), Taipei,
+Taiwan, 2025, pp. 15–16.
+[4] G. Kim, “Design space exploration of single-lane OFDM-based serial
+links for high-speed wireline communications,” IEEE Open J. Circuits
+Syst., vol. 3, pp. 134–146, 2022.
+[5] J. M. Kahn, J. Krause Perin, and A. Shastri, “Data center links beyond
+100 Gb/s per wavelength,” in Proc. Opt. Fiber Commun. Conf. Exhib.
+(OFC), 2020, pp. 1–28.
+[6] K. F. Pilz, J. Sanders, R. Rahman, and L. Heim, “Trends in AI super-
+computers,” 2025. [Online]. Available: https://arxiv.org/abs/2504.16026
+[7] S. Razdan, M. Traverso, and A. Torza, “Co-packaged optics integration
+for hyperscale networking,” Cisco Systems, San Jose, CA, USA, 2023.
+[8] T. Chan Carusone, T. O. Dickson, S. Palermo, S. Shekhar, and M.
+Mansuri, “Modern wireline transceivers,” IEEE J. Solid-State Circuits,
+vol. 61, no. 2, pp. 395–422, 2026.
+[9] G. Alsuhli, V. Sakellariou, H. Saleh, M. Al-Qutayri, B. Mohammad, and
+T. Stouraitis, “A survey and comparative analysis of number systems for
+deep neural networks,” Proc. IEEE, vol. 113, no. 2, pp. 172–207, 2025.
+[10] Q. Milot, M. Dardaillon, J. Bonnot, and D. Menard, “Wordlength opti-
+mization for custom floating-point systems,” in Design and Architectures
+for Signal and Image Processing: 17th Int. Workshop (DASIP), Jan.
+2024, pp. 43–55.
+[11] M. Fiorito, S. Curzel, and F. Ferrandi, “TrueFloat: A templatized arith-
+metic library for HLS floating-point operators,” in Embedded Computer
+Systems: Architectures, Modeling, and Simulation: 23rd Int. Conf.
+(SAMOS), Samos, Greece, July 2023, pp. 486–493.
+[12] S. Curzel and M. Gribaudo, “Custom floating-point computations for
+the optimization of ODE solvers on FPGA,” in Proc. 16th Workshop
+Parallel Program. Run-Time Manage. Techn. Many-Core Archit. and
+14th Workshop Design Tools Archit. Multicore Embedded Comput.
+Platforms (PARMA-DITAM), vol. 127, 2025, pp. 2:1–2:13.
+[13] H. Abdoli, H. Nikmehr, N. Movahedinia, and F. de Dinechin, “Improving
+energy efficiency of OFDM using adaptive precision reconfigurable
+FFT,” Circuits Syst. Signal Process., vol. 36, no. 7, pp. 2742–2766,
+2017.
+[14] E. P. da Silva and A. F. Herbster, “OptiCommPy: Open-source simula-
+tion of fiber optic communications with Python,” J. Open Source Softw.,
+vol. 9, no. 98, p. 6600, 2024.
+[15] M. Garrido, “A survey on pipelined FFT hardware architectures,” J.
+Signal Process. Syst., vol. 94, pp. 1345–1364, 2022.

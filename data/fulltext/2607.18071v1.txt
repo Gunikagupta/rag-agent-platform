@@ -1,0 +1,2469 @@
+DFT+U+V is equivalent to DFT+U with density-dependent hybridized projectors
+Edward Linscott
+∗and Alberto Carta
+PSI Center for Scientific Computing, Theory and Data,
+Paul Scherrer Institute, 5232 Villigen PSI, Switzerland and
+National Centre for Computational Design and Discovery of Novel Materials (MARVEL),
+Paul Scherrer Institute, 5232 Villigen PSI, Switzerland
+Nicola Marzari
+PSI Center for Scientific Computing, Theory and Data,
+Paul Scherrer Institute, 5232 Villigen PSI, Switzerland
+National Centre for Computational Design and Discovery of Novel Materials (MARVEL),
+Paul Scherrer Institute, 5232 Villigen PSI, Switzerland
+Theory and Simulation of Materials (THEOS), ´Ecole Polytechnique F´ed´erale de Lausanne, 1015 Lausanne, Switzerland and
+Theory of Condensed Matter, Cavendish Laboratory,
+University of Cambridge, Cambridge CB3 0US, United Kingdom
+(Dated: July 21, 2026)
+Hubbard-corrected density-functional theory (DFT+U ) is a popular tool for first-principles model-
+ing of materials with localized d or f electrons, but its on-site corrections tend to over-localize charge
+and break covalent bonds. Inter-site +V corrections were introduced to counter this and are now
+widely used, but a formal justification has been lacking. Here we show that — to first order in V/U
+— inter-site corrections are exactly equivalent to on-site DFT+U evaluated on a density-dependent
+redefinition of the Hubbard projectors, hybridized with those of neighboring sites, providing insight
+into the explicit mechanism by which V affects covalency.
+If the projectors are held frozen, as
+is common practice, the equivalence partially breaks down. Beyond reinterpreting the formalism,
+these results sharpen the questions of how V should be computed and what the Hubbard subspaces
+fundamentally are.
+Density-functional theory (DFT) is a cornerstone of first-
+principles modeling across physics, chemistry, and mate-
+rials science [1–5], but it fails for so-called “strongly cor-
+related” materials — loosely, those whose ground-state
+wavefunction has no single dominant electronic configu-
+ration — for instance, wrongly predicting many transi-
+tion metal oxides (TMOs) to be metallic [6, 7]. DFT+U
+was initially developed to address this failure, inspired
+by the success of the Hubbard model (a comparatively
+simple model Hamiltonian that captures the essential
+physics of the Mott transition [8]). The DFT+U energy
+functional — here in its rotationally invariant simplified
+form using fully-localized-limit double-counting [9–11] —
+is given by
+EDFT+U = EDFT +
+X
+Iσ
+U I
+2 Tr
+
+nIIσ(1 −nIIσ)
+
+,
+(1)
+where the occupancy matrix
+nIIσ
+mm′ = ⟨ϕIσ
+m |ˆρσ|ϕIσ
+m′⟩=
+X
+ν
+f σ
+ν ⟨ϕIσ
+m |ψσ
+ν ⟩⟨ψσ
+ν |ϕIσ
+m′⟩
+(2)
+is the projection of the spin-dependent Kohn-Sham den-
+sity operator ˆρσ = P
+ν f σ
+ν |ψσ
+ν ⟩⟨ψσ
+ν | (with ν being a com-
+pound index for both crystal momentum and band in-
+dex) onto a local subspace (indexed I) as defined by
+∗edward.linscott@psi.ch
+a set of orbitals {ϕIσ
+m } [12–14].
+Typically, these or-
+bitals are atom-centered, fixed, localized, orthonormal
+(as in the “ortho-atomic” scheme employed in this work),
+and correspond to the 3d or 4f subshell of a transition
+metal/lanthanide [15].
+Meanwhile, U I is the Hubbard
+parameter for site I, and defines the strength of the Hub-
+bard correction that will be applied to this particular
+subspace.
+The derivation of DFT+U from the Hubbard model
+rests on several severe approximations — chief among
+them, that all electronic interactions are neglected ex-
+cept for local Hartree-Fock terms within each Hubbard
+site. Consequently, DFT+U does not model genuinely
+strongly correlated chemistry; even so, it has in practice
+been applied with remarkable success to many different
+classes of materials (see Refs. [16–18], among many oth-
+ers).
+DFT+U can be placed on more rigorous and trans-
+parent footing by framing it as a correction not of strong
+correlations, but of self-interaction [19, 20]. This alter-
+native interpretation rests on the observation that the
+Hubbard correction of Eq. (1) reduces the spurious cur-
+vature of the total energy with respect to the occupations
+of each Hubbard subspace (more specifically, the eigen-
+values λIσ
+i
+of the on-site occupation matrices nIIσ). With
+a judicious choice of U I, the DFT+U energy term can
+thus be seen as counteracting “many-body” SIE (with
+the important caveat that correcting this local curvature
+does not necessarily remedy the global curvature with re-
+spect to total particle number; see Supp. Mat. S1 [21]).
+arXiv:2607.18071v1  [cond-mat.mtrl-sci]  20 Jul 2026
+2
+This interpretation not only helps to explain the success
+of DFT+U , but framing DFT+U as a correction to SIE
+also provides us with a recipe to choose the Hubbard pa-
+rameters {U I}: compute the erroneous curvature directly
+from linear response DFT, and then set {U I} to match
+the observed error (see Supp. Mat. S2). Since DFT+U
+predictions depend strongly on the value of U, this un-
+biased first-principles procedure is a prerequisite for the
+theory to be predictive.
+However, even with a recipe for computing Hubbard
+parameters, the DFT+U method is not without its short-
+comings — not least that the choice of the Hubbard
+projectors themselves remains largely arbitrary, a point
+to which we will return.
+In addition, it has been ob-
+served that DFT+U can over-localize charge and artifi-
+cially break covalent bonds [22, 23]. This arises because
+the Hubbard corrections shift the energy levels of the
+projector orbitals, disrupting any hybridization (i.e. co-
+valency) that might be occurring between these orbitals
+and those of neighboring atoms (because effective hy-
+bridization between orbitals requires them to have sim-
+ilar energies) [24, 25]. This is not a corner case: away
+from the most ionic compounds, metal–ligand hybridiza-
+tion is the rule rather than the exception, and a purely
+on-site correction cannot see it. In an effort to address
+this, DFT+U has been extended to DFT+U +V :
+EDFT+U+V = EDFT+U −
+X
+IJσ
+V IJ
+2 Tr
+
+nIJσnJIσ
+,
+(3)
+where the strength of these inter-site corrections is de-
+fined by the V IJ parameters [22, 26].
+Typically, V IJ
+is chosen to be non-zero only between neighboring sites.
+Like the DFT+U functional, it follows from the Hub-
+bard model under a single-Slater-determinant approxi-
+mation [10], now also retaining Hartree-Fock interactions
+between adjacent sites.
+V parameters are typically calculated from the off-
+diagonal components of the same response matrices con-
+structed to determine U. However, the formal justifica-
+tion for doing so is unclear: while the diagonal response is
+related to an erroneous curvature of the total energy with
+respect to the occupation of the Hubbard subspace d2E
+dλ2
+i ,
+and therefore can be framed as a correction to SIE, there
+is no equivalent reason why the off-diagonal
+d2E
+dλidλj should
+also be zero. Put another way, +U has a clear target —
+removing the spurious on-site curvature d2E
+dλ2
+i — whereas
+it is far less clear what error of approximate DFT the +V
+correction is meant to remedy. Nevertheless, DFT+U +V
+has proven remarkably successful in practice, improving
+the description of band gaps, oxidation states, cathode
+voltages, and defect chemistry [27–34].
+Its advantage
+over DFT+U can occasionally be marginal [35–37], but
+its quantitative accuracy can be excellent: computed in-
+tercalation voltages of olivine-type Li-ion cathodes fall
+within a few percent of experiment, outperforming DFT,
+DFT+U , and HSE06 alike [31]. This raises the question:
+what is the physical meaning of the V corrections, and
+why do they typically improve over DFT+U ?
+This Letter demonstrates that to first order in V/U,
+DFT+U +V is exactly on-site DFT+U evaluated on a
+redefinition of the Hubbard projectors.
+To prove this,
+we first rewrite the DFT+U energy in the basis {|φIσ
+i ⟩}
+of eigenvectors of the on-site occupation matrix nIIσ,
+with eigenvalues λIσ
+i .
+These “block-diagonalizing pro-
+jectors” are the natural orbitals of each site — oriented
+by the local chemical environment rather than by the
+arbitrary orientation of the original projectors — and
+their occupations λIσ
+i
+are precisely the quantities whose
+spurious curvature the +U correction removes.
+The
+block-diagonalizing projectors of antiferromagnetic NiO
+are shown in Figs. 1d–1f alongside the original projec-
+tors (panels a–c).
+We then hybridize each site with
+its V -coupled neighbors by rotating |φIσ
+i ⟩−→e ˆT |φIσ
+i ⟩,
+where ˆT is an as-yet-unknown anti-Hermitian generator
+that induces a hybridization of order V/U, built from
+the Hubbard parameters and the inter-site occupations
+ΛIJσ
+ij
+= ⟨φIσ
+i |ˆρσ|φJσ
+j ⟩(the off-diagonal density-matrix el-
+ements that quantify the covalency between sites I and
+J). In the Appendix we prove that there is a specific
+choice ˆT = ˆS for which the DFT+U energy of the hy-
+bridized projectors reproduces the DFT+U +V energy,
+EU[ ˆS] = EU + EV + O(V 2/U),
+(4)
+where EU[ ˆS] denotes the DFT+U correction energy eval-
+uated using the “hybridized” projectors {e ˆS|φIσ
+i ⟩}, and
+EU +EV is the energy of the DFT+U +V correction ap-
+plied to the original projectors. This generator ˆS is given
+explicitly by
+⟨φIσ
+i | ˆS|φJσ
+j ⟩=
+V IJΛJIσ
+ji
+U I(1 −2λIσ
+i ) −U J(1 −2λJσ
+j ).
+(5)
+(For bulk systems, ˆS takes the k-dependent form given in
+Supp. Mat. S5.) Eq. (4) can be differentiated, upon which
+we find that the DFT+U potential applied to these hy-
+bridized projectors reproduces the full DFT+U +V po-
+tential. This is the central result of this work: in the
+limit V ≪U, the inter-site +V correction is exactly a
+redefinition of the Hubbard projectors. Since ˆS is built
+from the occupations themselves, this redefinition is in-
+trinsically density-dependent. This also identifies the er-
+ror that +V remedies: to first order it imposes the very
+same occupation-curvature penalty as +U — a correc-
+tion to SIE — but measured on the hybridized projectors
+rather than the bare ones.
+To understand how this rotation affects the Hubbard
+projectors, consider the typical DFT+U +V setup, in
+which inter-site corrections couple a 3d or 4f site to the
+2p orbitals of ligands that are not themselves Hubbard-
+corrected. For this case, the rotation acts on the projec-
+tors as
+|φIσ
+i ⟩−→|φIσ
+i ⟩−
+X
+J
+X
+j
+ΛIJσ
+ij
+1 −2λIσ
+i
+V IJ
+U I |φJσ
+j ⟩.
+(6)
+3
+ϕIσ
+m (r)
+φIσ
+i (r)
+˜φIσ
+i (r)
+| ˜φIσ
+1 (r)|2 −|φIσ
+1 (r)|2
+| ˜φIσ
+2 (r)|2 −|φIσ
+2 (r)|2
+a
+b
+c
+d
+e
+f
+g
+h
+i
+j
+k
+FIG. 1. The original ϕIσ
+m (r), block-diagonalizing φIσ
+i (r), and doubly hybridized Hubbard projectors ˜φIσ
+i (r) = e2 ˆ
+SφIσ
+i (r) of
+nickel in antiferromagnetic NiO for the minority spin channel. For simplicity, only one nickel atom (green) and its nearest-
+neighbor oxygen atoms (red) are shown. The left column (a–c) shows three of the five original Hubbard projectors, defined as
+orthogonalized hydrogenic orbitals oriented with the Cartesian axes. (The crystal structure happens to align with the Cartesian
+directions, but in general the orientation of these orbitals is arbitrary.) The second column (d–f) shows the block-diagonalizing
+projectors |φIσ
+i ⟩, i.e. the eigenvectors of nII; unlike the original projectors, these are oriented with respect to the local chemical
+environment, with octahedral crystal-field splitting producing a dx2−y2 orbital (d), a dz2 orbital (e), and a combination of the
+degenerate t2g orbitals (f). The third column (g–i) shows the doubly hybridized projectors; the first two weakly hybridize with
+the oxygen 2p orbitals. Panels j and k show the density difference between the first two hybridized and block-diagonalizing
+orbitals (orange regions positive, blue negative), revealing the increased antibonding character with the chemically relevant
+oxygens.
+This shows that the new hybridized projectors remain
+centered on site I but acquire weight from the orbitals of
+its V -coupled neighbors (e.g. the 2p orbitals of oxygen in
+a transition metal oxide). The admixture of |φJσ
+j ⟩grows
+with V IJ/U I and with the off-diagonal occupancy ΛIJσ
+ij
+,
+and is smallest when orbital i is near integer occupation.
+As λIσ
+i
+→1
+2, its on-site +U potential U I
+2 (1 −2λIσ
+i ) van-
+ishes, so the inter-site term is no longer small by compar-
+ison and the expansion fails even for V ≪U. Example
+hybridized orbitals for bulk NiO are shown in Figs. 1g–
+1i.
+In particular, the spin-minority eg hybridized pro-
+jectors gain antibonding character (Figs. 1j and 1k). Be-
+cause they are less than half-filled, the +U penalty drives
+their occupation even further down, depleting antibond-
+ing density and strengthening the Ni–O bond — so apply-
+ing +U to the hybridized projectors enhances covalency,
+the opposite of the over-localization caused by +U on
+the bare projectors. This makes precise the common in-
+tuition that +V “restores covalency”: to first order, +V
+adds no physics beyond the occupation-curvature penalty
+of +U. What changes is where that penalty is measured:
+now, it is applied to hybridized projectors that already
+contain the bond’s covalent character, rather than to bare
+projectors, where the same correction would disrupt that
+covalency. DFT+U +V thus improves on DFT+U wher-
+ever the bare projectors misrepresent the covalent charac-
+ter of the subspace — though whether a deeper principle
+selects these hybridized projectors is a question to which
+we will return.
+As noted above, because the generator ˆS is a functional
+of the density, the hybridized projectors {e ˆS|φIσ
+i ⟩} are
+density-dependent. This is a major departure from stan-
+dard DFT+U practice, in which the Hubbard projectors
+are externally specified functions, chosen once and held
+frozen throughout the calculation — with only rare ex-
+ceptions, such as the projector-self-consistent scheme of
+Ref. [38]. Given that using frozen projectors is standard
+practice, let us briefly consider this regime. Using frozen
+projectors does not affect the energy equivalence, because
+the proof in the Appendix is an identity at fixed density:
+at the density for which ˆS is constructed, the frozen hy-
+bridized projectors still reproduce the DFT+U +V en-
+ergy.
+However, the same is not true of the potential.
+The full potential with density-dependent projectors cor-
+responds to the functional derivative of the energy with
+respect to the density:
+δEU[ ˆS[ˆρ]]
+δˆρσ
+=δEU
+δˆρσ
+ ˆS
++
+D∂EU
+∂ˆS
+,
+∂ˆS
+∂ˆρσ
+E
+.
+(7)
+Evaluating this derivative (see Supp. Mat. S6) gives
+δEU[ ˆS[ˆρ]]
+δˆρσ
+= ˆV σ
+U + ˆV σ
+V + O(V 2/U),
+(8)
+— that is, the DFT+U potential applied to hybridized
+projectors reproduces the full DFT+U +V potential, as
+expected. Freezing the projectors amounts to dropping
+the second term in Eq. (7).
+Doing so, one finds that
+4
+Ni (maj)
+Ni (min)
+O
+O
+Ni (maj)
+Ni (min)
+O
+O
+-3.45
+0.01
+-0.01
+-3.45
+0.01
+-0.01
+-3.47
+-3.47
+-3.47
+1.98
+-0.22
+0.22
+1.98
+-0.22
+0.22
+-3.47
+-3.47
+-3.47
+0.01
+-0.22
+0.01
+-0.22
+-0.01
+0.22
+-0.01
+0.22
+(a) VU + V
+Ni (maj)
+Ni (min)
+O
+O
+-3.45
+0.01
+-0.01
+-3.45
+0.01
+-0.01
+-3.47
+-3.47
+-3.47
+1.94
+-0.22
+0.22
+1.94
+-0.22
+0.22
+-3.47
+-3.47
+-3.47
+0.01
+-0.22
+0.02
+-0.02
+0.01
+-0.22
+0.02
+-0.02
+-0.01
+0.22
+-0.02
+0.02
+-0.01
+0.22
+-0.02
+0.02
+(b) V(0)
+Ni (maj)
+Ni (min)
+O
+O
+-0.05
+-0.05
+0.02
+-0.02
+0.02
+-0.02
+-0.02
+0.02
+-0.02
+0.02
+(c) V(0)
+VU + V
+Ni (maj)
+Ni (min)
+O
+O
+-3.45
+0.01
+-0.01
+-3.45
+0.01
+-0.01
+-3.47
+-3.47
+-3.47
+1.99
+-0.22
+0.22
+1.99
+-0.22
+0.22
+-3.47
+-3.47
+-3.47
+0.01
+-0.22
+0.01
+-0.22
+-0.01
+0.22
+-0.01
+0.22
+(d) V(0) + V(2)
+Ni (maj)
+Ni (min)
+O
+O
+(e) V(0) + V(2)
+VU + V
+100
+10
+1
+10
+2
+0
+10
+2
+10
+1
+100
+FIG. 2. The frozen-projector approximation reproduces the exact DFT+U +V potential in bulk antiferromagnetic nickel oxide
+to within a small residual (panels a–c), which can be almost entirely accounted for by a single analytic second-order term
+(panels d, e). Each panel shows the matrix elements of various potentials in the basis of block-diagonalizing orbitals {φIσ
+i }
+evaluated at the Γ-point. The matrices are subdivided by Hubbard site; one can clearly see the five d orbitals of each Ni and the
+three p orbitals of each O. (The unit cell contains four atoms: two Ni and two O.) Panel (a) shows the matrix elements of the
+full (i.e. exact) DFT+U +V potential ⟨φIσ
+i | ˆVU + ˆVV |φJσ
+j ⟩. The on-site blocks of the potential are clearly diagonal in this basis
+(by design). Panel (b) shows the matrix elements of the approximate potential ⟨φIσ
+i | ˆ˜V (0)σ|φJσ
+j ⟩(Eq. (9)), which, as desired,
+closely replicate the full DFT+U +V potential: the differences between the two are shown in panel (c). Panel (d) shows the
+matrix elements of the potential ⟨φIσ
+i | ˆ˜V (0)σ + ˆ˜V (2)σ|φJσ
+j ⟩, where ˆ˜V (2)σ is the higher-order correction (Eq. (S38)). This potential
+even more closely matches the full DFT+U +V potential, as shown by their difference in panel (e). Computational details can
+be found in Supp. Mat. S4.
+if ˆT = 2 ˆS (i.e. twice the rotation that reproduces the
+energy), then
+ˆV σ
+U + ˆV σ
+V =
+X
+Ii
+U I
+2
+ 1 −2λIσ
+i
+
+| ˜φIσ
+i ⟩⟨˜φIσ
+i |
+|
+{z
+}
+=: ˆ˜V (0)σ
++O
+
+V 2
+U
+
+,
+(9)
+which is an on-site Hubbard correction, with no inter-
+site term, evaluated on the doubly hybridized projectors
+| ˜φIσ
+i ⟩= e2 ˆS|φIσ
+i ⟩(see Supp. Mat. S6 and S7 for the
+full proof).
+In other words, we can map DFT+U +V
+to DFT+U with frozen hybridized projectors, but no
+single choice reproduces both the spectrum (which calls
+for e2 ˆS) and the energy (e ˆS). This mismatch also mani-
+fests itself via the prefactor in Eq. (9), which is inconsis-
+tently built from the bare occupations λIσ
+i
+of the original
+projectors, not from the occupation matrix nIIσ
+ij [2 ˆS] =
+⟨˜φIσ
+i |ˆρσ| ˜φIσ
+j ⟩of the hybridized projectors on which it acts
+(see Supp. Mat. S8 for more details).
+With or without freezing the projectors, it is important
+to remember that the proof applies in the perturbative
+limit V ≪U. In practice this limit is only approximately
+satisfied — in bulk NiO, typical values are U ≈7 eV and
+V ≈1 eV [27] — but the expansion remains well under
+control. Fig. 2 compares the exact DFT+U +V potential
+(panel a) with the first-order approximation ˆ˜V (0)σ (panel
+b): the two agree to within a small residual (panel c), and
+even this residual is predicted analytically by the higher-
+order term ˆ˜V (2)σ (panels d, e) — albeit at a cost: ˆ˜V (2)σ
+no longer has the on-site +U form (Supp. Mat. S9).
+Our reinterpretation of DFT+U +V as DFT+U ap-
+plied to hybridized density-dependent projectors has con-
+sequences for how V ought to be computed. If +V is re-
+ally +U on the hybridized projectors, the self-consistent
+way to parametrize it would be to enforce linearity of the
+total energy in the occupations of these hybridized pro-
+jectors, nII[ ˆS]. But that occupation responds through
+inter-site channels — both the response of the inter-site
+blocks nIJσ and the response to inter-site perturbations
+— that the conventional response matrices do not contain
+(see Supp. Mat. S3 for details). In other words, the equiv-
+alence we have uncovered does not retroactively justify
+computing V as the off-diagonal elements of the response
+matrices used to compute U as is common practice [26].
+This line of thought raises deeper questions: why might
+we want to linearize the total energy with respect to
+the occupation of the hybridized projectors, rather than
+the original projectors — or any other choice? Is there
+an “optimal” set of projectors for DFT+U ? A broad
+family of DFT+U -inspired functionals — e.g. Koop-
+mans functionals [39–41], the localized orbital scaling
+correction [42, 43], Wannier-localized optimally-tuned
+range-separated hybrid functionals [44], and Koopmans-
+Wannier functionals [45] — corrects quasiparticle ener-
+gies by imposing piecewise linearity of the total energy
+with respect to localized orbitals (typically Wannier func-
+tions or variants thereof [46, 47]), and the localized na-
+ture of these orbitals is crucial to their success [40]. Why
+correcting the curvature with respect to localized orbitals
+should so effectively correct the energies of delocalized
+quasiparticles deserves further investigation [48].
+To
+conclude,
+the
+inter-site
++V
+corrections
+of
+DFT+U +V are equivalent — to first order in V/U —
+to an on-site DFT+U correction evaluated on a density-
+dependent set of Hubbard projectors hybridized with
+those of neighboring sites. The role of a +V correction is
+thus to make the on-site correction aware of covalency. In
+5
+the frozen-projector regime used in practice this equiv-
+alence is only partial — the spectrum and the total en-
+ergy are reproduced by differently hybridized projectors
+— but wherever the redefinition can be folded into frozen
+projectors, an ordinary DFT+U calculation may stand
+in for DFT+U +V — bringing the far broader ecosystem
+of DFT+U implementations and property extensions
+to bear — albeit only approximately, since no frozen-
+projector functional reproduces the DFT+U +V poten-
+tial exactly. The message to practitioners of DFT+U and
+DFT+U +V is that the choice of projectors, the choice
+of Hubbard parameters, and the choice of whether to
+apply inter-site corrections are deeply intertwined and
+should never be treated as independent degrees of free-
+dom.
+More deeply — with DFT+U +V now embed-
+ded in community codes and automated high-throughput
+workflows [49–53], increasingly the default extension of
+DFT+U — this work sharpens the question of what the
+Hubbard projectors fundamentally are, by revealing that
+even the established inter-site correction is, at heart, a
+choice of projectors. Determining how projectors might
+be chosen optimally is now all the more pressing.
+ACKNOWLEDGMENTS
+The authors thank Maria Andolfatto, Ermanno Botti,
+Matteo Cococcioni, Nicola Colonna, David O’Regan, and
+Iurii Timrov for helpful discussions.
+EL gratefully ac-
+knowledges financial support from the Swiss National
+Science Foundation (grant number 213082).
+This re-
+search was also supported by the NCCR MARVEL, a
+National Centre of Competence in Research, funded by
+the Swiss National Science Foundation (grant number
+205602).
+AUTHOR CONTRIBUTIONS
+E.L. led the conceptualization, methodology, investiga-
+tion, and formal analysis, developed the associated soft-
+ware, curated the data and visualizations, and wrote the
+original draft. A.C. contributed to the investigation, val-
+idation, and review of the manuscript. N.M. contributed
+to the conceptualization of the work and provided fund-
+ing, and manuscript review and editing.
+DATA AVAILABILITY
+The data supporting the findings of this article are openly
+available on the Materials Cloud Archive [54].
+APPENDIX
+Here we establish the central result of the main text —
+that, to first order in V/U, DFT+U +V is the DFT+U
+energy functional evaluated on a density-dependent re-
+definition of the Hubbard projectors.
+The DFT+U and DFT+U +V corrections are most
+transparent in the basis {|φIσ
+i ⟩} that diagonalizes the on-
+site occupation matrices nIIσ, with eigenvalues λIσ
+i . The
+Hubbard projectors are taken orthonormal across sites as
+well as within them, ⟨ϕIσ
+m |ϕJσ
+m′⟩= δIJδmm′ (the “ortho-
+atomic” scheme), so that {|φIσ
+i ⟩} is orthonormal, the site
+projectors below are orthogonal, and the rotations e ˆT
+preserve this structure; non-orthogonal projectors would
+thread inter-site overlap matrices through the operator
+algebra that follows. Writing ΛIJσ
+ij
+= ⟨φIσ
+i |ˆρσ|φJσ
+j ⟩for
+the density matrix in this basis (so that ΛIIσ
+ij
+= λIσ
+i δij),
+the on-site potential is diagonal
+ˆV σ
+U =
+X
+Ii
+U I
+2
+ 1 −2λIσ
+i
+
+|φIσ
+i ⟩⟨φIσ
+i |,
+(10)
+while the inter-site potential is purely off-site (recall
+V II = 0),
+ˆV σ
+V = −
+X
+IJij
+V IJΛJIσ
+ji
+|φIσ
+i ⟩⟨φJσ
+j |.
+(11)
+We start from the DFT+U energy evaluated on an arbi-
+trary unitarily rotated set of projectors e ˆT |φIσ
+i ⟩, with ˆT
+any anti-Hermitian generator:
+EU[ ˆT] =
+X
+Iσ
+U I
+2 Tr
+h
+nIIσ[ ˆT](1 −nIIσ[ ˆT])
+i
+,
+(12)
+where
+nIIσ
+ij [ ˆT] =⟨φIσ
+i |e−ˆT ˆρσe
+ˆT |φIσ
+j ⟩
+=λIσ
+i δij + δnIIσ
+ij [ ˆT] + O( ˆT 2),
+(13)
+and δnIIσ
+ij [ ˆT] ≡⟨φIσ
+i |[ˆρσ, ˆT]|φIσ
+j ⟩. It follows that
+Tr
+h
+nIIσ[ ˆT](1 −nIIσ[ ˆT])
+i
+=
+X
+i
+λIσ
+i (1 −λIσ
+i ) +
+X
+i
+(1 −2λIσ
+i ) δnIIσ
+ii [ ˆT] + O( ˆT 2).
+(14)
+Inserting this into Eq. (12) and using Eq. (10) gives the
+first-order energy of any such rotation,
+EU[ ˆT] = EU +
+X
+Iiσ
+U I
+2 (1 −2λIσ
+i )⟨φIσ
+i |[ˆρσ, ˆT]|φIσ
+i ⟩+ O( ˆT 2)
+= EU +
+X
+σ
+Tr
+h
+ˆV σ
+U [ˆρσ, ˆT]
+i
++ O( ˆT 2)
+(15)
+where EU is the DFT+U energy of the original projec-
+tors.
+6
+We now ask which specific rotation
+ˆS makes the
+DFT+U
+energy of the rotated projectors equal the
+DFT+U +V energy EU + EV . By Eq. (15) this means
+that
+X
+σ
+Tr
+h
+ˆρσ [ ˆS, ˆV σ
+U ]
+i
+= EV .
+(16)
+To simplify this condition, we can rewrite the inter-site
+energy and its potential compactly using the site projec-
+tor ˆP Iσ = P
+m |ϕIσ
+m ⟩⟨ϕIσ
+m | = P
+i |φIσ
+i ⟩⟨φIσ
+i |,
+EV = −
+X
+IJσ
+V IJ
+2 Tr
+h
+ˆP Iσ ˆρσ ˆP Jσ ˆρσi
+,
+(17)
+ˆV σ
+V = δEV
+δˆρσ = −
+X
+IJ
+V IJ ˆP Iσ ˆρσ ˆP Jσ.
+(18)
+It follows that these two quantities can be related via the
+identity
+X
+σ
+Tr
+h
+ˆρσ ˆV σ
+V
+i
+= −
+X
+IJσ
+V IJTr
+h
+ˆρσ ˆP Iσ ˆρσ ˆP Jσi
+= 2EV
+(19)
+(This identity is analogous to the same result for the
+Hartree energy 2EH =
+R
+ρ vH dr. We obtain the same
+relation because both energies are quadratic in ρ).
+Given this identity, the condition of Eq. (16) becomes
+P
+σ Tr
+h
+ˆρσ [ ˆS, ˆV σ
+U ] −1
+2 ˆV σ
+V
+i
+= 0, which is satisfied at ev-
+ery density if
+[ ˆS, ˆV σ
+U ] = 1
+2 ˆV σ
+V .
+(20)
+From this, we can obtain the explicit form
+SIJσ
+ij
+= ⟨φIσ
+i | ˆS|φJσ
+j ⟩=
+V IJΛJIσ
+ji
+U I(1 −2λIσ
+i ) −U J(1 −2λJσ
+j ),
+(21)
+which is Eq. (5) of the main text. (Note that SIIσ = 0
+since V II = 0.)
+Given this choice of rotation, it follows that
+EU[ ˆS] = EU + EV + O(V 2/U),
+(22)
+precisely as desired.
+In other words, a DFT+U func-
+tional that uses the hybridized projectors {e ˆS|φIσ
+i ⟩}
+yields the same energy as the original DFT+U +V func-
+tional. Furthermore, because Eq. (22) holds for every ˆρσ,
+it may be differentiated:
+δEU[ ˆS]
+δˆρσ
+= ˆV σ
+U + ˆV σ
+V + O(V 2/U),
+(23)
+which means the potentials are also equivalent.
+[1] P. Hohenberg and W. Kohn, Inhomogeneous electron gas,
+Phys. Rev. 136, B864 (1964).
+[2] W. Kohn and L. J. Sham, Self-consistent equations in-
+cluding exchange and correlation effects, Phys. Rev. 140,
+A1133 (1965).
+[3] R. O. Jones, Density functional theory: Its origins, rise to
+prominence, and future, Rev. Mod. Phys. 87, 897 (2015).
+[4] N. Marzari, A. Ferretti, and C. Wolverton, Electronic-
+structure methods for materials design, Nat. Mater. 20,
+736 (2021).
+[5] R. Van Noorden, These are the most-cited research pa-
+pers of all time, Nature 640, 591 (2025).
+[6] K. Terakura, T. Oguchi, A. R. Williams, and J. K¨ubler,
+Band theory of insulating transition-metal monoxides:
+Band-structure calculations, Phys. Rev. B 30, 4734
+(1984).
+[7] V. I. Anisimov, J. Zaanen, and O. K. Andersen, Band
+theory and Mott insulators: Hubbard U instead of Stoner
+I , Phys. Rev. B 44, 943 (1991).
+[8] J. Hubbard, Electron correlations in narrow energy
+bands, Proc. R. Soc. A 276, 238 (1963).
+[9] A. I. Liechtenstein, V. I. Anisimov, and J. Zaanen,
+Density-functional theory and strong interactions: Or-
+bital ordering in Mott-Hubbard insulators, Phys. Rev. B
+52, R5467 (1995).
+[10] S. L. Dudarev, G. A. Botton, S. Y. Savrasov, C. J.
+Humphreys, and A. P. Sutton, Electron-energy-loss spec-
+tra and the structural stability of nickel oxide:
+An
+LSDA+U study, Phys. Rev. B 57, 1505 (1998).
+[11] M. T. Czy˙zyk and G. A. Sawatzky, Local-density func-
+tional and on-site correlations: The electronic structure
+of La2CuO4 and LaCuO3, Phys. Rev. B 49, 14211 (1994).
+[12] V. I. Anisimov, I. V. Solovyev, M. A. Korotin, M. T.
+Czy˙zyk, and G. A. Sawatzky, Density-functional theory
+and NiO photoemission spectra, Phys. Rev. B 48, 16929
+(1993).
+[13] V. I. Anisimov, F. Aryasetiawan, and A. I. Lichtenstein,
+First-principles calculations of the electronic structure
+and spectra of strongly correlated systems: The LDA+U
+method, J. Phys. Condens. Matter 9, 767 (1997).
+[14] W. E. Pickett, S. C. Erwin, and E. C. Ethridge, Refor-
+mulation of the LDA+U method for a local-orbital basis,
+Phys. Rev. B 58, 1201 (1998).
+[15] They are also usually spin-independent, but we have as-
+signed them a spin index σ for the sake of generality.
+[16] D. A. Scherlis, M. Cococcioni, P. Sit, and N. Marzari,
+Simulation of heme using DFT+U : A step toward accu-
+rate spin-state energetics, J. Phys. Chem. B 111, 7384
+(2007).
+[17] H. Hsu, P. Blaha, M. Cococcioni, and R. M. Wentzcov-
+itch, Spin-state crossover and hyperfine interactions of
+ferric iron in MgSiO3 perovskite, Phys. Rev. Lett. 106,
+118501 (2011).
+[18] M. Bajdich, M. Garc´ıa-Mota, A. Vojvodic, J. K. Nørskov,
+and A. T. Bell, Theoretical investigation of the activity of
+cobalt oxides for the electrochemical oxidation of water,
+J. Am. Chem. Soc. 135, 13521 (2013).
+[19] M. Cococcioni and S. de Gironcoli, Linear response ap-
+proach to the calculation of the effective interaction pa-
+rameters in the LDA+U method, Phys. Rev. B 71,
+7
+035105 (2005).
+[20] H.
+J.
+Kulik,
+M.
+Cococcioni,
+D.
+A.
+Scherlis,
+and
+N. Marzari, Density functional theory in transition-metal
+chemistry: A self-consistent Hubbard U approach, Phys.
+Rev. Lett. 97, 103001 (2006).
+[21] See Supplemental Material, appended to this preprint,
+for a discussion of global versus local curvature; the
+linear-response calculation of the Hubbard parameters;
+computational details; the form of the rotation gener-
+ator in periodic systems; a decomposition of the first-
+order DFT+U+V potential into its frozen and projector-
+response contributions; a direct derivation of the frozen
+projectors; the obstruction to reproducing this potential
+with frozen projectors; and higher-order corrections be-
+yond the on-site +U form. The Supplemental Material
+includes Refs. [55–65].
+[22] H. J. Kulik and N. Marzari, Transition-metal dioxides: A
+case for the intersite term in Hubbard-model functionals,
+J. Chem. Phys. 134, 094103 (2011).
+[23] H. J. Kulik and N. Marzari, Accurate potential energy
+surfaces with a DFT+U (R) approach, J. Chem. Phys.
+135, 194105 (2011).
+[24] E. B. Linscott, D. J. Cole, M. C. Payne, and D. D.
+O’Regan, Role of spin in the calculation of Hubbard U
+and Hund’s J parameters from first principles, Phys. Rev.
+B 98, 235157 (2018).
+[25] G. C. Moore, M. K. Horton, E. Linscott, A. M. Ganose,
+M. Siron, D. D. O’Regan, and K. A. Persson, High-
+throughput determination of Hubbard U and Hund J
+values for transition metal oxides via the linear response
+formalism, Phys. Rev. Mater. 8, 014409 (2024).
+[26] V. Leiria Campo Jr and M. Cococcioni, Extended
+DFT+U +V method with on-site and inter-site elec-
+tronic interactions, J. Phys. Condens. Matter 22, 055602
+(2010).
+[27] M. Cococcioni and N. Marzari, Energetics and cathode
+voltages of LiM PO4 olivines (M = Fe, Mn) from ex-
+tended Hubbard functionals, Phys. Rev. Mater. 3, 033801
+(2019).
+[28] C. Ricca, I. Timrov, M. Cococcioni, N. Marzari, and
+U. Aschauer, Self-consistent DFT+U +V study of oxy-
+gen vacancies in SrTiO3, Phys. Rev. Res. 2, 023313
+(2020).
+[29] N.
+Tancogne-Dejean,
+Parameter-free
+hybridlike
+functional
+based
+on
+an
+extended
+Hubbard
+model:
+DFT+U +V , Phys. Rev. B 102, 155117 (2020).
+[30] R. Mahajan, A. Kashyap, and I. Timrov, Pivotal role of
+intersite Hubbard interactions in Fe-doped α-MnO2, J.
+Phys. Chem. C 126, 14353 (2022).
+[31] I. Timrov, F. Aquilante, M. Cococcioni, and N. Marzari,
+Accurate electronic properties and intercalation voltages
+of olivine-type Li-Ion cathode materials from extended
+Hubbard functionals, PRX Energy 1, 033003 (2022).
+[32] J. Yang, T. Zhu, and S. Liu, Onsite and intersite elec-
+tronic correlations in the Hubbard model for halide per-
+ovskites, Phys. Rev. B 106, 195159 (2022).
+[33] L. Binci, M. Kotiuga, I. Timrov, and N. Marzari, Hy-
+bridization driving distortions and multiferroicity in rare-
+earth nickelates, Phys. Rev. Res. 5, 033146 (2023).
+[34] R. L. Kam, L. Binci, A. D. Kaplan, K. A. Persson,
+N. Marzari, and G. Ceder, Interplay between electron
+localization, magnetic order, and Jahn-Teller distortion
+dictates LiMnO2 phase stability, Phys. Rev. B 111,
+245132 (2025).
+[35] W. Yang, I. Timrov, F. Aquilante, and Y.-W. Son, Com-
+paring Hubbard parameters from linear-response theory
+and a Hartree-Fock-based approach, npj Comput Mater
+10.1038/s41524-026-02123-9 (2026).
+[36] F. Haddadi, E. Linscott, I. Timrov, N. Marzari, and
+M. Gibertini, On-site and intersite Hubbard corrections
+in magnetic monolayers: The case of FePS3 and CrI3,
+Phys. Rev. Mater. 8, 014007 (2024).
+[37] S.-H. Lee and Y.-W. Son, First-principles approach with
+a pseudohybrid density functional for extended Hubbard
+interactions, Phys. Rev. Res. 2, 043410 (2020).
+[38] D. D. O’Regan, N. D. M. Hine, M. C. Payne, and
+A. A. Mostofi, Projector self-consistent DFT+U using
+nonorthogonal generalized Wannier functions, Phys. Rev.
+B 82, 081102 (2010).
+[39] I. Dabo, A. Ferretti, N. Poilvert, Y. Li, N. Marzari,
+and M. Cococcioni, Koopmans’ condition for density-
+functional theory, Phys. Rev. B 82, 115121 (2010).
+[40] N. L. Nguyen, N. Colonna, A. Ferretti, and N. Marzari,
+Koopmans-compliant spectral functionals for extended
+systems, Phys. Rev. X 8, 021051 (2018).
+[41] E. B. Linscott, N. Colonna, R. De Gennaro, N. L.
+Nguyen, G. Borghi, A. Ferretti, I. Dabo, and N. Marzari,
+koopmans: An open-source package for accurately and
+efficiently predicting spectral properties with Koopmans
+functionals, J. Chem. Theory Comput. 19, 7097 (2023).
+[42] C. Li, X. Zheng, N. Q. Su, and W. Yang, Localized orbital
+scaling correction for systematic elimination of delocal-
+ization error in density functional approximations, Natl.
+Sci. Rev. 5, 203 (2018).
+[43] N. Q. Su, A. Mahler, and W. Yang, Preserving symmetry
+and degeneracy in the localized orbital scaling correction
+approach, J. Phys. Chem. Lett. 11, 1528 (2020).
+[44] D. Wing, G. Ohad, J. B. Haber, M. R. Filip, S. E. Gant,
+J. B. Neaton, and L. Kronik, Band gaps of crystalline
+solids from Wannier-localization–based optimal tuning of
+a screened range-separated hybrid functional, Proc. Natl.
+Acad. Sci. 118, e2104556118 (2021).
+[45] J. Ma and L.-W. Wang, Using Wannier functions to im-
+prove solid band gap predictions in density functional
+theory, Sci. Rep. 6, 24924 (2016).
+[46] N. Marzari, A. A. Mostofi, J. R. Yates, I. Souza, and
+D. Vanderbilt, Maximally localized Wannier functions:
+Theory and applications, Rev. Mod. Phys. 84, 1419
+(2012).
+[47] A. Mahler, J. Z. Williams, N. Q. Su, and W. Yang, Wan-
+nier functions dually localized in space and energy (2022),
+arXiv:2201.07751.
+[48] G. Ohad, M. Camarasa-G´omez, J. B. Neaton, A. Rama-
+subramaniam, T. Gould, and L. Kronik, Foundations of
+the Ionization Potential Condition for Localized Electron
+Removal in Density Functional Theory, Phys. Rev. Lett.
+136, 026401 (2026).
+[49] I. Timrov, N. Marzari, and M. Cococcioni, HP – A code
+for the calculation of Hubbard parameters using density-
+functional perturbation theory, Comput. Phys. Commun.
+279, 108455 (2022).
+[50] L. Bastonero, C. Malica, E. Macke, M. Bercx, S. Hu-
+ber, I. Timrov, and N. Marzari, First-principles Hubbard
+parameters with automated and reproducible workflows,
+npj Comput Mater 11, 183 (2025).
+[51] M. Uhrin, A. Zadoks, L. Binci, N. Marzari, and I. Tim-
+rov, Machine learning Hubbard parameters with equiv-
+ariant neural networks, npj Comput Mater 11, 19 (2025).
+8
+[52] W. Beida, G. Bihlmayer, C. Friedrich, G. Michalicek,
+D. Wortmann, and S. Bl¨ugel, Implementation and appli-
+cation of a DFT+U +V approach within the all-electron
+FLAPW method (2026), arXiv:2511.08002 [cond-mat].
+[53] Y. Zhang, D. Ke, R. Maniar, T. Lebeda, P. Zhang, J. Sun,
+and J. P. Perdew, Electron localization in noncompact
+covalent bonds captured by the r2SCAN+V approach,
+Proc. Natl. Acad. Sci. 123, e2529764123 (2026).
+[54] E. Linscott, A. Carta, and N. Marzari, DFT+U+V
+is equivalent to DFT+U with density-dependent hy-
+bridized projectors, Materials Cloud Archive 2026.X,
+10.24435/materialscloud:zb-sz (2026).
+[55] X. Wang, T. Tian, and U. Aschauer, Beautiful Atoms:
+A Python library for the manipulation and visualization
+of atomistic structure using Blender, https://github.
+com/beautiful-atoms/beautiful-atoms (2022).
+[56] P. Giannozzi, S. Baroni, N. Bonini, M. Calandra, R. Car,
+C. Cavazzoni, D. Ceresoli, G. L. Chiarotti, M. Cococ-
+cioni, I. Dabo, A. Dal Corso, S. de Gironcoli, S. Fabris,
+G. Fratesi, R. Gebauer, U. Gerstmann, C. Gougoussis,
+A. Kokalj, M. Lazzeri, L. Martin-Samos, N. Marzari,
+F. Mauri, R. Mazzarello, S. Paolini, A. Pasquarello,
+L. Paulatto, C. Sbraccia, S. Scandolo, G. Sclauzero, A. P.
+Seitsonen, A. Smogunov, P. Umari, and R. M. Wentz-
+covitch, QUANTUM ESPRESSO: A modular and open-
+source software project for quantum simulations of ma-
+terials, J. Phys. Condens. Matter 21, 395502 (2009).
+[57] P. Giannozzi, O. Andreussi, T. Brumme, O. Bunau,
+M. Buongiorno Nardelli, M. Calandra, R. Car, C. Cavaz-
+zoni, D. Ceresoli, M. Cococcioni, N. Colonna, I. Carn-
+imeo,
+A. Dal Corso,
+S. de Gironcoli,
+P. Delugas,
+R. A. DiStasio,
+A. Ferretti,
+A. Floris,
+G. Fratesi,
+G. Fugallo, R. Gebauer, U. Gerstmann, F. Giustino,
+T. Gorni, J. Jia, M. Kawamura, H.-Y. Ko, A. Kokalj,
+E. K¨u¸c¨ukbenli, M. Lazzeri, M. Marsili, N. Marzari,
+F. Mauri, N. L. Nguyen, H.-V. Nguyen, A. Otero-de-
+la-Roza, L. Paulatto, S. Ponc´e, D. Rocca, R. Sabatini,
+B. Santra, M. Schlipf, A. P. Seitsonen, A. Smogunov,
+I. Timrov, T. Thonhauser, P. Umari, N. Vast, X. Wu, and
+S. Baroni, Advanced capabilities for materials modelling
+with Quantum ESPRESSO, J. Phys. Condens. Matter
+29, 465901 (2017).
+[58] A. Carta, I. Timrov, P. Mlkvik, A. Hampel, and C. Ed-
+erer, Explicit demonstration of the equivalence between
+DFT+U and the Hartree-Fock limit of DFT+DMFT,
+Phys. Rev. Res. 7, 013289 (2025).
+[59] J. P. Perdew, A. Ruzsinszky, G. I. Csonka, O. A. Vydrov,
+G. E. Scuseria, L. A. Constantin, X. Zhou, and K. Burke,
+Restoring the density-gradient expansion for exchange in
+solids and surfaces, Phys. Rev. Lett. 100, 136406 (2008).
+[60] M. J. van Setten, M. Giantomassi, E. Bousquet, M. J.
+Verstraete, D. R. Hamann, X. Gonze, and G. M. Rig-
+nanese, The PseudoDojo: Training and grading a 85 ele-
+ment optimized norm-conserving pseudopotential table,
+Comput. Phys. Commun. 226, 39 (2018).
+[61] D. R. Hamann, Optimized norm-conserving Vanderbilt
+pseudopotentials, Phys. Rev. B 88, 085117 (2013).
+[62] Q. Zhao, E. I. Ioannidis, and H. J. Kulik, Global and
+local curvature in density functional theory, J. Chem.
+Phys. 145, 054109 (2016).
+[63] N. Marzari, D. Vanderbilt, and M. C. Payne, Ensem-
+ble Density-Functional Theory for Ab Initio Molecular
+Dynamics of Metals and Finite-Temperature Insulators,
+Phys. Rev. Lett. 79, 1337 (1997).
+[64] I. Timrov, N. Marzari, and M. Cococcioni, Hubbard
+parameters from density-functional perturbation theory,
+Phys. Rev. B 98, 085127 (2018).
+[65] I. Timrov, N. Marzari, and M. Cococcioni, Self-consistent
+Hubbard parameters from density-functional perturba-
+tion theory in the ultrasoft and projector-augmented
+wave formulations, Phys. Rev. B 103, 045141 (2021).
+Supplemental Material for “DFT+U+V is equivalent to DFT+U with
+density-dependent hybridized projectors”
+Edward Linscott
+∗and Alberto Carta
+PSI Center for Scientific Computing, Theory and Data,
+Paul Scherrer Institute, 5232 Villigen PSI, Switzerland and
+National Centre for Computational Design and Discovery of Novel Materials (MARVEL),
+Paul Scherrer Institute, 5232 Villigen PSI, Switzerland
+Nicola Marzari
+PSI Center for Scientific Computing, Theory and Data,
+Paul Scherrer Institute, 5232 Villigen PSI, Switzerland
+National Centre for Computational Design and Discovery of Novel Materials (MARVEL),
+Paul Scherrer Institute, 5232 Villigen PSI, Switzerland
+Theory and Simulation of Materials (THEOS), ´Ecole Polytechnique F´ed´erale de Lausanne, 1015 Lausanne, Switzerland and
+Theory of Condensed Matter, Cavendish Laboratory,
+University of Cambridge, Cambridge CB3 0US, United Kingdom
+(Dated: July 21, 2026)
+S1.
+GLOBAL VERSUS LOCAL CURVATURE
+Many-body SIE is the erroneous curvature of the total
+energy with respect to the total number of electrons in
+the entire system. This assumes that correcting local cur-
+vature (i.e. curvature with respect to the occupancy of
+the Hubbard site) helps to address global curvature (i.e.
+curvature with respect to the total number of electrons in
+the entire system) — which is not necessarily the case [1].
+Enforcing the linearity condition of the total energy with
+respect to the local site occupation can be alternatively
+justified in the limit that the on-site electronic interac-
+tions are so strong that it is a good approximation to
+neglect all other electron-electron interactions, in which
+case the rest of the system only interacts with the Hub-
+bard site via particle exchange (so that the total energy
+should indeed be linear in the site occupation).
+S2.
+HUBBARD PARAMETERS VIA LINEAR
+RESPONSE
+The Hubbard parameters can be computed from first
+principles using linear-response theory. The on-site U I
+quantifies the spurious curvature of the total energy with
+respect to the occupation of Hubbard site I, and is given
+by
+U I =
+ χ−1
+0
+
+II −
+ χ−1
+II
+(S1)
+where χIJ = dnII
+dvJ
+ext and χ0 = dnII
+dvJ
+KS are the interacting and
+non-interacting responses of the occupation of Hubbard
+site I, nII = P
+mσ nIIσ
+mm, to the infinitesimal external
+∗edward.linscott@psi.ch
+perturbation
+dˆvJ = dvJ
+ext
+X
+σm
+|ϕJσ
+m ⟩⟨ϕJσ
+m |
+(S2)
+that shifts the potential of Hubbard site J by the scalar
+dvJ
+ext [2–4].
+The inter-site Hubbard parameters V IJ are typically
+computed from the off-diagonal elements of the same re-
+sponse matrices:
+V IJ =
+ χ−1
+0
+
+IJ −
+ χ−1
+IJ
+for I̸ = J.
+(S3)
+S3.
+IMPLICATIONS FOR HOW V IS
+COMPUTED
+The equivalence between DFT+U +V and DFT+U with
+redefined projectors bears on how the inter-site parame-
+ters V IJ should be computed. Suppose we are perform-
+ing a DFT+U +V calculation, knowing that the inter-
+site corrections are equivalent to rotating the Hubbard
+projectors, |φIσ
+i ⟩→e ˆS|φIσ
+i ⟩.
+One might hypothesize
+that the correct linear-response strategy is to impose that
+the total energy be linear in the occupation of these hy-
+bridized projectors, i.e. in
+nII[ ˆS] =
+X
+iσ
+⟨φIσ
+i |e−ˆS ˆρσe
+ˆS|φIσ
+i ⟩
+=nII[ˆI] +
+X
+iσ
+⟨φIσ
+i |[ˆρσ, ˆS]|φIσ
+i ⟩+ O
+
+V 2
+U 2
+
+. (S4)
+In this case, one would measure the total-energy curva-
+ture via response to perturbations of the form
+dvJ
+ext
+X
+jσ
+e
+ˆS|φJσ
+j ⟩⟨φJσ
+j |e−ˆS,
+(S5)
+2
+which would give rise to response matrices χIJ[ ˆS] =
+dnII[ ˆS]
+dvJ
+ext , and one could follow the conventional linear-
+response strategy to calculate U for the hybridized sub-
+space. However, these new response matrices cannot be
+rewritten solely in terms of response matrices of the form
+χIJ = dnII
+dvJ
+ext (i.e. those for the original set of projectors).
+Instead, they also contain the response of the inter-site
+blocks nIJσ and the response to inter-site perturbations
+|φIσ
+i ⟩⟨φJσ
+j | that arise from the commutator in Eq. (S4).
+Terms of this form are absent from the established linear-
+response formalism (Eqs. (S1) and (S3)), which features
+only the response of the site-diagonal and site-summed
+occupations nII to site-diagonal perturbations. As such,
+the interpretation of DFT+U +V as DFT+U with re-
+defined projectors does not retrospectively justify com-
+puting V via Eq. (S3):
+this recipe does not yield a
+DFT+U +V functional equivalent to a DFT+U func-
+tional that linearizes the total energy with respect to
+the occupation of the hybridized orbitals (not to men-
+tion that one would also obtain different values for the
+on-site U parameters).
+S4.
+COMPUTATIONAL DETAILS
+The illustrative Hubbard projectors and potentials of
+NiO presented in Figs. 1 and 2 were obtained from
+DFT+U +V calculations of antiferromagnetic NiO per-
+formed with Quantum ESPRESSO [5, 6]. NiO was mod-
+eled in its rock-salt structure with the experimentally
+observed type-II antiferromagnetic ordering (alternat-
+ing ferromagnetic (111) planes of opposite spin), using
+the corresponding four-atom rhombohedral magnetic cell
+(two Ni and two O; conventional cubic lattice param-
+eter a = 4.09 ˚A). The calculations were spin-polarized
+and used the PBEsol exchange-correlation functional [7],
+norm-conserving pseudopotentials from the PseudoDojo
+library (version 0.4.1; standard accuracy) [8, 9], wave-
+function and charge-density kinetic-energy cutoffs of 70
+and 280 Ry, respectively, an 8 × 8 × 8 k-point grid, and
+cold smearing [10] of width 0.02 Ry. The Hubbard pro-
+jectors were the orthogonalized atomic Ni 3d and O 2p
+orbitals (the “ortho-atomic” scheme).
+The Hubbard parameters were computed from first
+principles using density-functional perturbation theory,
+as implemented in the HP code of Quantum ESPRESSO
+[3, 11, 12], with a 2 × 2 × 2 q-point grid. This yielded an
+on-site U Ni = 6.95 eV on each Ni 3d site and an inter-
+site V Ni-O = 0.77 eV between each Ni 3d site and the 2p
+orbitals of its six neighboring oxygens (the oxygen sites
+themselves carry no on-site U).
+The block-diagonalizing projectors |φIσ
+i ⟩,
+the hy-
+bridized projectors | ˜φIσ
+i ⟩, and the potential matrices of
+Figs. S1 and 2 were obtained by post-processing the re-
+sulting occupation and potential matrices.
+To evalu-
+ate the potential of the hybridized (rotated) projectors,
+which pw.x cannot construct natively, the rotated or-
+bitals were supplied as custom localized Hubbard projec-
+tors through the wannier2pw interface [13].
+The full input and output files from these calculations,
+together with the post-processing scripts, can be found
+on the Materials Cloud Archive [14].
+Fig. 1 was generated using Beautiful Atoms [15].
+S5.
+THE ROTATION GENERATOR IN
+PERIODIC SYSTEMS
+For bulk systems, the Hubbard sites exist on a peri-
+odic lattice represented with Born–von K´arm´an periodic
+boundary conditions. In this framework, the Hubbard
+overlap matrices and the inter-site coupling terms acquire
+a dependence on relative lattice-vector displacements (for
+when sites I and J do not belong to the same cell). This
+means that the generator (Eq. (5)) becomes
+SIJσ
+ij
+(R −R′) = ⟨φRIσ
+i
+| ˆS|φR′Jσ
+j
+⟩
+= ⟨φ(R−R′)Iσ
+i
+| ˆS|φ0Jσ
+j
+⟩
+=
+V IJ(R −R′)ΛJIσ
+ji
+(R′ −R)
+U I(1 −2λIσ
+i ) −U J(1 −2λJσ
+j )
+(S6)
+(where we have used the fact that U and λ are R-
+independent). It follows that the k-space rotation can
+be written as
+UIJσ
+ij
+(k) =
+h
+eS(k)iIJσ
+ij
+(S7)
+where
+SIJσ
+ij
+(k) =
+1
+NR
+X
+R
+eik·RSIJσ
+ij
+(R)
+(S8)
+S6.
+BREAKING DOWN THE CONTRIBUTIONS
+TO THE POTENTIAL
+Let us reconsider Eq. (23), separating the explicit and
+implicit (via ˆS) density-dependence of the energy func-
+tional. For reasons that will become clear later, we in-
+troduce a continuous parameter α that scales the gen-
+erator ˆS, so that the energy of the rotated projectors is
+EU[α ˆS[ˆρ]]. The functional derivative of this energy with
+respect to the density is then
+δEU[α ˆS[ˆρ]]
+δˆρσ
+= δEU
+δˆρσ
+
+α ˆS
+|
+{z
+}
+frozen
++
+D∂EU
+∂ˆS
+,
+∂ˆS
+∂ˆρσ
+E
+|
+{z
+}
+projector response
+.
+(S9)
+The frozen contribution
+Because Eq. (15) is linear in ˆT, we have
+EU[α ˆS] = EU + α
+X
+σ
+Tr
+h
+ˆV σ
+U [ˆρσ, ˆS]
+i
++ O(α2 ˆS2). (S10)
+3
+and thus the frozen contribution to the potential is
+δˆρσEU[α ˆS] =Tr
+h
+ˆV σ
+U δˆρσi
++ αTr
+h
+δ ˆV σ
+U [ˆρσ, ˆS]
+i
++ α
+2 Tr
+h
+ˆV σ
+V δˆρσi
++ O(α2 ˆS2)
+(S11)
+where we have taken advantage of the cyclic property
+of the trace and the definition of ˆS to simplify the final
+term. The second term can be easily evaluated if we write
+the Hubbard potential in terms of the fixed atomic site
+projector operators ˆP Iσ:
+ˆV σ
+U =
+X
+I
+U I
+2
+ˆP Iσ(1 −2ˆρσ) ˆP Iσ
+(S12)
+so that, since ˆV σ
+U is affine in ˆρσ, its first variation is simply
+δ ˆV σ
+U = −
+X
+K
+U K ˆP Kσ δˆρσ ˆP Kσ;
+(S13)
+and, recalling that the change in the occupation matrix
+induced by a rotation is given by δnIIσ
+ij [ ˆT] = nIIσ
+ij [ ˆT] −
+nIIσ
+ij [ˆI] = ⟨φIσ
+i |[ˆρσ, ˆT]|φIσ
+j ⟩, we obtain
+δ ˆV σ
+U [ˆρσ, ˆS] = −
+X
+Iij
+U IδnIIσ
+ij [ ˆS]|φIσ
+i ⟩⟨φIσ
+j |
+|
+{z
+}
+=: 1
+2 ˆ
+W σ
+δˆρσ
+(S14)
+and thus
+δEU
+δˆρσ
+
+α ˆS
+= ˆV σ
+U + α
+2 ( ˆV σ
+V −ˆW σ) + O(V 2/U)
+(S15)
+This is the entire potential for DFT+U
+applied to
+hybridized, frozen projectors.
+Let us consider what
+choice of α might reproduce the DFT+U +V potential.
+ˆV σ
+U and ˆW σ are block-diagonal operators, while ˆV σ
+V is
+purely off-diagonal. This makes it impossible to recover
+the DFT+U +V potential, because matching the off-
+diagonal blocks requires α = 2, in which case
+δEU
+δˆρσ
+
+α ˆS
+= ˆV σ
+U + ˆV σ
+V −ˆW σ̸ = ˆV σ
+U + ˆV σ
+V .
+(S16)
+With frozen projectors this is the whole potential, short
+of the DFT+U +V potential by the on-site operator ˆW σ.
+The projector response
+Let us now consider the second term in Eq. (S9), which
+accounts for the implicit density-dependence of the en-
+ergy through the hybridized projectors. To leading order
+in V/U we obtain (the factor of α arising because the
+generator enters as α ˆS)
+δ ˆSEU = α
+X
+σ
+Tr
+h
+ˆρσ[δ ˆS, ˆV σ
+U ]
+i
+.
+(S17)
+We can avoid evaluating δ ˆS directly by differentiating the
+defining relation of ˆS (Eq. (20)) to obtain the identity
+[δ ˆS, ˆV σ
+U ] = 1
+2δ ˆV σ
+V −[ ˆS, δ ˆV σ
+U ].
+(S18)
+To resolve the first term we need the off-site potential
+and its variation with respect to the density, which are
+given by
+ˆV σ
+V = −
+X
+IJ
+V IJ ˆP Iσ ˆρσ ˆP Jσ
+(S19)
+and
+δ ˆV σ
+V = −
+X
+IJ
+V IJ ˆP Iσ δˆρσ ˆP Jσ
+(S20)
+and thus
+Tr
+h
+ˆρσδ ˆV σ
+V
+i
+= −
+X
+IJ
+V IJTr
+h
+ˆρσ ˆP Iσδˆρσ ˆP Jσi
+= Tr
+h
+ˆV σ
+V δˆρσi
+.
+(S21)
+Meanwhile, for the second term of Eq. (S18) we can use
+Eq. (S14) to obtain
+Tr
+h
+ˆρσ[ ˆS, δ ˆV σ
+U ]
+i
+= Tr
+h
+δ ˆV σ
+U [ˆρσ, ˆS]
+i
+= −1
+2Tr
+h
+ˆW σδˆρσi
+(S22)
+Combining Eqs. (S17), (S18), (S21) and (S22) gives the
+projector-response contribution to the potential,
+D∂EU
+∂ˆS
+,
+∂ˆS
+∂ˆρσ
+E
+= α
+2
+
+ˆV σ
+V + ˆW σ
++ O(V 2/U).
+(S23)
+Adding the frozen Eq. (S15) and projector-response
+Eq. (S23) gradients, the ˆW σ term is canceled and the
+missing half of ˆV σ
+V is restored,
+δEU[α ˆS(ˆρ)]
+δˆρσ
+= ˆV σ
+U + α ˆV σ
+V + O(V 2/U),
+(S24)
+which matches the DFT+U +V potential when α = 1,
+in agreement with Eq. (23).
+S7.
+A DIRECT DERIVATION OF THE FROZEN
+PROJECTORS
+If we treat the Hubbard projectors as being frozen, a
+much more direct derivation of the projectors is possible
+by directly diagonalizing the corrective potential ˆV σ
+U + ˆV σ
+V
+to first order in V/U.
+Consider the rotated projectors | ˜φIσ
+i ⟩= e ˆT |φIσ
+i ⟩.
+These span the Hubbard manifold, so we may expand
+the corrective potential in this rotated basis:
+ˆV σ
+U + ˆV σ
+V =
+X
+IJij
+| ˜φIσ
+i ⟩⟨˜φIσ
+i | ˆV σ
+U + ˆV σ
+V | ˜φJσ
+j ⟩⟨˜φJσ
+j |.
+(S25)
+4
+with the individual matrix elements given by
+⟨˜φIσ
+i | ˆV σ
+U + ˆV σ
+V | ˜φJσ
+j ⟩= ⟨φIσ
+i |e−ˆT ( ˆV σ
+U + ˆV σ
+V )e
+ˆT |φJσ
+j ⟩
+(S26)
+If we treat the inter-site interactions and the rotation
+perturbatively, we can expand these matrix elements via
+e−ˆT ˆV σ
+U e
+ˆT +e−ˆT ˆV σ
+V e
+ˆT ≈ˆV σ
+U +( ˆV σ
+V +[ ˆV σ
+U , ˆT])+O(V 2/U)
+(S27)
+and thus ˆV σ
+U + ˆV σ
+V is diagonalized to first order by { ˜φIσ
+i }
+provided ˆV σ
+V +[ ˆV σ
+U , ˆT] = 0 — which is precisely the defin-
+ing relation Eq. (20) of the generator ˆS if ˆT = 2 ˆS, whose
+explicit form is Eq. (5). The doubly hybridized projec-
+tors e2 ˆS|φIσ
+i ⟩therefore block-diagonalize the full correc-
+tive potential, as anticipated in the Appendix of the main
+text. Using this definition for ˆS, the rotated orbitals are
+given by
+| ˜φIσ
+i ⟩= e2 ˆS|φIσ
+i ⟩≈|φIσ
+i ⟩+
+X
+J
+X
+j
+2V IJΛIJσ
+ij
+U J(1 −2λJσ
+j ) −U I(1 −2λIσ
+i )|φJσ
+j ⟩.
+(S28)
+Furthermore, given this definition, the total corrective
+potential can be rewritten as
+ˆV σ
+U + ˆV σ
+V =
+X
+Ii
+⟨˜φIσ
+i | ˆV σ
+U + ˆV σ
+V | ˜φIσ
+i ⟩| ˜φIσ
+i ⟩⟨˜φIσ
+i |
+=
+X
+Ii
+⟨φIσ
+i | ˆV σ
+U |φIσ
+i ⟩| ˜φIσ
+i ⟩⟨˜φIσ
+i | + O(V 2/U)
+=
+X
+Ii
+U I
+2 (1 −2λIσ
+i )| ˜φIσ
+i ⟩⟨˜φIσ
+i | + O(V 2/U)
+(S29)
+In other words, to first order in V/U, a combined +U +V
+correction is equivalent to
+ˆ˜V (0)σ =
+X
+Ii
+U I
+2 (1 −2λIσ
+i )| ˜φIσ
+i ⟩⟨˜φIσ
+i |
+(S30)
+i.e. a +U-type correction constructed using the rotated
+Hubbard projectors (albeit using the original orbitals to
+define λIσ
+i ). This is Eq. (9) in the main text.
+Note that the prefactor in Eq. (9) uses the original oc-
+cupations λIσ
+i
+rather than those of the hybridized projec-
+tors ˜λIσ
+i
+= ⟨˜φIσ
+i |ˆρσ| ˜φIσ
+i ⟩. This makes Eq. (9) an operator
+identity rather than the functional derivative of an on-
+site Hubbard energy; the mismatch has its origin in the
+residual ˆW σ term of the preceding section, and it is not
+a counterexample to the proof provided there.
+S8.
+THE FROZEN-PROJECTOR
+OBSTRUCTION
+Among other things, the previous section showed that for
+a generator ˆT = α ˆS it is not possible to reproduce the
+DFT+U +V potential to first order. A natural follow-up
+is to consider if a more general rotation might succeed.
+(Throughout this section, we suppress the spin index σ
+for brevity.)
+Consider the genuine DFT+U functional built on a
+frozen set of hybridized projectors e ˆT |φI
+i ⟩, for an arbi-
+trary anti-Hermitian generator ˆT, and evaluated with the
+self-consistent occupations of those projectors — in con-
+trast to the bare λI
+i carried by the operator ˆ˜V (0) (Eq. (9)).
+Differentiating, its potential is ˆVU +[ ˆT, ˆVU]−ˆW[ ˆT], where
+ˆW[ ˆT] = P
+I U I ˆP I[ˆρ, ˆT] ˆP I. We ask whether any ˆT makes
+this equal the DFT+U +V potential, i.e.
+[ ˆT, ˆVU] −ˆW[ ˆT] = ˆVV .
+(S31)
+Taking matrix elements, the equation splits by block. For
+the off-site blocks (I̸ = J), ˆW does not contribute, while
+([ ˆT, ˆVU])IJ
+ij =
+
+U J
+2 (1 −2λJ
+j ) −U I
+2 (1 −2λI
+i )
+
+T IJ
+ij .
+(S32)
+Consequently, Eq. (S31) reduces to
+
+U J
+2 (1 −2λJ
+j ) −U I
+2 (1 −2λI
+i )
+
+T IJ
+ij = −V IJΛJI
+ji , (S33)
+fixing the off-diagonal blocks of ˆT to the generator of the
+hybridizing rotation, ˆT = 2 ˆS (twice Eq. (5)).
+For the on-site blocks (I = J), ˆVV does not contribute
+while
+([ ˆT, ˆVU])II
+ij = U I  λI
+i −λI
+j
+
+T II
+ij ,
+(S34)
+and
+( ˆW[T])II
+ij
+U I
+=⟨φI
+i |[ˆρ, ˆT]|φI
+j⟩
+=(λI
+i −λI
+j)T II
+ij +
+X
+K̸=I,k
+ ΛIK
+ik T KI
+kj −T IK
+ik ΛKI
+kj
+
+.
+(S35)
+5
+Inserting Eqs. (S34) and (S35) into Eq. (S31) gives the
+on-site condition
+X
+K̸=I,k
+ ΛIK
+ik T KI
+kj −T IK
+ik ΛKI
+kj
+
+= 0
+(S36)
+where the on-site terms cancel exactly and we are left
+with a term that corresponds to the occupation change
+induced by the (already fixed) inter-site rotation. The
+unknown T II
+ij
+drops out, and the remaining constraint
+is generically violated whenever the +V correction does
+anything — its diagonal (i = j) is the on-site occupation
+change on hybridization, ˜λI
+i −λI
+i̸ = 0. Eq. (S31) there-
+fore has no solution and the proof is complete: no frozen
+rotation can reproduce the DFT+U +V potential.
+The cancellation of T II is not accidental: it is the ro-
+tational invariance of the DFT+U energy. On-site rota-
+tions cannot change the corresponding potential, while
+the inter-site rotations that can are entirely consumed in
+matching ˆVV , leaving no additional degree of freedom to
+satisfy Eq. (S31).
+S9.
+HIGHER-ORDER CORRECTIONS
+Note that Eq. (S30) is only accurate to first order in V/U.
+We can also expand to higher order:
+ˆV σ
+U + ˆV σ
+V =
+X
+IJij
+⟨φIσ
+i | ˆV σ
+U + [ ˆVV , ˆS]|φJσ
+j ⟩| ˜φIσ
+i ⟩⟨˜φJσ
+j | + O(V 3/U 2)
+=
+X
+Ii
+U I
+2 (1 −2λIσ
+i )| ˜φIσ
+i ⟩⟨˜φIσ
+i | −
+X
+IJij
+X
+Kk
+ V IKΛKIσ
+ki
+SKJσ
+kj
+−SIKσ
+ik
+V KJΛJKσ
+jk
+
+| ˜φIσ
+i ⟩⟨˜φJσ
+j | + O(V 3/U 2)
+(S37)
+i.e. we have the second-order correction
+ˆ˜V (2)σ = −
+X
+IJij
+X
+Kk
+ V IKΛKIσ
+ki
+SKJσ
+kj
+−SIKσ
+ik
+V KJΛJKσ
+jk
+
+| ˜φIσ
+i ⟩⟨˜φJσ
+j |
+(S38)
+In practical calculations employing DFT+U +V , we of-
+ten have a system with two sublattices of Hubbard sites
+(e.g. transition metals and oxygens) and V IJ is bipar-
+tite (i.e. only non-zero between a transition metal and
+an oxygen). In such cases, this second-order correction
+is block-diagonal in the rotated basis since terms such as
+V IKSKJ are only non-zero if I and J belong to the same
+sublattice.
+Note that this second-order term is no longer a
+Dudarev-type +U correction. The first-order term ˆ˜V (0)σ
+retained the on-site, projector-diagonal form of +U, sim-
+ply evaluated on the hybridized projectors, whereas ˆ˜V (2)σ
+instead couples projectors on distinct Hubbard sites I̸ =
+J, with a strength set by V acting through an interme-
+diate site K.
+This coupling could always be removed
+by a further rotation, | ˜˜φIσ
+i ⟩= e ˆS′| ˜φIσ
+i ⟩, so the potential
+keeps the diagonal operator form to all orders. What it
+lacks is the structure of a +U functional, in which the
+eigenvalue on each projector is of the form U I
+2 (1 −2λIσ
+i ).
+That the first-order potential nonetheless takes exactly
+this +U form is not automatic: although any perturba-
+tion can be diagonalized in some rotated basis, here both
+the basis and the resulting potential have an explicit,
+closed form, and the potential is +U-like to lowest order
+— which is what gives the +V correction a clear chemical
+interpretation.
+The quality of the frozen-projector approximation is
+not special to the Γ-point shown in Fig. 2 of the main
+text. Fig. S1 repeats that comparison at three different
+k-points, with the same close agreement throughout the
+Brillouin zone.
+[1] Q. Zhao, E. I. Ioannidis, and H. J. Kulik, Global and
+local curvature in density functional theory, J. Chem.
+Phys. 145, 054109 (2016).
+[2] M. Cococcioni and S. de Gironcoli, Linear response ap-
+proach to the calculation of the effective interaction pa-
+rameters in the LDA+U method, Phys. Rev. B 71,
+035105 (2005).
+[3] I. Timrov, N. Marzari, and M. Cococcioni, Hubbard
+parameters from density-functional perturbation theory,
+Phys. Rev. B 98, 085127 (2018).
+[4] A spin-resolved extension of this linear-response method
+also exists, which excludes the sums over spin channels in
+Eq. (S2) to obtain spin-indexed response matrices χσσ′
+IJ .
+See Ref. [16] for more details.
+[5] P. Giannozzi, S. Baroni, N. Bonini, M. Calandra, R. Car,
+6
+Ni (maj)
+Ni (min)
+O
+O
+-3.45
+0.01
+-0.01
+-3.45
+0.01
+-0.01
+-3.47
+-3.47
+-3.47
+1.98
+-0.22
+0.22
+1.98
+-0.22
+0.22
+-3.47
+-3.47
+-3.47
+0.01
+-0.22
+0.01
+-0.22
+-0.01
+0.22
+-0.01
+0.22
+(a) VU + V
+-3.45
+-0.01
+-0.01
+-3.45
+-0.01
+-0.01
+-3.47
+-3.47
+-3.47
+1.98
+0.22
+-0.22
+1.98
+0.22
+-0.22
+-3.47
+-3.47
+-3.47
+-0.01
+0.22
+-0.01
+0.22
+-0.01
+-0.22
+-0.01
+-0.22
+L
+-3.45
+-3.45
+-3.47
+-3.47
+-3.47
+1.98
+-0.13
+0.18 0.13
+-0.18
+1.98
+-0.15 -0.13 -0.10 0.15 0.13 0.10
+-3.47
+-3.47
+-3.47
+-0.13 -0.15
+-0.13
+0.18 -0.10
+0.13 0.15
+0.13
+-0.18 0.10
+X
+Ni (maj)
+Ni (min)
+O
+O
+-3.45
+0.01
+-0.01
+-3.45
+0.01
+-0.01
+-3.47
+-3.47
+-3.47
+1.94
+-0.22
+0.22
+1.94
+-0.22
+0.22
+-3.47
+-3.47
+-3.47
+0.01
+-0.22
+0.02
+-0.02
+0.01
+-0.22
+0.02
+-0.02
+-0.01
+0.22
+-0.02
+0.02
+-0.01
+0.22
+-0.02
+0.02
+(b) V(0)
+-3.45
+-0.01
+-0.01
+-3.45
+-0.01
+-0.01
+-3.47
+-3.47
+-3.47
+1.94
+0.22
+-0.22
+1.94
+0.22
+-0.22
+-3.47
+-3.47
+-3.47
+-0.01
+0.22
+0.02
+-0.02
+-0.01
+0.22
+0.02
+-0.02
+-0.01
+-0.22
+-0.02
+0.02
+-0.01
+-0.22
+-0.02
+0.02
+-3.45
+-3.45
+-3.47
+-3.47
+-3.47
+1.94
+-0.12
+0.18 0.12
+-0.18
+1.94
+-0.14 -0.12 -0.10 0.14 0.12 0.10
+-3.47
+-3.47
+-3.47
+-0.12 -0.14
+0.02
+-0.02
+-0.12
+0.18 -0.10
+0.02
+-0.02
+0.12 0.14
+-0.02
+0.02
+0.12
+-0.18 0.10
+-0.02
+0.02
+Ni (maj)
+Ni (min)
+O
+O
+-0.05
+-0.05
+0.02
+-0.02
+0.02
+-0.02
+-0.02
+0.02
+-0.02
+0.02
+(c) V(0)
+VU + V
+-0.05
+-0.05
+0.02
+-0.02
+0.02
+-0.02
+-0.02
+0.02
+-0.02
+0.02
+-0.05
+-0.05
+0.02
+-0.02
+0.02
+-0.02
+-0.02
+0.02
+-0.02
+0.02
+Ni (maj)
+Ni (min)
+O
+O
+-3.45
+0.01
+-0.01
+-3.45
+0.01
+-0.01
+-3.47
+-3.47
+-3.47
+1.99
+-0.22
+0.22
+1.99
+-0.22
+0.22
+-3.47
+-3.47
+-3.47
+0.01
+-0.22
+0.01
+-0.22
+-0.01
+0.22
+-0.01
+0.22
+(d) V(0) + V(2)
+-3.45
+-0.01
+-0.01
+-3.45
+-0.01
+-0.01
+-3.47
+-3.47
+-3.47
+1.99
+0.22
+-0.22
+1.99
+0.22
+-0.22
+-3.47
+-3.47
+-3.47
+-0.01
+0.22
+-0.01
+0.22
+-0.01
+-0.22
+-0.01
+-0.22
+-3.45
+-3.45
+-3.47
+-3.47
+-3.47
+1.99
+-0.12
+0.18 0.12
+-0.18
+1.99
+-0.14 -0.12 -0.10 0.14 0.12 0.10
+-3.47
+-3.47
+-3.47
+-0.12 -0.14
+-0.12
+0.18 -0.10
+0.12 0.14
+0.12
+-0.18 0.10
+Ni (maj)
+Ni (min)
+O
+O
+Ni (maj)
+Ni (min)
+O
+O
+(e) V(0) + V(2)
+VU + V
+Ni (maj)
+Ni (min)
+O
+O
+Ni (maj)
+Ni (min)
+O
+O
+100
+10
+1
+10
+2
+0
+10
+2
+10
+1
+100
+FIG. S1. An expanded version of Fig. 2 from the main text,
+evaluated at three high-symmetry k-points (Γ, L, and X; one
+per column).
+C. Cavazzoni, D. Ceresoli, G. L. Chiarotti, M. Cococ-
+cioni, I. Dabo, A. Dal Corso, S. de Gironcoli, S. Fabris,
+G. Fratesi, R. Gebauer, U. Gerstmann, C. Gougoussis,
+A. Kokalj, M. Lazzeri, L. Martin-Samos, N. Marzari,
+F. Mauri, R. Mazzarello, S. Paolini, A. Pasquarello,
+L. Paulatto, C. Sbraccia, S. Scandolo, G. Sclauzero, A. P.
+Seitsonen, A. Smogunov, P. Umari, and R. M. Wentz-
+covitch, QUANTUM ESPRESSO: A modular and open-
+source software project for quantum simulations of ma-
+terials, J. Phys. Condens. Matter 21, 395502 (2009).
+[6] P. Giannozzi, O. Andreussi, T. Brumme, O. Bunau,
+M. Buongiorno Nardelli, M. Calandra, R. Car, C. Cavaz-
+zoni, D. Ceresoli, M. Cococcioni, N. Colonna, I. Carn-
+imeo,
+A. Dal Corso,
+S. de Gironcoli,
+P. Delugas,
+R. A. DiStasio,
+A. Ferretti,
+A. Floris,
+G. Fratesi,
+G. Fugallo, R. Gebauer, U. Gerstmann, F. Giustino,
+T. Gorni, J. Jia, M. Kawamura, H.-Y. Ko, A. Kokalj,
+E. K¨u¸c¨ukbenli, M. Lazzeri, M. Marsili, N. Marzari,
+F. Mauri, N. L. Nguyen, H.-V. Nguyen, A. Otero-de-
+la-Roza, L. Paulatto, S. Ponc´e, D. Rocca, R. Sabatini,
+B. Santra, M. Schlipf, A. P. Seitsonen, A. Smogunov,
+I. Timrov, T. Thonhauser, P. Umari, N. Vast, X. Wu, and
+S. Baroni, Advanced capabilities for materials modelling
+with Quantum ESPRESSO, J. Phys. Condens. Matter
+29, 465901 (2017).
+[7] J. P. Perdew, A. Ruzsinszky, G. I. Csonka, O. A. Vydrov,
+G. E. Scuseria, L. A. Constantin, X. Zhou, and K. Burke,
+Restoring the density-gradient expansion for exchange in
+solids and surfaces, Phys. Rev. Lett. 100, 136406 (2008).
+[8] M. J. van Setten, M. Giantomassi, E. Bousquet, M. J.
+Verstraete, D. R. Hamann, X. Gonze, and G. M. Rig-
+nanese, The PseudoDojo: Training and grading a 85 ele-
+ment optimized norm-conserving pseudopotential table,
+Comput. Phys. Commun. 226, 39 (2018).
+[9] D. R. Hamann, Optimized norm-conserving Vanderbilt
+pseudopotentials, Phys. Rev. B 88, 085117 (2013).
+[10] N. Marzari, D. Vanderbilt, and M. C. Payne, Ensem-
+ble Density-Functional Theory for Ab Initio Molecular
+Dynamics of Metals and Finite-Temperature Insulators,
+Phys. Rev. Lett. 79, 1337 (1997).
+[11] I. Timrov, N. Marzari, and M. Cococcioni, Self-consistent
+Hubbard parameters from density-functional perturba-
+tion theory in the ultrasoft and projector-augmented
+wave formulations, Phys. Rev. B 103, 045141 (2021).
+[12] I. Timrov, N. Marzari, and M. Cococcioni, HP – A code
+for the calculation of Hubbard parameters using density-
+functional perturbation theory, Comput. Phys. Commun.
+279, 108455 (2022).
+[13] A. Carta, I. Timrov, P. Mlkvik, A. Hampel, and C. Ed-
+erer, Explicit demonstration of the equivalence between
+DFT+U and the Hartree-Fock limit of DFT+DMFT,
+Phys. Rev. Res. 7, 013289 (2025).
+[14] E. Linscott, A. Carta, and N. Marzari, DFT+U+V
+is equivalent to DFT+U with density-dependent hy-
+bridized projectors, Materials Cloud Archive 2026.X,
+10.24435/materialscloud:zb-sz (2026).
+[15] X. Wang, T. Tian, and U. Aschauer, Beautiful Atoms:
+A Python library for the manipulation and visualization
+of atomistic structure using Blender, https://github.
+com/beautiful-atoms/beautiful-atoms (2022).
+[16] E. B. Linscott, D. J. Cole, M. C. Payne, and D. D.
+O’Regan, Role of spin in the calculation of Hubbard U
+and Hund’s J parameters from first principles, Phys. Rev.
+B 98, 235157 (2018).

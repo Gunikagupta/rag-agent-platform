@@ -1,0 +1,2032 @@
+Vector Search As Nearest Neighbor Matching:
+RAG-based Policy Learning in Causal Inference
+Masahiro Kato∗and Taka Kato†
+∗The University of Tokyo.
+†NP-hard Inc.
+July 21, 2026
+Abstract
+We propose one-step and two-step methods for policy learning with retrieval-
+augmented generation (RAG). We formulate RAG-based action selection under the
+potential outcome framework. In the two-step method, vector search retrieves action-
+specific neighboring evidence in an embedding space, the generator estimates conditional
+expected outcomes or their contrasts, and a plug-in rule selects an action. This formu-
+lation connects action-specific vector search with nearest-neighbor matching in causal
+inference. We decompose the regret of the two-step method into candidate-generation
+regret and within-candidate choice regret, and we bound the latter using prediction-error
+guarantees for nearest-neighbor estimators and transformers. We evaluate the one-step
+method directly as a policy because its intermediate computation is unobserved.
+Keywords: causal inference, policy learning, retrieval-augmented generation, vector search,
+nearest-neighbor matching, plug-in classifier, conditional average treatment effect, minimax
+rate, in-context learning.
+1
+Introduction
+Retrieval-augmented generation (RAG) has become a common architecture for action selection
+in systems built on language models. In a RAG algorithm, a query is embedded in a vector
+space, and documents or other information are retrieved according to distances in that space.
+Conditional on the retrieved evidence, a generative model produces an answer, which may
+include a recommendation or a tool choice.
+Despite its widespread use, the decision-theoretic guarantees of RAG have not been fully
+studied. If a query is treated as a covariate and the action recommended in the generated
+∗Email: mkato-csecon@g.ecc.u-tokyo.ac.jp
+†Email: taka@np-hard.co.jp
+1
+arXiv:2607.18225v1  [econ.EM]  20 Jul 2026
+answer is treated as the decision, RAG-based decision-making can be viewed as a policy
+learning problem. Action selection and policy learning have long been studied in causal
+inference and reinforcement learning.
+In causal inference, counterfactual decision-making has been studied as a policy learning
+problem (Athey & Wager, 2021). The goal is to recommend the action with the highest
+conditional expected outcome, so estimation of the conditional expected outcome is central.
+Two main approaches are the plug-in approach and the counterfactual risk minimization
+(CRM) approach (Swaminathan & Joachims, 2015); the latter is also called empirical wel-
+fare maximization (Kitagawa & Tetenov, 2018). The plug-in approach first estimates the
+conditional expected outcome for each action and then chooses the action with the largest
+estimate. By contrast, the CRM approach estimates a value functional and learns a policy
+by maximizing the estimated value.
+1.1
+Contents and Contributions
+We formulate RAG-based action selection under the potential outcome framework, also known
+as the Neyman–Rubin causal model. The explicit two-step procedure is a plug-in policy rule
+because it estimates action-specific conditional expected outcomes before choosing an action.
+We evaluate the one-step output as a policy without imposing the same interpretation on its
+unobserved internal computation.
+We first consider the case in which K actions are given.
+Let X denote covariates
+that represent the query or decision context supplied to the RAG system, let A ∈K :=
+{0, 1, . . . , K −1} denote the action, and let Y (a) denote the potential outcome under action
+a. Our goal is to choose the action with the highest conditional expected outcome, and we
+write the context-specific optimal action as
+a∗(x) ∈arg max
+a∈K
+E [Y (a) | X = x] .
+Because vector search retrieves documents or examples that are similar or relevant to the
+query, we interpret the RAG system as producing an estimate of a∗(x) from the context x.
+When the retrieval database contains covariates, actions, and outcomes, vector search supplies
+nearest neighbors used to estimate the conditional expected outcomes that determine a∗(x).
+Similarity is therefore used to select matched evidence for each action, rather than to choose
+the action that appears most often among neighboring cases. This operation corresponds to
+nearest-neighbor matching in causal inference.
+We next extend this formulation to settings in which the available action set is not
+specified in advance. Although the preceding formulation assumes that K actions are given,
+the set of available actions is often not known in advance in applications of language models.
+For example, in workplace applications, a user may submit a query and ask what to do
+next without providing a candidate action set. To reflect this setting, we propose two forms
+of RAG-based policy learning. The one-step method receives a query and directly returns
+a recommended action, while the actions considered internally remain unobserved. The
+two-step method proceeds as follows:
+• We provide a query and ask the RAG system to generate a finite set of candidate
+actions.
+2
+• For each candidate action, the RAG system retrieves matched evidence and evaluates
+or ranks the action according to its estimated conditional expected outcome.
+• We select the action with the largest estimated conditional expected outcome or the
+highest rank.
+The two-step method separates action generation from action choice. This separation allows
+us to decompose its regret into the loss from the generated candidate set and the loss from
+expected-outcome estimation or ranking within that set.
+This study makes three contributions:
+• We formulate RAG-based action selection as policy learning under the potential outcome
+framework and give an explicit plug-in interpretation for the two-step procedure.
+• We interpret action-specific vector search over observed cases as nearest-neighbor
+matching and distinguish evidence retrieval from action choice.
+• We decompose regret into candidate-set regret and within-candidate regret, and we
+bound the latter using prediction-error guarantees.
+1.2
+Related Work
+This study is related to three streams of literature: policy learning, RAG, and nonparametric
+analysis of neural networks and transformers.
+Policy learning.
+We study policy learning in causal inference (Swaminathan & Joachims,
+2015; Kitagawa & Tetenov, 2018; Athey & Wager, 2021). As in supervised learning (Audibert
+& Tsybakov, 2007), policy learning can be approached through plug-in estimation or counter-
+factual risk minimization. The latter is also referred to as empirical welfare maximization
+(EWM) (Kitagawa & Tetenov, 2018), and a theoretical comparison of the two approaches
+is given by Kitagawa & Tetenov (2018). Although that comparison gives favorable results
+for EWM relative to the plug-in approach under its conditions, their relative performance
+depends on the underlying data-generating process, as discussed by Audibert & Tsybakov
+(2007). Because the structure of RAG is more directly compatible with plug-in estimation,
+we formulate RAG-based policy learning using the plug-in approach.
+In particular, we interpret action-specific retrieval over observed cases as a nearest-
+neighbor matching procedure. Nearest-neighbor match counts have density-ratio limits that
+are proportional to inverse propensity scores, and nearest-neighbor matching can also be
+related to Riesz regression (Lin et al., 2023; Kato, 2025b). The analyses of Kitagawa &
+Tetenov (2018) and Athey & Wager (2021) use inverse probability weighting (IPW) or
+augmented IPW estimators. The representation results in Lin et al. (2023) and Kato (2025b)
+therefore connect RAG-based policy learning to those analyses.
+RAG.
+Our study is also related to work on RAG. Guu et al. (2020) jointly trains a
+latent document retriever and a language model. Lewis et al. (2020) combines a dense
+passage index with a sequence-to-sequence generator and marginalizes over retrieved passages.
+3
+Dense passage retrieval maps queries and passages into a shared embedding space and
+ranks passages by inner-product similarity (Karpukhin et al., 2020). This retrieval step is
+computationally related to nearest-neighbor methods. In particular, the k-nearest-neighbor
+language model constructs a nonparametric next-token distribution from nearby contextual
+representations and interpolates it with the distribution produced by a parametric language
+model (Khandelwal et al., 2020). Later studies develop different ways to incorporate retrieved
+information into generation. Fusion-in-Decoder encodes retrieved passages separately and
+combines their representations in the decoder (Izacard & Grave, 2021). REPLUG augments
+a frozen black-box language model and trains the retriever using feedback from the language
+model (Shi et al., 2024). Self-RAG learns when to retrieve and uses self-reflection signals
+to assess whether the retrieved passages support the generated response (Asai et al., 2024).
+These methods select external evidence according to proximity in a representation space,
+but they do not interpret the retrieved items as matched observations under the potential
+outcome framework.
+Retrieval has also been incorporated into sequential decision-making. Goyal et al. (2022)
+augments reinforcement learning agents with direct access to datasets of past experience.
+Humphreys et al. (2022) uses approximate nearest-neighbor search over a large collection
+of expert states to support offline reinforcement learning. REGENT conditions a generalist
+policy on demonstrations retrieved from related tasks (Sridhar et al., 2025), whereas STRAP
+retrieves relevant sub-trajectories before learning a policy for a target task (Memmel et al.,
+2024). These studies place retrieval within reinforcement learning or imitation learning rather
+than plug-in policy learning under the potential outcome framework. In a different direction,
+CausalRAG incorporates causal graphs into retrieval and generation for knowledge-intensive
+tasks (Wang et al., 2025). Its use of causal information concerns relations among concepts in
+the retrieved documents rather than counterfactual outcomes under alternative actions.
+Unlike these approaches, we formulate RAG-based action selection under the potential
+outcome framework. For the two-step method, vector search supplies local evidence for
+outcome regression, the generator estimates action-specific conditional expected outcomes or
+their contrasts, and the algorithm selects the action with the largest estimate. The one-step
+method is evaluated at the level of its returned policy because its internal criterion is not
+observed. The two-step formulation also separates regret due to candidate generation from
+regret due to expected-outcome estimation or ranking within the generated set.
+Nonparametric analysis of neural networks and transformers.
+The statistical theory
+of neural networks provides a basis for viewing transformers as nonparametric estimators.
+Nonparametric regression with deep ReLU networks has been studied under compositional
+assumptions and over Besov-type function classes (Schmidt-Hieber, 2020; Suzuki, 2019; Suzuki
+& Nitanda, 2021). For transformers, Yun et al. (2020) establishes universal approximation
+results for sequence-to-sequence functions, while Takakura & Suzuki (2023) and Havrilla &
+Liao (2024) examine approximation and estimation for high-dimensional sequence inputs and
+data with low-dimensional structure.
+A related literature studies in-context learning as a statistical learning procedure. Existing
+work examines the function classes that transformers can learn from in-context examples and
+relates their predictions to regression algorithms, gradient descent, and algorithm selection
+4
+(Garg et al., 2022; Aky¨urek et al., 2023; Von Oswald et al., 2023; Bai et al., 2023). More
+recent studies analyze in-context learning for nonparametric regression and adaptation to
+low-dimensional target functions (Kim et al., 2024; Oko et al., 2024; Ching et al., 2026).
+We use prediction-error guarantees from this literature as inputs to the regret analysis for
+transformer-based expected-outcome estimation.
+2
+Setup
+Let X ∈X ⊆Rd denote covariates, which represent a query or decision context. The
+covariates can combine the query with pre-action individual attributes, such as age, gender,
+and occupation, when those attributes are available and relevant to the decision problem.
+Let A ∈A denote an action, where the action space A can be finite or uncountably infinite.
+Let Y ∈Y ⊆R denote a scalar outcome. We denote the conditional expected outcome of Y
+given A = a ∈A and X = x ∈X by f0(a, x) := E [Y | A = a, X = x].
+2.1
+Policy and Policy Value
+We focus on deterministic policies. A policy is a measurable function
+π: X →A.
+Let Π be a class of such policies. For π ∈Π, define its value by
+V (π) := E [f0(π(X), X)] .
+We denote a learned or otherwise data-dependent policy by ba: X →A, so that ba(x) is
+the action selected at covariate value x. Its value is
+V (ba) := E [f0(ba(X), X)] .
+When ba depends on training data, the retrieval database, or auxiliary algorithmic randomness,
+the expectation also averages over this randomness.
+For a chosen action ba(·), we define its value by
+V (ba) := E [f0(ba(X), X)] .
+2.2
+Optimal Policy
+We assume that the maximum of f0(a, x) over a ∈A is attained and that a measurable
+maximizer can be selected. For each x ∈X, let
+a∗(x) ∈arg max
+a∈A
+f0(a, x).
+The measurable selector a∗: X →A is the optimal deterministic policy. Its value is
+V (a∗) = E
+
+max
+a∈A f0(a, X)
+
+.
+5
+2.3
+Regret
+The regret of ba relative to the optimal action rule a∗is
+R(ba) := V (a∗) −V (ba) = E [f0(a∗(X), X) −f0(ba(X), X)] .
+3
+RAG-PL
+In this section, we describe our proposed method, called RAG-based policy learning (RAG-
+PL). We consider two forms of RAG-PL. The one-step method returns an action directly from
+the covariates. The two-step method first generates candidate actions and then selects one
+action from those candidates. The two-step method has two stages. The first stage constructs
+the candidate set. The second stage evaluates the candidates using retrieved evidence and
+selects one of them.
+3.1
+RAG
+We consider three input-output forms of a RAG system. The first returns a set of candidate
+actions given the covariates. he second returns an estimated conditional expected outcome for
+each action or ranks the candidate actions by that quantity. The third returns a recommended
+action directly from the covariates.
+Action-set RAG.
+Let F(A) := {C ⊆A : 1 ≤|C| < ∞} denote the collection of all non-
+empty finite subsets of A. We represent an action-set RAG as a set-valued function g: X →
+F(A). For each x ∈X, the set g(x) ⊆A contains the candidate actions returned by the RAG
+system.
+Vector search as nearest-neighbor matching.
+Let φ: X →Rdφ be the embedding
+map used for vector search, and write H = φ(X). Let D = {Dj}Ndb
+j=1 be a retrieval database.
+When A is discrete and the database contains observations of covariates, actions, and
+outcomes, we write Dj = (Xj, Aj, Yj) and, for an action a, define the action-specific index set
+Ia := {j : Aj = a}. Given x and a, let Nk,a(x) be the indices of the k observations indexed by
+Ia whose embeddings are closest to φ(x), and let Rk(x, a) := {Dj : j ∈Nk,a(x)} denote the
+retrieved evidence. We assume that |Ia| ≥k for every action evaluated through action-specific
+retrieval. This operation matches the current context with similar cases within each action,
+as in nearest-neighbor matching. For a general document corpus, Rk(x, a) denotes evidence
+retrieved by a query that includes the candidate action. In either case, similarity determines
+which evidence is used to evaluate an action. It is not itself the criterion for choosing the
+final action, and we do not select an action by the frequency with which it appears among
+neighboring cases. For continuous action spaces, exact action-specific retrieval based on
+Ia = {j : Aj = a} is generally unavailable. In that case, retrieval must use an action-aware
+distance or kernel on A × X, or another procedure that borrows information across nearby
+actions. The nearest-neighbor analysis in Section 5 is restricted to binary actions.
+6
+Expected-outcome RAG or ranking RAG.
+We represent an expected-outcome RAG
+by a function bf : A × X →R. Given an action a ∈A and covariates x ∈X, it returns
+an estimate bf(a, x) of the conditional expected outcome f0(a, x). When the generator and
+retrieved evidence are written explicitly, we use
+bf(a, x) = Gθ
+ x, a, Rk(x, a)
+
+.
+A ranking RAG instead receives x and a finite candidate set C = {a1, . . . , am} ∈F(A).
+It retrieves evidence for the candidate actions and returns an ordered tuple r(x, C) =
+(a(1), . . . , a(m)), which is a permutation of the actions in C from the highest to the lowest
+estimated conditional expected outcome.
+Remark (Fixed action set). When the action set is given and finite, we write A = K :=
+{0, 1, . . . , K −1}. These actions are also called treatments or arms. In the potential-outcome
+notation, each unit has potential outcomes Y (0), Y (1), . . . , Y (K −1). We use the special case
+K = 2 when discussing the relation between the selected action and the conditional average
+treatment effect.
+Policy RAG.
+A policy RAG receives covariates and directly returns a recommended action.
+We represent it by a function πRAG : X →A.
+3.2
+One-Step RAG-PL
+The one-step RAG-PL method applies a policy RAG directly. Given x ∈X, the RAG system
+is instructed to recommend an action baone(x) with the highest conditional expected outcome,
+and we write baone(x) = πRAG(x). The policy implemented by the RAG system is usually not
+observed separately from its output. In particular, the one-step method does not expose an
+intermediate candidate set, expected outcomes for the candidate actions, or a separate ranking
+step. We therefore evaluate the returned policy without imposing a particular interpretation
+on its internal computation.
+3.3
+Two-Step RAG-PL
+Action-set generation.
+Given x ∈X, the action-set RAG returns a finite candidate set
+g(x) =
+
+a1(x), . . . , aM(x)(x)
+	
+⊆A,
+1 ≤M(x) < ∞.
+Thus, even when A is uncountably infinite, the subsequent evaluation or ranking is performed
+only over the finite set g(x). The candidate set can contain actions found in matched cases
+and actions generated by the language model. Its purpose is to include actions with high
+conditional expected outcomes, rather than to reproduce the empirical distribution of actions
+in the retrieved evidence.
+Ranking or expected-outcome estimation.
+For every a ∈g(x), the RAG system re-
+trieves Rk(x, a). When an expected-outcome RAG is used, it evaluates bf(a, x) = Gθ(x, a, Rk(x, a)).
+When a ranking RAG is used, it returns the ordered tuple r(x, g(x)) = (a(1)(x), . . . , a(M(x))(x)),
+where a(1)(x) is the candidate with the highest estimated conditional expected outcome.
+7
+Action choice.
+Under expected-outcome estimation, we choose
+batwo(x) ∈arg max
+a∈g(x)
+bf(a, x),
+where a fixed rule is used to break ties. Under ranking, we choose
+batwo(x) := a(1)(x).
+Both methods define a policy from X to A. The two-step method makes action generation,
+retrieval of similar cases, and action choice explicit, which allows their contributions to regret
+to be studied separately.
+4
+Regret Analysis
+We analyze the regret of the one-step and two-step methods under the setup above. We write
+R(ba) for the regret of a selected action ba(·). When the candidate set, the expected-outcome
+estimate, or the selected action is random, the expectation defining R(ba) and all expectations
+below also average over this randomness. We first separate the effect of the generated
+candidate set from the effect of selecting an action within that set. We then connect the
+second term to nonparametric prediction error. Section 5 studies the case in which vector
+search is represented explicitly by nearest-neighbor matching.
+4.1
+Regret Decomposition for Two-Step RAG-PL
+For each x ∈X, let
+a∗
+g(x) ∈arg max
+a∈g(x)
+f0(a, x),
+where the fixed tie-breaking rule is used when needed, and we assume that the resulting
+selector is measurable. The maximum is attained because g(x) is finite. We define
+Rgen(g) := E
+
+f0(a∗(X), X) −f0(a∗
+g(X), X)
+
+and
+Rchoice(batwo; g) := E
+
+f0(a∗
+g(X), X) −f0(batwo(X), X)
+
+.
+The first term is the regret caused by restricting the choice to g(X). The second is the
+regret caused by expected-outcome estimation or ranking within g(X). We call Rgen(g) the
+candidate-set regret and Rchoice(batwo; g) the within-candidate regret.
+Adding and subtracting f0(a∗
+g(X), X) gives
+R(batwo) = Rgen(g) + Rchoice(batwo; g).
+(1)
+This identity does not require independence between candidate generation and action choice.
+8
+4.2
+Bounding the Candidate-Set Regret
+For ε ≥0, define the set of ε-optimal actions by
+A∗
+ε(x) := {a ∈A : f0(a∗(x), x) −f0(a, x) ≤ε} .
+Exact inclusion of a∗(x) is not required. It is enough that the generated set contain an action
+whose conditional expected outcome is close to the optimum.
+Proposition 4.1 (Bounds for the generated candidate set). The following statements hold.
+1. If g(x) ∩A∗
+ε(x)̸ = ∅holds for PX-almost every x, then we have
+Rgen(g) ≤ε.
+2. Suppose that 0 ≤f0(a∗(x), x) −f0(a, x) ≤Bf for every (a, x) ∈A × X. If
+Pr (g(X) ∩A∗
+ε(X) = ∅) ≤δ
+holds, then we have
+Rgen(g) ≤ε + Bfδ.
+3. Let dA be a metric on A, and define dA(a, C) := minb∈C dA(a, b) for every non-empty
+finite set C. Suppose that, for some LA > 0 and βA > 0,
+|f0(a, x) −f0(b, x)| ≤LAdA(a, b)βA
+holds for every a, b ∈A and x ∈X. Then, we have
+Rgen(g) ≤LAE
+
+dA(a∗(X), g(X))βA
+.
+The third statement controls the value of the best action in g(x) through its distance
+from a∗(x). It does not concern the estimation error of bf. The smoothness condition on f0
+converts distance in the action space into a difference in conditional expected outcomes.
+4.3
+Expected-Outcome Estimation and Ranking
+Suppose that the two-step method chooses
+batwo(x) ∈arg max
+a∈g(x)
+bf(a, x).
+For each x ∈X, define
+δf(x; g) := max
+a∈g(x) | bf(a, x) −f0(a, x)|.
+Let v∗
+g(x) := maxa∈g(x) f0(a, x) and define the smallest positive gap within the candidate set
+by
+∆g(x) :=
+min
+a∈g(x):f0(a,x)<v∗g(x)
+
+v∗
+g(x) −f0(a, x)
+	
+,
+where ∆g(x) = +∞if every action in g(x) attains v∗
+g(x).
+9
+Theorem 4.2 (Regret from expected-outcome estimation). For every x ∈X, it holds that
+f0(a∗
+g(x), x) −f0(batwo(x), x) ≤2δf(x; g).
+Consequently,
+R(batwo) ≤Rgen(g) + 2E [δf(X; g)] .
+Suppose in addition that δf(X; g) ≤rf almost surely and that, for some CM > 0, κ ≥0, and
+t0 > 0,
+Pr (0 < ∆g(X) ≤t) ≤CMtκ,
+0 < t ≤t0.
+If 2rf ≤t0, then
+Rchoice(batwo; g) ≤CM(2rf)1+κ.
+The theorem is stated for the realized set g(X) and therefore does not require candidate
+generation to be independent of bf. A high-probability error bound can be used in the same
+way. If 0 ≤f0(a∗
+g(X), X) −f0(a, X) ≤Bf holds almost surely for every a ∈g(X), the margin
+condition holds, and
+Pr (δf(X; g) > rf) ≤ηf,
+then
+Rchoice(batwo; g) ≤CM(2rf)1+κ + Bfηf.
+(2)
+For example, suppose that |g(X)| ≤M and, conditional on X and g(X),
+Pr
+
+| bf(a, X) −f0(a, X)| > bn + u
+ X, g(X)
+
+≤c1 exp(−c2anu2)
+for every a ∈g(X). A union bound gives
+Pr (δf(X; g) > bn + u) ≤c1M exp(−c2anu2).
+Thus, the number of candidates enters the simultaneous error through a logarithmic term
+when u is chosen to make the right-hand side small.
+For a ranking RAG, let a(1)(x) be the first action in r(x, g(x)). Then,
+R(a(1)) = Rgen(g) + E
+
+f0(a∗
+g(X), X) −f0(a(1)(X), X)
+
+.
+When the ranking orders the candidates according to bf(a, x), Theorem 4.2 applies. If the RAG
+system returns only an ordering, its analysis requires a direct bound on the true conditional
+expected-outcome difference between the best candidate and the first-ranked candidate.
+4.4
+Relation to Policy-Value Maximization
+Let
+Sg := {s: X →A : s is measurable and s(x) ∈g(x)}
+and define the value induced by bf as
+bVf(s) := E
+h
+bf(s(X), X)
+i
+.
+10
+If a measurable selector bsf satisfies
+bsf(x) ∈arg max
+a∈g(x)
+bf(a, x),
+then, for every s ∈Sg, it holds that bf(bsf(x), x) ≥bf(s(x), x). Hence,
+bsf ∈arg max
+s∈Sg
+bVf(s).
+The same pointwise argument applies to an empirical average over target contexts. Thus,
+when the policy class contains every measurable selector and its value is constructed from bf,
+pointwise maximization and maximization over the policy class are the same optimization
+problem. They can differ when the policy class is restricted or when the value estimator uses
+observed outcomes through IPW or AIPW rather than being constructed from bf alone.
+4.5
+Substitution of Nonparametric Rates
+The preceding results allow a prediction rate to be inserted into the regret bound without
+changing the RAG-PL algorithm. Suppose that Rgen(g) ≤rg,n and that the expected-outcome
+error on the generated set is bounded by rf,n. Under the finite-candidate margin condition in
+Theorem 4.2, we have
+R(batwo) ≤rg,n + CM(2rf,n)1+κ.
+For example, if a nonparametric estimator has a uniform error bound rf,n ≍n−α/(2α+d), the
+second term is of order n−α(1+κ)/(2α+d). This substitution is valid only when the available
+prediction result controls the error required by the regret theorem. An integrated mean-
+squared error cannot be used as a uniform error without an additional argument.
+The same distinction matters for transformers. The analysis of Kim et al. (2024) gives a
+mean-squared prediction bound for a transformer composed of a learned neural representation
+and a linear-attention layer. In the Besov setting, a representative bound has the form
+qICL ≲N −2α/d
+rep
++ Nrep log Nrep
+nctx
++ N 2
+rep log Nrep
+Tpre
+,
+where Nrep is the representation dimension, nctx is the number of in-context examples, and
+Tpre is the number of pretraining tasks. If this bound holds for both binary expected-outcome
+estimates, Theorem 4.3 below gives
+R(ba) ≲(qICL,0 + qICL,1)(1+κ)/(2+κ).
+A sharper exponent 1 + κ for the root prediction rate requires a uniform error bound or
+a pointwise exponential-deviation bound. It does not follow from an MSE result alone.
+The results of Oko et al. (2024) and Ching et al. (2026) further describe adaptation to
+low-dimensional target functions and minimax MSE rates, and they enter the regret analysis
+according to the same distinction between error types.
+The general regret decomposition itself has no sample size. For a specified retrieval
+database, its size and the number of matched observations have a direct statistical meaning.
+11
+Transformer theory uses different quantities for the representation dimension, in-context
+examples, and pretraining tasks. For an already trained RAG system whose training data
+are not observed, the total number of pretraining tokens is not by itself a sample size for
+conditional expected-outcome estimation. In that case, the regret bound should be stated in
+terms of a prediction error that is either assumed or evaluated separately.
+4.6
+Relation Between One-Step and Two-Step RAG-PL
+The regret of the one-step output is
+R(baone) = E [f0(a∗(X), X) −f0(baone(X), X)] .
+For comparison, its observed output can be represented by the singleton set gone(x) =
+{baone(x)}. This representation does not assert that the RAG system uses a singleton set
+internally.
+Suppose that baone(x) ∈g(x) for PX-almost every x. Because a∗
+g(x) is at least as good as
+every action in g(x), we have
+Rgen(g) ≤R(baone).
+Combining this inequality with (1) gives
+R(batwo) ≤R(baone) + Rchoice(batwo; g).
+If the two-step method selects the best action in g(x) according to f0, its regret is no larger
+than the regret of the one-step output. With an estimated expected outcome, Theorem 4.2
+instead gives
+R(batwo) ≤R(baone) + 2E [δf(X; g)] .
+Thus, a larger candidate set can contain a better action than the one-step output, but the
+gain can be lost when expected-outcome estimation or ranking is inaccurate.
+4.7
+Fixed Action Sets and Binary Actions
+When the action set is fixed and finite, we can set g(x) = A = K for every x. Then,
+Rgen(g) = 0, and Theorem 4.2 gives
+R(batwo) ≤2E
+
+max
+a∈K | bf(a, X) −f0(a, X)|
+
+.
+For the binary action set K = {0, 1}, define
+τ0(x) := f0(1, x) −f0(0, x),
+bτ(x) := bf(1, x) −bf(0, x).
+Using the tie-breaking rule that selects action 1 at equality, we have a∗(x) = 1 [τ0(x) ≥0]
+and ba(x) = 1 [bτ(x) ≥0]. For any selected action ba(x) ∈{0, 1},
+R(ba) = E [|τ0(X)|1 [ba(X)̸ = a∗(X)]] .
+(3)
+When f0(a, x) = E [Y (a) | X = x], τ0(x) is the conditional average treatment effect.
+12
+We use the margin condition
+Pr (0 < |τ0(X)| ≤t) ≤CMtκ,
+0 < t ≤t0.
+(4)
+It controls the probability of contexts for which the two actions have nearly equal conditional
+expected outcomes (Audibert & Tsybakov, 2007).
+Theorem 4.3 (Binary regret bounds). Suppose that (4) holds.
+1. If ∥bτ −τ0∥∞≤rτ holds almost surely and rτ ≤t0, then
+R(ba) ≤CMr1+κ
+τ
+.
+In particular, if maxa∈{0,1} | bf(a, x) −f0(a, x)| ≤rf for PX-almost every x, then R(ba) ≤
+CM(2rf)1+κ whenever 2rf ≤t0.
+2. Suppose that |τ0(X)| ≤Bτ holds almost surely and that there exist bn ≥0, an > 0, and
+δn ≥0, together with constants c1, c2 > 0, such that
+Pr (|bτ(X) −τ0(X)| ≥bn + u | X = x) ≤c1 exp(−c2anu2) + δn
+holds for PX-almost every x ∈X and every u > 0. If bn ≤t0/4 and a−1/2
+n
+≤t0/4, then
+R(ba) ≤C(bn + a−1/2
+n
+)1+κ + Bτδn.
+3. If
+E
+
+(bτ(X) −τ0(X))2
+≤qn
+and q1/(2+κ)
+n
+≤t0 hold, then
+R(ba) ≤Cq(1+κ)/(2+κ)
+n
+.
+The constants in the second and third statements depend only on the constants displayed in
+their assumptions and the margin condition.
+5
+Nearest-Neighbor Matching and Expected-Outcome
+Regret
+Vector search connects RAG-PL with causal inference by selecting observations whose
+covariates are close to the current context. This section gives an explicit nearest-neighbor
+regression model in which the expected-outcome estimate in Section 3 is formed from matched
+observations and its error can be substituted into the regret bounds above.
+13
+5.1
+Nearest-Neighbor Matching
+For each a ∈{0, 1}, let
+Da = {(Ha,j, Ya,j)}Na
+j=1
+be a database for action a, where Ha,1, . . . , Ha,Na are independently and identically distributed
+according to Qa on Rdφ and
+Ya,j = ma(Ha,j) + ξa,j.
+We assume that the query X is independent of the action-specific databases. For a query x,
+write h = φ(x) and let Nk,a(h) be the indices of the k nearest embeddings in Da. Define the
+matched expected-outcome estimate by
+efk(a, x) := 1
+k
+X
+j∈Nk,a(h)
+Ya,j.
+The following result gives a standard bias and variance calculation for nearest-neighbor
+regression in the notation used by RAG-PL (Jiang, 2019). Its use as an action-specific
+matching estimator follows the setup of Abadie & Imbens (2006).
+Theorem 5.1 (Estimation error of the expected outcome from nearest-neighbor matching).
+Fix a ∈{0, 1}. Suppose that the support of Ha,j has finite diameter DH and that the following
+conditions hold.
+1. The function ma is β-H¨older for some β ∈(0, 1] and La > 0:
+|ma(h) −ma(h′)| ≤La∥h −h′∥β.
+2. For some ca > 0 and r0 > 0, every query embedding h and every 0 < r ≤r0 satisfy
+Qa(B(h, r)) ≥cardφ,
+where B(h, r) :=
+
+h′ ∈Rdφ : ∥h′ −h∥≤r
+	
+.
+3. Conditional on the embeddings, the errors ξa,j are independent, mean zero, and σ2
+a-sub-
+Gaussian for some σa > 0.
+Let
+ra,k :=
+ 2k
+caNa
+1/dφ
+,
+bφ,a := sup
+x∈X
+|ma(φ(x)) −f0(a, x)|,
+and suppose that ra,k ≤r0. Then, for every x ∈X and u > 0, we have
+Pr
+
+| efk(a, x) −f0(a, x)| ≥bφ,a + Larβ
+a,k + u
+
+≤2 exp
+
+−ku2
+2σ2
+a
+
++ exp(−k/4).
+Moreover, we have
+E
+h
+( efk(a, X) −f0(a, X))2i
+≤C
+ 
+b2
+φ,a +
+ k
+Na
+2β/dφ
++ 1
+k + exp(−k/4)
+!
+.
+14
+The constant C depends only on the constants in the assumptions.
+The term bφ,a is zero when the embedding retains all information needed for the conditional
+expected outcome, so f0(a, x) = ma(φ(x)). Otherwise, it records the difference between
+conditioning on X and conditioning on its embedding. The local-mass condition requires
+enough observations under action a near each query. It complements the positivity condition
+used for causal identification.
+The displayed estimator is a benchmark for the expected-outcome RAG. Suppose that
+the RAG output satisfies
+max
+a∈{0,1} sup
+x∈X
+| bf(a, x) −efk(a, x)| ≤ηn.
+Suppose that the margin condition (4) holds. For the deviation-based bound below, also
+suppose that |τ0(X)| ≤Bτ holds almost surely. Let Nmin = min {N0, N1} and bφ = bφ,0 + bφ,1.
+Combining Theorem 5.1 with Theorem 4.3 gives
+R(ba) ≤C
+ 
+bφ +
+
+k
+Nmin
+β/dφ
++ k−1/2 + 2ηn
+!1+κ
++ 2Bτ exp(−k/4),
+(5)
+provided that the term in parentheses is sufficiently small relative to t0. The MSE statement
+gives the alternative bound
+R(ba) ≤C
+ 
+b2
+φ +
+
+k
+Nmin
+2β/dφ
++ 1
+k + η2
+n
+!(1+κ)/(2+κ)
+.
+(6)
+Choosing k ≍N 2β/(2β+dφ)
+min
+balances the nearest-neighbor bias and variance. In (5), this gives
+the root prediction rate N −β/(2β+dφ)
+min
+before the margin exponent is applied. In (6), the term
+exp(−k/4) is absorbed into 1/k.
+For a general document corpus without observed outcomes, Theorem 5.1 does not apply
+directly. In that case, the theorem describes the matching calculation that the RAG output
+is meant to approximate, and a regret rate requires an assumption or an evaluation of the
+difference represented by ηn.
+5.2
+Matching Weights and Propensity Scores
+Similarity is used to select comparable evidence, not to choose the action that appears most
+often in nearby cases. Let N H
+k (h) denote the indices of the k nearest observations to h in the
+pooled embedding database. If
+beH
+k (a | h) = 1
+k
+X
+j∈N H
+k (h)
+1 [Aj = a] ,
+then beH
+k (a | h) estimates Pr(A = a | H = h) under standard nearest-neighbor conditions. At
+h = φ(x), this quantity equals Pr(A = a | X = x) only under an additional condition such
+as A ⊥X | H. Maximizing this quantity selects the most common past action near x, not
+15
+the action with the largest conditional expected outcome. The joint distribution of (X, A)
+can remain unchanged while the conditional outcomes are changed so that either action is
+optimal. Thus, observations of contexts and actions alone do not determine the optimal
+policy.
+Nearest-neighbor matching also has a weighting representation. Let Xtar
+1 , . . . , Xtar
+m be
+target contexts and define
+efk(a, Xtar
+i ) = 1
+k
+Na
+X
+j=1
+1
+
+j ∈Nk,a(φ(Xtar
+i ))
+
+Ya,j.
+Define
+Ka,j :=
+m
+X
+i=1
+1
+
+j ∈Nk,a(φ(Xtar
+i ))
+
+.
+Then, changing the order of summation gives
+1
+m
+m
+X
+i=1
+efk(a, Xtar
+i ) =
+Na
+X
+j=1
+Ka,j
+mk Ya,j.
+The match count therefore acts as a weight when local predictions are averaged over target
+contexts. For the propensity-score interpretation, suppose that the action-specific databases
+are sampled from the same observational population, so Qa = PH|A=a, and that the target
+embeddings follow PH. Bayes’ rule then gives
+pH(h)
+pH|A=a(h) =
+Pr(A = a)
+Pr(A = a | H = h).
+The density ratio is therefore proportional to an inverse propensity score defined conditional
+on the embedding. The density ratio is proportional to an inverse propensity score. Lin
+et al. (2023) studies the density-ratio limit of nearest-neighbor match counts, and Kato
+(2025b) relates nearest-neighbor matching to least-squares density-ratio estimation and Riesz
+regression. These results connect matching with IPW and AIPW representations when
+outcomes are available. They do not make the propensity score an expected outcome.
+6
+Discussion
+6.1
+Identification
+The regret analysis is written in terms of f0(a, x) = E [Y | A = a, X = x]. A causal interpreta-
+tion requires consistency, conditional exchangeability, and positivity. Under these conditions,
+it holds that
+E [Y | A = a, X = x] = E [Y (a) | X = x] .
+The information contained in X is therefore part of the identification argument. It is natural
+to write X = (Q, W), where Q is the query and W contains variables observed before
+the action, such as age, gender, occupation, and prior decisions. If a variable affects both
+16
+past action selection and the outcome, omitting it can prevent the conditional comparison
+from having a causal interpretation. Including more variables does not establish conditional
+exchangeability by itself, and post-action variables should not be used as controls.
+Vector search is usually performed on an embedding H = φ(X). Matching on H is
+sufficient only when the representation retains the information required for adjustment or
+for the conditional expected outcomes. The GenAI-Powered Inference framework combines
+structured covariates with low-dimensional features extracted from unstructured data (Imai
+& Nakamura, 2025). This suggests keeping personal attributes explicit while representing the
+query text through an embedding. Embedding-powered BISG provides an example in which
+embeddings are used to estimate a missing personal attribute probabilistically (Dasanaike
+& Imai, 2026). Such an estimate is a probabilistic proxy rather than an observed covariate,
+so its estimation error and possible distribution shift remain relevant. The variables used
+for adjustment can also be richer than the variables allowed in the final policy. In that case,
+expected outcomes are first adjusted using the larger information set and then averaged over
+variables excluded from the policy.
+Instrumental variables provide another identification strategy when conditional exchange-
+ability fails in the data used to estimate expected outcomes.
+They enter through the
+source-data model, not by treating the RAG output as an instrument. Existing studies
+consider optimal treatment regimes under additional IV assumptions (Cui & Tchetgen, 2021;
+Qiu et al., 2021) and decision rules under partial identification (Pu & Zhang, 2021). These
+problems have different target values. Applying RAG-PL to them would require the expected
+outcome supplied to the RAG system to be defined for the corresponding target.
+6.2
+Expected Outcome and Policy-Value Formulations
+When bf(a, x) is available and the policy class contains all measurable selectors, maximizing
+bf(a, x) at each context is equivalent to maximizing E
+h
+bf(s(X), X)
+i
+over the policy class. The
+same equivalence holds for an empirical average over target contexts. A restricted policy
+class can introduce an approximation loss, but the criterion is still constructed from the same
+expected-outcome estimate. The relation between EWM and least-squares CATE estimation
+for a reparameterized binary policy class is studied by Kato (2025a).
+A different analysis is needed when the policy value is constructed from observed outcomes
+rather than from bf alone. IPW uses weighted outcomes, and AIPW combines an expected-
+outcome estimate with an outcome-residual correction (Kitagawa & Tetenov, 2018; Athey
+& Wager, 2021). In the main setting of this study, the analyst starts from a trained RAG
+system and may not observe unit-level outcomes and assignment probabilities. The fact
+that outcome-related text may have appeared during pretraining does not provide the data
+required to construct IPW or AIPW. If a retrieval database contains unit-level observations of
+(X, A, Y ), IPW and AIPW can instead be constructed directly from those data. For one-step
+RAG-PL, the internal criterion is not observed, so we evaluate the returned policy without
+assigning it to one of these formulations.
+17
+6.3
+Margin Conditions
+The margin condition is separate from identification. Identification determines whether the
+contrast has a causal interpretation, while the margin condition controls how often estimation
+error changes the preferred action. In the binary case, it bounds the probability that |τ0(X)|
+is close to zero. When few contexts lie near this boundary, the regret decreases faster than
+the expected-outcome error.
+The margin condition depends on the information used to define the conditional expected
+outcomes. Omitting a relevant attribute can average positive and negative effects into a
+contrast near zero, while adding an attribute can also reveal finer effects that lie near zero.
+Replacing X by an embedding can change the margin for the same reason. For two-step
+RAG-PL, the margin within g(x) is also distinct from the quality of the generated set. A
+large gap among poor candidates does not remove Rgen(g).
+6.4
+Action Generation in Large Action Spaces
+When A is finite and given, Rgen(g) = 0. For a large or uncountable action space, the
+generated set determines which actions can be compared. Exact inclusion of a∗(x) is stronger
+than necessary; Proposition 4.1 uses an ε-optimal action, a coverage probability, or distance
+in the action space. These conditions describe the candidate set through the best conditional
+expected outcome it contains.
+Increasing the number of candidates can improve the chance of including a good action,
+but more expected outcomes must then be estimated or ranked. Equation (1) keeps these
+effects separate. A useful candidate-set size depends on both the quality of generation and
+the accuracy of the second step.
+7
+Simulation Studies
+We evaluate whether action-specific retrieval of cases with similar pre-action information
+improves policy choice. Each data-generating process first produces a structured pre-action
+state together with the conditional expected outcome under every available action. We
+convert the structured states into complete English queries and case reports before executing
+the notebooks. The RAG procedures observe only the resulting texts, while the numerical
+state is retained to calculate the optimal action and regret. Because each numerical level
+is mapped deterministically to a verbal category, the text retains the full discrete state
+information. Appendix G gives the full specifications.
+Data-generating processes.
+DGP 1 and DGP 2 use two actions. Action 0 is temporary
+workload reduction and action 1 is weekly individual coaching. Let X = (X1, . . . , X6) describe
+recent performance; workload; task complexity; experience; schedule flexibility; and team
+support. Each component is independently and uniformly distributed on {−2, −1, 0, 1, 2}.
+DGP 1 has a linear conditional effect and observational action assignment. DGP 2 has
+randomized action assignment and a smooth nonlinear conditional effect whose population
+mean is zero. The preferred action therefore varies with the current state even though neither
+18
+constant action is favored on average. DGP 3 contains 24 interventions formed from four
+intervention types with three intensity levels and two durations. Its conditional expected
+outcome rewards agreement between the employee’s stated needs and the intervention profile.
+Methods and implementation.
+The main results use GPT-5.4 mini with temperature
+zero. Retrieval vectors are obtained from text-embedding-3-small. The embedding input
+contains only a fixed-order description of the pre-action information. It excludes the historical
+action and the observed outcome. It also excludes the decision question. Cosine distance is
+used after normalization.
+In DGP 1 and DGP 2, One-step RAG-PL and Two-step RAG-PL receive the same
+current query and the same six nearest reports under each action. The twelve reports are
+presented in alternating action order. The prompt also gives the exact mean of the six
+displayed scores under each action. Providing these means allows the model to use exact
+local sample averages, so the experiment does not test whether it can calculate those averages
+from the reports. One-step RAG-PL returns an action directly. Two-step RAG-PL returns
+the two action-specific conditional expected outcomes, and the experiment code selects the
+larger estimate. RAG without covariates receives neither the current profile nor historical
+pre-action profiles. It uses six randomly sampled action-and-outcome reports under each
+action and returns one population-level decision for the retrieval database. That decision
+is applied to all ten test queries in the repetition. RAG without covariates is therefore a
+population-level baseline that differs from RAG-PL in both the current-state information
+supplied and the retrieval rule. In DGP 3, both RAG-PL procedures receive the same twelve
+nearest reports and the complete catalog of 24 actions. One-step RAG-PL returns one action
+directly. Two-step RAG-PL generates five distinct candidate actions. It retrieves five reports
+observed under each candidate and estimates the five candidate-specific conditional expected
+outcomes. It then selects the candidate with the largest estimate.
+Evaluation.
+Each DGP is repeated 20 times. Each repetition contains ten test queries.
+DGP 1 and DGP 2 use 500 historical reports, while DGP 3 uses 600. For each repetition,
+we first average regret and policy value over its ten queries. Table 1 reports the mean
+of these repetition-level quantities. The regret standard error is calculated across the 20
+repetitions. The optimal-action probability counts any action attaining the largest true
+conditional expected outcome as optimal. Figures 1–3 show the repetition-level mean regret.
+Results.
+In DGP 1, One-step RAG-PL and Two-step RAG-PL both reduce mean regret
+from 4.5450 under RAG without covariates to 3.3700. The paired mean-regret reduction is
+1.1750 for each procedure, with standard errors of 0.3562 for One-step RAG-PL and 0.3635
+for Two-step RAG-PL. The optimal-action probability rises from 0.4100 under RAG without
+covariates to 0.5500 under One-step RAG-PL and 0.5550 under Two-step RAG-PL.
+DGP 2 isolates personalization because historical actions are randomized. One-step
+RAG-PL has mean regret 1.5676 and Two-step RAG-PL has mean regret 1.6071, compared
+with 2.3638 for RAG without covariates. The paired reductions relative to RAG without
+covariates are 0.7963 with standard error 0.2257 and 0.7567 with standard error 0.2473,
+19
+Table 1: Main simulation results with GPT-5.4 mini
+Method
+Regret
+Standard error
+Policy value
+Optimal-action probability
+DGP 1
+One-step RAG-PL
+3.3700
+0.4200
+66.6925
+0.5500
+Two-step RAG-PL
+3.3700
+0.4266
+66.6925
+0.5550
+RAG without covariates
+4.5450
+0.3943
+65.5175
+0.4100
+DGP 2
+One-step RAG-PL
+1.5676
+0.1564
+65.7886
+0.6400
+Two-step RAG-PL
+1.6071
+0.1746
+65.7491
+0.6400
+RAG without covariates
+2.3638
+0.2192
+64.9924
+0.5100
+DGP 3
+One-step RAG-PL
+1.4985
+0.1134
+65.1192
+0.0950
+Two-step RAG-PL
+1.2154
+0.0837
+65.4023
+0.1400
+respectively. Both RAG-PL procedures select an optimal action with probability 0.6400,
+compared with 0.5100 under RAG without covariates.
+In DGP 3, Two-step RAG-PL lowers mean regret from 1.4985 to 1.2154. The paired
+difference, Two-step RAG-PL minus One-step RAG-PL, is −0.2831 with standard error 0.1431.
+The regret decomposition for Two-step RAG-PL gives candidate-set regret 0.4822 and within-
+candidate regret 0.7332. Thus, both candidate generation and selection among the generated
+candidates contribute to the remaining regret. The generated set contains an exactly optimal
+action with probability 0.4450 and an action within 0.5 of the optimum with probability
+0.6700. Additional estimation and robustness results are reported in Appendix G.9.
+8
+Conclusion
+We proposed one-step and two-step RAG-based policy learning methods. We interpreted the
+vector-search component of RAG as nearest-neighbor matching and related this matching
+procedure to propensity-score weighting, density-ratio estimation, and Riesz regression. This
+interpretation connects RAG-based decision-making to the existing literature on policy
+learning. We then derived regret upper bounds for the proposed methods by combining
+policy-learning analysis with nonparametric prediction-error bounds for nearest-neighbor
+estimators and transformers. In the simulation studies, both RAG-PL methods had lower
+mean regret than RAG without covariates in the binary settings, and the two-step method
+had lower mean regret than the one-step method in the 24-action setting.
+References
+Alberto Abadie and Guido W. Imbens. Large sample properties of matching estimators for
+average treatment effects. Econometrica, 74(1):235–267, 2006. 14
+Ekin Aky¨urek, Dale Schuurmans, Jacob Andreas, Tengyu Ma, and Denny Zhou. What
+20
+One-step RAG PL
+Two-step RAG PL
+RAG without covariates
+Method
+0
+1
+2
+3
+4
+5
+6
+7
+8
+Regret
+Figure 1: Repetition-level mean regret in DGP 1. The diamond denotes the mean across
+repetitions.
+learning algorithm is in-context learning? investigations with linear models. In International
+Conference on Learning Representations (ICLR), 2023. 5
+Akari Asai, Zeqiu Wu, Yizhong Wang, Avirup Sil, and Hannaneh Hajishirzi. Self-RAG: Learn-
+ing to retrieve, generate, and critique through self-reflection. In International Conference
+on Learning Representations (ICLR), 2024. 4
+Susan Athey and Stefan Wager. Policy learning with observational data. Econometrica, 89
+(1):133–161, 2021. 2, 3, 17
+Jean-Yves Audibert and Alexandre B. Tsybakov. Fast learning rates for plug-in classifiers.
+The Annals of Statistics, 35(2):608–633, 2007. 3, 13
+Yu Bai, Fan Chen, Huan Wang, Caiming Xiong, and Song Mei. Transformers as statisticians:
+Provable in-context learning with in-context algorithm selection. In Workshop on Efficient
+Systems for Foundation Models at ICML2023, 2023. 5
+Michelle Ching, Ioana Popescu, Nico Smith, Tianyi Ma, William G. Underwood, and Richard J.
+Samworth.
+Efficient and minimax optimal in-context nonparametric regression with
+transformers. In International Conference on Machine Learning (ICML), 2026. 5, 11, 35
+Yifan Cui and Eric Tchetgen Tchetgen. A semiparametric instrumental variable approach
+to optimal treatment regimes under endogeneity. Journal of the American Statistical
+Association, 116(533):162–173, 2021. 17
+Noah Dasanaike and Kosuke Imai. Using embedding models to improve probabilistic race
+prediction, 2026. arXiv: 2604.22555. 17, 32
+21
+One-step RAG PL
+Two-step RAG PL
+RAG without covariates
+Method
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+3.5
+4.0
+4.5
+Regret
+Figure 2: Repetition-level mean regret in DGP 2. The diamond denotes the mean across
+repetitions.
+Shivam Garg, Dimitris Tsipras, Percy Liang, and Gregory Valiant. What can transformers
+learn in-context? a case study of simple function classes. In International Conference on
+Neural Information Processing Systems (NeurIPS), 2022. 5
+Anirudh Goyal, Abram Friesen, Andrea Banino, Theophane Weber, Nan Rosemary Ke,
+Adri`a Puigdom`enech Badia, Arthur Guez, Mehdi Mirza, Peter C Humphreys, Ksenia
+Konyushova, Michal Valko, Simon Osindero, Timothy Lillicrap, Nicolas Heess, and Charles
+Blundell. Retrieval-augmented reinforcement learning. In International Conference on
+Machine Learning (ICML), pp. 7740–7765, 2022. 4
+Kelvin Guu, Kenton Lee, Zora Tung, Panupong Pasupat, and Ming-Wei Chang. Realm:
+retrieval-augmented language model pre-training. In International Conference on Machine
+Learning (ICML), 2020. 3
+Alexander Havrilla and Wenjing Liao. Understanding scaling laws with statistical and
+approximation theory for transformer neural networks on intrinsically low-dimensional
+data. In Annual Conference on Neural Information Processing Systems (NeurIPS), 2024.
+4, 35
+Peter C. Humphreys, Arthur Guez, Olivier Tieleman, Laurent Sifre, Th´eophane Weber,
+and Timothy Lillicrap. Large-scale retrieval for reinforcement learning. In International
+Conference on Neural Information Processing Systems (NeurIPS), 2022. 4
+Kosuke Imai and Kentaro Nakamura. Genai-powered inference, 2025. arXiv: 2507.03897. 17
+22
+One-step RAG PL
+Two-step RAG PL
+Method
+0.5
+1.0
+1.5
+2.0
+2.5
+Regret
+Figure 3: Repetition-level mean regret in DGP 3. The diamond denotes the mean across
+repetitions.
+Kosuke Imai and Kentaro Nakamura. Causal inference with generative artificial intelligence:
+Application to texts as treatments, 2026. arXiv: 2410.00903. 32
+Gautier Izacard and Edouard Grave. Leveraging passage retrieval with generative models for
+open domain question answering. In Proceedings of the 16th Conference of the European
+Chapter of the Association for Computational Linguistics: Main Volume, 2021. 4
+Heinrich Jiang. Non-asymptotic uniform rates of consistency for k-nn regression. Proceedings
+of the AAAI Conference on Artificial Intelligence, 33(01):3999–4006, Jul. 2019. 14
+Vladimir Karpukhin, Barlas Oguz, Sewon Min, Patrick Lewis, Ledell Wu, Sergey Edunov,
+Danqi Chen, and Wen-tau Yih. Dense passage retrieval for open-domain question answering.
+In Conference on Empirical Methods in Natural Language Processing (EMNLP), 2020. 4
+Masahiro Kato. Bridging the gap between empirical welfare maximization and conditional
+average treatment effect estimation in policy learning, 2025a. arXiv: 2510.26723. 17, 34
+Masahiro Kato. Nearest neighbor matching as least squares density ratio estimation and
+riesz regression, 2025b. arXiv: 2510.24433. 3, 16, 33
+Urvashi Khandelwal, Omer Levy, Dan Jurafsky, Luke Zettlemoyer, and Mike Lewis. Gen-
+eralization through memorization: Nearest neighbor language models. In International
+Conference on Learning Representations (ICLR), 2020. 4
+23
+Juno Kim, Tai Nakamaki, and Taiji Suzuki. Transformers are minimax optimal nonparametric
+in-context learners. In Annual Conference on Neural Information Processing Systems
+(NeurIPS), 2024. 5, 11, 34
+Toru Kitagawa and Aleksey Tetenov. Who should be treated? empirical welfare maximization
+methods for treatment choice. Econometrica, 86(2):591–616, 2018. 2, 3, 17
+Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin, Naman
+Goyal, Heinrich K¨uttler, Mike Lewis, Wen-tau Yih, Tim Rockt¨aschel, Sebastian Riedel,
+and Douwe Kiela. Retrieval-augmented generation for knowledge-intensive nlp tasks. In
+International Conference on Neural Information Processing Systems (NeurIPS), 2020. 3
+Zhexiao Lin, Peng Ding, and Fang Han. Estimation based on nearest neighbor matching:
+from density ratio to average treatment effect. Econometrica, 91(6):2187–2217, 2023. 3, 16,
+33
+Marius Memmel, Jacob Berg, Bingqing Chen, Abhishek Gupta, and Jonathan Francis.
+STRAP: Robot sub-trajectory retrieval for augmented policy learning. In CoRL 2024
+Workshop on Mastering Robot Manipulation in a World of Abundant Data, 2024. 4
+Kazusato Oko, Yujin Song, Taiji Suzuki, and Denny Wu. Pretrained transformer efficiently
+learns low-dimensional target functions in-context.
+In Annual Conference on Neural
+Information Processing Systems (NeurIPS), 2024. 5, 11, 34
+Hongming Pu and Bo Zhang. Estimating optimal treatment rules with an instrumental
+variable: A partial identification learning approach. Journal of the Royal Statistical Society
+Series B: Statistical Methodology, 83(2):318–345, 2021. 17
+Hongxiang Qiu, Marco Carone, Ekaterina Sadikova, Maria Petukhova, Ronald C. Kessler, and
+Alex Luedtke. Optimal individualized decision rules using instrumental variable methods.
+Journal of the American Statistical Association, 116(533):174–191, 2021. 17
+Paul R. Rosenbaum and Donald B. Rubin. The central role of the propensity score in
+observational studies for causal effects. Biometrika, 70(1):41–55, 1983. 31
+Johannes Schmidt-Hieber. Nonparametric regression using deep neural networks with ReLU
+activation function. Annals of Statistics, 48(4):1875–1897, 2020. 4
+Weijia Shi, Sewon Min, Michihiro Yasunaga, Minjoon Seo, Richard James, Mike Lewis, Luke
+Zettlemoyer, and Wen-tau Yih. REPLUG: Retrieval-augmented black-box language models.
+In Proceedings of the 2024 Conference of the North American Chapter of the Association
+for Computational Linguistics: Human Language Technologies (Volume 1: Long Papers),
+2024. 4
+Kaustubh Sridhar, Souradeep Dutta, Dinesh Jayaraman, and Insup Lee. REGENT: A
+retrieval-augmented generalist agent that can act in-context in new environments. In
+International Conference on Learning Representations (ICLR), 2025. 4
+24
+Taiji Suzuki. Adaptivity of deep reLU network for learning in besov and mixed smooth besov
+spaces: optimal rate and curse of dimensionality. In International Conference on Learning
+Representations (ICLR), 2019. 4
+Taiji Suzuki and Atsushi Nitanda. Deep learning is adaptive to intrinsic dimensionality
+of model smoothness in anisotropic besov space. In International Conference on Neural
+Information Processing Systems (NeurIPS), 2021. 4
+Adith Swaminathan and Thorsten Joachims. Counterfactual risk minimization: learning
+from logged bandit feedback. In International Conference on Machine Learning (ICML),
+2015. 2, 3
+Shokichi Takakura and Taiji Suzuki. Approximation and estimation ability of transformers for
+sequence-to-sequence functions with infinite dimensional input. In International Conference
+on Machine Learning (ICML), 2023. 4, 35
+Johannes Von Oswald, Eyvind Niklasson, Ettore Randazzo, Jo˜ao Sacramento, Alexander
+Mordvintsev, Andrey Zhmoginov, and Max Vladymyrov. Transformers learn in-context by
+gradient descent. In International Conference on Machine Learning (ICML). JMLR.org,
+2023. 5
+Nengbo Wang, Xiaotian Han, Jagdip Singh, Jing Ma, and Vipin Chaudhary. CausalRAG: In-
+tegrating causal graphs into retrieval-augmented generation. In Findings of the Association
+for Computational Linguistics: ACL 2025, 2025. 4
+Chulhee Yun, Srinadh Bhojanapalli, Ankit Singh Rawat, Sashank J. Reddi, and Sanjiv
+Kumar. Are transformers universal approximators of sequence-to-sequence functions? In
+International Conference on Learning Representations (ICLR), 2020. 4
+25
+A
+Proofs for the Regret Analysis
+A.1
+Regret decomposition and candidate-set bounds
+For every x ∈X, adding and subtracting f0(a∗
+g(x), x) gives
+f0(a∗(x), x) −f0(batwo(x), x)
+= f0(a∗(x), x) −f0(a∗
+g(x), x) + f0(a∗
+g(x), x) −f0(batwo(x), x).
+Taking expectations proves (1).
+Proof of Proposition 4.1. For the first statement, suppose that g(x) ∩A∗
+ε(x)̸ = ∅. Then,
+there is an action a ∈g(x) such that
+f0(a∗(x), x) −f0(a, x) ≤ε.
+Since a∗
+g(x) maximizes f0(a, x) over g(x), it holds that f0(a∗
+g(x), x) ≥f0(a, x). Therefore,
+f0(a∗(x), x) −f0(a∗
+g(x), x) ≤ε.
+Taking expectations proves the first statement.
+For the second statement, define
+Eε := {g(X) ∩A∗
+ε(X)̸ = ∅} .
+The first statement gives a pointwise bound of ε on Eε, while the bounded-difference assump-
+tion gives a bound of Bf on Ec
+ε. Hence,
+Rgen(g) ≤ε Pr(Eε) + Bf Pr(Ec
+ε)
+≤ε + Bfδ.
+For the third statement, fix x. Because g(x) is finite, there is an action eag(x) ∈g(x) such
+that
+dA(a∗(x),eag(x)) = dA(a∗(x), g(x)).
+Since a∗
+g(x) maximizes f0 over g(x),
+f0(a∗(x), x) −f0(a∗
+g(x), x) ≤f0(a∗(x), x) −f0(eag(x), x)
+≤LAdA(a∗(x), g(x))βA.
+Taking expectations completes the proof.
+A.2
+Expected-outcome estimation
+Proof of Theorem 4.2. Fix x ∈X. The definition of batwo(x) gives
+bf(a∗
+g(x), x) −bf(batwo(x), x) ≤0.
+26
+Therefore,
+f0(a∗
+g(x), x) −f0(batwo(x), x)
+= f0(a∗
+g(x), x) −bf(a∗
+g(x), x)
++ bf(a∗
+g(x), x) −bf(batwo(x), x)
++ bf(batwo(x), x) −f0(batwo(x), x)
+≤2δf(x; g).
+Taking expectations and using (1) proves the first two statements.
+Suppose now that δf(X; g) ≤rf. If the selected action is not optimal in g(X), then
+0 < ∆g(X) ≤f0(a∗
+g(X), X) −f0(batwo(X), X) ≤2rf.
+It follows that
+Rchoice(batwo; g) ≤2rf Pr (0 < ∆g(X) ≤2rf)
+≤CM(2rf)1+κ.
+To derive (2), let Ef = {δf(X; g) ≤rf}. On Ef, the preceding margin argument applies.
+On Ec
+f, the value difference is at most Bf. Hence,
+Rchoice(batwo; g) ≤CM(2rf)1+κ + Bf Pr(Ec
+f)
+≤CM(2rf)1+κ + Bfηf.
+The finite-candidate tail bound follows from
+Pr
+
+max
+a∈g(X) | bf(a, X) −f0(a, X)| > bn + u
+ X, g(X)
+
+≤
+X
+a∈g(X)
+Pr
+
+| bf(a, X) −f0(a, X)| > bn + u
+ X, g(X)
+
+≤c1M exp(−c2anu2).
+A.3
+Relation between the one-step and two-step methods
+Suppose that baone(x) ∈g(x). Then,
+f0(a∗
+g(x), x) ≥f0(baone(x), x),
+so
+f0(a∗(x), x) −f0(a∗
+g(x), x) ≤f0(a∗(x), x) −f0(baone(x), x).
+Taking expectations gives Rgen(g) ≤R(baone). The remaining inequalities in Section 4 follow
+from (1) and Theorem 4.2.
+27
+A.4
+Proof of Theorem 4.3
+The identity (3) follows pointwise. If ba(x) = a∗(x), the loss is zero. Otherwise, the selected
+action has the lower conditional expected outcome, and the difference is |τ0(x)|.
+For the first statement, suppose that ba(x)̸ = a∗(x) and τ0(x)̸ = 0. Then, τ0(x)bτ(x) ≤0,
+which implies
+0 < |τ0(x)| ≤|bτ(x) −τ0(x)| ≤rτ.
+Using (3) and the margin condition,
+R(ba) ≤E [|τ0(X)|1 [0 < |τ0(X)| ≤rτ]]
+≤rτ Pr (0 < |τ0(X)| ≤rτ)
+≤CMr1+κ
+τ
+.
+If each expected-outcome error is at most rf, then
+|bτ(x) −τ0(x)| ≤| bf(1, x) −f0(1, x)| + | bf(0, x) −f0(0, x)| ≤2rf.
+For the second statement, put T = |τ0(X)|. On a sign error with T > 0, it holds that
+|bτ(X) −τ0(X)| ≥T. The contribution from 0 < T ≤2bn is at most
+2bn Pr (0 < T ≤2bn) ≤CM(2bn)1+κ.
+On T > 2bn, the assumed deviation inequality gives, conditional on X,
+Pr (ba(X)̸ = a∗(X) | X) ≤c1 exp(−c2anT 2/4) + δn.
+Let s = a−1/2
+n
+and c = c2/4. The region 0 < T ≤s contributes at most CMs1+κ. For j ≥0,
+define
+Sj :=
+
+2js < T ≤2j+1s
+	
+.
+Whenever 2j+1s ≤t0,
+E
+
+T exp(−canT 2)1 [Sj]
+
+≤2j+1s exp(−c4j) Pr
+ 0 < T ≤2j+1s
+
+≤CMs1+κ2(j+1)(1+κ) exp(−c4j).
+The series over j is finite. On T > t0, boundedness gives a term of order exp(−cant2
+0), which
+is bounded by a constant multiple of s1+κ under the stated condition. The contribution of δn
+is at most Bτδn. Therefore,
+R(ba) ≤C1b1+κ
+n
++ C2a−(1+κ)/2
+n
++ Bτδn,
+and the displayed result follows.
+For the third statement, let E(X) = bτ(X)−τ0(X) and choose t ∈(0, t0]. By the sign-error
+containment,
+R(ba) ≤E [|τ0(X)|1 [0 < |τ0(X)| ≤t]]
++ E [|τ0(X)|1 [ba(X)̸ = a∗(X), |τ0(X)| > t]] .
+28
+The first term is at most CMt1+κ. On the event in the second term, |E(X)| ≥|τ0(X)| > t, so
+|τ0(X)| ≤E(X)2
+t
+.
+Consequently,
+R(ba) ≤CMt1+κ + qn
+t .
+Taking t = q1/(2+κ)
+n
+proves the result.
+B
+Proofs for Nearest-Neighbor Matching
+B.1
+Nearest-neighbor radius
+Fix an action a and a query embedding h. Let
+Ra,k(h) :=
+max
+j∈Nk,a(h)∥Ha,j −h∥.
+The event Ra,k(h) > ra,k occurs only if fewer than k database points fall in B(h, ra,k). The
+number of points in that ball is binomial with mean at least
+NaQa(B(h, ra,k)) ≥Nacardφ
+a,k = 2k.
+The multiplicative Chernoff inequality therefore gives
+Pr (Ra,k(h) > ra,k) ≤exp(−k/4).
+(7)
+Since the support has diameter DH,
+E
+
+Ra,k(h)2β
+≤r2β
+a,k + D2β
+H exp(−k/4).
+B.2
+Proof of Theorem 5.1
+On the event Ra,k(h) ≤ra,k, decompose
+efk(a, x) −f0(a, x) = 1
+k
+X
+j∈Nk,a(h)
+{ma(Ha,j) −ma(h)}
++ 1
+k
+X
+j∈Nk,a(h)
+ξa,j
++ ma(h) −f0(a, x).
+The absolute values of the first and third terms are bounded by Larβ
+a,k and bφ,a, respectively.
+Conditional on the embeddings, the middle term is mean zero and sub-Gaussian with variance
+proxy σ2
+a/k. Hence,
+Pr
+
+
+
+1
+k
+X
+j∈Nk,a(h)
+ξa,j
+
+≥u
+ {Ha,j}Na
+j=1
+
+≤2 exp
+
+−ku2
+2σ2
+a
+
+.
+29
+Combining this inequality with (7) proves the pointwise deviation bound.
+For the MSE bound, condition on the embeddings. The conditional variance is at most
+σ2
+a/k. The squared conditional bias is bounded by a constant multiple of
+b2
+φ,a + L2
+aRa,k(h)2β.
+Taking expectations and using the radius moment bound gives
+E
+h
+( efk(a, x) −f0(a, x))2i
+≤C
+ 
+b2
+φ,a +
+ k
+Na
+2β/dφ
++ 1
+k + exp(−k/4)
+!
+.
+Integrating over X proves the stated MSE result.
+B.3
+Derivation of the regret bounds
+Let
+eτk(x) = efk(1, x) −efk(0, x).
+A union bound and Theorem 5.1 give, for every x and u > 0,
+Pr
+
+|eτk(x) −τ0(x)| ≥bφ + L0rβ
+0,k + L1rβ
+1,k + u
+
+≤4 exp
+
+−ku2
+8σ2
+max
+
++ 2 exp(−k/4),
+where σmax = max(σ0, σ1). If bf differs from efk by at most ηn for each action, then
+|bτ(x) −eτk(x)| ≤2ηn.
+The second statement of Theorem 4.3 applies with a deterministic term of order
+bφ +
+
+k
+Nmin
+β/dφ
++ 2ηn,
+a concentration scale k−1/2, and a failure probability 2 exp(−k/4). This proves (5).
+For the MSE bound, the inequality (u + v)2 ≤2u2 + 2v2 gives
+E
+
+(bτ(X) −τ0(X))2
+≤C
+ 
+b2
+φ +
+
+k
+Nmin
+2β/dφ
++ 1
+k + η2
+n + exp(−k/4)
+!
+.
+The third statement of Theorem 4.3 proves (6). Balancing (k/Nmin)β/dφ and k−1/2 gives
+k ≍N 2β/(2β+dφ)
+min
+.
+30
+C
+Causal Identification with Covariates and Embed-
+dings
+This section records the conditions under which the observational conditional mean can be
+interpreted as a potential-outcome conditional mean. We use a discrete action space because
+that is the setting needed for the matching discussion.
+Proposition C.1 (Identification with observed covariates). Suppose that consistency holds,
+so Y = Y (A). Suppose also that
+{Y (a) : a ∈A} ⊥A | X
+and that Pr(A = a | X = x) > 0 on the covariate support of interest. Then,
+f0(a, x) = E [Y (a) | X = x] .
+Proof. By consistency, Y = Y (a) on the event A = a. Conditional exchangeability gives
+f0(a, x) = E [Y | A = a, X = x]
+= E [Y (a) | A = a, X = x]
+= E [Y (a) | X = x] .
+Positivity ensures that the conditional mean given A = a is defined on the target support.
+Let H = φ(X).
+The standard balancing-score argument gives the following result
+(Rosenbaum & Rubin, 1983).
+Proposition C.2 (Identification with a balancing representation). Suppose that the conditions
+of Proposition C.1 hold and that A ⊥X | H. Then, Y (a) ⊥A | H for every action a. If
+Pr(A = a | H = h) > 0, then
+E [Y (a) | H = h] = E [Y | A = a, H = h] .
+Proof. For every bounded measurable function u, conditional exchangeability given X implies
+E [u(Y (a)) | A, X, H] = E [u(Y (a)) | X] .
+Taking the conditional expectation given (A, H) and using A ⊥X | H gives
+E [u(Y (a)) | A, H] = E [E [u(Y (a)) | X] | A, H]
+= E [E [u(Y (a)) | X] | H] .
+The last expression does not depend on A, so Y (a) ⊥A | H. Consistency and positivity then
+give the conditional-mean identity.
+A balancing representation identifies an average conditional on H. Recovering the more
+detailed target E [Y (a) | X = x] from matching on H requires the conditional expected
+outcome to depend on X through H.
+31
+Proposition C.3 (Outcome information retained by the embedding). Suppose that there is
+a function ma such that
+E [Y (a) | X] = ma(φ(X))
+almost surely. Under the conditions of Proposition C.1, it holds that
+f0(a, x) = ma(φ(x))
+for PX-almost every x.
+Proof. Proposition C.1 gives f0(a, X) = E [Y (a) | X]. Substituting the stated condition
+proves the result.
+The two representation conditions have different roles. Balancing concerns adjustment
+for action assignment. The last proposition concerns the heterogeneity needed to retain the
+same conditional expected outcomes as the original covariates. The construction of Imai &
+Nakamura (2026) combines structured covariates with features extracted from unstructured
+data. The estimates studied by Dasanaike & Imai (2026) can supply a probabilistic measure-
+ment of an unavailable attribute, but they do not imply either condition without further
+assumptions.
+The variables used for adjustment need not all appear in the final policy. Suppose
+X = (Q, W) and the policy is restricted to depend on Q. After the conditional expected
+outcomes are adjusted using (Q, W), the value relevant to a Q-only policy is based on
+f Q
+0 (a, q) := E [f0(a, Q, W) | Q = q] .
+The optimal policy within this restricted information set selects an action that maximizes
+f Q
+0 (a, q).
+D
+Matching Weights and Outcome Information
+Contexts and historical actions alone do not determine the optimal action. To see this, fix any
+joint distribution of (X, A). One possible conditional-outcome model sets f0(1, x) = 1 and
+f0(0, x) = 0 for every x, while another sets f0(1, x) = 0 and f0(0, x) = 1. Both models have
+the same distribution of (X, A), but their optimal actions are opposite. Outcome information
+or an external model of expected outcomes is therefore needed.
+For a neighborhood Nk(x), the local action frequency
+bek(a | x) = 1
+k
+X
+j∈Nk(x)
+1 [Aj = a]
+targets the propensity score e0(a | x) = Pr(A = a | X = x) under standard nearest-neighbor
+conditions. If this estimator is consistent and the propensity has a unique maximizer, selecting
+the largest local frequency converges to the most likely historical action. Its limiting regret is
+E [f0(a∗(X), X) −f0(ahist(X), X)] ,
+ahist(x) ∈arg max
+a∈A
+e0(a | x),
+32
+which need not be zero.
+The matching-weight identity in Section 5 follows directly from changing the order of
+summation. If
+Ka,j =
+m
+X
+i=1
+1
+
+j ∈Nk,a(φ(Xtar
+i ))
+
+,
+then
+1
+m
+m
+X
+i=1
+efk(a, Xtar
+i ) =
+1
+mk
+m
+X
+i=1
+Na
+X
+j=1
+1
+
+j ∈Nk,a(Xtar
+i )
+
+Ya,j
+=
+Na
+X
+j=1
+Ka,j
+mk Ya,j.
+Bayes’ rule gives pX(x)/pa(x) = Pr(A = a)/ Pr(A = a | X = x). This is the population
+relation behind the connection among match counts, density-ratio estimation, and inverse
+propensity weighting (Lin et al., 2023; Kato, 2025b).
+E
+Policy-Value Estimation
+E.1
+Value induced by an expected-outcome estimate
+Let bsf(x) ∈arg maxa∈g(x) bf(a, x) be measurable. For any s ∈Sg,
+bf(bsf(x), x) ≥bf(s(x), x)
+for every x. Taking expectations gives bVf(bsf) ≥bVf(s). Applying the same inequality at each
+target context proves the empirical version. This is the equivalence used in Section 4.
+E.2
+Binary EWM and least-squares CATE estimation
+Let µa(x) = E [Y (a) | X = x] and τ(x) = µ1(x) −µ0(x). For a deterministic binary policy π,
+define gπ(x) = 2π(x) −1. Then,
+V (π) = E [µ0(X) + π(X)τ(X)]
+= E [µ0(X)] + 1
+2E [τ(X)] + 1
+2E [gπ(X)τ(X)] .
+Proposition E.1 (EWM and least-squares CATE estimation). Let Π be a class of determin-
+istic binary policies and let GΠ = {2π −1 : π ∈Π}. Maximizing V (π) over Π is equivalent,
+under g = 2π −1, to minimizing
+E
+
+(τ(X) −g(X))2
+over GΠ. The same algebra applies to empirical criteria when τ(Xi) is replaced by a common
+pseudo-outcome.
+33
+Proof. Every g ∈GΠ satisfies g(X)2 = 1. Therefore,
+E
+
+(τ(X) −g(X))2
+= E
+
+τ(X)2
++ 1 −2E [τ(X)g(X)] .
+The first two terms do not depend on g. Minimizing the squared loss is equivalent to
+maximizing E [τ(X)g(X)], which is equivalent to maximizing V (π). The empirical statement
+follows in the same way. This is the equivalence studied by Kato (2025a).
+E.3
+IPW and AIPW policy values
+Suppose that binary actions satisfy conditional exchangeability and positivity, and write
+e(x) = Pr(A = 1 | X = x). For a deterministic policy π, the IPW value estimator is
+bVIPW(π) = 1
+n
+n
+X
+i=1
+AiYiπ(Xi)
+be(Xi)
++ (1 −Ai)Yi(1 −π(Xi))
+1 −be(Xi)
+
+.
+With the true propensity score, iterated expectations give E
+h
+bVIPW(π)
+i
+= V (π). Let bµa(x)
+be expected-outcome estimates. The AIPW value estimator is
+bVAIPW(π) = 1
+n
+n
+X
+i=1
+ 
+bµπ(Xi)(Xi)
++ 1 [Ai = π(Xi)]
+be(Ai | Xi)
+(Yi −bµAi(Xi))
+!
+,
+where be(1 | x) = be(x) and be(0 | x) = 1 −be(x). The second term uses the observed outcome
+to correct the expected-outcome estimate. This is the statistical difference discussed in
+Section 6.
+F
+Nonparametric Rates for Transformer Expected-Outcome
+Estimates
+The regret theorems take a prediction-error bound as an input. This section records the
+substitution for the transformer results cited in the main text and keeps the representation
+dimension, in-context sample size, and number of pretraining tasks separate.
+The analysis of Kim et al. (2024) considers a transformer composed of a deep neural
+network with Nrep-dimensional output and one linear-attention layer. In the Besov setting,
+one of its main risk bounds has the form
+qICL ≲N −2α/d
+rep
++ Nrep log Nrep
+nctx
++ N 2
+rep log Nrep
+Tpre
+.
+The three terms are the approximation error, the in-context generalization error, and the
+pretraining generalization error. When Tpre is sufficiently large and Nrep ≍nd/(2α+d)
+ctx
+, the
+first two terms give the minimax MSE rate n−2α/(2α+d)
+ctx
+up to logarithmic factors. Oko et al.
+34
+(2024) studies adaptation to low-dimensional target functions, while Ching et al. (2026) gives
+a transformer construction attaining the H¨older minimax MSE rate and states a separate
+requirement on the number of pretraining sequences. Related approximation and estimation
+results are given by Takakura & Suzuki (2023) and Havrilla & Liao (2024).
+Suppose that the two binary expected-outcome estimates satisfy
+E
+h
+( bf(a, X) −f0(a, X))2i
+≤qa,n,
+a ∈{0, 1} .
+Then,
+E
+
+(bτ(X) −τ0(X))2
+≤2q0,n + 2q1,n.
+The MSE statement of Theorem 4.3 therefore gives
+R(ba) ≤C(q0,n + q1,n)(1+κ)/(2+κ).
+Substituting the displayed in-context risk yields the corresponding regret bound. If the
+prediction result is instead a pointwise exponential-deviation inequality with root scale rn,
+the second statement of Theorem 4.3 gives a bound of order r1+κ
+n
+. The MSE result alone
+does not imply that sharper bound.
+The sampling model must also match the RAG application. The in-context examples in
+these analyses are sampled under the task model used for pretraining, while RAG retrieves
+examples because they are close to the query. A direct application therefore requires the
+theoretical sampling condition to cover this selected context. Section 5 instead analyzes
+nearest-neighbor retrieval directly. For a general trained generator, the prediction error relative
+to the required conditional expected outcome must be evaluated or assumed separately.
+G
+Details of the Simulation Studies
+G.1
+Prepared Natural-Language Queries and Case Reports
+All natural-language documents are completed before notebook execution. Each DGP uses
+100 manually written source templates. Within every repetition, DGP 1 and DGP 2 use each
+source pattern five times in the historical corpus, while DGP 3 uses each source pattern six
+times. Ten distinct source patterns are used for the ten test queries in a repetition.
+Each historical record contains the covariates together with the observed action and
+outcome. Each test record contains covariates and a decision question. The outcome is
+written as a final performance score to one decimal place. The retrieval profile is stored
+separately from the prose document. It lists the attributes in a fixed order but excludes the
+action and outcome as well as the decision question. The numerical state is not included in
+the text supplied to the language model.
+For DGP 1 and DGP 2, the levels in {−2, −1, 0, 1, 2} are expressed as categories from
+very low to very high. Experience is also expressed in years. For DGP 3, the levels in
+{0.1, 0.3, 0.5, 0.7, 0.9} are expressed as categories from very low to very high. The same
+completed corpus and test queries are used by every method within a repetition.
+35
+G.2
+DGP 1: Linear Conditional Effects with Observational As-
+signment
+Let X = (X1, . . . , X6), where the components are independently and uniformly distributed on
+{−2, −1, 0, 1, 2}. They represent recent performance; workload; task complexity; experience;
+schedule flexibility; and team support. The two actions are
+0 : temporary workload reduction
+1 : weekly individual coaching.
+We define
+µ0(x) = 65 + 4x1 −3x2 −2x3 + 2x4 + 1.5x6,
+τ0(x) = 5x1 −4x2 + 3x5,
+µ1(x) = µ0(x) + τ0(x).
+The historical probability of action 1 is
+e0(x) = clip[0.10,0.90]
+ logit−1 (0.5x2 −0.4x4 + 0.3x6 −0.2x1)
+
+.
+We draw A | X = x ∼Bernoulli(e0(x)) and generate
+Y = µA(X) + ϵ,
+ϵ ∼N(0, 32).
+All variables entering the propensity and the two conditional expected outcomes are present
+in the text.
+G.3
+DGP 2: Smooth Nonlinear Personalization with Randomized
+Assignment
+DGP 2 uses the same state support and the same two actions. We define
+µ0(x) = 65 + 3 sin
+πx1
+4
+
+−2x2 −1.2x3 + 1.4x4 + 1.2x6
++ 0.5x2x6 −0.4x2
+4
+and
+b(x) = 1.25x1 −1.50x2 + x3 −x4 + 0.75x5 −0.75x6
++ 0.80 sin
+π(x1 −x2)
+4
+
++ 0.60 sin
+π(x3 −x4)
+4
+
+,
+τ0(x) = 8 tanh
+b(x)
+4
+
+,
+µ1(x) = µ0(x) + τ0(x).
+We draw A ∼Bernoulli(1/2) independently of X and generate
+Y = µA(X) + ϵ,
+ϵ ∼N(0, 2.52).
+The distribution of X is symmetric and b(−x) = −b(x). It follows that E[τ0(X)] = 0. Both
+actions are optimal on substantial parts of the state space, while any policy that receives no
+current state is restricted to a population-level choice. The conditional effect is smooth in all
+six variables used to construct the retrieval profile.
+36
+G.4
+DGP 3: Large Finite Action Space
+Let
+G = {0.1, 0.3, 0.5, 0.7, 0.9} .
+The context is X = (N, I, D, B), where N = (N1, N2, N3, N4) ∈G4 describes the need for
+technical skill development; workload relief; managerial guidance; and peer support. The
+variables I, D, and B in G describe suitable intervention intensity; suitable duration; and
+baseline performance. All seven variables are drawn independently and uniformly from G.
+An action is a triple a = (t, ℓ, r). The intervention type t is individual coaching; temporary
+workload reduction; technical training; or peer support. The intensity level is ℓ∈{1, 2, 3}
+and the duration is r ∈{2, 4} weeks. The four type profiles are
+vcoaching = (0.25, 0.10, 1.00, 0.20),
+vworkload = (0.05, 1.00, 0.20, 0.05),
+vtraining = (1.00, 0.05, 0.35, 0.15),
+vpeer = (0.20, 0.15, 0.45, 1.00).
+The complete action space contains 24 actions. We set
+c(a) = 0.35ℓ+ 0.15r
+and define
+f0(a, x) = 62 + 3B + 9
+2.2N ⊤vt −4
+
+I −ℓ
+3
+2
+−3
+
+D −r
+4
+2
+−c(a).
+Historical actions are generated from the misspecified score
+s(a, x) = 2N ⊤vt −0.7c(a).
+The assignment probability is
+Pr(A = a | X = x) = 0.20
+exp(s(a, x))
+P
+a′∈A exp(s(a′, x)) + 0.80
+24 .
+The assignment rule omits suitable intensity and duration as well as baseline performance,
+even though all three enter f0. The realized outcome is
+Y = f0(A, X) + ϵ,
+ϵ ∼N(0, 2.52).
+Each action has a stable identifier from A01 through A24 and a natural-language description.
+G.5
+Embedding and Retrieval
+The main experiments use the OpenAI embedding model text-embedding-3-small. Every
+vector is normalized and cosine distance is used. The embedding input is the fixed-order
+retrieval profile rather than the full prose report. This profile contains all attributes but
+37
+excludes the historical action and observed outcome as well as the decision question. The
+generator receives the full prose query and the full retrieved case reports.
+For DGP 1 and DGP 2, the experiment retrieves the six nearest reports observed under
+action 0 and the six nearest reports observed under action 1. One-step RAG-PL and Two-step
+RAG-PL receive exactly the same query and reports. Reports are displayed by retrieval rank.
+The action shown first alternates across ranks, and the initial action is randomized by query.
+The action descriptions and the two score summaries follow the same randomized order. The
+prompt states that this order has no priority.
+For DGP 3, the initial retrieval returns the twelve nearest reports without restricting
+the historical action. Both procedures receive these reports and the complete action catalog.
+Two-step RAG-PL then retrieves five reports within each generated candidate action.
+G.6
+Implementation of the RAG Procedures
+The main experiments use the model identifier gpt-5.4-mini. The temperature is set to 0,
+and the reasoning effort is set to none. For DGPs 1 and 2, the request configuration allows
+at most 16,384 input tokens and 256 output tokens. For DGP 3, the corresponding limits are
+32,768 input tokens and 1,200 output tokens. Each test query is processed independently,
+and no conversation history is carried across test queries. All model outputs are validated
+against predefined structured-output schemas.
+In DGPs 1 and 2, every method receives six displayed reports under each action and the
+exact arithmetic mean of the six displayed outcomes under each action. These summaries are
+deterministic functions of the displayed reports and therefore add no observations. Providing
+the summaries to every method ensures that differences among the methods are not driven
+merely by the model’s ability to calculate sample averages from the displayed outcomes.
+One-step RAG-PL returns only a selected action. Two-step RAG-PL returns one estimated
+conditional expected outcome under each action. The experiment code selects action 1 when
+its estimated conditional expected outcome is greater than or equal to that under action 0.
+Thus, action 1 is selected under an exact tie.
+RAG without covariates receives neither a current query profile nor historical pre-action
+profiles. Its historical reports contain only the action and observed outcome. Within each
+repetition, six reports are sampled uniformly without replacement under each action. The
+model receives the exact arithmetic mean of the six displayed outcomes under each action
+and returns two population-level expected-outcome estimates. The experiment code applies
+the same tie-breaking rule as above. Because the input to this baseline does not vary across
+the test queries within a repetition, the baseline is queried once for each retrieval database,
+and its selected action is applied to every test query in that repetition.
+In DGP 3, both RAG-PL procedures receive the same current query, the same twelve
+initially retrieved reports, and the complete catalog of 24 actions. One-step RAG-PL returns
+one valid action identifier from the catalog. Two-step RAG-PL first returns five distinct valid
+action identifiers. The procedure then retrieves five reports observed under each candidate
+action. A subsequent candidate-evaluation request supplies the five candidate actions and
+their matched reports and asks for one conditional expected-outcome estimate for each
+candidate. The experiment code selects the candidate with the largest estimate, using a fixed
+rule to break ties.
+38
+During candidate evaluation, valid estimates contained in an incomplete response are
+retained, and only the missing candidate estimates are requested in subsequent attempts.
+Candidate generation and candidate evaluation each permit at most eight attempts in total.
+All experiments reported below obtained complete valid outputs within these limits.
+The DGP 3 comparison is not matched in either the number of model requests or
+the amount of retrieved evidence. In particular, Two-step RAG-PL uses an additional
+candidate-generation stage, candidate-specific retrieval, and a candidate-evaluation stage.
+We therefore interpret the DGP 3 results as a comparison of the implemented end-to-end
+pipelines, rather than as an isolated comparison of one-step and two-step action selection
+under equal computational budgets.
+G.7
+Evaluation
+Each DGP contains 20 independent repetitions and ten test queries per repetition. DGP 1
+and DGP 2 contain 500 historical reports per repetition. DGP 3 contains 600. All methods
+in a repetition use the same completed corpus and queries. All 20 repetitions were completed
+for every method and were included in the main summaries.
+For each test query, we record the selected and optimal actions. We also record their true
+values and the resulting regret. An action is counted as optimal whenever its true conditional
+expected outcome equals the maximum, so ties are handled by value rather than by agreement
+with one tie-breaking label. Query-level quantities are averaged within a repetition. Means
+and standard errors are then calculated across repetitions.
+For methods that return expected outcomes, we also calculate expected-outcome mean-
+squared error. In the binary DGPs, we calculate the squared error of the estimated contrast.
+For DGP 3, we calculate candidate-specific expected-outcome mean-squared error and centered
+mean-squared error. We also calculate pairwise ranking accuracy.
+For DGP 3, let g(x) be the five generated candidates and let a∗
+g(x) be the best action in
+this set. We record
+f0(a∗(x), x) −f0(a∗
+g(x), x)
+and
+f0(a∗
+g(x), x) −f0(batwo(x), x).
+Their sum equals the query-level total regret. We also record exact candidate coverage.
+Approximate coverage is recorded at value-gap thresholds of 0.1, 0.25, and 0.5.
+G.8
+Language-Model Robustness
+After all three GPT-5.4 mini experiments are completed, DGP 1 is repeated with Qwen 3.5 4B
+and Gemma 3 4B. The local models use the same completed documents and OpenAI retrieval
+vectors as the main DGP 1 experiment. They also use the same matched reports and method
+definitions. They are used only as RAG generators. Results are reported separately by model
+because the purpose is to check the direction of the method comparison rather than rank
+language models.
+39
+Table 2: Expected-outcome estimation in the binary DGPs
+Method
+Expected-outcome MSE
+Contrast MSE
+DGP 1
+Two-step RAG-PL
+111.4406
+161.4745
+RAG without covariates
+229.4167
+251.6467
+DGP 2
+Two-step RAG-PL
+28.5777
+31.1131
+RAG without covariates
+51.9164
+41.3173
+Table 3: Regret decomposition and candidate evaluation in DGP 3
+Quantity
+Mean
+Standard error
+Total regret
+1.2154
+0.0837
+Candidate-set regret
+0.4822
+0.0387
+Within-candidate regret
+0.7332
+0.0616
+Exact candidate coverage
+0.4450
+0.0294
+Candidate coverage within 0.1
+0.4500
+0.0286
+Candidate coverage within 0.25
+0.5200
+0.0258
+Candidate coverage within 0.5
+0.6700
+0.0309
+Candidate expected-outcome MSE
+3.0358
+0.1412
+Centered candidate outcome MSE
+1.9420
+0.1096
+Pairwise ranking accuracy
+0.6200
+0.0153
+Best-candidate selection probability
+0.3450
+0.0359
+G.9
+Additional Results
+Table 2 reports the expected-outcome errors for procedures that return numerical estimates in
+the binary DGPs. Two-step RAG-PL has lower expected-outcome and contrast mean-squared
+error than RAG without covariates in both DGPs.
+Table 3 separates the regret of Two-step RAG-PL in DGP 3. Candidate generation
+accounts for mean regret 0.4822, while selection within the generated set accounts for 0.7332.
+Pairwise ranking accuracy within the candidate set is 0.6200, and the best candidate is
+selected with probability 0.3450.
+Table 4 gives the DGP 1 results for the two local generators. For both models, One-step
+RAG-PL and Two-step RAG-PL have lower mean regret than RAG without covariates. The
+relative ordering of the one-step and two-step procedures varies with the generator, so these
+results are used as a robustness check rather than a model ranking.
+40
+Table 4: DGP 1 robustness results with local language models
+Method
+Regret
+Regret SE
+Policy value
+Optimal-action probability
+Qwen 3.5 4B
+One-step RAG-PL
+3.4600
+0.4353
+66.6025
+0.5450
+Two-step RAG-PL
+3.6050
+0.4418
+66.4575
+0.5250
+RAG without covariates
+4.5450
+0.3943
+65.5175
+0.4100
+Gemma 3 4B
+One-step RAG-PL
+3.1450
+0.4055
+66.9175
+0.5700
+Two-step RAG-PL
+3.5200
+0.4070
+66.5425
+0.5450
+RAG without covariates
+4.5450
+0.3943
+65.5175
+0.4100
+41

@@ -1,0 +1,1341 @@
+Cong Hoan Nguyen, Thomas Hoang, Minh Hieu Duong, and Long Nguyen. “DeLIVeR: Decomposed
+Learning for Information-grounded Veracity Recognition via Reinforced Knowledge Graph Exploration”,
+7th International Conference on Deep Learning Theory and Applications (DeLTA 2026).
+©2026 Springer. Personal use of this material is permitted. Permission from Springer must be obtained for all other uses,
+in any current or future media, including reprinting/republishing this material for advertising or promotional purposes,
+creating new collective works, for resale or redistribution to servers or lists, or reuse of any copyrighted component of this
+work in other works.
+DeLIVeR: Decomposed Learning for
+Information-grounded Veracity Recognition via
+Reinforced Knowledge Graph Exploration
+Cong Hoan Nguyen1 , Thomas Hoang2 , Minh Hieu Duong1 , and Long
+Nguyen1
+1 University of Louisville, Louisville KY 40292, USA.
+{conghoan.nguyen,hieu.duong,l.nguyen}@louisville.edu
+2 Denison University, Granville, Ohio 43023, USA.
+{hoang_t2}@denison.edu
+Abstract. Automated fact-checking remains a challenge for Large Lan-
+guage Models (LLMs) due to "query brittleness" in traditional retrieval
+systems. We propose DeLIVeR (Decomposed Learning for Information-
+grounded Veacity Recognition), a framework that treats evidence re-
+trieval as a reinforced strategic exploration task. DeLIVeR utilizes a
+Planner LLM to decompose complex claims into targeted question sets,
+which are used to traverse structured Knowledge Graphs (KGs) for high-
+precision evidence. We optimize the Planner’s policy using Group Rel-
+ative Policy Optimization (GRPO) with a reward system prioritizing
+structural diversity and verdict accuracy. Our evaluation on LIAR, FEVER,
+and PolitiFact shows that DeLIVeR significantly outperforms state-of-
+the-art baselines. Using Qwen2.5-7B, our framework achieved peak F1-
+scores of 83.73, 84.57, and 79.70 respectively, representing a 10–15%
+improvement over HippoRAG2. By shifting to a reinforced question-
+planning strategy, DeLIVeR effectively bridges multi-hop reasoning gaps
+and provides an auditable, transparent path for verifiable misinformation
+detection.
+Keywords: Fact Detection, Knowledge Graph, Large Language Model,
+Retrieval Augmented Generation, Reinforcement Learning.
+1
+Introduction
+The proliferation of online misinformation poses a critical threat to public trust
+and democratic stability. While Large Language Models (LLMs) offer sophisti-
+cated reasoning, they are frequently undermined by “hallucinations” stemming
+from a reliance on static internal knowledge rather than verifiable grounding
+[1, 3]. Although Retrieval-Augmented Generation (RAG) aims to mitigate this,
+existing frameworks struggle with multi-hop gaps, static query limitations,
+and fixed retrieval policies that fail to adapt to complex claims spanning
+multiple entities [38, 4, 5].
+arXiv:2607.17935v1  [cs.CL]  20 Jul 2026
+2
+Cong Hoan Nguyen, Thomas Hoang, Minh Hieu Duong, and Long Nguyen
+Claim： The Mona Lisa was stolen from the Louvre in 1911 by Pablo Picasso.
+(a) LLM-Only
+Generate
+Answer: True.
+Explanation: Picasso, a prominent artist, was linked to 
+art controversies, so he likely stole the Mona Lisa.
+(b) GraphRAG
+Retrieve
+1) ..was stolen from Louvre in 1911 by Vincenzo 
+Peruggia. 
+2) Pablo Picasso was questioned in the theft
+3) Picasso painted the Mona Lisa in 1907.
+Answer: NEI
+Explanation: 
+Correct 
+thief 
+identified, 
+but 
+the 
+misleading 
+Picasso 
+link 
+and 
+incorrect 
+painting 
+attribution create ambiguity.
+Generate
+Think
+Claim Analysis: The claim is "The Mona 
+Lisa was stolen from the Louvre in 1911 by 
+Pablo Picasso." Break it into key entities: 
+Mona Lisa, Louvre, 1911, Pablo Picasso, 
+theft. Identify verifiable aspects: who 
+stole it, where, when, and outcome. Aim 
+for questions that probe these elements 
+to retrieve precise evidence from the 
+Knowledge Graph, ensuring relevance to 
+confirm or refute the claim. 
+Question 
+Generation 
+Strategy: 
+Formulate four questions targeting: (1) 
+the 
+thief’s 
+identity, 
+(2) 
+Picasso’s 
+involvement, (3) theft location, and (4) an 
+additional 
+fact 
+(recovery) 
+to 
+contextualize the event. Ensure questions 
+are specific to avoid ambiguous or 
+irrelevant 
+retrievals, 
+optimizing 
+for 
+reward.
+Query
+1) Who stole the Mona Lisa in 1911? 
+2) Was Pablo Picasso involved in the theft? 
+3) Where was the Mona Lisa stolen from? 
+4) When was the Mona Lisa recovered? 
+1) Vincenzo Peruggia stole the Mona Lisa. 
+2) Picasso was questioned but not involved. 
+3) Mona Lisa was stolen from the Louvre. 
+4) Mona Lisa recovered in 1913. 
+Retrieve
+Answer: False
+Explanation: Evidence confirms 
+Peruggia, not Picasso, stole the Mona 
+Lisa from the Louvre in 1911.
+(c) Our Method
+Fig. 1. Comparison of fake news detection systems for the Mona Lisa theft claim.
+To address these limitations, we propose DeLIVeR a framework that trans-
+forms fact verification from a static retrieval step into a reinforced, closed-loop
+optimization process as shown in Figure 1. Unlike domain-adaptive approaches
+that focus primarily on feature-level transformations, DeLIVeR optimizes the
+model’s information-seeking strategy. Given a claim, a planner LLM generates
+a small set of diverse, targeted questions that collectively query a Knowledge
+Graph (KG) to retrieve complementary evidence. This policy is optimized via
+Group Relative Policy Optimization (GRPO) to reward structural diversity
+and verdict accuracy. In developing this framework, we specifically investigate
+whether a reinforced planner LLM can effectively bridge multi-hop reasoning
+gaps compared to static RAG baselines (RQ1), the extent to which set-based
+question planning reduces query ambiguity in structured KGs (RQ2), and if
+GRPO-driven optimization yields a more stable and interpretable information-
+seeking policy for veracity classification (RQ3).
+Our contributions are as follows:
+– Structured multi-hop grounding: We introduce a KG-grounded evidence
+retrieval pipeline that moves beyond flat text retrieval by retrieving struc-
+tured, multi-hop evidence paths for claim verification.
+– Set-based question planning: We design a planner LLM that decomposes
+each claim into a cohesive set of diverse, targeted questions, reducing query
+ambiguity and improving evidence coverage over standard single-query RAG.
+– GRPO-driven policy optimization: We fine-tune the question genera-
+tion module with GRPO using rewards that encourage valid format, struc-
+tural diversity, and evidence quality, yielding a more stable information-
+seeking policy.
+– Empirical validation and interpretability: Experiments on FEVER,
+LIAR, and PolitiFact show consistent improvements over strong RAG base-
+Decomposed Learning for Information-grounded Veracity Recognition
+3
+lines, while the question-driven retrieval process provides inherent evidence
+chains for auditing model decisions.
+2
+Related Work
+Early artificial intelligence systems for knowledge-intensive tasks relied heavily
+on neural architectures such as Artificial Neural Networks (ANNs) and energy-
+based models, particularly Discrete Hopfield Neural Networks (DHNNs), which
+demonstrated the foundational principles of structured reasoning and pattern
+recognition. These early approaches established critical insights into logic mining
+and constraint satisfaction that continue to inform modern AI systems. Notable
+contributions include flexible logic mining frameworks that combine ensemble
+multi-attribute selection with DHNNs [72], investigations into weighted C-type
+random 2-satisfiability formulations within discrete Hopfield networks [73], and
+optimized logic mining methods leveraging higher-order satisfiability represen-
+tations [74]. While these early neural and logic-based paradigms demonstrated
+that structured, rule-governed representations significantly improve classification
+reliability and interpretability, they typically operate on fixed propositional rep-
+resentations and do not address the open-domain, multi-hop evidence retrieval
+needed for modern fact verification over large, dynamic knowledge corpora.
+Fake news detection has progressed from feature-based models [33, 34] to
+pretrained deep encoders such as BERT and RoBERTa [16, 17], which perform
+well on benchmarks including LIAR [35] and FEVER [36]. However, veracity
+prediction with LLMs remains unreliable without explicit grounding, due to
+hallucinations and the absence of verifiable evidence attribution [18]. Retrieval-
+Augmented Generation (RAG) addresses this by conditioning predictions on
+external context [38], but standard RAG typically retrieves unstructured text
+using similarity-based queries and often fails to capture the relational structure
+needed for claims involving multiple entities and linked events [15, 7]. Recent
+graph-based retrieval methods improve indexing and ranking, but they com-
+monly treat the user query as fixed. In contrast, DeLIVeR emphasizes structured
+KG evidence while optimizing the information-seeking strategy through learned
+question sets.
+A second challenge is query ambiguity. Many RAG systems rely on a sin-
+gle query derived directly from the claim, making retrieval brittle when the
+claim is underspecified or implicitly framed. Prior work on claim decomposi-
+tion shows that generating intermediate questions can improve reasoning [8, 9],
+and question generation models such as T5/BART have been used to produce
+subquestions [10]. However, these approaches are often not trained to optimize
+the retrieval outcome needed for verification, especially when evidence must be
+gathered from complementary semantic facets (e.g., temporal context, relations,
+contradictions). Our approach introduces a Planner LLM that generates a small,
+diverse set of targeted questions to probe a KG from multiple angles, improving
+evidence coverage and reducing ambiguity for downstream verification [11].
+4
+Cong Hoan Nguyen, Thomas Hoang, Minh Hieu Duong, and Long Nguyen
+Finally, optimizing retrieval behavior for black-box LLM pipelines is difficult
+because gradients cannot be propagated through the verifier. Existing methods
+align retrieval with LLM feedback using objectives such as KLD-based techniques
+[12] or policy-gradient style optimization [49], but PPO-style approaches can be
+unstable in high-dimensional generation spaces [50]. We address this by applying
+Group Relative Policy Optimization (GRPO) [66] to optimize question-set gen-
+eration. GRPO estimates advantages by comparing multiple outputs from the
+same claim, enabling stable updates without a centralized critic. This provides a
+practical mechanism to learn a robust question-generation policy that improves
+retrieval precision and supports accurate veracity decisions by rewarding high-
+signal evidence while discouraging noisy retrieval.
+3
+Methodology
+3.1
+Overview
+The proposed DeLIVeR framework presented in Figure 2 consists of Knowledge
+Graphs (KGs), a two footprint LLM architecture and reinforcement learning to
+tackle the challenges associated with fake news detection by accurate evidence
+retrieval and knowledge-based generating a verdict. The system begins with KG
+sourced from a reliable dataset, with nodes representing entities or facts, with
+edges indicating relationships (for example "supports", "contradicts", etc), al-
+lowing for structured and contextual evidence query [43]. The secondary LLM,
+fine-tuned for question generation, processes the input claim to produce a co-
+hesive set of targeted questions, collectively querying the KG to retrieve com-
+prehensive evidence [47]. The aggregated evidence from the question set, along
+with the claim, is then fed into a frozen primary LLM to generate a verdict
+(True, False, Not Enough Information) with a human-interpretable explanation,
+ensuring stability and interpretability [38]. Group Relative Policy Optimization
+(GRPO) iteratively refines the question-generating LLM by evaluating the qual-
+ity of retrieved evidence (e.g., format, structure, accuracy), optimizing retrieval
+effectiveness through reinforced feedback [49].
+This framework integrates other ideas previously proposed to produce an
+approach that integrates structured knowledge, adaptive queries, and reinforced
+feedback to provide robust and explainable means of detecting fake news.
+3.2
+Problem Formulation
+The veracity detection task in DeLIVeR is governed by the following condi-
+tional probability distribution, which decomposes the verdict y into a sequence
+of planning and retrieval steps:
+P(y|c) ≈max
+Q [P(y|c, Retrieve(Q, G)) · P(Q|c; θQ)]
+(1)
+where c is the input claim, Q = {q1, . . . , qn} is the set of generated questions,
+and G represents the structured Knowledge Graph. Our objective is to optimize
+Decomposed Learning for Information-grounded Veracity Recognition
+5
+Galileo
+Copernican
+Italy
+Galileo Satellite
+Navigation
+EU Space 
+Agency
+Astronomer
+…
+…
+…
+…
+…
+…
+…
+…
+Step 1: Chunking Document
+Step 2:Extract Entities 
+& Relationship
+Chunking Strategy
+      Chunk Size
+      Overlap
+Claim
+Serial
+Questions
+Graph Construction
+DeLIVeR
+Generation
+Supported 
+Set
+Structure
+Reward
+Accuracy
+Reward
+Format
+Reward
+GRPO
+Update
+Search
+Retriever
+Generative Model
+Preprocessing
+LLM Models
+True
+False
+NEI
+In 1633, Galileo was tried by the Roman Catholic
+Inquisition for supporting the heliocentric theory 
+proposed by Copernicus, which contradicted the 
+Church’s teachings at the time.
+1
+2
+3
+4
+Fig. 2. The overall DeLIVeR architecture operates through four key stages: generat-
+ing a sequence of questions, querying the knowledge graph, extracting the supporting
+information set, and updating the generative model using GRPO.
+the parameters θQ such that the generated Q maximizes the likelihood of the
+correct verdict y through high-quality evidence retrieval.
+3.3
+Knowledge Graph Construction
+To ensure the framework is grounded in verifiable facts while strictly avoid-
+ing label leakage and circular reasoning, we construct the Knowledge Graph
+(KG) using only the ground-truth evidence corpora associated with each dataset.
+We explicitly exclude claim text and veracity labels from the graph construc-
+tion pipeline, utilizing GPT-4 to perform Open Information Extraction (Ope-
+nIE) that transforms unstructured evidence into structured triples (s, p, o) (Sub-
+ject–Predicate–Object). To guarantee high-fidelity retrieval, we implement a
+provenance-tracking mechanism that maps every node and edge back to its
+source document URI, allowing the Verifier LLM to audit retrieved paths against
+the original text.
+Table 1. Quality Assessment of Extracting KG Triples
+Metric
+Score Definition
+Entity Precision 94.2% Accuracy of extracted subjects and objects against source text.
+Relation Recall
+88.5% Percentage of key relations from text captured in the graph.
+Triple Fidelity
+91.8% Correctness of the (s, p, o) link as a logical unit.
+Noise Rate
+3.4% Percentage of extracted triples with no basis in source text.
+As demonstrated in Table 1, a manual quality assessment of 500 randomly
+sampled triples confirms the reliability of this process, yielding an Entity Pre-
+cision of 94.2% and a Triple Fidelity of 91.8%. Furthermore, we address tem-
+poral sensitivity by appending temporal metadata (timestamps) to edges when
+6
+Cong Hoan Nguyen, Thomas Hoang, Minh Hieu Duong, and Long Nguyen
+available in the source text. During retrieval, the model prioritizes edges with
+timestamps closest to the claim’s publication date. For noise control, we apply
+a frequency-based filter that removes "singleton" entities that do not connect
+to at least two other nodes, ensuring the graph focuses on the dense, multi-hop
+relationship clusters necessary for complex reasoning.
+3.4
+Question Generation Module
+The Question Generation Module is a core part of the DeLIVeR framework
+that leverages a hundred million parameters pretrained secondary large lan-
+guage model, to create relevant questions based on an input claim, in order to
+frame the language for targeted retrieval of relevant evidence from the KG for
+fake news verification. Formally, given an input claim c, the secondary LLM Q
+generates a set of questions Q = {q1, q2, . . . , qn}, with each question qi to explore
+specific angles of the claim such as the source, evidence to substantiate claim c,
+contextual factors which may affect the claim, or counter claims or contradic-
+tions, such as! “What is the original source of claim c?” “Is evidence x in the KG
+contradictory to assertion y in claim c?” “What time factors impact the validity
+of event z?”. The process is defined as Q(c; θQ) →Q ⊆P(KG), where θQ are the
+pretrained parameters of the LLM, and the question set Q is used collectively
+to query the KG, retrieving a unified set of evidence. Each question generated
+is intended to cover multiple angles of the claim, such as factual, temporal, and
+causal, to facilitate a more richly supported collection of evidence from the KG
+and support multi-hop reasoning, which is necessary in the evaluation of com-
+plex misinformation. The question set is mapped to KG nodes and edges using
+vector similarity search, with embeddings of questions and KG elements ensuring
+contextually relevant evidence retrieval:
+Score(qi, ej) = cos(ϕ(qi), ϕ(ej)),
+(2)
+where ϕ(qi) and ϕ(ej) are embeddings for the question and KG element (node
+or edge) ej, respectively, and cos denotes cosine similarity [52]. This scoring
+enables the selection of the most relevant KG elements, significantly improving
+the granularity and relevance of retrieved evidence compared to static query
+methods in standard RAG systems.
+To address redundancy and ensure comprehensive coverage of the KG’s re-
+lational structure, the question generation process incorporates a diversity con-
+straint, encouraging the LLM to produce questions that span distinct subgraphs
+of the KG. This is formalized by maximizing the entropy of question coverage:
+H(Q) = −
+X
+qi∈Q
+P(qi|c) log P(qi|c),
+(3)
+where P(qi|c) is the probability of generating question qi given claim c, ensuring
+that questions probe varied aspects of the KG without overlap [53].
+The generated questions are mapped to KG nodes and edges using a vector
+similarity search. We utilize the embeddings of both the questions and the KG
+Decomposed Learning for Information-grounded Veracity Recognition
+7
+elements to generate evidence that is contextually relevant to the nuance of the
+claims. The performance of the set of questions is refined iteratively using Group
+Relative Policy Optimization (GRPO), detailed in Section 3.4, which adjusts θQ
+by evaluating the quality of the retrieved aggregated evidence. This approach,
+different from static RAG pipelines, optimizes question sets to maximize the ex-
+traction of relevant evidence, enhancing the verification of abstract or ambiguous
+claims [49]. In practice, this modification of objective function is what separates
+our approach from static RAG pipelines, where retrieving incomplete or irrele-
+vant evidence is difficult. By incorporating pre-trained LLMs with KG retrieval
+optimized by GRPO, the Question Generation Module provides a necessary level
+of contextualized evidence extraction to support the system’s verification capa-
+bilities for complex claims in fake news detection and misinformation combat.
+3.5
+Retrieval and Augmentation
+The Retrieval and Augmentation module leverages a cohesive set of questions
+generated by the secondary LLM to collectively query the Knowledge Graph
+(KG) and retrieve a unified set of relevant evidence, which is then augmented
+with the input claim to enable the primary LLM to generate accurate ver-
+dicts for fake news detection. For a given claim c and its set of questions
+Q = {q1, q2, . . . , qn}, the questions are embedded using a pretrained sentence
+encoder, and the evidence is retrieved from the KG by computing similarity
+scores between the question embeddings and the KG node/edge embeddings,
+formalized as:
+Retrieve(Q, G) =
+[
+qi∈Q
+arg max
+ej∈G cos(ϕ(qi), ϕ(ej)),
+(4)
+where G = (V, E) is the KG, ϕ(·) denotes the Sentence-BERT embeddings, and
+cos is cosine similarity [52]. The aggregated evidence set E = {e1, e2, . . . , em} is
+concatenated with the claim c to form an augmented input [c; E], which is fed to
+the primary LLM to produce a verdict (True, False, or Not Enough Information)
+with an explanation. The quality of the retrieved evidence is evaluated to inform
+iterative refinement of the question generation process [38]. This process ensures
+the primary LLM leverages structured, contextually relevant evidence, enhancing
+verdict accuracy and interpretability compared to standard RAG systems that
+rely on unstructured text retrieval.
+3.6
+Reinforcement Learning Optimization
+To bridge the gap between static retrieval and adaptive fact-checking, we opti-
+mize the Question Generation (QG) module using Group Relative Policy Opti-
+mization (GRPO) [66]. Unlike standard Proximal Policy Optimization (PPO),
+which relies on a centralized critic to estimate a state-value baseline, GRPO com-
+putes advantages based on the relative performance of a group of outputs gener-
+ated from the same prompt. This is particularly advantageous for our framework
+8
+Cong Hoan Nguyen, Thomas Hoang, Minh Hieu Duong, and Long Nguyen
+Claim: The
+Mona
+Lisa was painted by
+Michelangelo.
+Sample Questions &
+Retrieved Information
+1
+Who painted the Mona Lisa?
+…was painted by Leonardo da Vinci, as 
+confirmed by the Louvre Museum…
+When was the Mona Lisa created?
+…was created between 1503 and 1506, 
+with some refinements up to 1517, by 
+Leonardo da Vinci...
+Did Michelangelo ever claim to have 
+painted the Mona Lisa?
+Michelangelo was a contemporary of 
+Leonardo da Vinci and worked on 
+similar subjects, like portraiture, in 
+Florence during the early 16th century.
+What is the primary medium of the 
+Mona Lisa painting?
+The Mona Lisa is a fresco painting using 
+vibrant watercolors on a plaster wall.
+Model Update
+Reinforce higher-
+advantage responses
+A
+B
+C
+D
+Model updates 
+to increase 
+likehood of 
+better-than-
+average 
+responses
+4
+LLM
+Compute Group 
+Average &Advantage
+Advantage A = 1.0 - 0.45 = +0.55
+Advantage B = 0.6 - 0.45 = +0.15
+Advantage C = 0.2 - 0.45 = -0.25
+Advantage D = 0.0 - 0.45 = -0.45
+A
+B
+C
+D
+3
+R=(1.0 + 0.6 + 0.2 + 
+0.0) / 4 = 0.45 
+Scoring Dimensions:
+-  Accuracy (Question and 
+Retrieved Information correct)
+-  Format (e.g.. Uses 
+   <think>/<answer> as applicable
+- Structure Reward
+1.0
+0.6
+0.2
+0.0
+A
+B
+C
+D
+2
+Reward Function
+A
+B
+C
+D
+Fig. 3. Overview of the Group Relative Policy Optimization (GRPO) process for re-
+fining question generation. Step 1: samples question sets {Qi} from the policy πθQ and
+retrieves corresponding evidence Ei from the Knowledge Graph. Step 2: computes the
+Format-Structure-Accuracy reward R(Qi, Ei) for each set. Step 3: calculates the group
+average reward and advantage ˆA(Qi, Ei). Step 4: updates the policy parameters θQ via
+the clipped objective to optimize retrieval effectiveness and verdict reliability.
+because it allows the model to compare multiple diverse "question sets" for a sin-
+gle claim, identifying which specific combinations of queries maximize evidence
+coverage while minimizing retrieval noise. Additionally, this approach enhances
+the quality of evidence retrieved from the Knowledge Graph (KG) for fake news
+detection, as illustrated in the GRPO process overview (see Figure 3). Given a
+claim c ∈D, the LLM generates a group of question sets {Qi}N
+i=1 ⊆Tc, where
+each Qi = {qi1, . . . , qiT } is used to collectively query the KG, producing an
+aggregated evidence set Ei = Retrieve(Qi, G). We use the prompt, detailed in
+Table 2, optimize the policy πθQ using the GRPO objective, defined as:
+JGRPO(θQ) = Ec∼D,{Qi}N
+i=1∼πθold
+Q
+(Q|c;KG)
+"
+1
+N
+N
+X
+i=1
+min
+
+ρθQ(Qi) ˆA(Qi, Ei),
+clip
+ ρθQ(Qi), 1 ± ϵ
+ ˆA(Qi, Ei)
+
+−βDKL(πθQ ∥πref)
+#
+,
+(5)
+where ρθQ(Qi) =
+πθQ(Qi|c;KG)
+πθold
+Q (Qi|c;KG), and the advantage is: ˆA(Qi, Ei) = R(Qi, Ei) −
+1
+N
+PN
+j=1 R(Qj, Ej)/Fnorm({R(Qj, Ej)}N
+j=1) and the reward function: R(Qi, Ei) =
+w1 · RFormat(Qi) + w2 · RStructure(Qi) + w3 · RAccuracy(Ei), where Fnorm(·) is a
+normalization function (e.g., standard deviation), and clip(·) stabilizes policy up-
+dates [50]. GRPO’s group-based comparison optimizes question sets to maximize
+Decomposed Learning for Information-grounded Veracity Recognition
+9
+the quality of retrieved evidence, enhancing retrieval effectiveness and verdict re-
+liability over traditional RL methods [38, 49].
+Prompt
+A conversation between User and Assistant for training a model to generate questions from a claim.
+The User provides a claim, and the Assistant generates 4–8 relevant questions to query a Knowledge
+Graph or external sources. The Assistant outlines the reasoning process within <think>... </think>
+tags, detailing how the claim is parsed and questions are formulated, then provides the questions
+within
+<answer>... </answer> tags.
+User: Given a claim, generate 4–8 diverse and specific questions to query a Knowledge Graph or
+external sources for misinformation detection. Show your reasoning process and list the questions.
+Assistant:
+<think>
+1. Parse the claim: Identify key entities, events, relationships, and context within the claim to
+ensure questions target critical aspects.
+2. Formulate questions: Generate 4 questions that are diverse, covering different facets (e.g., factual
+details, entities, temporal aspects, contradictions), and specific to maximize relevance for Knowl-
+edge Graph retrieval or external search. Ensure questions are clear, concise, and optimized for
+misinformation detection on datasets.
+3. Optimize diversity: Balance question types (e.g., who, what, when, where, why) to cover multiple
+perspectives while avoiding redundancy.
+</think>
+<answer>
+List of 4 questions:
+<question 1> </question 1>
+<question 2> </question 2>
+<question 3> </question 3>
+<question 4> </question 4>
+</answer>
+Claim: claim. Assistant:
+Table 2. Prompt template for DeLIVeR question generation
+Format Reward (RFormat(Qi)). This reward enforces strict adherence to the
+structured output format required for downstream retrieval and parsing. The
+model must generate a reasoning trace within <think> </think> tags followed
+by a numbered list of 4–8 questions within <answer> </answer>, with no ex-
+traneous text. We use regular expressions to validate: - Exactly one <think>
+block with coherent reasoning steps. - Exactly one <answer> block containing a
+numbered list (1., 2., etc.) with 4 ≤questions ≤8. - No content outside tags.
+This is a binary reward:
+RFormat(Qi) =
+(
+1
+if format is valid,
+0
+otherwise.
+(6)
+Structural Reward (RStructure(Qi)). This is the core signal for effective
+evidence retrieval. It evaluates whether the generated question set Qi covers
+diverse semantic dimensions of the claim c (e.g., entities, events, temporal
+context, causal links, contradictions) to maximize informational breadth. The
+computation proceeds in two steps: 1. Each question qij ∈Qi is classified into
+one of K predefined semantic categories (e.g., WHO, WHAT, WHEN, WHERE, HOW,
+10
+Cong Hoan Nguyen, Thomas Hoang, Minh Hieu Duong, and Long Nguyen
+CONTRADICTION) using a lightweight classifier (e.g., fine-tuned BERT or keyword
+patterns). Let C(Qi) be the set of unique categories covered. 2. The reward is
+the coverage ratio relative to an ideal category distribution C∗(derived from
+claim type or oracle analysis):
+RStructure(Qi) = |C(Qi) ∩C∗|
+|C∗|
+∈[0, 1].
+(7)
+Alternatively, for finer granularity, we compute Jaccard similarity over nor-
+malized question skeletons (replacing named entities with [ENT], numbers with
+[NUM], etc.) to reward structural diversity beyond category labels. RStructure is
+assigned the highest weight (w2 ≫w1, w3) to prioritize comprehensive evidence
+gathering.
+Accuracy Reward (RAccuracy(Ei)). This reward measures factual relevance
+of the retrieved evidence Ei = Retrieve(Qi, G) to the claim c. We use a binary
+signal from an LLM judge (e.g., Qwen2.5-72B-Instruct) or a fine-tuned factuality
+classifier:
+- Input: Concatenated evidence (Ei) and claim (c).
+- Output: Label SUPPORTS, REFUTES, or NEI. The reward is:
+RAccuracy(Ei) =
+(
+1
+if information is correct,
+0
+if hallucinated.
+(8)
+By combining these three rewards, GRPO creates a hierarchical optimiza-
+tion landscape: the model is guided primarily by structure to explore the claim
+comprehensively, constrained by format for reliability, and refined by accuracy
+for verdict quality. This yields question sets that are well-formed, semantically
+rich, and evidentially potent, critical for robust misinformation detection.
+4
+Experiment and Results
+4.1
+Experimental Setup
+Datasets To evaluate our framework, we utilize three benchmark datasets for
+fake news detection, each with distinct characteristics to assess evidence retrieval,
+verdict accuracy, and explanation quality:
+– PolitiFact [54]: Contains political claims from U.S. media, annotated with
+veracity labels (e.g., True, False, Pants on Fire) and detailed justifications,
+ideal for testing verdict accuracy and explanation coherence.
+– LIAR [35]: Comprises 12,8K short political statements from diverse sources,
+labeled with fine-grained veracity categories (e.g., True, Mostly True, False),
+suitable for evaluating generalization across varied claims.
+– FEVER [36]: Includes Wikipedia-derived claims, annotated as Supported,
+Refuted, or Not Enough Information, with linked evidence, enabling robust
+assessment of evidence retrieval and multi-hop reasoning.
+Decomposed Learning for Information-grounded Veracity Recognition
+11
+Table 3. Counts of real/fake news across datasets.
+LIAR
+FEVER POLITIFACT
+#Real News
+9252
+3333
+399
+#Fake News
+3555
+3333
+345
+#Total
+12 807
+6666
+744
+These datasets collectively challenge our framework’s ability to handle diverse
+claim types, structured evidence, and contextual nuances in misinformation de-
+tection, as summarized in Table 3.
+Baseline To benchmark our DeLIVeR framework, we compare it against five
+methods for fake news detection, each highlighting different retrieval and rea-
+soning capabilities:
+– Vanilla LLM [1]: Uses a pretrained large language model for direct claim
+classification without external knowledge, prone to hallucinations in verifi-
+cation tasks.
+– Naive RAG [38]: Performs one-step retrieval from an unstructured corpus
+to augment prompts, often retrieving irrelevant or incomplete evidence due
+to lack of query refinement.
+– LightRAG [55]: Employs graph-enhanced indexing for faster, contextual
+retrieval, reducing computational overhead while maintaining accuracy in
+knowledge-intensive queries.
+– ReAct [56]: Interleaves reasoning and acting via chain-of-thought and tool
+calls (e.g., search APIs), enabling dynamic evidence gathering for multi-hop
+fact-checking.
+– HippoRAG2 [57]: Builds hierarchical knowledge graphs with personalized
+PageRank for incremental, context-aware retrieval, excelling in integrating
+diverse evidence.
+Implementation Details Our DeLIVeR framework utilizes GPT-4 for con-
+structing the Knowledge Graph from verified datasets, leveraging its advanced
+language understanding for entity and relationship extraction [60]. For the ques-
+tion generation and verdict prediction, we benchmark three scales of Qwen2.5
+(1.5B, 3B, and 7B parameters), evaluating their performance across diverse claim
+complexities [58]. The retrieval module employs the bge-large-en-v1.5 model for
+embedding questions and KG elements, ensuring robust similarity-based evi-
+dence extraction [59].
+GRPO Training Configuration: We implement GRPO optimization using a
+group size of N = 8 question sets per claim for reliable advantage estimation.
+The reward function weights are set as w1 = 0.15, w2 = 0.60, and w3 = 0.25,
+where w2 ≫w1, w3 to prioritize structural diversity as described in Section 4.6.
+We use a clipping parameter ϵ = 0.20 and KL penalty coefficient β = 0.04
+12
+Cong Hoan Nguyen, Thomas Hoang, Minh Hieu Duong, and Long Nguyen
+to ensure stable policy updates. Training is performed on four NVIDIA A100
+GPUs (80GB) with a learning rate of 5 × 10−6 and global batch size of 32
+claims. For Qwen2.5-7B, GRPO fine-tuning converges in approximately 10.5
+hours, while the 1.5B and 3B variants require 3.0 and 5.5 hours respectively.
+Complete hyperparameters and KG statistics are detailed in Table 4.
+Table 4. DeLIVeR Training Hyperparameters and Knowledge Graph Statistics
+Parameter
+Setting/Value
+Notes
+GRPO Hyperparameters
+Group size (N)
+8
+Question sets sampled per claim
+Format reward weight (w1)
+0.15
+Binary format validation
+Structure reward weight (w2)
+0.60
+Semantic diversity priority (w2 ≫w1, w3)
+Accuracy reward weight (w3)
+0.25
+Evidence relevance to verdict
+Clipping parameter (ϵ)
+0.20
+PPO-style policy update stability
+KL penalty coefficient (β)
+0.04
+Reference model regularization
+Learning rate
+5 × 10−6
+AdamW optimizer
+Warmup steps
+100
+Linear learning rate warmup
+Global batch size
+32
+Claims per gradient update
+Max training epochs
+3
+Early stopping on validation F1
+Temperature (sampling)
+0.7
+Diversity in group generation
+Computational Requirements
+Hardware
+4 × NVIDIA A100 (80GB)
+Distributed training setup
+Training time (Qwen2.5-1.5B)
+∼3.0 hours
+Average across datasets
+Training time (Qwen2.5-3B)
+∼5.5 hours
+Average across datasets
+Training time (Qwen2.5-7B)
+∼10.5 hours
+Average across datasets
+KG construction time
+∼6.0 hours
+GPT-4 OpenIE extraction
+Peak GPU memory (7B model)
+∼65 GB
+Including gradients and optimizer
+Knowledge Graph Statistics
+LIAR: Entities / Triples
+42,150 / 128,400
+Political claims and entities
+FEVER: Entities / Triples
+186,300 / 524,800
+Wikipedia-derived evidence
+PolitiFact: Entities / Triples
+8,920 / 26,150
+Fact-checking corpus
+Avg. entity connectivity
+3.2
+Triples per entity (post-filtering)
+Relation types (total)
+47
+Unique predicate categories
+Singleton filter threshold
+≥2 connections
+Minimum connectivity requirement
+Temporal edge coverage
+58.7%
+Edges with timestamp metadata
+4.2
+Main Results
+Table 5 presents a comprehensive evaluation of our DeLIVeR framework against
+five baselines include Vanilla LLM, Naive RAG, LightRAG, ReAct, and Hip-
+poRAG2 across the LIAR, FEVER, and PolitiFact datasets, using three scales
+of the Qwen2.5 model (1.5B, 3B, and 7B parameters). Our framework consis-
+tently outperforms all baselines across recall, precision, accuracy, and F1-score,
+achieving peak F1-scores of 83.73 (LIAR), 84.57 (FEVER), and 79.70 (Poli-
+tiFact) with Qwen2.5-7B, compared to HippoRAG2’s best F1-scores of 72.93,
+75.16, and 69.97, respectively. This represents an average F1 improvement of
+10–15% over HippoRAG2, the closest competitor, highlighting the efficacy of
+our knowledge graph (KG) integration and Group Relative Policy Optimiza-
+tion (GRPO)-driven question set generation. The performance gap widens with
+Decomposed Learning for Information-grounded Veracity Recognition
+13
+Table 5. Performance Metrics on MultiReQA Datasets
+Methods
+LIAR
+FEVER
+POLITIFACT
+Qwen2.5-1.5B-Instruct
+Recall Prec
+Acc
+F1
+Recall Prec
+Acc
+F1
+Recall Prec
+Acc
+F1
+Vanilla LLM
+36.51
+35.37 35.92 35.93
+37.64
+36.22 36.59 36.89
+35.48
+34.91 34.78 35.19
+Naive RAG
+52.47
+49.36 50.41 50.87
+54.12
+51.59 52.31 52.83
+50.94
+48.23 49.32 49.63
+LightRAG
+58.64
+55.22 56.15 56.89
+60.53
+57.18 58.02 58.83
+57.25
+54.37 55.18 55.74
+ReAct
+60.18
+57.34 58.10 58.72
+62.81
+59.47 60.32 61.11
+61.29
+58.42 59.30 59.82
+HippoRAG2
+63.72
+60.35 61.44 61.96
+65.33
+62.24 63.15 63.77
+63.61
+60.23 61.04 61.86
+DeLIVeR (ours) 72.48 69.53 70.31 70.97 74.69 71.42 72.24 72.99 70.18 67.23 68.11 68.68
+Qwen2.5-3B-Instruct
+Vanilla LLM
+38.17
+37.02 37.56 37.58
+39.45
+38.13 38.42 38.79
+37.68
+36.59 36.74 37.13
+Naive RAG
+56.41
+53.72 54.38 55.03
+58.29
+55.36 56.02 56.80
+55.72
+52.64 53.32 53.98
+LightRAG
+62.68
+59.39 60.15 60.97
+64.43
+61.08 61.93 62.77
+61.89
+58.66 59.48 60.24
+ReAct
+65.33
+62.47 63.18 63.86
+67.28
+64.10 65.09 65.63
+64.47
+61.52 62.34 62.88
+HippoRAG2
+69.28
+66.14 67.09 67.69
+71.54
+68.22 69.13 69.85
+67.88
+64.61 65.54 66.28
+DeLIVeR (ours) 79.37 76.44 77.32 77.88 81.25 78.16 79.03 79.67 75.73 72.66 73.49 73.98
+Qwen2.5-7B-Instruct
+Vanilla LLM
+39.23
+38.15 38.42 38.69
+40.51
+39.29 39.48 39.90
+38.74
+37.59 37.74 38.16
+Naive RAG
+60.44
+57.32 58.21 58.85
+62.73
+59.48 60.26 60.98
+60.92
+57.18 58.09 58.61
+LightRAG
+66.38
+63.20 64.12 64.76
+68.44
+65.19 66.07 66.78
+64.69
+61.58 62.43 63.09
+ReAct
+70.52
+67.33 68.28 68.87
+72.86
+69.61 70.43 71.18
+69.27
+66.13 67.04 67.64
+HippoRAG2
+74.63
+71.35 72.29 72.93
+76.85
+73.52 74.41 75.16
+71.66
+68.39 69.33 69.97
+DeLIVeR (ours) 85.32 82.21 83.09 83.73 86.14 83.11 84.00 84.57 81.36 78.23 79.18 79.70
+larger model scales, with Qwen2.5-7B yielding the highest scores due to its en-
+hanced reasoning capacity, which better leverages the structured evidence re-
+trieved from the KG. FEVER consistently produces the highest scores across
+all methods, likely due to its structured Wikipedia-based evidence annotations,
+which align well with our framework’s multi-hop reasoning capabilities. In con-
+trast, PolitiFact’s smaller dataset size (744 samples) and nuanced veracity labels
+(e.g., Pants on Fire) pose greater challenges, yet our framework still achieves
+robust performance (F1 of 79.70 with Qwen2.5-7B), demonstrating its ability to
+handle complex, real-world misinformation scenarios.
+4.3
+Ablation Study
+Impact of question set size:
+We ablate question set size using Qwen2.5-
+7B-Instruct on LIAR, FEVER, and PolitiFact (Figure 4). Peak F1-scores are
+achieved with four questions: 0.8373 (LIAR), 0.8457 (FEVER), and 0.7970 (Poli-
+tiFact), confirming the optimal balance between evidence coverage and relevance.
+Performance declines with eight questions (0.8297, 0.8389, 0.7900) due to redun-
+dancy and with sixteen questions (0.8221, 0.8317, 0.7835) due to retrieval noise.
+Only two questions yield the lowest scores (0.8115, 0.8216, 0.7625) from insuffi-
+cient evidence diversity. FEVER benefits most from structured evidence, while
+PolitiFact remains the hardest due to nuanced labels and limited data. These
+14
+Cong Hoan Nguyen, Thomas Hoang, Minh Hieu Duong, and Long Nguyen
+results validate GRPO’s effectiveness in producing concise, high-quality question
+sets and underscore the importance of tuning set size for robust retrieval and
+verdict accuracy in misinformation detection.
+2
+4
+6
+8
+10
+12
+14
+16
+Number of Questions
+0.700
+0.725
+0.750
+0.775
+0.800
+0.825
+0.850
+0.875
+0.900
+F1-Score
+LIAR
+FEVER
+POLITIFACT
+Fig. 4. The impact of the number of generated questions
+Qualitative Evaluation Figure 5 illustrates the qualitative performance of our
+DeLIVeR framework (Qwen2.5-7B-Instruct) against Vanilla LLM, Naive RAG,
+LightRAG, ReAct, and HippoRAG2 across six categories for misinformation de-
+tection: Knowledge-ability, Comprehensiveness, Factuality, Logical Coherence,
+Relevance, and Correctness. Evaluated on LIAR, FEVER, and PolitiFact, our
+framework achieves top scores: 83.2 (Knowledge-ability, Relevance), 75.12 (Com-
+prehensiveness), 82.45 (Factuality), 68.4 (Logical Coherence), and 75.25 (Cor-
+rectness), outperforming ReAct’s 72.4, 67.7, 79.9, 58.6, 77.2, and 69.3, respec-
+tively. KG-driven retrieval and GRPO-optimized questions enhance Factuality
+and Relevance, while Vanilla LLM struggles (e.g., 40.3 in Logical Coherence)
+due to limited knowledge. Naive RAG (65.1 in Knowledge-ability), LightRAG
+(69.3), and HippoRAG2 (59.0 in Factuality) lag behind. These results validate
+our framework’s robust, coherent verdicts for misinformation detection.
+Error Types
+DeLIVeR
+Irrelevant Questions
+16%
+Insufficient Coverage
+34%
+Redundant Questions
+14%
+Document Mismatch
+48%
+Table 6. Distribution of errors based on 200 examples from POLITIFACT, where
+DeLIVeR gives incorrect verification results.
+Decomposed Learning for Information-grounded Veracity Recognition
+15
+               Knowledge 
+           - ability
+Comprehensiveness
+Factuality
+Logical         
+ Coherence       
+Relevance
+Correctness
+20
+40
+60
+80
+100
+55.1
+56.4
+59.4
+40.3
+67.5
+58.8
+69.3
+65.0
+72.2
+52.8
+75.1
+70.2
+83.2
+75.12
+82.45
+68.4
+83.2
+75.25
+Vanilla LLM
+Naive RAG
+LightRAG
+ReAct
+HippoRAG2
+KG-RQG RAG 7B (ours)
+Fig. 5. Qualitative performance of our DeLIVeR framework in six categories.
+Error analysis of the retrieval process:
+We conduct error analysis on
+200 PolitiFact failure cases where DeLIVeR predicts incorrect verdicts. Man-
+ual annotation reveals four error types (Table 4.3): Document Mismatch (48%)
+dominates, indicating poor alignment between questions and retrieved evidence,
+especially for nuanced or temporally sensitive claims. Insufficient Coverage (34%)
+ranks second, showing that critical aspects (e.g., motive, source credibility) are
+sometimes missed, particularly in “Mostly False”/“Half-True” claims. Encour-
+agingly, Irrelevant Questions (16%) and Redundant Questions (14%) together
+account for only 30%, confirming that GRPO effectively generates focused,
+non-repetitive questions. This supports our ablation finding that four ques-
+tions achieve optimal balance. These results highlight the need to (1) improve
+question-evidence alignment via retriever fine-tuning and (2) strengthen GRPO
+rewards to penalize Document Mismatch more heavily. Addressing these will
+significantly enhance retrieval-augmented fact-checking robustness.
+5
+Conclusion
+We presented a fact-verification architecture that integrates knowledge graph
+grounding and targeted, set-based question planning on top of a frozen verifier
+trained through GRPO to monotonically improve accuracy, interpretability, and
+robustness over LLM-only and recent RAG baselines. By decomposing claims
+into focused questions, retrieving precise multi-hop evidence, and rationalizing a
+16
+Cong Hoan Nguyen, Thomas Hoang, Minh Hieu Duong, and Long Nguyen
+True/False/NEI decision with user-aligned feedback, our approach produces fully
+auditable reasoning traces suitable for high-stakes applications such as news-
+rooms, content moderation teams, election monitoring, public health communi-
+cation, and enterprise compliance workflows. Unlike black-box LLM judgments
+or noisy single-shot RAG retrievals, our method exposes every inference step
+from generated questions to retrieved KG paths to final verdict—enabling human
+auditors to verify or contest any component. This transparency is critical when
+decisions influence policy, public perception, or legal outcomes. We show that the
+combination of structured retrieval and reinforced question generation narrows
+the gap between raw model power and real-world trust requirements, achieving
+state-of-the-art verdict accuracy while delivering human-readable explanations
+at scale. Ultimately, this work advances toward deployable, accountable AI sys-
+tems capable of combating misinformation with both rigor and responsibility.
+6
+Acknowledgment
+This work was supported by NSF - USA CNS-2219614.
+Bibliography
+[1] Ji, Z., Lee, N., Frieske, R., Yu, T., Su, D., Xu, Y., Ishii, E., Bang, Y., Madotto,
+A. & Fung, P. Survey of hallucination in natural language generation. ACM
+Computing Surveys. 55, 1-38 (2023)
+[2] Mitchell, A., Jurkowitz, M., Oliphant, J. & Shearer, E. Americans who
+mainly get their news on social media are less engaged, less knowledgeable.
+Pew Research Center. 30 (2020)
+[3] Zhang, Y., Li, Y., Cui, L., Cai, D., Liu, L., Fu, T., Huang, X., Zhao, E.,
+Zhang, Y., Chen, Y. & Others Siren’s Song in the AI Ocean: A Survey
+on Hallucination in Large Language Models. Computational Linguistics. 51,
+1373-1418 (2025)
+[4] Potthast, M., Kiesel, J., Reinartz, K., Bevendorff, J. & Stein, B. A stylometric
+inquiry into hyperpartisan and fake news. Proceedings Of The 56th Annual
+Meeting Of The Association For Computational Linguistics (volume 1: Long
+Papers). pp. 231-240 (2018)
+[5] Qian, F., Gong, C., Sharma, K. & Liu, Y. Neural user response generator:
+Fake news detection with collective user intelligence.. IJCAI. 18 pp. 3834-
+3840 (2018)
+[6] Mosallanezhad, A., Karami, M., Shu, K., Mancenido, M. & Liu, H. Domain
+adaptive fake news detection via reinforcement learning. Proceedings Of The
+ACM Web Conference 2022. pp. 3632-3640 (2022)
+[7] Khattab, O., Santhanam, K., Li, X., Hall, D., Liang, P., Potts, C. & Zaharia,
+M. Demonstrate-search-predict: Composing retrieval and language models
+for knowledge-intensive nlp. ArXiv Preprint ArXiv:2212.14024. (2022)
+[8] Press, O., Zhang, M., Min, S., Schmidt, L., Smith, N. & Lewis, M. Measuring
+and narrowing the compositionality gap in language models. Findings Of The
+Association For Computational Linguistics: EMNLP 2023. pp. 5687-5711
+(2023)
+[9] Chen, J., Sriram, A., Choi, E. & Durrett, G. Generating literal and implied
+subquestions to fact-check complex claims. Proceedings Of The 2022 Confer-
+ence On Empirical Methods In Natural Language Processing. pp. 3495-3516
+(2022)
+[10] Ousidhoum, N., Yuan, Z. & Vlachos, A. Varifocal question generation for
+fact-checking. Proceedings Of The 2022 Conference On Empirical Methods
+In Natural Language Processing. pp. 2532-2544 (2022)
+[11] Yasunaga, M., Ren, H., Bosselut, A., Liang, P. & Leskovec, J. QA-GNN:
+Reasoning with language models and knowledge graphs for question answer-
+ing. Proceedings Of The 2021 Conference Of The North American Chapter
+Of The Association For Computational Linguistics: Human Language Tech-
+nologies. pp. 535-546 (2021)
+[12] Shi, W., Min, S., Yasunaga, M., Seo, M., James, R., Lewis, M., Zettlemoyer,
+L. & Yih, W. Replug: Retrieval-augmented black-box language models. Pro-
+ceedings Of The 2024 Conference Of The North American Chapter Of The
+18
+Cong Hoan Nguyen, Thomas Hoang, Minh Hieu Duong, and Long Nguyen
+Association For Computational Linguistics: Human Language Technologies
+(Volume 1: Long Papers). pp. 8371-8384 (2024)
+[13] Shi, T., Karpathy, A., Fan, L., Hernandez, J. & Liang, P. World of bits: An
+open-domain platform for web-based agents. International Conference On
+Machine Learning. pp. 3135-3144 (2017)
+[14] Gur, I., Rueckert, U., Faust, A. & Hakkani-Tur, D. Learning to navigate
+the web. ArXiv Preprint ArXiv:1812.09195. (2018)
+[15] Jiang, Z., Xu, F., Gao, L., Sun, Z., Liu, Q., Dwivedi-Yu, J., Yang, Y., Callan,
+J. & Neubig, G. Active retrieval augmented generation. Proceedings Of The
+2023 Conference On Empirical Methods In Natural Language Processing. pp.
+7969-7992 (2023)
+[16] Devlin, J., Chang, M., Lee, K. & Toutanova, K. Bert: Pre-training of deep
+bidirectional transformers for language understanding. Proceedings Of The
+2019 Conference Of The North American Chapter Of The Association For
+Computational Linguistics: Human Language Technologies, Volume 1 (long
+And Short Papers). pp. 4171-4186 (2019)
+[17] Liu, Y., Ott, M., Goyal, N., Du, J., Joshi, M., Chen, D., Levy, O., Lewis,
+M., Zettlemoyer, L. & Stoyanov, V. Roberta: A robustly optimized bert pre-
+training approach. ArXiv Preprint ArXiv:1907.11692. (2019)
+[18] Zhang, X. & Gao, W. Towards llm-based fact verification on news claims
+with a hierarchical step-by-step prompting method. Proceedings Of The 13th
+International Joint Conference On Natural Language Processing And The
+3rd Conference Of The Asia-pacific Chapter Of The Association For Com-
+putational Linguistics (volume 1: Long Papers). pp. 996-1011 (2023)
+[19] Adolphs, L., Boerschinger, B., Buck, C., Huebscher, M., Ciaramita, M., Es-
+peholt, L., Hofmann, T., Kilcher, Y., Rothe, S., Sessa, P. & Others Boosting
+search engines with interactive agents. ArXiv Preprint ArXiv:2109.00527.
+(2021)
+[20] Yuan, X., Fu, J., Cote, M., Tay, Y., Pal, C. & Trischler, A. Interactive
+machine comprehension with information seeking agents. Proceedings Of The
+58th Annual Meeting Of The Association For Computational Linguistics. pp.
+2325-2338 (2020)
+[21] Ziegler, D., Stiennon, N., Wu, J., Brown, T., Radford, A., Amodei, D.,
+Christiano, P. & Irving, G. Fine-tuning language models from human pref-
+erences. ArXiv Preprint ArXiv:1909.08593. (2019)
+[22] Ibarz, B., Leike, J., Pohlen, T., Irving, G., Legg, S. & Amodei, D. Reward
+learning from human preferences and demonstrations in atari. Advances In
+Neural Information Processing Systems. 31 (2018)
+[23] Christiano, P., Leike, J., Brown, T., Martic, M., Legg, S. & Amodei, D.
+Deep reinforcement learning from human preferences. Advances In Neural
+Information Processing Systems. 30 (2017)
+[24] Lin, Y., Han, X., Xie, R., Liu, Z. & Sun, M. Knowledge representation
+learning: A quantitative review. ArXiv Preprint ArXiv:1812.10901. (2018)
+[25] Wang, Q., Mao, Z., Wang, B. & Guo, L. Knowledge graph embedding: A
+survey of approaches and applications. IEEE Transactions On Knowledge
+And Data Engineering. 29, 2724-2743 (2017)
+Decomposed Learning for Information-grounded Veracity Recognition
+19
+[26] Chen, X., Jia, S. & Xiang, Y. A review: Knowledge reasoning over knowledge
+graph. Expert Systems With Applications. 141 pp. 112948 (2020)
+[27] Wu, T., Qi, G., Li, C. & Wang, M. A survey of techniques for constructing
+Chinese knowledge graphs and their applications. Sustainability. 10, 3245
+(2018)
+[28] Paulheim, H. Knowledge graph refinement: A survey of approaches and
+evaluation methods. Semantic Web. 8, 489-508 (2016)
+[29] Nickel, M., Murphy, K., Tresp, V. & Gabrilovich, E. A review of relational
+machine learning for knowledge graphs. Proceedings Of The IEEE. 104, 11-33
+(2015)
+[30] Ehrlinger, L. & Wöß, W. Towards a definition of knowledge graphs.. SE-
+MANTiCS (Posters, Demos, SuCCESS). 48, 2 (2016)
+[31] Bonatti, P., Decker, S., Polleres, A. & Presutti, V. Knowledge graphs: New
+directions for knowledge representation on the semantic web (dagstuhl sem-
+inar 18371). Dagstuhl Reports. 8, 29-111 (2019)
+[32] Bergman, M. A COMMON SENSE VIEW OF KNOWLEDGE GRAPHS.
+(2019), https://api.semanticscholar.org/CorpusID:204957313
+[33] Shu, K., Sliva, A., Wang, S., Tang, J. & Liu, H. Fake news detection on social
+media: A data mining perspective. ACM SIGKDD Explorations Newsletter.
+19, 22-36 (2017)
+[34] Turchi, M., Negri, M. & Federico, M. MT Quality Estimation for Computer-
+assisted Translation: Does it Really Help?. Proceedings Of The 53rd Annual
+Meeting Of The Association For Computational Linguistics And The 7th
+International Joint Conference On Natural Language Processing (Volume 2:
+Short Papers). pp. 530-535 (2015)
+[35] Wang, W. " liar, liar pants on fire": A new benchmark dataset for fake news
+detection. ArXiv Preprint ArXiv:1705.00648. (2017)
+[36] Thorne, J., Vlachos, A., Christodoulopoulos, C. & Mittal, A. FEVER:
+a large-scale dataset for fact extraction and VERification. ArXiv Preprint
+ArXiv:1803.05355. (2018)
+[37] Zhou, X. & Zafarani, R. A survey of fake news: Fundamental theories, de-
+tection methods, and opportunities. ACM Computing Surveys (CSUR). 53,
+1-40 (2020)
+[38] Lewis, P., Perez, E., Piktus, A., Petroni, F., Karpukhin, V., Goyal, N., Küt-
+tler, H., Lewis, M., Yih, W., Rocktäschel, T. & Others Retrieval-augmented
+generation for knowledge-intensive nlp tasks. Advances In Neural Informa-
+tion Processing Systems. 33 pp. 9459-9474 (2020)
+[39] Guu, K., Lee, K., Tung, Z., Pasupat, P. & Chang, M. Retrieval augmented
+language model pre-training. International Conference On Machine Learn-
+ing. pp. 3929-3938 (2020)
+[40] Salemi, A. & Zamani, H. Evaluating retrieval quality in retrieval-augmented
+generation. Proceedings Of The 47th International ACM SIGIR Confer-
+ence On Research And Development In Information Retrieval. pp. 2395-2400
+(2024)
+[41] Asai, A., Wu, Z., Wang, Y., Sil, A. & Hajishirzi, H. Self-rag: Learning to
+retrieve, generate, and critique through self-reflection. (ICLR,2024)
+20
+Cong Hoan Nguyen, Thomas Hoang, Minh Hieu Duong, and Long Nguyen
+[42] Nakano, R., Hilton, J., Balaji, S., Wu, J., Ouyang, L., Kim, C., Hesse,
+C., Jain, S., Kosaraju, V., Saunders, W. & Others Webgpt: Browser-assisted
+question-answering with human feedback. ArXiv Preprint ArXiv:2112.09332.
+(2021)
+[43] Hogan, A., Blomqvist, E., Cochez, M., D’Amato, C., Melo, G., Gutierrez,
+C., Kirrane, S., Gayo, J., Navigli, R., Neumaier, S. & Others Knowledge
+graphs. ACM Computing Surveys (Csur). 54, 1-37 (2021)
+[44] Ji, S., Pan, S., Cambria, E., Marttinen, P. & Yu, P. A survey on knowledge
+graphs: Representation, acquisition, and applications. IEEE Transactions On
+Neural Networks And Learning Systems. 33, 494-514 (2021)
+[45] Hu, L., Yang, T., Zhang, L., Zhong, W., Tang, D., Shi, C., Duan, N. &
+Zhou, M. Compare to the knowledge: Graph neural fake news detection with
+external knowledge. Proceedings Of The 59th Annual Meeting Of The As-
+sociation For Computational Linguistics And The 11th International Joint
+Conference On Natural Language Processing (volume 1: Long Papers). pp.
+754-763 (2021)
+[46] Rajpurkar, P., Zhang, J., Lopyrev, K. & Liang, P. Squad: 100,000+ ques-
+tions for machine comprehension of text. ArXiv Preprint ArXiv:1606.05250.
+(2016)
+[47] Lewis, M., Liu, Y., Goyal, N., Ghazvininejad, M., Mohamed, A., Levy, O.,
+Stoyanov, V. & Zettlemoyer, L. BART: Denoising sequence-to-sequence pre-
+training for natural language generation, translation, and comprehension.
+ArXiv Preprint ArXiv:1910.13461. (2019)
+[48] Raffel, C., Shazeer, N., Roberts, A., Lee, K., Narang, S., Matena, M., Zhou,
+Y., Li, W. & Liu, P. Exploring the limits of transfer learning with a unified
+text-to-text transformer. Journal Of Machine Learning Research. 21, 1-67
+(2020)
+[49] Ouyang, L., Wu, J., Jiang, X., Almeida, D., Wainwright, C., Mishkin, P.,
+Zhang, C., Agarwal, S., Slama, K., Ray, A. & Others Training language
+models to follow instructions with human feedback. Advances In Neural In-
+formation Processing Systems. 35 pp. 27730-27744 (2022)
+[50] Schulman, J., Wolski, F., Dhariwal, P., Radford, A. & Klimov, O. Proximal
+policy optimization algorithms. ArXiv Preprint ArXiv:1707.06347. (2017)
+[51] Edge, D., Trinh, H., Cheng, N., Bradley, J., Chao, A., Mody, A., Tru-
+itt, S., Metropolitansky, D., Ness, R. & Larson, J. From local to global:
+A graph rag approach to query-focused summarization. ArXiv Preprint
+ArXiv:2404.16130. (2024)
+[52] Reimers, N. & Gurevych, I. Sentence-bert: Sentence embeddings using
+siamese bert-networks. ArXiv Preprint ArXiv:1908.10084. (2019)
+[53] Yang, Z., Qi, P., Zhang, S., Bengio, Y., Cohen, W., Salakhutdinov, R. &
+Manning, C. HotpotQA: A dataset for diverse, explainable multi-hop ques-
+tion answering. ArXiv Preprint ArXiv:1809.09600. (2018)
+[54] Shu, K., Mahudeswaran, D., Wang, S., Lee, D. & Liu, H. Fakenewsnet:
+A data repository with news content, social context, and spatiotemporal
+information for studying fake news on social media. Big Data. 8, 171-188
+(2020)
+Decomposed Learning for Information-grounded Veracity Recognition
+21
+[55] Guo, Z., Xia, L., Yu, Y., Ao, T. & Huang, C. Lightrag: Simple and fast
+retrieval-augmented generation. ArXiv Preprint ArXiv:2410.05779. (2024)
+[56] Yao, S., Zhao, J., Yu, D., Du, N., Shafran, I., Narasimhan, K. & Cao, Y.
+React: Synergizing reasoning and acting in language models. International
+Conference On Learning Representations (ICLR). (2023)
+[57] Jimenez Gutierrez, B., Shu, Y., Gu, Y., Yasunaga, M. & Su, Y. Hipporag:
+Neurobiologically inspired long-term memory for large language models. Ad-
+vances In Neural Information Processing Systems. 37 pp. 59532-59569 (2024)
+[58] Team,
+Q.
+&
+Others
+Qwen2
+technical
+report.
+ArXiv
+Preprint
+ArXiv:2407.10671. 2 pp. 3 (2024)
+[59] Chen, J., Xiao, S., Zhang, P., Luo, K., Lian, D. & Liu, Z. Bge m3-
+embedding: Multi-lingual, multi-functionality, multi-granularity text embed-
+dings through self-knowledge distillation. ArXiv Preprint ArXiv:2402.03216.
+(2024)
+[60] Achiam, J., Adler, S., Agarwal, S., Ahmad, L., Akkaya, I., Aleman, F.,
+Almeida, D., Altenschmidt, J., Altman, S., Anadkat, S. & Others Gpt-4
+technical report. ArXiv Preprint ArXiv:2303.08774. (2023)
+[61] Allcott, H. & Gentzkow, M. Social media and fake news in the 2016 election.
+Journal Of Economic Perspectives. 31, 211-236 (2017)
+[62] Chen, M. Evaluating large language models trained on code. ArXiv Preprint
+ArXiv:2107.03374. (2021)
+[63] Zellers, R., Holtzman, A., Rashkin, H., Bisk, Y., Farhadi, A., Roesner, F. &
+Choi, Y. Defending against neural fake news. Advances In Neural Information
+Processing Systems. 32 (2019)
+[64] Bang, Y., Cahyawijaya, S., Lee, N., Dai, W., Su, D., Wilie, B., Lovenia, H.,
+Ji, Z., Yu, T., Chung, W. & Others A multitask, multilingual, multimodal
+evaluation of chatgpt on reasoning, hallucination, and interactivity. ArXiv
+Preprint ArXiv:2302.04023. (2023)
+[65] Vrandečić, D. & Krötzsch, M. Wikidata: a free collaborative knowledgebase.
+Communications Of The ACM. 57, 78-85 (2014)
+[66] Shao, Z., Wang, P., Zhu, Q., Xu, R., Song, J., Bi, X., Zhang, H., Zhang, M.,
+Li, Y., Wu, Y. & Others Deepseekmath: Pushing the limits of mathemati-
+cal reasoning in open language models. ArXiv Preprint ArXiv:2402.03300.
+(2024)
+[67] Ngai, C., Singh, R. & Yao, L. Impact of COVID-19 vaccine misinformation
+on social media virality: content analysis of message themes and writing
+strategies. Journal Of Medical Internet Research. 24, e37806 (2022)
+[68] Vivion, M., Trottier, V., Bouhêlier, È., Goupil-Sormany, I., Diallo, T. &
+Others Misinformation about climate change and related environmental
+events on social media: Protocol for a scoping review. JMIR Research Pro-
+tocols. 13, e59345 (2024)
+[69] Govindankutty, S. & Gopalan, S. Epidemic modeling for misinformation
+spread in digital networks through a social intelligence approach. Scientific
+Reports. 14, 19100 (2024)
+[70] Aïmeur, E., Amri, S. & Brassard, G. Fake news, disinformation and mis-
+information in social media: a review. Social Network Analysis And Mining.
+13, 30 (2023)
+22
+Cong Hoan Nguyen, Thomas Hoang, Minh Hieu Duong, and Long Nguyen
+[71] Vosoughi, S., Roy, D. & Aral, S. The spread of true and false news online.
+Science. 359, 1146-1151 (2018)
+[72] Gao, Y., Jiang, X., Kasihmuddin, M., Zheng, C., Chen, J., Liu, X. & Guo, Y.
+FGRA: Toward flexible logic mining with ensemble multi-attribute selection
+and Discrete Hopfield Neural Network. Journal Of Computational Design
+And Engineering. 13, 88-107 (2026)
+[73] Chang, Y., Kasihmuddin, M., Ruzai, W., Guo, Y. & Chen, J. Weighted C-
+type random 2 satisfiability in discrete hopfield neural network. Engineering
+Applications Of Artificial Intelligence. 160 pp. 111760 (2025)
+[74] Romli, N., Zulkepli, N., Kasihmuddin, M., Karim, S., Jamaludin, S., Rusdi,
+N., Manoharam, G., Mansor, M. & Zamri, N. An optimized logic mining
+method for data processing through higher-order satisfiability representation
+in discrete Hopfield neural network. Applied Soft Computing. pp. 113759
+(2025)

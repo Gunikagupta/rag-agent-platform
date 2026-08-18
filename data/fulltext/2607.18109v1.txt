@@ -1,0 +1,1682 @@
+SpEmoC: A Balanced Speaker-Segment
+Multimodal Emotion Benchmark
+Sania Bano1 , Shahzad Ahmad2 , Santosh Kumar Vipparthi1 , Sukalpa
+Chanda2
+, and Subrahmanyam Murala3
+1 CVPR Lab, Indian Institute of Technology Ropar, India
+2 Østfold University College, Norway
+3 CVPR Lab, SCSS, Trinity College Dublin, Ireland
+sania.22eez0012@iitrpr.ac.in
+Fig. 1: Overview of SpEmoC construction and evaluation. Multimodal filtering and
+expert validation refine 306K speaking clips into 30K balanced clips across seven emo-
+tions for diverse benchmarking.
+Abstract. Understanding human emotions in spoken conversations is
+a key challenge in affective computing, with applications in empathetic
+AI, human computer interaction, and mental health monitoring. How-
+ever, existing datasets vary in scale, emotion distribution, modality align-
+ment, and data partitioning strategies, which can influence reliable cross-
+dataset generalization and minority-emotion modeling. We introduce
+SpEmoC a Speaking segment Emotion for Conversations comprising
+306,544 raw clips from 3,100 English language movies and TV series.
+From these, 30,000 high quality, class balanced clips are curated, fea-
+turing synchronized visual, audio, and textual modalities annotated for
+seven emotions through a hybrid pipeline that integrates pretrained mod-
+els with human validation. SpEmoC uses strict movie- and series-level
+splits to prevent content overlap between split sets, allowing more reliable
+evaluation of model generalization. The dataset also maintains a near-
+balanced distribution across seven emotions, including minority classes
+such as Fear and Disgust, which supports more balanced learning across
+categories. Extensive experiments, including in-domain benchmarking,
+cross-dataset transfer, low-data training, class-imbalance analysis, and
+modality transfer show that balanced data and careful splitting lead to
+more stable performance across emotions when models are evaluated on
+other datasets. These results highlight the importance of dataset design
+for robust and transferable multimodal emotion recognition.
+Project Page: The full dataset is available at the following link
+arXiv:2607.18109v1  [cs.CV]  20 Jul 2026
+2
+S. Bano et al.
+Keywords: Multimodal Dataset · Cross-Dataset Generalization · Class
+Imbalance · Audio-Text Fusion
+1
+Introduction
+Understanding emotions in spoken conversations is central to affective comput-
+ing, with applications in empathetic AI, mental health monitoring, pain detec-
+tion [16], and human computer interaction [18]. Emotion is inherently multi-
+modal expressed through facial expressions, vocal prosody, and linguistic con-
+text yet robust multimodal modeling in natural conversations remains a ma-
+jor challenge. While modern multimodal models have advanced rapidly, robust
+emotion recognition in natural conversational settings remains fundamentally
+constrained by benchmark design. The structure of the dataset, including how
+clips are segmented, class distribution, and the partitioning strategy, directly
+influences generalization stability and performance on minority emotions.
+Multimodal Emotion Recognition (MER) faces significant challenges that
+hinder its deployment in dynamic, dialogue-driven contexts. Most existing bench-
+marks focus on unimodal settings, such as facial expressions [14, 29] or au-
+dio [6, 23]. They suffer from limited modality alignment and annotation scale
+[1, 19, 28]. Datasets like the Multimodal EmotionLines Dataset (MELD) [20],
+with 13,000 utterances from the TV series Friends, and CAER [13], which in-
+cludes 13,201 video clips from 79 TV shows with audio and visual tracks, of-
+fer multimodal annotations at limited scales. Similarly, EmoWOZ [8] provides
+11,000+ task-oriented dialogue utterances with multimodal labels. However,
+these datasets are constrained by relatively small sizes and imbalanced emotion
+distributions, with MELD and CAER dominated by "Neutral" emotions and
+underrepresentation of "Fear" and "Disgust" (see Figure 2(a)). These datasets
+lack real-world diversity and, being built from TV series, often reuse characters
+across splits, making test sets not truly unseen. Similarly, the M3ED dataset [31]
+offers 9,000 utterances from TV series but falls short in capturing the breadth
+of emotional expressions needed for generalization. Furthermore, the reliance
+on expensive human annotations and the absence of synchronized multimodal
+alignment limit the scalability and applicability of these datasets. Fusing het-
+erogeneous modalities also remains challenging due to differences in data repre-
+sentation, temporal dynamics, and emotional relevance across text, audio, and
+visual streams [27,28].
+To address these limitations, we introduce SpEmoC, a large-scale Speaking-
+segment Emotion for Conversations dataset constructed from diverse movies
+and TV series. SpEmoC provides synchronized video, audio, and text modali-
+ties, focusing on natural speaking segments that convey explicit emotional intent
+under varied real-world conditions. A hybrid annotation framework integrates
+pretrained text and speech models with human validation to ensure accurate
+and balanced labeling across seven emotion categories.
+To comprehensively evaluate the dataset, we benchmark several state-of-the-
+art multimodal emotion recognition models on SpEmoC and conduct extensive
+SpEmoC: A Balanced Speaker-Segment Multimodal Emotion Benchmark
+3
+Anger 11.1%
+Disgust 2.7%
+Fear 2.7%
+Joy 17.4%
+Neutral 47.2%
+Sadness 6.8%
+Surprise 12.1%
+MELD Train (9989)
+Anger 13.8%
+Disgust 2.0%
+Fear 3.6%
+Joy 14.7%
+Neutral 42.4%
+Sadness 10.0%
+Surprise 13.5%
+MELD Val (1109)
+Anger 13.2%
+Disgust 2.6%
+Fear 1.9%
+Joy 15.4%
+Neutral 48.1%
+Sadness 8.0%
+Surprise 10.8%
+MELD Test (2610)
+Anger 12.3%
+Disgust 5.4%
+Fear 3.9%
+Joy 20.7%
+Neutral 34.7%
+Sadness 11.1%
+Surprise 11.9%
+CAER Train (9222)
+Anger 12.3%
+Disgust 5.4%
+Fear 3.9%
+Joy 20.7%
+Neutral 34.7%
+Sadness 11.1%
+Surprise 11.9%
+CAER Val (1316)
+Anger 12.3%
+Disgust 5.5%
+Fear 3.9%
+Joy 20.6%
+Neutral 34.7%
+Sadness 11.1%
+Surprise 11.9%
+CAER Test (2640)
+Anger 18.6%
+Disgust 23.1%
+Fear 11.1%
+Joy 11.7%
+Neutral 13.1%
+Sadness 7.5%
+Surprise 14.9%
+SpEmoC Train (21407)
+Anger 16.3%
+Disgust 23.0%
+Fear 9.4%
+Joy 14.2%
+Neutral 13.3%
+Sadness 8.1%
+Surprise 15.7%
+SpEmoC Val (2400)
+Anger 21.0%
+Disgust 21.4%
+Fear 12.0%
+Joy 9.5%
+Neutral 14.8%
+Sadness 7.8%
+Surprise 13.4%
+SpEmoC Test (6056)
+(a)
+Neutral
+Surprise
+Fear
+Sadness
+Joy
+Disgust
+Anger
+35.1
+47.1
+60.1
+60.5
+75.3
+60.0
+60.1
+32.4
+41.3
+36.0
+51.7
+66.4
+49.8
+50.9
+31.8
+52.6
+50.5
+48.5
+66.9
+55.8
+51.6
+75.5
+74.4
+71.1
+72.2
+75.5
+70.8
+73.8
+61.0
+80.9
+66.4
+66.0
+84.7
+66.8
+65.8
+MuIT
+MISA
+EmotionCLIP
+TCL-MAP
+EMOE
+(b)
+Fig. 2: (a) Emotion class distribution across train, validation, and test splits for SpE-
+moC, MELD [20], and CAER [13]. SpEmoC exhibits a more balanced distribution
+across all seven emotions, while MELD and CAER are dominated by the Neutral class.
+(b) Class-wise baseline performance on SpEmoC, showing more consistent F1-scores
+due to the balanced emotion distribution.
+cross-dataset evaluations on MELD and CAER. These experiments demonstrate
+that balanced supervision yields more stable and transferable performance across
+emotion categories, particularly for previously underrepresented classes. In ad-
+dition, we perform detailed ablation studies including low-data regimes, cross-
+dataset fine-tuning, neutral-class removal, and unimodal versus multimodal anal-
+ysis to validate the robustness and practical utility of SpEmoC for real-world
+multimodal emotion understanding. The contributions of the paper are as fol-
+lows:
+– A large scale, class balanced dataset of speaking segment clips with tightly
+aligned visual, auditory, and linguistic modalities.
+– A scalable multimodal annotation pipeline integrating pretrained text and
+speech models with human validation to ensure synchronized alignment and
+high-quality emotion labeling.
+– Through cross-dataset evaluations on MELD and CAER with multiple SOTA
+models, we show that SpEmoC enables more balanced class-wise perfor-
+mance and improved robustness to class imbalance, particularly for minority
+emotions.
+– We provide a comprehensive empirical study of multimodal generalization,
+including low-resource settings, neutral-class analysis, and unimodal versus
+multimodal comparisons, offering insights into benchmark design for robust
+affective modeling.
+SpEmoC advances multimodal emotion recognition through larger scale, bal-
+anced classes, and speaking-segment alignment, providing a stable and transfer-
+able benchmark for affect modeling.
+4
+S. Bano et al.
+2
+Related Work
+Emotion Datasets: Early affective computing studies relied on acted or studio-
+controlled corpora such as IEMOCAP [3], RAVDESS [15], and EmoReact [17],
+which offered limited expressive diversity and small emotional vocabularies.
+Later multimodal datasets integrated video, audio, and text for conversational
+emotion analysis. MELD [20] and CAER [13] expanded to TV-series dialogues
+but remain small (< 14k samples) and heavily skewed toward neutral expres-
+sions. CMU-MOSEI [28] covers monologue-based content, while M3ED [31] and
+EmoWOZ [8] provide task-oriented or synthetic dialogues. Recent large-scale
+efforts such as EmotionTalk [24], EMOVOME [10], and EmotionCLIP [30] im-
+prove coverage through weak supervision or multilingual expansion but still lack
+balanced, human-validated, temporally aligned annotations. EmotionLLAMA’s
+MERR [4] includes 28,618 coarse- and 4,487 fine-grained samples, many from
+non-English dubbed videos. A concise comparison in Table 1 highlights these
+limitations and motivates the design of SpEmoC as a fair, large-scale, and
+culturally diverse benchmark.
+Model-Level Advances: Multimodal emotion recognition models have evolved
+from early feature fusion methods to attention-based and contrastive learning
+frameworks. Transformer-based architectures such as MulT [25] and MISA [11]
+model cross-modal interactions between text, audio, and visual streams, while
+recent approaches including TCL-MAP [32] and EMOE [7] further improve mul-
+timodal fusion and representation learning. EmotionCLIP [30] leverages vision-
+language contrastive pretraining to align emotional semantics across modalities.
+Despite these advances, model performance remains strongly dependent on the
+quality and balance of available datasets, which motivates the development of
+more robust multimodal benchmarks such as SpEmoC.
+Table 1: Comparison with existing multimodal emotion recognition datasets. Modal-
+ities: A = Audio, V = Visual, T = Text.
+Dataset
+#Clips
+Modalities
+#Emotions
+Source
+IEMOCAP [3]
+10k
+V, A, T
+6
+Acted dialogues
+CMU-MOSEI [28]
+23k
+V, A, T
+6
+YouTube
+MELD [20]
+13k
+V, A, T
+7
+Friends TV show
+CAER [13]
+13k
+V, A
+7
+TV shows
+RAVDESS [15]
+7k
+V, A
+8
+Studio-acted clips
+EmoReact [17]
+1k
+V, A
+8
+YouTube videos
+SpEmoC (Ours)
+306,544 (raw),
+30k (refined)
+V, A, T
+7
+Movies & TV series
+3
+SpEmoC Dataset Construction
+Existing multimodal emotion datasets are often limited in scale, synchronization,
+and emotional diversity, which restricts the development of robust and gener-
+alizable models. Many datasets rely on short caption-based clips or controlled
+acted expressions and fail to capture natural emotional interactions. They also
+exhibit strong class imbalance, with the neutral class dominating and minority
+emotions such as fear and disgust underrepresented. These limitations highlight
+the need for a larger, balanced dataset that better reflects emotional variability
+SpEmoC: A Balanced Speaker-Segment Multimodal Emotion Benchmark
+5
+across practical conversational scenarios.
+To address these gaps, we introduce SpEmoC, a large-scale multimodal emotion
+recognition dataset focused on speaking segments with synchronized video,
+audio, and text. SpEmoC contains 30,000 refined clips curated from 306,544 raw
+segments collected from 3,100 English-language movies and TV series selected
+for their emotionally expressive dialogues. The dataset captures diverse genres
+(e.g., drama, comedy, horror, romance, thriller), formats (color and black-and-
+white), and environmental conditions, reflecting realistic emotional expressions
+with temporally aligned multimodal signals. Each segment preserves authen-
+tic speech, facial expressions, and contextual dialogue while excluding dubbed
+or subtitled content to maintain linguistic fidelity. Through targeted filtering
+and refinement, SpEmoC achieves a balanced distribution across seven emotion
+classes (Figure 2). Table 2 summarizes the dataset characteristics, while Figure
+3 illustrates its visual and emotional diversity. Additional details of the data
+curation pipeline are provided in the Supplementary Sec: 4.
+Fig. 3: Examples from SpEmoC showing variation in genre, lighting, color, and ex-
+pression. Each row displays 8 sampled frames from a distinct clip.
+3.1
+Data Collection and Processing Pipeline
+We develop a scalable multi-stage pipeline that converts long-form videos into
+synchronized video, audio, and text segments (Figure 4), ensuring temporal
+alignment and modality consistency. Let \ math cal { V } = \{V_1, V_2, \dots , V_{3100}\} be the set of
+source videos, each V_k with time duration \ geq 40 minutes. The stages are outlined
+below.
+a. Dialogue Segmentation: We use the Whisper ASR model [21] to transcribe
+each video with word-level timestamps. A video clip segment v
+_{k}^{i} (i^{th} clip of video
+V_
+k) is retained if it (i) contains at least 12 words, ensuring sufficient linguistic and
+emotional context, and (ii) ends with terminal punctuation (., !, ?) to capture
+a complete utterance. Each video V_k yields a set of segments \{
+v_ {k
+}^ { 1 } , v
+_ {k}^{2}, \dots , v_{k}^{m}\} .
+The total number of extracted clips is:
+  \scr i
+p
+t
+siz
+e
+ 
+N_{
+\ t ext {clips}} = \sum _{k=1}^{N} \sum _{i=1}^{m} 1 \approx 306{,}544 
+(1)
+where m is the number of valid clip segments in V_k and N = |\mathcal {V} |. This seg-
+mentation ensures meaningful dialogue boundaries rather than arbitrary frame
+6
+S. Bano et al.
+windows.
+The extracted clips are short dialogue segments (typically 3-6 seconds) and there-
+fore usually contain a single dominant speaker. During the human verification
+stage, annotators review the visual, audio, and textual modalities jointly to de-
+termine the emotion expressed in the clip. We do not explicitly perform speaker
+diarization or active speaker detection; instead, the assigned label corresponds
+to the dominant emotional expression within the speaking segment.
+b. Multimodal Extraction: After segmentation, each valid clip v
+_{k}^{i} is decom-
+posed into three aligned modalities:
+– Visual: Video segment v
+_{k}^{i} from the same temporal window, containing num-
+ber of frames |v
+_{ k }^{i} | = (t_{ e nd}-t_{start}) \times \text {FPS} . This process yields approximately
+30 million frames across all clips.
+– Text: Transcript \
+mathcal {T}_{k}^{i} of the corresponding v
+_{k}^{i} clip, obtained from Whisper.
+– Audio: Waveform \
+mathcal {A}_{k}^{i} of the corresponding v
+_{k}^{i} clip, cropped from the interval
+[t_{\tex t {start}}, t_{\text {end}} ], using FFmpeg (open-source toolkit) [9], Where tstart is start time
+and tend is end time.
+– Human and Face Detection: Human bodies and faces are detected in each
+frame of v_
+{k}^{i} using YOLOv8 [26] to verify the presence of a visible person in
+the clip v_
+{k}^{i}.
+c. Synchronization Check: Temporal alignment between modalities is verified
+by comparing audio and video durations (timestamp consistency):
+  \scriptsiz
+e | \text {D
+ur a tion}(\ma
+thc a l {A}_{k}^{i}) - (t_{end}(v_{k}^{i}) - t_{start}(v_{k}^{i})| \leq \epsilon 
+(2)
+Here, \ eps ilon = 0.1~\text {sec} denotes the maximum allowable deviation. Segments vio-
+lating this constraint are reprocessed or excluded.
+Overall, this preprocessing pipeline, comprising segmentation, multimodal ex-
+traction, and synchronization followed by post-processing, produces a high-quality,
+temporally aligned clips for multimodal annotation and analysis.
+3.2
+Annotation Methodology
+We adopt a hybrid annotation pipeline that integrates automated multimodal
+labeling with human validation and dataset refinement to ensure both scalability
+and reliability. Pretrained emotion recognition models first generate automated
+annotations across text and audio modalities, followed by systematic filtering
+and expert validation to refine ambiguous or low-confidence samples. This design
+balances large-scale automation with human oversight, yielding a high-quality,
+balanced multimodal dataset.
+Emotion Taxonomy: Following Ekman’s basic-emotion taxonomy [5], we adopt
+seven discrete categories for cross-dataset comparability: E = {Anger, Disgust,
+Fear, Joy, Sadness, Surprise, Neutral}
+Domain-specific pretrained models are used for text and audio, sharing identical
+emotion vocabularies to maintain cross-modal consistency.
+Automated Multimodal Annotation: Each dialogue transcript (T i
+k ) is an-
+alyzed using a fine-tuned DistilRoBERTa model [22]. For each utterance, we
+SpEmoC: A Balanced Speaker-Segment Multimodal Emotion Benchmark
+7
+Table 2: Overview of the Proposed Multimodal Emotion Recognition SpEmoC
+Dataset, Highlighting Source, Structure, Modalities, Annotation, Splitting policy, and
+Emotion Coverage.
+Data Source and Composition
+Source
+YouTube (Movies and TV Series)
+Number of Videos
+3,100
+Video Length
+≥40 minutes each
+Video Types
+Color and Black-and-White , English language , Non-dubbing,
+Subtitle independent
+Video genres
+Drama, Comedy, Horror, Thriller, Romance, History, etc.
+Total Number of Clips
+306,544
+Average Clip Duration
+3–6 seconds
+Total Frames
+30 million+
+Focus Per Clip
+Speaking segments only
+Modalities and Preprocessing
+Modalities
+Video, Audio, Text
+Face/Human Detection
+YOLOv8 [26]
+Face Presence Threshold
+Face detected in ≥90% of frames
+Annotation and Labeling Strategy
+Annotation Models
+DistilRoBERTa (Text) [22], Wav2Vec 2.0 (Audio) [2]
+Label Type
+Single dominant emotion per clip
+Label Fusion
+Logit-Based Fusion from Text and Audio modalities
+Dataset Spliting Strategy
+Movie/franchise-level
+All clips from the same movie, sequel, or multi-episode series
+are assigned exclusively to one split (train, validation, or test)
+to ensure a fully unseen test set.
+Emotion Classes
+Categories
+Anger, Disgust, Fear, Joy, Sadness, Surprise, Neutral
+obtain a vector of real-valued scores called sentiment logits, representing the
+unnormalized model confidence for each emotion class in E.
+  \
+s
+c r iptsize {L_{ t
+, } } _k^{i} = \text {logits}_{\text {text}}(\mathcal {T}_{k}^{i}) \in \mathbb {R}^{|E|} 
+(3)
+where {L_
+{
+t , }}_k
+^
+{i} = [ { l_{
+t
+,}}_{k,1}^{i}, \dots , {l_{t,}}_{k,7}^{i} ] contains model confidence scores for all emotion
+classes. Similarly, the corresponding acoustic segment \p
+rotect \mathcal  {A}_{k}^{i} is processed using a
+pretrained Wav2Vec 2.0 model [2], yielding
+  \
+s
+c r iptsize {L_{a,
+}} _ {k}^{i} = \text {logits}_{\text {audio}}(\mathcal {A}_{k}^{i}) \in \mathbb {R}^{|E|} 
+(4)
+where {L_
+{
+a , }}_{
+k
+}^{i } = [{l
+_
+{a,}}_{k,1}^{i}, \dots , {l_{a,}}_{k,7}^{i} ] represents the audio-domain logits.
+Logit-Based Multimodal Fusion for Emotion Labeling: The sentiment
+logits L_{t} and L_{a} are used as inputs to our logit-based fusion mechanism to
+generate consistent pseudo-labels without relying on the noisy visual modality.
+Instead of using only top-class predictions, we leverage the full logit distributions
+to capture richer emotion signals and uncertainty across modalities.
+For a fixed emotion label set E = \ { e _ 1 , \dots , e_7\} , each clip produces two 7-
+dimensional logit vectors: L _ t = [l _ { t , 1}, \dots , l_{t,7}] from the text model and L _
+a = [l _ { a , 1}, \dots , l_{a,7}] from the audio model, where the logits are unnormalized scores
+ l_{ m ,i} \in \mathbb {R} with m \i n \{t, a\} .
+Assuming a uniform prior P(e_ i ) = 1/|E| , the posterior over emotion class e_i 
+is modeled as P(e_i | L_t, L_a) \propto P(L_t | e_i) \cdot P(L_a | e_i )
+where likelihoods are softmax-normalized:
+ 
+ \scri p
+tsize \ti
+ld
+e { P}_m(e_i) 
+= \fr ac {\exp (l_{m,i})}{\sum _{j=1}^{7} \exp (l_{m,j})}, \quad m \in \{t, a\} 
+(5)
+8
+S. Bano et al.
+where l_{m,i} denotes the logit for class e_ i from modality m \i n \{t, a\} .To encour-
+age modality agreement, we introduce a KL-divergence penalty:
+  \s c
+ript s
+ize 
+D
+_
+{\t
+e
+xt {KL }}(
+\ t
+ilde {
+P
+}_t ||
+ \tilde {P}_a) = \sum _{i=1}^{7} \tilde {P}_t(e_i) \log \left ( \frac {\tilde {P}_t(e_i)}{\tilde {P}_a(e_i)} \right ) 
+(6)
+This yields a fused decision score:
+  \sc r ipt s
+ize S( e _i) 
+= \log \tild e
+ {P} _
+t(e_i) + \log \tilde {P}_a(e_i) - \lambda D_{\text {KL}}(\tilde {P}_t || \tilde {P}_a) 
+(7)
+where \ l ambda = 0. 5 controls the regularization strength. The predicted label and
+confidence are
+  \ scr ipt
+size e^* =
+ \arg 
+\
+m a x _{e_i \in 
+E } S( e _i) , \quad F(e^*) = \frac {1}{1 + \exp (-S(e^*))}, \quad F(e^*) \in [0, 1] 
+(8)
+This formulation captures full distributional uncertainty from both modalities
+and enforces semantic coherence between textual and acoustic cues. Unlike ma-
+jority voting or hard max fusion, the KL divergence regularizer penalizes dis-
+agreements and rewards confident, aligned predictions.
+We further use the agreement condition \a rg \m a x L _t = \arg \max L_a and con-
+fidence score F(e^*) to filter noisy labels. This approach scales efficiently across
+large unlabeled datasets and acts as a pseudo-supervisor for high-quality emo-
+tion annotation. Figure 4 illustrates the automated construction and multimodal
+labeling pipeline of the SpEmoC dataset. Further information on the annotation
+file is provided in the Supplementary Sec: 5.
+Dialogue
+Segmentation
+" You tell her you're
+her mother, she'll just
+go away with you ."
+Movies 
+Face Box
+Human Box
+YOLO v8
+Extracted visual clips : 
+Data Processing
+Speaking Segment Clips 
+(Dialogue-based: 3-6 sec)
+306,544
+Extracted Text : 
+Annotation
+Methodology
+Logit-
+Based
+Multimodal
+Fusion
+ Emotion label
+of 306,544 
+clips 
+Face Presence
+Verification
+Face detected ≥ 90% frames
+Extracted Audio : 
+Fig. 4: SpEmoC construction and multimodal labeling pipeline. Movies are segmented
+into short dialogue-based clips (3-6 s), from which synchronized text, audio, and visual
+streams are extracted. Text and audio logits are fused to obtain clip-level emotion
+labels, while YOLOv8 verifies face presence in visual frames (≥90% frames).
+3.3
+Dataset Refinement and Filtering
+The initial 306,544 annotated clips exhibited a strong class imbalance dominated
+by the neutral class (Figure 5), potentially biasing model training. To address
+this, we applied a multi-step filtering strategy using threshold-based constraints
+on text and audio neutral scores, along with face-presence verification in vi-
+sual frames, to retain emotionally expressive clips. Thresholds were determined
+through manual experimentation and validated via performance analysis, reveal-
+ing that many neutral clips contained weak emotional content reflected by high
+neutral scores. Figure 1 illustrates the complete dataset refinement and human
+annotation workflow. For a clip v_
+{k}^{i},
+SpEmoC: A Balanced Speaker-Segment Multimodal Emotion Benchmark
+9
+– {L_
+{
+t , }}_{k}^{i} = \text { t
+ext\_neutral\_logit}(\mathcal {T}_{k}^{i} ): text neutrality logit
+– {L_{
+a } ,}_k^i = \text {audio\
+_neutral\_logit}(\mathcal {A}_k^{i} ): audio neutrality logit
+– f _
+k ^ {i} = \text
+ { h as\_face}(v_k^{i}) \in [0, 1]: face-presence confidence in video frames
+Logits are converted to probabilities via the sigmoid function:
+  \
+s
+c r iptsi
+z
+e {
+w
+_ { t,}}_k
+^ {
+i} 
+=
+ \ sigma 
+({ L
+_
+{ t ,}}_{k
+}^{i}) = \frac {1}{1 + e^{-{{L_{t,}}_{k}^{i}}}}, \quad {w_{a,}}_k^i = \sigma ({L_{a},}_k^i) = \frac {1}{1 + e^{-{{L_{a},}_k^i}}} 
+A clip v_
+k^{i} is retained if: f i
+k ≥θf,
+wt,i
+k < θt,
+wa,i
+k < θa
+where \t h eta _f = 0. 9 face presence in at least 90% of frames, and \t h et a _t = \theta _a = 0. 05
+exclude weakly emotional (neutral) segments. A small portion of neutral clips
+(\ sim 15\ %) is retained for balance. This filtering reduced the pool to 50,000 high-
+quality clips with a significantly flatter class distribution.
+Anger
+Disgust
+Fear
+Joy
+Sadness Surprise
+Neutral
+4373
+Anger
+Disgust
+Fear
+Joy
+Sadness
+Surprise
+Neutral
+Fig. 5: Emotion class distribution before (blue) and after filtering (green). The initial
+306K clips were dominated by the neutral class, while fear was underrepresented. A
+two-step filtering process was applied: threshold-based filtering, followed by human
+validation to remove ambiguous samples. The resulting 30,000-clip dataset achieves a
+more balanced distribution across all seven emotion classes.
+Human Validation of Labels: Following automatic filtering, 50,000 clips were
+subjected to human verification. Twenty expert annotators, proficient in English
+and trained under standardized Ekman-based guidelines [5], evaluated each clip
+using all three modalities (text, audio, visual). Each sample was independently
+annotated by at least three experts, and final labels were determined through
+majority voting. Annotators did not have access to model-predicted labels during
+this process. Inter-annotator agreement reached Fleiss’ \ k appa = 0. 62 (substantial
+agreement [12]). Ambiguous or inconsistent clips were discarded, resulting in
+30,000 refined samples that maintain balance across all seven emotions.
+SpEmoC Demographics: This section summarizes the demographic compo-
+sition of the dataset (30K refined clips) across age, gender, and ethnicity. As
+shown in Figure 6, the dataset spans a wide age range from children to seniors
+and includes both male and female participants from multiple ethnic groups.
+After dataset refinement, demographic attributes (age group, gender, ethnic-
+ity) were estimated using a pretrained visual demographic model and verified
+through manual cross-checking. Since these attributes are inferred from visual
+content in movie clips, they remain approximate and may be affected by factors
+such as makeup, lighting, or role-based appearance changes.
+Dataset Splitting Strategy: To prevent content leakage, we adopt a movie-
+level split assigning complete movies to train (70%), validation (10%), or test
+10
+S. Bano et al.
+Child
+Teen Young Adult Adult
+Senior
+Age Group
+0
+10
+20
+30
+40
+50
+Percentage (%)
+0.79%
+1.58%
+44.88%
+40.84%
+11.89%
+(a) Age Distribution
+Western
+African
+Asian
+Middle Eastern
+0
+10
+20
+30
+40
+50
+60
+70
+Percentage (%)
+62.11%
+27.87%
+6.66%
+3.36%
+(b) Ethnic Distribution
+68.40%
+Male
+31.60%
+Female
+(c) Gender Distribution
+Fig. 6: Demographic distribution of the SpEmoC dataset across age groups, ethnicity,
+and gender, illustrating its diversity and balanced population coverage.
+(20%) sets. This ensures no overlap in scenes, actors, or dialogues between splits,
+enabling robust real-world evaluation. This movie-independent split ensures all
+related sequels or series episodes remain within a single set, preventing actor
+or scene overlap and enabling robust real-world generalization and guarantee-
+ing an unseen test set. The final dataset statistics and class-wise distributions
+are compared against MELD and CAER in Figure 2(a) and Table 3 detailing
+class distributions across splits. The dataset split information is provided in the
+Supplementary Sec: 7. Overall, this annotation-refinement pipeline integrates
+multimodal fusion, threshold-based filtering, and expert validation to produce a
+balanced, trustworthy dataset suitable for fair multimodal emotion recognition.
+Table 3: Comparison of emotion class distributions across training, validation, and
+test splits for MELD [20], CAER [13], and the proposed SpEmoC dataset. Red indicates
+underrepresented classes (e.g., Disgust, Fear), while Blue denotes the overrepresented
+Neutral class in existing datasets.
+Categories
+MELD
+CAER
+SpEmoC (Ours)
+Train Val Test Train Val Test Train Val
+Test
+Anger
+1109 153 345 1136 162 325 3980 392
+1271
+Disgust
+271
+22
+68
+500
+71 145 4946 551
+1298
+Fear
+268
+40
+50
+358
+51 102 2378 226
+729
+Joy
+1743 163 402 1905 272 544 2506 340
+578
+Neutral
+4710 470 1256 3202 457 915 2804 320
+895
+Sadness
+683 111 208 1028 146 294 1612 195
+474
+Surprise
+1205 150 281 1093 157 315 3181 376
+811
+Ethical Considerations: We prioritize copyright and responsible use in con-
+structing SpEmoC. The dataset is derived from publicly available movies and TV
+series and will be released strictly under fair-use provisions for non-commercial
+research. Access will be regulated through an End User License Agreement
+(EULA), requiring researchers to apply for access and comply with clearly de-
+fined terms. To ensure transparency, the dataset repository will provide detailed
+documentation on usage boundaries, licensing conditions, and ethical safeguards.
+4
+Benchmarking and Analysis of SpEmoC
+To ensure fair evaluation of SpEmoC, all experiments use identical training
+protocols, optimization settings, and metrics across MELD, CAER, and SpE-
+moC. We benchmark five multimodal emotion recognition models MulT [25],
+SpEmoC: A Balanced Speaker-Segment Multimodal Emotion Benchmark
+11
+MISA [11], EmotionCLIP [30], TCL-MAP [32], and EMOE [7] using consistent
+70/10/20 source-level splits.
+The evaluation covers five aspects: in-domain benchmarking, cross-dataset gener-
+alization, low-data transfer learning, neutral-class removal analysis, and modality-
+level transfer. Performance is reported using Weighted F1, Macro-F1, per-class
+F1 and imbalance gap ∆= W-F1−Macro-F1. Additional implementation details
+are provided in the Supplementary Sec: 3.
+4.1
+In-Domain Benchmarking on SpEmoC
+We evaluate five representative multimodal emotion recognition models on SpE-
+moC and compare them with two widely used benchmarks, MELD and CAER.
+While W-F1 reflects overall accuracy, Macro-F1 measures balanced performance
+across emotion classes, and ∆quantifies bias toward majority categories. Ta-
+ble 4 shows that all models achieve substantially higher Macro-F1 on SpEmoC
+than on MELD and CAER, with improvements exceeding 30 absolute points on
+average. For instance, EMOE improves from 38.19 (MELD) and 15.54 (CAER)
+to 70.25 on SpEmoC, while TCL-MAP increases from 45.46 and 20.99 to 73.34.
+Similar gains are observed for MulT, MISA, and EmotionCLIP, indicating that
+the improvements arise from the dataset design rather than model architecture.
+A key observation is the dramatic reduction of the imbalance gap (∆). On MELD
+and CAER the gap typically ranges between 15-25 points, reflecting strong bias
+toward dominant classes such as Neutral. In contrast, SpEmoC consistently pro-
+duces near-zero imbalance gaps (∆≤0.65), indicating much more uniform per-
+formance across the seven emotion categories. Per-class analysis further confirms
+this trend. Minority emotions such as Fear and Disgust, which often obtain near-
+zero F1 scores on MELD and CAER, achieve substantially higher performance
+on SpEmoC (typically 36-71 F1). These results demonstrate that the balanced
+emotion distribution. SpEmoC provide stronger supervision signals for multi-
+modal emotion learning. The consistent gains across architectures indicate that
+SpEmoC mitigates class imbalance and provides a reliable benchmark for mul-
+timodal emotion recognition.
+Table 4: In-Domain Per-Class Performance and Imbalance Analysis Across SpEmoC,
+MELD, and CAER. Lower imbalance gap (∆) indicates better class balance. Bold: Best
+Methods
+Dataset Surprise Joy Fear Disgust Anger Neutral Sadness W-F1 ↑Macro-F1↑∆(Gap↓)
+MISA [11]
+MELD
+13.30
+18.93 0.74
+0.0
+23.52
+37.95
+14.33
+25.09
+18.61
+6.48
+CAER
+18.72
+58.08
+0.0
+15.71
+17.80
+49.33
+21.92
+32.82
+25.94
+6.88
+SpEmoC
+41.30
+66.40 36.00
+49.80
+50.90
+32.40
+51.70
+50.78
+47.50
+3.28
+EmotionCLIP [30]
+MELD
+26.28
+39.72
+0.0
+0.0
+28.44
+58.63
+17.21
+34.59
+24.33
+10.26
+CAER
+11.94
+34.88
+0.0
+0.0
+21.37
+46.52
+13.76
+27.45
+18.35
+9.10
+SpEmoC
+52.63
+66.93 50.49
+55.82
+51.60
+31.76
+48.47
+51.30
+49.50
+1.8
+TCL-MAP [32]
+MELD
+56.04
+56.44 17.07
+22.22
+46.05
+77.75
+33.93
+62.68
+45.46
+17.22
+CAER
+13.24
+28.73 10.85
+7.51
+23.37
+44.79
+12.98
+28.26
+20.99
+7.27
+SpEmoC
+74.36
+75.55 71.13
+70.84
+73.76
+75.51
+72.25
+73.67
+73.34
+0.33
+EMOE [7]
+MELD
+54.59
+54.55 6.06
+6.38
+43.95
+73.86
+27.92
+59.04
+38.19
+20.85
+CAER
+0.0
+28.66
+0.0
+0.0
+24.34
+51.95
+3.82
+36.52
+15.54
+20.98
+SpEmoC
+80.94
+84.73 66.42
+66.78
+65.85
+61.01
+66.05
+70.30
+70.25
+0.05
+MulT [25]
+MELD
+49.74
+55.42 7.27
+9.09
+42.46
+74.08
+32.42
+58.85
+38.64
+20.21
+CAER
+9.84
+22.99
+0.0
+0.0
+4.02
+52.16
+0.0
+36.03
+12.72
+23.31
+SpEmoC
+47.10
+75.26 40.44
+60.06
+60.05
+35.13
+60.47
+53.37
+52.72
+0.65
+12
+S. Bano et al.
+4.2
+Cross-Dataset Generalization Analysis
+To measure transfer robustness, we perform direct cross-dataset evaluation each
+model is trained on one dataset and tested on the others without adaptation
+(Tables 5–8).
+Overall trend: Across TCL-MAP, EMOE, MulT, and MISA, training on SpE-
+moC yields more balanced class-wise performance and improved robustness to
+class imbalance than training on MELD or CAER. While MELD↔CAER trans-
+fers are often stronger than transfers involving SpEmoC (reflecting their closer
+distributional similarity and shared Neutral-dominant bias), SpEmoC-trained
+models degrade more gracefully across transfer directions and avoid brittle fail-
+ures.
+Minority-class stability: The main difference appears in rare emotions. When
+trained on MELD/CAER, models frequently collapse on Fear and Disgust under
+transfer (near-zero F1 in several directions; e.g., MulT Table/MISA tables 7 and
+6). In contrast, SpEmoC-trained models retain non-trivial F1 for these classes
+across architectures, indicating improved minority-emotion generalization rather
+than overfitting to Neutral.
+Dataset Similarity (MELD vs CAER): MELD and CAER show stronger
+mutual transfer than transfers involving SpEmoC (Tables 5–6; e.g., TCL-MAP:
+64.21 W-F1, EMOE: 35.61 W-F1), indicating closer distributions and Neutral-
+class bias compared to the more balanced SpEmoC.
+Model-Agnostic Consistency: Improvements are consistent across architec-
+tures (TCL-MAP, MulT, MISA, EMOE; Tables 5–6), suggesting that the ob-
+served improvements are associated with SpEmoC’s overall dataset design rather
+than model-specific factors.
+Imbalance-gap interpretation: Consistent with the above, MELD/CAER
+training produces large imbalance gaps (∆= 15-27; Tables 5–6), indicating
+strong bias toward the Neutral class. In contrast, SpEmoC training yields much
+smaller gaps across architectures-TCL-MAP (∆= 0.33, Table 5), EMOE (∆=
+0.34, Table 8), MulT (∆= 0.65, Table 7), and MISA (∆= 3.28, Table 6)
+reflecting more balanced class-wise recognition.
+Connection to downstream results: These findings help explain why SpE-
+moC pretraining improves (i) fine-tuning on MELD/CAER (Table 10) and (ii)
+low-data adaptation (Table 9), balanced supervision in SpEmoC preserves dis-
+criminative features for minority emotions, which remain useful under domain
+shift and limited supervision.
+Table 5: Cross-dataset generalization across SpEmoC (ours), MELD, and CAER us-
+ing the TCL-MAP [32] model, showing more balanced performance when trained on
+SpEmoC.
+Train →Test
+Surprise Joy Fear Disgust Anger Neutral Sadness W-F1 ↑Macro-F1 ↑∆(Gap↓)
+CAER →CAER
+13.24
+28.73 10.85
+7.51
+23.37
+44.79
+12.98
+28.26
+20.21
+8.05
+CAER →MELD
+19.46
+17.44 5.13
+1.14
+16.09
+50.71
+13.56
+34.62
+17.65
+16.97
+CAER →SpEmoC(ours)
+21.14
+34.79 3.49
+5.47
+40.94
+25.89
+17.07
+24.64
+19.83
+4.81
+MELD →CAER
+53.27
+57.32 15.58
+17.82
+44.59
+79.91
+34.06
+64.21
+43.22
+20.99
+MELD →MELD
+56.04
+56.44 17.07
+22.22
+46.05
+77.75
+33.93
+62.68
+45.46
+17.22
+MELD →SpEmoC(ours)
+44.83
+53.47 3.92
+18.21
+51.28
+34.91
+30.77
+36.00
+32.17
+3.83
+SpEmoC(ours) →CAER
+21.31
+17.92 10.78
+13.30
+20.30
+46.69
+11.36
+30.75
+20.82
+9.93
+SpEmoC(ours) →MELD
+45.19
+29.37 3.96
+16.72
+39.71
+69.59
+25.24
+50.73
+32.83
+17.90
+SpEmoC →SpEmoC
+75.51
+74.36 71.13
+72.25
+75.55
+70.84
+73.76
+73.67
+73.34
+0.33
+SpEmoC: A Balanced Speaker-Segment Multimodal Emotion Benchmark
+13
+Table 6: Cross-dataset generalization across SpEmoC (ours), MELD, and CAER using
+the MISA [11] model.
+Train →Test
+Surprise Joy Fear Disgust Anger Neutral Sadness W-F1 ↑Macro-F1 ↑∆(Gap↓)
+CAER →CAER
+18.72
+58.08
+0.0
+15.71
+17.80
+49.33
+21.92
+32.82
+25.94
+6.88
+CAER →MELD
+19.10
+29.45
+0.0
+5.47
+20.62
+11.63
+4.34
+14.86
+14.29
+0.57
+CAER →SpEmoC
+0.24
+12.76
+0.0
+6.98
+32.58
+12.07
+0.41
+19.42
+10.15
+9.27
+MELD →CAER
+12.29
+46.21
+0.0
+0.0
+19.70
+51.20
+3.78
+38.64
+19.88
+18.76
+MELD →MELD
+13.30
+18.93 0.74
+0.0
+23.52
+37.95
+14.33
+25.09
+18.61
+6.48
+MELD →SpEmoC
+15.77
+27.39
+0.0
+0.0
+34.49
+28.65
+0.0
+22.65
+15.19
+7.46
+SpEmoC →CAER
+5.57
+8.21
+6.54
+7.82
+9.07
+42.04
+12.14
+23.77
+13.06
+10.71
+SpEmoC →MELD
+9.91
+4.37
+3.99
+5.53
+13.50
+42.00
+4.19
+21.73
+13.64
+8.09
+SpEmoC →SpEmoC
+41.30
+66.40 36.00
+49.80
+50.90
+32.40
+51.70
+50.78
+47.50
+3.28
+Table 7: Cross-dataset generalization across SpEmoC (ours), MELD, and CAER using
+the MulT [25] model.
+Train →Test
+Surprise Joy Fear Disgust Anger Neutral Sadness W-F1 ↑Macro-F1 ↑∆(Gap↓)
+CAER →CAER
+9.84
+22.99
+0.0
+0.0
+4.02
+52.16
+0.0
+36.03
+12.72
+23.31
+CAER →MELD
+33.47
+40.58
+0.0
+0.0
+9.15
+65.09
+0.0
+48.89
+21.18
+27.71
+CAER →SpEmoC
+0.0
+19.79
+0.0
+0.0
+15.79
+26.63
+0.0
+17.45
+8.89
+8.56
+MELD →CAER
+16.63
+18.50
+0.0
+2.50
+16.63
+48.55
+19.51
+32.61
+17.62
+14.99
+MELD →MELD
+49.74
+55.42 7.27
+9.09
+42.46
+74.08
+32.42
+58.85
+38.64
+20.21
+MELD →SpEmoC
+9.77
+48.31 0.55
+6.74
+35.23
+30.62
+25.35
+25.97
+20.96
+5.01
+SpEmoC →CAER
+20.14
+27.95 7.37
+11.28
+14.69
+19.65
+18.49
+19.19
+17.08
+2.11
+SpEmoC →MELD
+31.70
+46.48 8.26
+11.36
+31.54
+26.25
+29.35
+30.73
+26.56
+4.17
+SpEmoC →SpEmoC
+47.10
+75.26 40.44
+60.06
+60.05
+35.13
+60.47
+53.37
+52.72
+0.65
+Table 8: Cross-dataset generalization across SpEmoC (ours), MELD, and CAER using
+the EMOE [7] model.
+Train →Test
+Surprise Joy Fear Disgust Anger Neutral Sadness W-F1 ↑Macro-F1 ↑∆(Gap↓)
+CAER →CAER
+0.0
+28.66
+0.0
+0.0
+24.34
+51.95
+3.82
+36.52
+15.64
+20.88
+CAER →MELD
+0.71
+37.34
+0.0
+0.0
+28.57
+67.31
+0.93
+49.92
+19.27
+30.65
+CAER →SpEmoC
+0.25
+10.09
+0.0
+0.0
+32.61
+27.45
+0.82
+19.68
+10.17
+9.51
+MELD →CAER
+17.75
+19.14
+0.0
+1.32
+14.18
+52.00
+7.63
+35.61
+15.15
+20.46
+MELD →MELD
+54.59
+54.55 6.06
+6.38
+43.95
+73.86
+27.92
+59.04
+38.19
+20.85
+MELD →SpEmoC
+38.12
+52.45 1.61
+23.45
+44.08
+34.73
+28.17
+34.62
+31.01
+3.61
+SpEmoC →CAER
+20.69
+24.18 5.88
+9.57
+18.61
+45.88
+11.11
+30.83
+19.56
+11.27
+SpEmoC →MELD
+41.56
+26.30 6.06
+12.42
+34.33
+65.50
+23.61
+47.74
+29.97
+17.77
+SpEmoC →SpEmoC
+80.96
+84.55 68.59
+71.49
+71.44
+62.25
+66.05
+71.85
+72.19
+0.34
+4.3
+Comprehensive Dataset Analysis
+We conduct a series of comprehensive analyses to evaluate the robustness, gen-
+eralization, and practical utility of the proposed SpEmoC dataset. Rather than
+focusing on architectural novelty, we systematically analyze the impact of dataset
+design choices across datasets, modalities, data availability, and class balance us-
+ing standard multimodal emotion recognition frameworks. All experiments are
+conducted using the EMOE [7] model under identical training settings.
+Low-Data Transfer Learning Performance: We evaluate fine-tuning on
+MELD and CAER using 10%, 30%, and 50% of training data (Table 9). SpEmoC-
+pretrained models consistently outperform non-pretrained baselines, with the
+largest gains in the extreme low-data regime (10%). This indicates that SpE-
+moC provides transferable emotional representations that remain effective under
+limited supervision.
+Cross-dataset transfer learning: Table 10 shows that SpEmoC pretrain-
+ing consistently improves cross-dataset performance. On MELD, minority-class
+14
+S. Bano et al.
+Table 9: Low-data transfer learning results when fine-tuning on MELD and CAER
+using only 10%, 30%, and 50% of the training data. SpEmoC pretraining consistently
+improves performance across all data regimes.
+Training Split
+Baseline
++SpEmoC Pretraining (W-F1 ↑)
+Macro-F1↑
+∆(Gap↓)
+10%
+57.13 / 31.40
+59.16 / 34.70
+34 .60/15.40
+24.46/19.30
+30%
+61.00 / 35.27
+62.40 / 35.34
+35.77/14.48
+23.64/20.86
+50%
+59.73 / 34.89
+61.50 / 35.61
+38.04/11.66
+22.99/23.95
+recognition improves substantially, particularly for Fear (6.06 →16.33) and Dis-
+gust (6.38 →17.65), increasing W-F1 from 59.04 to 63.26 (+4.22). On CAER,
+gains in Surprise, Disgust, and Sadness raise W-F1 from 36.52 to 38.16 (+1.64).
+Reverse transfer experiments further show consistent improvements when SpE-
+moC is finetuned from MELD or CAER initialization, confirming the robustness
+of cross-dataset representations.
+Further analyses on backbone variants and neutral-class removal are provided
+in the Supplementary Sec: 1 and 2.
+Table 10: Class-wise and W-F1 improvements after SpEmoC pretraining on MELD
+and CAER. ∆denotes relative gain.
+Dataset
+Surprise Joy
+Fear Disgust Anger Neutral Sadness Micro-F1 ↑W-F1 ↑∆(gain)
+MELD Training
+54.59
+54.55
+6.06
+6.38
+43.95
+73.86
+27.92
+38.19
+59.04
+MELD Finetuning (+SpEmoC Pretraining)
+58.22
+55.20 16.33
+17.65
+41.68
+78.39
+21.90
+41.34
+63.26
++ 4.22
+SpEmoC Training
+80.94
+84.73 66.42
+66.78
+65.85
+61.01
+66.05
+70.25
+70.30
+SpEmoC Finetuning (+MELD Pretraining)
+80.65
+85.08 68.11
+71.32
+70.51
+61.93
+66.73
+71.16
+71.47
++1.17
+CAER Training
+0.0
+28.66
+0.0
+0.0
+24.34
+51.95
+3.82
+15.64
+36.52
+CAER Finetuning (+SpEmoC Pretraining)
+13.92
+26.98
+0.0
+2.3
+23.35
+52.47
+10.70
+19.81
+38.16
++1.64
+SpEmoC Training
+80.94
+84.73 66.42
+66.78
+65.85
+61.01
+66.05
+70.25
+70.30
+SpEmoC Finetuning (+CAER Pretraining)
+79.92
+84.08 68.30
+71.41
+72.41
+62.55
+66.67
+71.34
+71.84
++1.54
+5
+Conclusion and Future Work
+We introduced SpEmoC, a large-scale multimodal emotion recognition bench-
+mark containing 30,000 high-quality clips curated from 306,544 speaking seg-
+ments across 3,100 English-language movies and TV series. Constructed through
+a hybrid pipeline combining pretrained models (DistilRoBERTa, Wav2Vec 2.0,
+YOLOv8), systematic filtering, and human validation, SpEmoC provides syn-
+chronized text, audio, and visual modalities with a near-balanced distribution
+across seven emotions. By organizing samples around short dialogue-centered
+segments and enforcing strict movie/series-level splits, the dataset mitigates class
+imbalance, improves multimodal alignment, and prevents content leakage across
+splits. Extensive experiments across multiple multimodal frameworks demon-
+strate improved cross-dataset generalization to MELD and CAER, stronger
+recognition of minority emotions such as fear and disgust, and substantially re-
+duced imbalance gaps. Furthermore, SpEmoC pretraining consistently improves
+performance in both fine-tuning and low-data settings, highlighting the impor-
+tance of balanced dataset design for robust multimodal emotion recognition.
+Future work includes extending SpEmoC with fine-grained, continuous, multi-
+label, intensity-based, and LLM-assisted affect annotations. We also plan to
+improve cultural and demographic diversity, multilingual coverage, metadata
+richness, and spontaneous conversational content to support fairer and more
+realistic emotion recognition.
+SpEmoC: A Balanced Speaker-Segment Multimodal Emotion Benchmark
+15
+References
+1. Albanie, S., Nagrani, A., Vedaldi, A., Zisserman, A.: Emotion recognition in speech
+using cross-modal transfer in the wild. In: Proceedings of the 26th ACM interna-
+tional conference on Multimedia. pp. 292–301 (2018)
+2. Baevski, A., Zhou, Y., Mohamed, A., Auli, M.: wav2vec 2.0: A framework for
+self-supervised learning of speech representations. Advances in neural information
+processing systems 33, 12449–12460 (2020)
+3. Busso, C., Bulut, M., Lee, C.C., Kazemzadeh, A., Mower, E., Kim, S., Chang, J.N.,
+Lee, S., Narayanan, S.S.: Iemocap: Interactive emotional dyadic motion capture
+database. Language resources and evaluation 42, 335–359 (2008)
+4. Cheng, Z., Cheng, Z.Q., He, J.Y., Wang, K., Lin, Y., Lian, Z., Peng, X., Haupt-
+mann, A.: Emotion-llama: Multimodal emotion recognition and reasoning with in-
+struction tuning. Advances in Neural Information Processing Systems 37, 110805–
+110853 (2024)
+5. Ekman, P.: An argument for basic emotions. Cognition & emotion 6(3-4), 169–200
+(1992)
+6. El Ayadi, M., Kamel, M.S., Karray, F.: Survey on speech emotion recognition:
+Features, classification schemes, and databases. Pattern recognition 44(3), 572–
+587 (2011)
+7. Fang, Y., Huang, W., Wan, G., Su, K., Ye, M.: Emoe: Modality-specific enhanced
+dynamic emotion experts. In: Proceedings of the Computer Vision and Pattern
+Recognition Conference. pp. 14314–14324 (2025)
+8. Feng, S., Lubis, N., Geishauser, C., Lin, H.c., Heck, M., van Niekerk, C., Gasic, M.:
+Emowoz: A large-scale corpus and labelling scheme for emotion recognition in task-
+oriented dialogue systems. In: Proceedings of the Thirteenth Language Resources
+and Evaluation Conference. pp. 4096–4113 (2022)
+9. FFmpeg Developers: Ffmpeg. https://ffmpeg.org (2025), accessed: 29 June 2026
+10. Gómez-Zaragozá, L., del Amor, R., Castro-Bleda, M.J., Naranjo, V., Raya, M.A.,
+Marín-Morales, J.: Emovome: A dataset for emotion recognition in spontaneous
+real-life speech. arXiv preprint arXiv:2403.02167 (2024)
+11. Hazarika, D., Zimmermann, R., Poria, S.: Misa: Modality-invariant and-specific
+representations for multimodal sentiment analysis. In: Proceedings of the 28th
+ACM international conference on multimedia. pp. 1122–1131 (2020)
+12. Landis, J.R., Koch, G.G.: The measurement of observer agreement for categorical
+data. biometrics pp. 159–174 (1977)
+13. Lee, J., Kim, S., Kim, S., Park, J., Sohn, K.: Context-aware emotion recognition
+networks. In: Proceedings of the IEEE/CVF international conference on computer
+vision. pp. 10143–10152 (2019)
+14. Li, S., Deng, W., Du, J.: Reliable crowdsourcing and deep locality-preserving learn-
+ing for expression recognition in the wild. In: Proceedings of the IEEE conference
+on computer vision and pattern recognition. pp. 2852–2861 (2017)
+15. Livingstone, S.R., Russo, F.A.: The ryerson audio-visual database of emotional
+speech and song (ravdess): A dynamic, multimodal set of facial and vocal expres-
+sions in north american english. PLOS ONE 13(5), e0196391 (2018)
+16. Lucey, P., Cohn, J.F., Prkachin, K.M., Solomon, P.E., Matthews, I.: Painful data:
+The unbc-mcmaster shoulder pain expression archive database. In: 2011 IEEE
+International Conference on Automatic Face & Gesture Recognition (FG). pp.
+57–64 (2011)
+16
+S. Bano et al.
+17. Nojavanasghari, B., Hughes, T., Morency, L.P.: Emoreact: A multimodal approach
+and dataset for recognizing emotional responses in children. Proceedings of the
+18th ACM International Conference on Multimodal Interaction (ICMI) pp. 137–
+144 (2016)
+18. Picard, R.W.: Affective Computing. MIT Press, Cambridge, MA (1997), https:
+//direct.mit.edu/books/monograph/4296/Affective-Computing, accessed: 29
+June 2026
+19. Poria, S., Cambria, E., Bajpai, R., Hussain, A.: A review of affective comput-
+ing: From unimodal analysis to multimodal fusion. Information Fusion 37, 98–125
+(2017)
+20. Poria, S., Hazarika, D., Majumder, N., Naik, G., Cambria, E., Mihalcea, R.: Meld:
+A multimodal multi-party dataset for emotion recognition in conversations. In:
+Proceedings of the 57th annual meeting of the association for computational lin-
+guistics. pp. 527–536 (2019)
+21. Radford, A., Kim, J.W., Xu, T., Brockman, G., McLeavey, C., Sutskever, I.: Robust
+speech recognition via large-scale weak supervision. In: International conference on
+machine learning. pp. 28492–28518. PMLR (2023)
+22. Sanh, V., Debut, L., Chaumond, J., Wolf, T.: Distilbert, a distilled version of bert:
+smaller, faster, cheaper and lighter. arXiv preprint arXiv:1910.01108 (2019)
+23. Schuller, B., Batliner, A., Steidl, S., Seppi, D.: Recognising realistic emotions and
+affect in speech: State of the art and lessons learnt from the first challenge. Speech
+communication 53(9-10), 1062–1087 (2011)
+24. Sun, H., Zhao, J., Wang, X., Zhao, S., Zhou, J., Wang, H., Yang, X., Wang, Y.,
+Lin, Y.: Emotiontalk: An interactive chinese multimodal emotion dataset with rich
+annotations. In: Findings of the Association for Computational Linguistics: ACL
+2026. pp. 9054–9071 (2026)
+25. Tsai, Y.H.H., Bai, S., Liang, P.P., Kolter, J.Z., Morency, L.P., Salakhutdinov, R.:
+Multimodal transformer for unaligned multimodal language sequences. In: Pro-
+ceedings of the 57th annual meeting of the association for computational linguistics.
+pp. 6558–6569 (2019)
+26. Varghese, R., Sambath, M.: Yolov8: A novel object detection algorithm with en-
+hanced performance and robustness. In: 2024 International Conference on Ad-
+vances in Data Engineering and Intelligent Computing Systems (ADICS). pp. 1–6.
+IEEE (2024)
+27. Wöllmer, M., Weninger, F., Knaup, T., Schuller, B., Sun, C., Sagae, K., Morency,
+L.P.: Youtube movie reviews: Sentiment analysis in an audio-visual context. IEEE
+Intelligent Systems 28(3), 46–53 (2013)
+28. Zadeh, A.B., Liang, P.P., Poria, S., Cambria, E., Morency, L.P.: Multimodal lan-
+guage analysis in the wild: Cmu-mosei dataset and interpretable dynamic fusion
+graph. In: Proceedings of the 56th Annual Meeting of the Association for Compu-
+tational Linguistics (Volume 1: Long Papers). pp. 2236–2246 (2018)
+29. Zeng, J., Shan, S., Chen, X.: Facial expression recognition with inconsistently an-
+notated datasets. In: Proceedings of the European conference on computer vision
+(ECCV). pp. 222–237 (2018)
+30. Zhang, S., Pan, Y., Wang, J.Z.: Learning emotion representations from verbal
+and nonverbal communication. In: Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition. pp. 18993–19004 (2023)
+31. Zhao, J., Zhang, T., Hu, J., Liu, Y., Jin, Q., Wang, X., Li, H.: M3ed: Multi-modal
+multi-scene multi-label emotional dialogue database. In: Proceedings of the 60th
+Annual Meeting of the Association for Computational Linguistics (Volume 1: Long
+Papers). pp. 5699–5710 (2022)
+SpEmoC: A Balanced Speaker-Segment Multimodal Emotion Benchmark
+17
+32. Zhou, Q., Xu, H., Li, H., Zhang, H., Zhang, X., Wang, Y., Gao, K.: Token-level
+contrastive learning with modality-aware prompting for multimodal intent recog-
+nition. In: Proceedings of the AAAI conference on artificial intelligence. vol. 38,
+pp. 17114–17122 (2024)

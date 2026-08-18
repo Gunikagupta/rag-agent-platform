@@ -1,0 +1,1067 @@
+ESCUCHA: A Spanish Speech Benchmark for
+Heterogeneous Acoustic Conditions
+1st Fernando L´opez†
+Telef´onica Innovaci´on Digital
+Universidad Aut´onoma de Madrid
+Madrid, Spain
+fernando.lopez@telefonica.com
+2nd Ana Ayala†
+Universidad Complutense de Madrid
+Madrid, Spain
+aayala02@ucm.es
+3rd Guillermo Segovia
+Telef´onica Innovaci´on Digital
+Madrid, Spain
+guillermo.segovia@telefonica.com
+4th Fernando Ib´a˜nez
+Universidad Aut´onoma de Madrid
+Madrid, Spain
+fernando.ibannez@estudiante.uam.es
+5th Ana Mart´ınez
+Universidad Aut´onoma de Madrid
+Madrid, Spain
+anamaria.martinezj@estudiante.uam.es
+6th Pablo G´omez
+Telef´onica Innovaci´on Digital
+Madrid, Spain
+pablo.gomezguerrero@telefonica.com
+7th Jordi Luque
+Telef´onica Innovaci´on Digital
+Barcelona, Spain
+jordi.luque@telefonica.com
+†These authors contributed equally to this work.
+Abstract—As large audio language models (LALMs) advance,
+robust evaluation frameworks have become essential. In this
+context, Spanish speech understanding under realistic acoustic
+conditions has received particularly little attention. We introduce
+ESCUCHA, the first Spanish speech understanding benchmark
+designed to evaluate LALMs across heterogeneous acoustic
+conditions and reasoning abilities. ESCUCHA comprises 1,000
+human-curated questions paired with audio, totaling 162.9 hours
+sourced directly “from the wild” rather than drawn from existing
+datasets, with durations ranging from a few seconds to over
+80 minutes. The benchmark emphasizes reasoning, spanning 9
+perceptual and 10 reasoning categories, and it captures linguistic
+diversity through multiple Spanish accents and non-normative
+speech. ESCUCHA further includes multi-audio questions, spo-
+ken questions, and audio instructions, and it flags which questions
+support open-ended evaluation. Benchmarking several state-
+of-the-art multimodal and speech models reveals substantial
+performance gaps relative to trained humans.
+Index
+Terms—Benchmark,
+large
+audio
+language
+models,
+speech understanding, Spanish, non-normative speech.
+I. INTRODUCTION
+Understanding auditory information is essential to machine
+intelligence. Numerous large audio language models (LALMs)
+have emerged in response, including LTU [1], SALMONN
+[2], GAMA [3], Qwen3-Omni [4], Kimi-Audio [5], and Audio
+Flamingo 3 [6].
+Evaluating these models is critical for ranking their perfor-
+mance and exposing their limitations, and thereby advancing
+the field. Early benchmarks targeted foundational tasks such
+as speech recognition and speech translation [7]–[10]. More
+recent efforts evaluate perception and reasoning jointly, includ-
+ing MMAU [11], MMAR [12], SAKURA [13], MMSU [14],
+and MMAU-Pro [15].
+Despite this growth, it remains unclear whether strong per-
+formance on existing benchmarks transfers once models move
+beyond English and beyond normative speech. High scores
+under normative, English-centric conditions do not guarantee
+that a model will generalize to other languages and speaker
+characteristics, and current benchmarks offer little guidance
+on the expected degradation. This concern is acute for non-
+normative speech: neuromotor disorders such as amyotrophic
+lateral sclerosis (ALS) and post-stroke conditions frequently
+cause dysarthria, which impairs neuromuscular control of
+speech, reduces articulation clarity, alters prosody, and yields
+variable intelligibility, all of which challenge speech recogni-
+tion systems [16], [17].
+The gap is particularly concerning for practitioners who
+aim to deploy LALMs in non-English contexts. Multilin-
+gual benchmarks offer only limited relief: GlobeAudio spans
+six languages but excludes Spanish [18], while Fleurs-SLU
+[19] evaluates speech-LLMs on Spanish only as one lan-
+guage among many, and through a narrow set of reading-
+comprehension questions derived from text, whose answers are
+recoverable from a transcript. For Spanish specifically, initial
+efforts such as IberoBench [20] target the Iberian languages,
+but IberoBench is a multi-task text benchmark for the natural
+language understanding of large language models (LLMs)
+rather than a speech benchmark. For non-normative speech,
+meanwhile, prior work centers on transcription, leaving speech
+understanding uncovered [21]. More broadly, existing bench-
+marks concentrate on English and normative speech, rely on
+read or curated audio rather than audio in the wild, restrict
+themselves to a limited range of question types, and, being
+derived from existing datasets, risk train-test contamination.
+arXiv:2607.17812v1  [cs.CL]  20 Jul 2026
+To close this gap, we introduce ESCUCHA, the first speech
+understanding benchmark for evaluating LALMs in Spanish,
+spanning both normative and non-normative speech sourced
+under real-world conditions. ESCUCHA follows the multiple-
+choice question answering (MCQA) protocol and additionally
+includes multi-audio comparative questions, audio instruc-
+tion following (AIF), and spoken questions, which together
+characterize how LALMs perform on Spanish across diverse
+conditions. Our main contributions are as follows:
+• The first in-the-wild Spanish benchmark (audio and ques-
+tions) for evaluating large audio language models.1
+• The first LALM benchmark to evaluate speech under-
+standing and reasoning over non-normative pathological
+speech, spanning amyotrophic lateral sclerosis (ALS) and
+stroke.
+• A broad evaluation of current LALM behavior on Span-
+ish, covering open-weight and closed models, text-only
+baselines, and human performance.
+II. THE ESCUCHA BENCHMARK
+A. Overview
+ESCUCHA
+comprises
+1,000
+expert-curated
+questions
+grounded in 162.9 hours of in-the-wild Spanish audio sourced
+from publicly available recordings. Following the MMAU-
+Pro design philosophy [15], we annotate every question along
+two complementary axes: the perceptual skills required to
+extract information from the signal, and the reasoning skills
+required to transform that information into an answer, yielding
+a multi-label taxonomy of 9 perception and 10 reasoning
+categories. Questions carry 1.44 perception labels and 1.14
+reasoning labels on average, reflecting the compositional na-
+ture of realistic audio understanding: a single item frequently
+demands, for example, both paralinguistic emotion recognition
+and causal reasoning about speaker intent. An example appears
+in Figure 1: the item combines non-normative speech from
+an ALS patient with temporal and quantitative reasoning,
+requiring the model to recognize two numerical values, place
+them on a shared timeline, and compare them.
+ESCUCHA also features a comparative subset: 254 ques-
+tions (25.4%) reference two separate recordings and require
+the model to relate them, comparing speakers, dialects, acous-
+tic conditions, or content across clips. Such cross-clip com-
+parison is common in professional listening tasks. Table I
+summarizes the main statistics of the benchmark.
+B. Benchmark Creation Process
+We construct ESCUCHA through the four-stage pipeline
+illustrated in Figure 2.
+• Targets and category refinement. We define the target
+of each question type, the categories, and the type of
+audio to collect, then revise the perception and reasoning
+taxonomy. Section II-C provides further detail.
+1Download code and annotations: https://github.com/ferugit/ESCUCHA
+EXAMPLE QUESTION
+Audio context: A 96-second testimony in which Irene, a 28-
+year-old woman with non-normative speech who was diagnosed
+with ALS (ELA), recounts the date of her diagnosis and cites
+the life expectancy typically given to patients with the disease.
+Question:
+¿Desde que le diagnosticaron la ELA, ha vivido Irene m´as
+tiempo del que se menciona en el v´ıdeo como esperanza de
+vida para las personas con esta enfermedad?
+Since Irene was diagnosed with ALS, has she lived longer than the life
+expectancy mentioned in the video for people with this disease?
+(A)
+Ha vivido menos.
+She has lived less.
+(B)
+Ha vivido m´as. ✓
+She has lived longer.
+(C)
+No puede saberse.
+It cannot be determined.
+(D)
+Ha vivido lo mismo.
+She has lived the same amount of time.
+Perception: Lexical & Phrase-Level Recognition
+Reasoning: Quantitative Reasoning (Counting/Arithmetic
+Comparison) · Temporal & Ordering Reasoning
+Fig. 1. Example of chained cross-category reasoning. The question requires
+three steps: recognizing two numerical values (time since Irene’s diagnosis
+and the life expectancy she cites), mapping them onto a shared timeline,
+and comparing them. The most frequent failure is selecting (C) “No puede
+saberse,” which conflates the absence of an explicit comparison in the audio
+with genuine unknowability.
+TABLE I
+ESCUCHA AT A GLANCE. AIF: AUDIO INSTRUCTION FOLLOWING;
+MCQA: MULTIPLE-CHOICE QUESTION ANSWERING. COMPARATIVE,
+SPOKEN, AND NON-NORMATIVE ARE NON-EXCLUSIVE TAGS AND DO NOT
+PARTITION THE TOTAL.
+Statistic
+Value
+Total questions
+1,000
+MCQA
+900
+AIF
+100
+Non-exclusive questions
+Comparative (two-audio)
+254
+Spoken questions
+100
+Non-normative speech
+158
+Perception / reasoning categories
+9 / 10
+Mean labels per question (perc. / reas.)
+1.44 / 1.14
+Duration per question (median / mean)
+1.4 min / 9.8 min
+Duration range
+0.1 min – 85.2 min
+Total audio (sum over questions)
+162.9 h
+• Audio selection and question authoring. We source au-
+dio from in-the-wild YouTube recordings, favoring spon-
+taneous speech. Annotators identify candidate videos,
+filter the content, author the corresponding questions and
+distractors, ground each item in the audio, and assign
+its perception and reasoning labels. For non-normative
+speech, we retrieve videos using Spanish queries targeting
+1
+Target & Category
+refinement
+2
+Audio selection & 
+Question making
+3
+LLM-Assisted
+Review
+4
+Model & Human
+Evaluation
+Two steps
+LLM reviews each item and flags IDs
+Humans review flagged items
+Four checks
+Is category correctly 
+assigned ?
+Is audio required to
+answer the question?
+Are distractors
+challenging?
+Is grammar correct in 
+question and distractors?
+Fig. 2.
+Pipeline for constructing the ESCUCHA benchmark. The process comprises four stages: (i) target setting and refinement of the perception and
+reasoning categories; (ii) audio selection and authoring of questions and distractors; (iii) LLM-assisted review; and (iv) model and human evaluation.
+dysarthric speech, such as condition-specific keywords,
+interviews, and documentaries, with a preference for
+interviews; we then filter candidates on the basis of
+self-reported diagnoses, video metadata, and perceptual
+evidence of non-normative speech. The resulting corpus
+spans acoustically diverse conditions, including back-
+ground noise, music, and heterogeneous recording setups.
+• LLM-assisted review. We review each question along
+four dimensions with an LLM (Gemma-4-31B-IT),
+which returns the identifiers of the items it flags for
+manual verification by annotators. The review checks
+whether the categories are correctly assigned, whether
+the audio is required to answer the question, whether the
+distractors are sufficiently challenging, and whether the
+question or distractors contain grammatical errors.
+• Model and human evaluation. We benchmark a range
+of LALMs, text-only LLMs, and cascade systems, and
+we collect human judgments to establish reference per-
+formance.
+Across all four stages, the annotation team consists of three
+linguists and three technical experts, all native Spanish speak-
+ers. Each item carries metadata, including source URLs, mea-
+sured durations, multi-label categories, distractors, and, where
+applicable, pathological speaker attributes and AIF verifier
+identifiers.
+C. Taxonomy
+We derive our taxonomy from MMAU-Pro [15], retaining its
+perception and reasoning axes while slightly redefining them.
+Table II presents the category counts for our benchmark.
+Rather than enforce a uniform distribution, we priori-
+tized questions that were challenging and well grounded in
+each recording over questions that would merely fill under-
+represented cells. This preserves difficulty while still covering
+every category. The co-occurrence matrix (Fig. 3) character-
+izes the distribution that emerged. It is densely populated
+rather than block-diagonal: lexical recognition co-occurs with
+all ten reasoning categories, peaking with semantic abstraction
+and summarization (158), while other perceptual skills pair
+TABLE II
+QUESTION COUNTS PER PERCEPTION AND REASONING CATEGORY.
+COUNTS SUM TO MORE THAN 1,000 BECAUSE THE TAXONOMY IS
+MULTI-LABEL.
+Category
+#Q
+Perception
+Lexical and Phrase-Level Recognition
+506
+Speaker Identification
+324
+Paralinguistic/Emotion Recognition
+181
+Speech Activity, Turn-Taking and Overlap Detection
+115
+Language Identification
+87
+Audio Quality, Artifacts & Channel Characteristics
+84
+Prosody Detection
+74
+Speaker Demographics
+50
+Syntactic and Sentence-Structure Processing
+18
+Reasoning
+Speaker Intent, Pragmatics and Causal Reasoning
+221
+Semantic Abstraction and Summarization
+177
+Logical/Consistency Reasoning
+159
+Ground Truth and World Knowledge Integration
+133
+Quantitative Reasoning
+121
+Temporal and Ordering Reasoning
+105
+Social Role and Relationship Inference
+94
+Comparative and Preference-Based Judgments
+62
+Cross-frontier Entity Linking
+38
+Coherence and Discourse Structure
+29
+more selectively, such as language identification with ground-
+truth and world-knowledge integration (53). This mix of one
+broad row and several localized pairings shows that many
+questions combine perception and reasoning rather than isolat-
+ing a single skill. A few specific pairings remain unpopulated,
+which we leave to future work.
+D. Other Tasks
+Beyond regular covered tasks, ESCUCHA includes two
+further subsets.
+Non-normative speech. A subset of 158 questions (15.8%)
+targets pathological speech, with per-speaker metadata cover-
+ing diagnosis, sex, and intelligibility. It includes speakers with
+Speaker Intent, Pragmatics and Causal Reasoning
+Semantic Abstraction and Summarization
+Logical/Consistency Reasoning
+Ground Truth and World Knowledge Integration
+Quantitative Reasoning (Counting/Arithmetic Comparison)
+Temporal and Ordering Reasoning
+Social Role and Relationship Inference
+Comparative and Preference-Based Judgments
+Cross-frontier Entity Linking
+Coherence and Discourse Structure
+Reasoning category
+Lexical and Phrase-Level Recognition
+Speaker Identification
+Paralinguistic/Emotion Recognition
+Speech Activity, Turn-Taking and Overlap Detection
+Language Identification
+Audio Quality, Artifacts & Channel Characteristics
+Prosody Detection
+Speaker Demographics
+Syntactic and Sentence-Structure Processing
+Perception category
+125
+158
+78
+49
+53
+65
+43
+18
+38
+25
+38
+29
+71
+9
+63
+33
+60
+37
+4
+6
+122
+12
+24
+5
+0
+12
+19
+15
+0
+2
+22
+4
+22
+0
+12
+20
+12
+1
+0
+2
+2
+5
+8
+53
+11
+5
+1
+3
+2
+0
+10
+0
+18
+22
+2
+8
+0
+8
+0
+2
+39
+5
+10
+6
+3
+3
+3
+9
+0
+6
+4
+1
+7
+19
+5
+1
+9
+8
+0
+0
+4
+0
+8
+2
+0
+0
+0
+0
+0
+4
+Perception × Reasoning co-occurrence
+0
+20
+40
+60
+80
+100
+120
+140
+Co-occurrences
+Fig. 3. Perception × reasoning co-occurrence across the 900 MCQA questions. AIF questions only with perception labels, were excluded. Each cell counts
+question label pairs; questions carrying multiple perception or reasoning labels contribute to several cells, so cell totals exceed the question count and row
+and column sums are not disjoint.
+ALS (114 questions) and post-stroke speech (44), annotated
+by sex (123 male, 35 female). We also provide intelligibility
+levels for 145 of the 158 items, ranging from Low (53) and
+Medium/Low (71) to Medium (9) and High/Medium (12); the
+remaining 13 ALS items lack an intelligibility annotation.
+Spoken questions. We sample 100 questions from the
+existing ESCUCHA pool, using inverse-frequency weighting
+over perception and reasoning categories to prioritise under-
+represented classes. Only single-audio items were eligible,
+since the spoken question is stored as a second associated
+audio. The original question text is fed to the OmniVoice [22]
+text-to-speech (TTS) system, which yields varied speakers and
+Spanish accents. At evaluation time, the written prompt is
+fixed (“Contesta a la pregunta en el audio”, i.e., “Answer
+the question in the audio”), so the model must recover the
+actual question entirely from the spoken audio. The choices
+are maintained in text.
+E. Audio Duration
+The benchmark spans four orders of magnitude in duration,
+from 6.7 s to 85 min per question (median 86.2 s, mean
+586.5 s; for comparative items the duration is summed over
+both clips). Each question is assigned to one of five length
+buckets, reported in Table III. The Long and Extended buckets
+jointly account for a quarter of the benchmark, allowing ES-
+CUCHA to stress long-context audio understanding. Figure 4
+shows the full duration distribution.
+TABLE III
+DISTRIBUTION OF QUESTIONS ACROSS THE FIVE DURATION BUCKETS.
+Bucket
+Range
+#Q
+%
+Brief
+≤30 s
+123
+12.3
+Short
+30 s–2 min
+440
+44.0
+Medium
+2–10 min
+187
+18.7
+Long
+10–30 min
+127
+12.7
+Extended
+>30 min
+123
+12.3
+Total
+1,000
+100.0
+F. Evaluation Formats
+ESCUCHA contains two evaluation formats. Most of the
+benchmark (900 questions, 90%) follows an MCQA protocol
+with 2–4 options (848 four-choice, 45 three-choice, 7 two-
+choice), enabling deterministic scoring. Independently of for-
+mat, each question is annotated for whether the options are
+required: 712 (71.2%) are answerable without them, allowing
+open-ended evaluation, and 288 (28.8%) require them.
+The remaining 100 questions (10%) are audio instruction-
+following (AIF) items: open-ended tasks in which the instruc-
+tion is delivered in the audio rather than the text prompt, and
+the response must satisfy that spoken constraint, checked by a
+deterministic verifier. To produce the spoken instructions, we
+also use the OmniVoice [22]. This design jointly probes audio
+comprehension and instruction following: the model must first
+recover the instruction from the signal and then obey it. We
+cover six constraint types:
+101
+102
+103
+Audio duration per question (s, log scale)
+0
+20
+40
+60
+80
+100
+Number of questions
+Audio duration distribution (n=1000, total 162.9 h)
+median = 86 s
+Fig. 4. Distribution of audio duration per question (log scale). The dashed
+line marks the median (86.2 s).
+• Keyword usage (24): include a specified connector or
+phrase, e.g., sin embargo (“however”), or at least one
+numeral.
+• Length (22): meet an exact, minimum, maximum, or
+bounded word or sentence count, e.g., exactly three
+sentences.
+• Word exclusion (18): avoid a specified word, expression,
+or punctuation mark, e.g., muy (“very”).
+• Openings/closings (16): begin with a fixed prefix or end
+with a fixed suffix, e.g., En resumen (“In summary”).
+• Formatting (12): adopt a structural form, e.g., a num-
+bered list or sections delimited by ## headers.
+• Style (8): e.g., write in lowercase only, pose the answer
+as questions, or repeat a keyword a number of times.
+A constraint can occasionally be met without genuine com-
+pliance; word exclusion, for instance, may be satisfied by
+chance. The expected random-guessing accuracy is 25.61%
+on the MCQA subset and 23.05% on the full benchmark.
+III. EXPERIMENTAL SETUP
+We evaluate ESCUCHA across four system families: end-
+to-end LALMs, a cascaded ASR-plus-LLM pipeline, text-only
+LLMs, and human and random baselines. Thus, we separate
+genuine audio understanding from what is recoverable through
+transcription alone and language bias. In our setup, multi-audio
+items are presented as their component clips concatenated with
+one second of silence between them, and all experiments run
+on an NVIDIA DGX Spark GPU.
+A. LALMs
+We evaluate several LALMs, covering open and proprietary
+systems of varying scale: Audio-Flamingo-3 (8.3B) [6],
+Qwen2.5-Omni
+(7B),
+Qwen3-Omni-30B-A3B
+[4],
+Voxtral-Mini
+(3B)
+[23],
+Gemma-4-12B-IT,
+and
+Gemini-2.5-Flash.
+B. Cascaded Systems
+To test whether audio understanding is required at all, or
+whether transcription suffices, we evaluate a cascade. This
+is a natural baseline given that lexical recognition is the
+most represented perception category. We transcribe each
+audio with Whisper-Large-v3 [24] and answer with
+Qwen3-4B-Instruct-2507 [25].
+C. Text-Only LLMs
+Extending
+the
+cascade
+logic,
+we
+evaluate
+text-
+only
+LLMs
+that
+never
+see
+the
+raw
+audio.
+These
+receive the questions and choices with no audio. We
+include
+Gemma-4-31B-IT,
+Gemma-4-12B-IT,
+and
+Qwen3-4B-Instruct-2507 [25].
+D. Evaluation Protocol
+MCQA.
+Each
+item
+presents
+a
+question
+with
+N
+labeled
+options;
+the
+model
+must
+respond
+as
+<letter>.<justification>. Scoring is exact-match:
+correct if the output matches the gold string case-insensitively
+or its first parsed letter indexes the gold option.
+AIF. Audio instruction-following items are open-ended: a
+deterministic verifier function with a parameter dictionary is
+applied to the output, returning true or false. No model-based
+judge is used, so scoring is fully reproducible.
+IV. RESULTS
+Table IV reports accuracy across all models and subsets. The
+trained human annotator reaches 90.10% overall, far above the
+best model (74.40%), establishing a wide human–model gap
+on ESCUCHA.
+Among audio models, Qwen3-Omni-30B-A3B stands out
+at 74.40% overall and leads every column among models,
+including a striking 88.00% on AIF that exceeds even the
+human score of 79.00% on that subset. Every other audio
+model falls between 49 and 53% overall, confirming that
+ESCUCHA poses a genuine challenge.
+A
+consistent
+pattern
+is
+the
+drop
+from
+normative
+to
+pathological
+speech.
+Gemini-2.5-Flash
+and
+Gemma-4-12B-IT
+lose
+19
+and
+15
+percentage
+points,
+respectively,
+on
+pathological
+items,
+whereas
+Audio-Flamingo-3,
+Qwen3-Omni-30B-A3B,
+and
+Voxtral-Mini hold or slightly improve. This asymmetry
+indicates that pathological speech remains a weak point.
+Comparison
+with
+MMAU-Pro
+[15]
+adds
+context:
+Audio-Flamingo-3 reaches 58.8% on the MMAU-Pro
+speech subset but 49.60% here, and Qwen2.5-Omni-7B
+drops similarly, from 57.4% to 50.60%. The two benchmarks
+are not directly comparable: they differ in question design,
+language, and the inclusion of pathological speech, but the
+gaps suggest ESCUCHA is at least as discriminative and
+harder for models with limited Spanish coverage.
+The
+cascaded
+system
+(Whisper-Large-v3
++
+Qwen3-4B-Instruct-2507)
+achieves
+60.00%
+overall, outperforming every single audio model except
+Qwen3-Omni-30B-A3B. Its advantage is most pronounced
+on AIF (69.00%) and pathological items (63.92%), supporting
+the view that a large fraction of ESCUCHA questions are
+grounded in lexical understanding.
+All models receive the same system prompt, and none is in-
+structed to guess under missing-modality conditions. The text-
+only Qwen3-4B-Instruct-2507 reaches 41.00% overall,
+TABLE IV
+ESCUCHA BENCHMARK RESULTS (ACCURACY %). BEST RESULT PER COLUMN IS BOLDED. PATHOLOGICAL AND NORMATIVE ARE MCQA SUBSETS;
+SPOKEN Q CONTAINS ITEMS WHOSE QUESTION IS EMBEDDED IN THE AUDIO.
+Model
+Size
+MCQA
+AIF
+Pathological
+Normative
+Spoken Q
+Overall
+BASELINES
+Random
+–
+25.61
+0.00
+25.32
+25.67
+25.75
+23.05
+Always 1st
+–
+26.22
+0.00
+24.05
+26.68
+23.00
+23.60
+Always 2nd
+–
+24.33
+0.00
+27.22
+23.72
+23.00
+21.90
+Always 3rd
+–
+26.22
+0.00
+25.95
+26.28
+30.00
+23.60
+Always 4th
+–
+23.22
+0.00
+22.78
+23.32
+24.00
+20.90
+Human
+–
+91.33
+79.00
+93.04
+90.97
+93.00
+90.10
+AUDIO MODELS
+Audio-Flamingo-3-HF
+8.3B
+51.56
+32.00
+55.06
+50.81
+64.00
+49.60
+Gemini-2.5-Flash
+–
+52.67
+54.00
+36.71
+56.06
+53.00
+52.80
+Gemma-4-12B-IT
+12B
+48.11
+60.00
+36.08
+50.67
+49.00
+49.30
+Qwen2.5-Omni-7B
+7B
+50.22
+54.00
+44.94
+51.35
+58.00
+50.60
+Qwen3-Omni-30B-A3B
+30B (A3B)
+72.89
+88.00
+74.68
+72.51
+77.00
+74.40
+Voxtral-Mini-3B-2507
+3B
+50.22
+40.00
+51.90
+49.87
+55.00
+49.20
+CASCADED
+whisper-large-v3 + Qwen3-4B-Instruct-2507
+4B
+59.00
+69.00
+63.92
+57.95
+59.00
+60.00
+TEXT-ONLY MODELS
+Gemma-4-31B-IT
+31B
+23.00
+31.00
+23.42
+22.91
+33.00
+23.80
+Gemma-4-12B-IT (text)
+12B
+18.11
+32.00
+18.35
+18.06
+23.00
+19.50
+Qwen3-4B-Instruct-2507
+4B
+42.11
+31.00
+46.20
+41.24
+48.00
+41.00
+well above the random baseline (23.05%) and comparable to
+several audio systems, which we attribute to partial solvability
+from question structure and language priors. We therefore sug-
+gest treating this text-only model as a lower-bound baseline,
+alongside the positional controls, in future evaluations. The
+two text-only Gemma-4 variants instead score near random
+(23.80% and 19.50%): lacking audio, they refuse a large
+fraction of items, 53% for Gemma-4-31B-IT and 32% for
+Gemma-4-12B-IT, with each refusal scored as incorrect and
+outputs such as requests to supply the audio for analysis.
+V. LIMITATIONS
+Several factors qualify our results. The human upper bound
+is optimistic: the evaluator is a trained linguist, so the reported
+90.10% may differ from a regular person. On the AIF subset,
+some items can be answered correctly from the written in-
+struction alone, without processing the audio, which partially
+inflates AIF scores and means the task does not exclusively
+measure audio instruction following. The pathological-speech
+subset is grounded in self-reported diagnoses targeting diverse
+speech understanding instead of clinical usage.
+The evaluation is also uneven across models and axes.
+Gemini-2.5-Flash supports long-form audio architec-
+turally, but a payload limit in our evaluation pipeline forced
+us to exclude items above a size threshold, biasing its results
+toward shorter items and preventing a direct comparison with
+models run on the full set. More broadly, ESCUCHA covers
+speech exclusively, so results do not generalize to music,
+environmental sound, or audio effects, and the benchmark
+is constructed entirely in Spanish, meaning scores for mod-
+els with limited Spanish data conflate audio understanding
+with language coverage. Cross-lingual comparisons against
+English-centric benchmarks such as MMAU-Pro should be
+made with care. Finally, the taxonomy is lexically unbalanced,
+with lexical and phrase-level recognition dominating the per-
+ception axis, so per-category scores in sparsely populated cells
+rest on few items.
+VI. CONCLUSIONS
+We introduced ESCUCHA, the first in-the-wild Spanish
+speech benchmark for large audio-language models, and the
+first to evaluate reasoning over non-normative pathological
+speech. It pairs 1,000 curated questions with 162.9 hours of
+audio, annotated along a multi-label taxonomy of nine percep-
+tion and ten reasoning categories, and combines MCQA with
+comparative multi-audio items, audio instruction following,
+and spoken questions.
+Our evaluation reveals a wide human–model gap: the best
+system reaches 74.40% overall against 90.10% for a trained
+annotator, with most audio models near 50%. Two findings
+stand out. Several models degrade markedly on pathologi-
+cal speech, a persistent weak point for LALMs trained on
+clean, read audio. And a cascaded ASR-plus-LLM pipeline
+outperforms every single audio model but one, indicating
+that much of the benchmark is grounded in lexical under-
+standing recoverable from a transcript, while the residual gap
+to Qwen3-Omni-30B-A3B marks where genuine acoustic
+reasoning still matters.
+Future work includes broadening the pathological subset
+with further neurological conditions, and populating the cur-
+rently sparse perception-reasoning pairings.
+AI-GENERATED CONTENT DISCLOSURE
+We used a generative AI to assist in paraphrasing and
+improving clarity and grammar in parts of the manuscript; all
+generated content was reviewed and validated by the authors.
+REFERENCES
+[1] Y. Gong, H. Luo, A. H. Liu, L. Karlinsky, and J. Glass, “Listen, think,
+and understand,” in Proc. ICLR, 2024.
+[2] G. Sun, W. Yu, C. Tang, X. Chen, T. Tan, W. Li, L. Lu, Z. Ma,
+Y. Wang, and C. Zhang, “video-salmonn: Speech-enhanced audio-visual
+large language models,” in Proc. ICML, 2024.
+[3] S.
+Ghosh,
+S.
+Kumar,
+A.
+Seth,
+C.
+K.
+R.
+Evuru,
+U.
+Tyagi,
+S. Sakshi, O. Nieto, R. Duraiswami, and D. Manocha, “GAMA:
+A large audio-language model with advanced audio understanding
+and complex reasoning abilities,” in Proc. EMNLP.
+Miami, Florida,
+USA:
+ACL,
+2024,
+pp.
+6288–6313.
+[Online].
+Available:
+https:
+//aclanthology.org/2024.emnlp-main.361/
+[4] J. Xu, Z. Guo, H. Hu, Y. Chu, X. Wang, J. He, Y. Wang, X. Shi, T. He,
+X. Zhu, Y. Lv, Y. Wang, D. Guo, H. Wang, L. Ma, P. Zhang, X. Zhang,
+H. Hao, Z. Guo, B. Yang, B. Zhang, Z. Ma, X. Wei, S. Bai, K. Chen,
+X. Liu, P. Wang, M. Yang, D. Liu, X. Ren, B. Zheng, R. Men, F. Zhou,
+B. Yu, J. Yang, L. Yu, J. Zhou, and J. Lin, “Qwen3-omni technical
+report,” 2025. [Online]. Available: https://arxiv.org/abs/2509.17765
+[5] D. Ding, Z. Ju, Y. Leng, S. Liu, T. Liu, Z. Shang, K. Shen, W. Song,
+X. Tan, H. Tang et al., “Kimi-audio technical report,” arXiv preprint
+arXiv:2504.18425, 2025.
+[6] S. Ghosh, A. Goel, J. Kim, S. Kumar, Z. Kong, S. gil Lee,
+C.-H.
+H.
+Yang,
+R.
+Duraiswami,
+D.
+Manocha,
+R.
+Valle,
+and
+B. Catanzaro, “Audio flamingo 3: Advancing audio intelligence
+with
+fully
+open
+large
+audio
+language
+models,”
+in
+Proc.
+Adv.
+Neural Inf. Process. Syst. (NeurIPS), 2025. [Online]. Available:
+https://openreview.net/forum?id=FjByDpDVIO
+[7] C.-y. Huang, K.-H. Lu, S.-H. Wang, C.-Y. Hsiao, C.-Y. Kuan, H. Wu,
+S. Arora, K.-W. Chang, J. Shi, Y. Peng et al., “Dynamic-superb:
+Towards a dynamic, collaborative, and comprehensive instruction-tuning
+benchmark for speech,” in Proc. ICASSP.
+IEEE, 2024, pp. 12 136–
+12 140.
+[8] Q. Yang, J. Xu, W. Liu, Y. Chu, Z. Jiang, X. Zhou, Y. Leng,
+Y. Lv, Z. Zhao, C. Zhou et al., “Air-bench: Benchmarking large
+audio-language models via generative comprehension,” in Proc. ACL.
+Bangkok, Thailand: ACL, Aug. 2024, pp. 1979–1998. [Online].
+Available: https://aclanthology.org/2024.acl-long.109/
+[9] B. Wang, X. Zou, G. Lin, S. Sun, Z. Liu, W. Zhang, Z. Liu, A. Aw,
+and N. F. Chen, “Audiobench: A universal benchmark for audio large
+language models,” in Proc. NAACL:HLT, Albuquerque, New Mexico,
+2025, pp. 4297–4316.
+[10] C.-y. Huang, W.-C. Chen, S.-w. Yang, A. T. Liu, C.-A. Li, Y.-X. Lin, W.-
+C. Tseng, A. Diwan, Y.-J. Shih, J. Shi et al., “Dynamic-superb phase-2:
+A collaboratively expanding benchmark for measuring the capabilities
+of spoken language models with 180 tasks,” in Proc. ICLR, 2025.
+[11] S. Sakshi, U. Tyagi, S. Kumar, A. Seth, R. Selvakumar, O. Nieto,
+R. Duraiswami, S. Ghosh, and D. Manocha, “MMAU: A massive multi-
+task audio understanding and reasoning benchmark,” in Proc. ICLR,
+2024.
+[12] Z. Ma, Y. Ma, Y. Zhu, C. Yang, Y.-W. Chao, R. Xu, W. Chen, Y. Chen,
+Z. Chen, J. Cong et al., “Mmar: A challenging benchmark for deep
+reasoning in speech, audio, music, and their mix,” in Proc. Adv. Neural
+Inf. Process. Syst. (NeurIPS) Datasets and Benchmarks Track, 2025.
+[13] C.-K. Yang, N. Ho, Y.-T. Piao, and H. yi Lee, “SAKURA: On the Multi-
+hop Reasoning of Large Audio-Language Models Based on Speech and
+Audio Information,” in Interspeech, 2025, pp. 1788–1792.
+[14] D. Wang, J. Wu, J. Li, D. Yang, X. Chen, T. Zhang, and H. Meng,
+“MMSU: A Massive Multi-task Spoken Language Understanding and
+Reasoning Benchmark,” arXiv preprint arXiv:2506.04779, 2025.
+[15] S. Kumar, ˇS. Sedl´aˇcek, V. Lokegaonkar, F. L´opez, W. Yu, N. Anand,
+H. Ryu, L. Chen, M. Pliˇcka, M. Hlav´aˇcek et al., “Mmau-pro: A
+challenging and comprehensive benchmark for holistic evaluation of
+audio general intelligence,” in Proc. AAAI Conf. Artif. Intell. (AAAI),
+vol. 40, no. 27, 2026, pp. 22 688–22 697.
+[16] F. Rudzicz, A. K. Namasivayam, and T. Wolff, “The torgo database of
+acoustic and articulatory speech from speakers with dysarthria,” Lang.
+Resources Eval., vol. 46, no. 4, pp. 523–541, 2012.
+[17] H. Kim, M. Hasegawa-Johnson, A. Perlman, J. R. Gunderson, T. S.
+Huang, K. L. Watkin, S. Frame et al., “Dysarthric speech database for
+universal access research.” in Interspeech, vol. 2008, 2008, pp. 1741–
+1744.
+[18] R. Tan and W. Zhang, “Globeaudio: A multilingual multicultural bench-
+mark for naturalistic evaluation of large audio-language models,” arXiv
+preprint arXiv:2606.08194, 2026.
+[19] F. D. Schmidt, I. Vuli´c, G. Glavaˇs, and D. I. Adelani, “Fleurs-slu: A
+massively multilingual benchmark for spoken language understanding,”
+in Proc. Conf. Lang. Model. (COLM), 2025.
+[20] I. Baucells, J. Aula-Blasco, I. de Dios-Flores, S. P. Su´arez, N. Perez,
+A. Salles, S. S. Docio, J. Falc˜ao, J. J. Saiz, R. Sep´ulveda-Torres et al.,
+“Iberobench: A benchmark for llm evaluation in iberian languages,”
+in Proc. Int. Conf. Comput. Linguistics (COLING), 2025, pp. 10 491–
+10 519.
+[21] P. Moure, N. Pokel, B. Bounajma, Y. Gao, R. Boehringer, L. Cheng,
+and S.-C. Liu, “When audio-language models fail to leverage mul-
+timodal context for dysarthric speech recognition,” arXiv preprint
+arXiv:2605.02782, 2026.
+[22] H. Zhu, L. Ye, W. Kang, Z. Yao, L. Guo, F. Kuang, Z. Han,
+W. Zhuang, L. Lin, and D. Povey, “Omnivoice: Towards omnilingual
+zero-shot text-to-speech with diffusion language models,” arXiv preprint
+arXiv:2604.00688, 2026.
+[23] A. H. Liu, A. Ehrenberg, A. Lo, C. Denoix, C. Barreau, G. Lample,
+J.-M. Delignon, K. R. Chandu, P. von Platen, P. R. Muddireddy et al.,
+“Voxtral,” arXiv preprint arXiv:2507.13264, 2025.
+[24] A. Radford, J. W. Kim, T. Xu, G. Brockman, C. McLeavey, and
+I. Sutskever, “Robust speech recognition via large-scale weak super-
+vision,” in Proc. ICML.
+PMLR, 2023, pp. 28 492–28 518.
+[25] A. Yang, A. Li, B. Yang, B. Zhang, B. Hui, B. Zheng, B. Yu, C. Gao,
+C. Huang, C. Lv et al., “Qwen3 technical report,” arXiv preprint
+arXiv:2505.09388, 2025.

@@ -1,0 +1,1841 @@
+What Transfers Under Source Shift? Definitions, Examples, and
+Fine-Tuning for Climate Disclosure Classification
+Guosheng Li1
+Fenghui Ren1
+Bin Liu2
+Chuan Yu3
+Kaiying Ji3
+Lin Yue4
+Jun Shen1*
+Sasa Qian2
+1School of Computing and Information Technology, University of Wollongong
+2School of Business, University of Wollongong
+3Business School, University of Sydney
+4Business School, Macquarie University
+Abstract
+Climate disclosure classification is a fundamen-
+tal task for analysing corporate climate disclo-
+sures, yet such disclosures appear in many dif-
+ferent sources—annual reports, press releases,
+and earnings calls—that differ in length, pur-
+pose, and writing style. Existing evaluations
+are mostly conducted within a single source,
+leaving open whether common LLM adapta-
+tion strategies remain effective under source
+shift. We reframe climate disclosure classifica-
+tion as a cross-source adaptation problem and
+study three widely used adaptation strategies—
+definitions, examples, and fine-tuning—across
+eleven open- and closed-source LLMs, using
+two corpora that share the same label space
+but come from different sources. We find that
+all strategies bring positive cross-source gains
+on average, but the strongest in-source strate-
+gies are not the strongest cross-source ones:
+similarity-based retrieval and LoRA fine-tuning
+gain most in-source but lose most of that advan-
+tage under source shift; randomly selected few-
+shot examples, a weaker in-source baseline, re-
+tain their advantage more reliably; definitions
+transfer most consistently, though only when
+their granularity matches the target text. Across
+these strategies, when the source changes, sim-
+pler is often safer. Code and resources are
+available at https://github.com/Leoccino/
+TCFD-SourceShift.
+1
+Introduction
+Within sustainability-disclosure NLP, we study a
+climate-focused classification task: assigning cor-
+porate text to the four pillars of the Task Force
+*Corresponding author: Jun Shen, jshen@uow.edu.au.
+on Climate-related Financial Disclosures (TCFD)
+framework (IFRS Foundation, 2023). For climate-
+finance practitioners, this task provides a founda-
+tion for downstream disclosure analysis (Auzepy
+et al., 2023; Bingler et al., 2022). Recent work
+in this area is predominantly LLM-based. Evalu-
+ation, however, concentrates on a single class of
+source: annual reports and corporate sustainabil-
+ity reports (Bingler et al., 2022; Doi et al., 2024;
+Calamai et al., 2025). In practice, however, TCFD-
+related information also surfaces in press releases,
+earnings call transcripts and investor materials—
+document types that differ from corporate reports
+in length, purpose, and writing style. The set of
+sources that current research covers and the set that
+practitioners actually encounter, in other words, are
+not the same.
+Deployment Question
+Real-World TCFD Disclosures
+Research Focus
+Other Disclosure Sources
+Annual 
+Report
+Sustainability 
+Report
+Press
+Release
+Earnings 
+Call
+Adaptation Strategies
+Definition
+Examples
+Fine-tuning
+Which strategy still works
+ when a classifier meets 
+new disclosure sources?
+Climate-Finance
+Practitioner
+Figure 1: Deployment gap motivating this study. Re-
+search mainly evaluates TCFD classifiers on annual
+and sustainability reports, but deployment also requires
+other disclosure sources. We ask which adaptation strat-
+egy still works under this source shift.
+1
+arXiv:2607.17952v1  [cs.CL]  20 Jul 2026
+Figure 1 frames this mismatch as a deployment
+question.
+TCFD classification research mainly
+evaluates report-based sources, but real-world de-
+ployment may involve press releases, earnings
+calls, and other disclosure sources. Practitioners
+therefore need to know whether common adapta-
+tion strategies—richer label definitions, examples,
+or fine-tuning—remain reliable when a classifier
+meets a new disclosure source. We ask which of
+these strategies still transfer under source shift.
+We study this question through TCFD disclosure
+classification, using two corpora that share the four-
+class TCFD label space but come from different
+disclosure sources. One serves as the adaptation
+source; the other as a held-out cross-source target.
+The three adaptation strategies named in our title—
+definitions, examples, and fine-tuning—are swept
+across eleven open- and closed-source LLMs and
+evaluated both in-source and cross-source.
+Across these strategies, three findings emerge
+that diverge from in-source intuition. For defini-
+tions, transfer is most consistent when the granu-
+larity of the definition matches the granularity of
+the target text—not when the definition is max-
+imally detailed.
+For in-context examples, ran-
+domly selected few-shot examples often outper-
+form a stronger in-source similarity retriever once
+the source changes. For fine-tuning, cross-source
+robustness depends jointly on the learned weights
+and the inference-time prompt, so a fine-tuned
+model and its prompt cannot be evaluated in iso-
+lation. Across all three, when the source changes,
+simpler is often safer.
+Our contributions are:
+1. A deployment-oriented source-shift study.
+We present, to our knowledge, the first study
+of adaptation strategies for TCFD disclosure
+classification under source shift. We formu-
+late this deployment question as a shared-label
+cross-source evaluation problem.
+2. Practitioner-oriented evidence for strategy
+selection. Across eleven open- and closed-
+source LLMs, we examine whether gains from
+definitions, examples, and fine-tuning persist.
+We show that strategies with the strongest in-
+source gains are not always the safest deploy-
+ment choices, providing empirical insights for
+selecting strategies under source shift.
+2
+Related Work
+Climate disclosure NLP and the single-source
+gap.
+Climate disclosure NLP has produced
+domain-specific classifiers around the TCFD pil-
+lars, ranging from BERT-based fine-tuning to LLM
+prompt engineering (Webersinke et al., 2021; Bin-
+gler et al., 2022; Auzepy et al., 2023; Doi et al.,
+2024), with parallel work on related climate-text
+tasks such as net-zero target detection, environ-
+mental claim detection, and greenwashing-oriented
+ESG analysis (Schimanski et al., 2023; Stammbach
+et al., 2023; Ong et al., 2025). Across this literature,
+evaluation is predominantly conducted within a sin-
+gle disclosure source, whether by training and test-
+ing on the same corpus or by applying pretrained
+models to a single report-based collection (Auzepy
+et al., 2023; Doi et al., 2024). Whether the same
+models or adaptation strategies remain reliable un-
+der source shift is largely untested. A recent re-
+producibility study further finds that many climate-
+NLP benchmarks rely heavily on surface-level lexi-
+cal patterns and contain pervasive annotation issues,
+calling into question the reliability of single-source
+leaderboard evaluation (Calamai et al., 2025).
+Cross-source robustness as a framework.
+Out-
+side the climate domain, robustness under distri-
+bution shift has been studied extensively. Classi-
+cal analysis bounds the out-of-distribution error
+in terms of the divergence between source and
+target distributions (Ben-David et al., 2007), and
+large-scale empirical benchmarks confirm that in-
+domain performance routinely overestimates out-
+of-distribution accuracy even when the label space
+is held fixed (Gulrajani and Lopez-Paz, 2021; Koh
+et al., 2021). The same pattern persists in modern
+NLP: a systematic measurement across thousands
+of domain shifts shows that fine-tuned models drop
+sharply cross-domain (Calderon et al., 2024), and
+recent work confirms that even large language mod-
+els retain a substantial out-of-domain gap on text-
+classification tasks (Roussinov et al., 2025). Our
+TCFD setting instantiates a broader shared-label
+cross-source adaptation problem in sustainability-
+disclosure NLP: the disclosure source varies while
+the task and label space remain fixed.
+Adaptation
+strategies
+under
+source
+shift.
+Within this framing, the natural question is which
+of the standard LLM adaptation mechanisms—
+task definitions in the prompt, in-context exam-
+ples, and parameter-efficient fine-tuning (Brown
+2
+et al., 2020; Dong et al., 2024; Hu et al., 2022;
+Dettmers et al., 2023)—remain useful under source
+shift. In-domain studies show that retrieval-based
+example selection often improves over random sam-
+pling in in-distribution settings, though the effec-
+tiveness of selection strategies is both data- and
+model-dependent (Liu et al., 2022; Peng et al.,
+2024); LoRA-style fine-tuning recovers much of
+the gain of full fine-tuning at a fraction of the cost.
+Recent work has begun to compare fine-tuning
+and in-context learning side by side under broader
+distribution-shift settings (Mosbach et al., 2023),
+but whether these in-domain conclusions transfer
+when the evaluation source changes—and which
+mechanism transfers most reliably—has not been
+systematically tested for TCFD or related climate-
+disclosure tasks. Our setting is narrower: the task
+domain and label space remain fixed, while only
+the disclosure source changes. We hold the TCFD
+label space fixed, vary the disclosure source, and
+compare definitions, examples, and fine-tuning un-
+der a controlled in-source versus cross-source con-
+trast.
+3
+Cross-Source Setting
+We use two TCFD-labelled corpora that share the
+same four-class label space (Governance, Strategy,
+Risk Management, Metrics & Targets) but differ
+in text style. TCFD-CR (Bingler et al., 2022) is
+drawn from companies’ annual and sustainability
+reports; we hold out 320 instances as the test set
+and split the remaining 1,000 into 800 training and
+200 validation. TCFD-EX (Qiu, 2023) is derived
+from the disclosure examples listed on the TCFD’s
+example-disclosures list; we use all 593 instances
+as the cross-source evaluation set.
+3.1
+The two corpora, side by side
+Both items below are labelled Strategy:
+TCFD-CR: In October 2017, wildfires started to
+burn in California causing damage to many prop-
+erties [...] The fires have forced many people
+to be evacuated from their homes [...] and have
+continued to burn in the early weeks of 2018.
+TCFD-EX: As climate change progresses, the
+risk of physical damage and profit loss, such as
+that from floods and drought, is expected to in-
+crease in the future.
+TCFD-CR instances are long and discursive.
+TCFD-EX instances are short and direct.
+Ap-
+pendix A gives one labelled example pair per class.
+Figure 2 quantifies the size, style, and class con-
+trast between the two corpora. Figure 3 shows
+(a)
+Property
+TCFD-CR
+TCFD-EX
+Source
+corporate reports
+TCFD examples
+Held-out evaluation
+320 (test split)
+593 (full corpus)
+Median paragraph length
+436 chars
+151 chars
+TCFD-term density
+2.5%
+5.6%
+Majority class
+Strategy (61.6%)
+Risk Management (30.5%)
+(b)
+Median length (chars)
+600
+400
+200
+0
+TCFD-CR
+TCFD-EX
+TCFD-term density (%)
+8%
+6%
+4%
+2%
+0%
+TCFD-CR
+TCFD-EX
+(c)
+Class distribution (% of paragraphs)
+TCFD-CR
+8.1%
+61.6%
+15.0%
+15.3%
+TCFD-EX
+13.7%
+27.8%
+30.5%
+28.0%
+0%
+20%
+40%
+60%
+80%
+100%
+Governance
+Strategy
+Risk Management
+Metrics & Targets
+436
+151
+2.5%
+5.6%
+Figure 2: TCFD-CR vs. TCFD-EX along length, class
+balance, and lexical style.
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Source-classifier score:  P(TCFD-EX | paragraph)
+0.0
+0.5
+1.0
+1.5
+2.0
+2.5
+3.0
+3.5
+4.0
+Density
+5-fold CV source-classifier scores  ·  81.2% accuracy  ·  -distance 1.25
+TCFD-CR  (n=320)
+TCFD-EX  (n=593)
+Figure 3: A logistic-regression source classifier distin-
+guishes TCFD-CR from TCFD-EX with 81.2% 5-fold
+accuracy.
+that a logistic regression on sentence embeddings
+distinguishes them with 81.2% 5-fold accuracy, cor-
+responding to a proxy A-distance of ≈1.25 (out of
+2) (Ben-David et al., 2007) — a substantial source
+gap in embedding space.
+3.2
+Evaluation
+In-source and cross-source evaluation share the
+same adaptation pool: the 1,000 TCFD-CR training
+and validation instances that feed both examples
+and fine-tuning. They differ only in the evaluation
+set: in-source uses the TCFD-CR test split (320
+instances), cross-source uses TCFD-EX (593 in-
+stances). Fixing the pool isolates any adaptation
+that helps in-source but not cross-source as source-
+specific; we report macro-F1 throughout.
+3
+TCFD-CR pool
+1,000 labelled instances
+In-context examples
+examples in the prompt
+Zero-shot (no examples)
+Random examples (fixed k, n)
+TF-IDF retrieval (top-k)
+Dense retrieval (top-k)
+LoRA fine-tuning
+model weights via adapters
+TCFD-CR label supervision
+Chat-format training data
+Qwen + Llama backbones
+Rank / epoch / seed grid
+Definitions
+task description in the prompt
+D0  Label names only
+D1  4 pillar definitions
+D2  11 Recommended Disclosures
+D3  27 disclosure criteria
+Model portfolio
+LLMs evaluated
+Open-source LLMs
+Llama · Qwen · Mistral
+Closed-source LLMs
+GPT-4o · GPT-5-mini
+TCFD-CR test set
+in-source · n = 320
+TCFD-EX dataset
+cross-source · n = 593
+vs
+Metric: Macro-F1
+per pillar & overall
+Figure 4: Overview of the experimental design: three
+adaptation strategies — definitions, examples, and
+fine-tuning — evaluated on both in- and cross-source
+datasets.
+4
+Experimental Setup
+Figure 4 summarises our experimental design.
+From the same TCFD-CR adaptation pool, we
+test three strategies that inject source signal at dif-
+ferent locations: definitions add TCFD label se-
+mantics to the prompt, examples insert labelled
+instances drawn from the pool, and fine-tuning up-
+dates adapter parameters from source labels. Each
+strategy is evaluated across a diverse model port-
+folio — eleven LLMs spanning the Qwen, Llama,
+and Mistral open-weight families plus the propri-
+etary GPT-4o and GPT-5-mini — on both the in-
+source TCFD-CR test split (n=320) and the cross-
+source TCFD-EX set (n=593).
+4.1
+Adaptation strategies
+4.1.1
+Definition-based adaptation
+For definition-based adaptation, we construct
+a four-level definition staircase, following the
+broader use of natural-language label definitions in
+zero-shot prompting (Wei et al., 2022; Sanh et al.,
+2022). D0 uses only the four label names. D1 adds
+the official descriptions of the four TCFD pillars
+from the TCFD Recommendations (Task Force on
+Climate-related Financial Disclosures, 2017). D2
+further includes the 11 TCFD Recommended Dis-
+closures. D3 adds 27 criteria distilled from the
+TCFD implementation guidance (Doi et al., 2024).
+All definition settings are evaluated in the zero-
+shot setting, with no in-context examples, so that
+performance changes can be attributed to defini-
+tion specificity. Appendix B shows a fixed prompt
+instance under D0–D3, illustrating how only the
+definition block grows across levels.
+4.1.2
+Example-based adaptation
+For example-based adaptation, we draw examples
+from the adaptation pool and vary only the selec-
+tion rule.
+We compare four modes: zero-shot,
+random examples, TF-IDF similar examples, and
+dense similar examples (Liu et al., 2022; Rubin
+et al., 2022). TF-IDF and dense retrieval cover
+the two standard notions of textual similarity —
+lexical surface overlap and semantic embedding
+similarity (Reimers and Gurevych, 2019) — so that
+the source-shift behaviour of similarity selection
+is not tied to a single retriever. The random base-
+line uses eight fixed examples (k=8, n=2, two per
+class). For TF-IDF and dense retrieval, k controls
+the total number of retrieved examples included in
+the prompt, while n caps the maximum number
+of examples from any single class to avoid class-
+dominated prompts. We sweep k ∈{3, 5, 8} and
+n ∈{2, 3}, while fixing the definition level at D1.
+4.1.3
+LoRA fine-tuning
+For parameter-side adaptation, we apply LoRA (Hu
+et al., 2022) to four open-source bases—Llama-
+3.1-8B (Grattafiori et al., 2024), Qwen3-8B and
+Qwen3-32B (Yang et al., 2025), and Qwen3.5-
+9B (Qwen Team, 2026)—spanning two families
+and the 8–32B range. Adapters are trained on the
+adaptation pool, using 800 instances for training
+and 200 for validation, converted into chat-format
+classification examples. Each training instance
+uses a minimal label-name prompt, denoted P0,
+with no pillar definitions or in-context examples;
+§5.4 reuses this to test whether supplying defini-
+tions at inference time recovers cross-source per-
+formance. The main setting uses 4-bit quantiza-
+tion (QLoRA) (Dettmers et al., 2023), LoRA rank
+r = 16, scaling factor α = 32, dropout 0.05, learn-
+ing rate 2 × 10−4, an effective batch size of 16,
+and up to 5 training epochs with best-checkpoint
+selection on validation macro-F1. We use three
+seeds.
+4.2
+Models
+We evaluate the prompting strategies on a diverse
+set of eleven open- and closed-source LLMs to
+reduce the risk that our findings are specific to a
+4
+single model family or scale. The open-source
+models cover the Qwen (Yang et al., 2024, 2025;
+Qwen Team, 2026), Llama (Grattafiori et al., 2024;
+Meta AI, 2025), and Mistral (Mistral AI, 2024)
+families, with different parameter sizes and release
+generations, while GPT-4o (Hurst et al., 2024) and
+GPT-5-mini (OpenAI, 2025) are included as closed-
+source prompted baselines. The full model list is
+reported in Appendix C; implementation details
+(serving stack, decoding, retrieval libraries, and
+LoRA training) are in Appendix D.
+5
+Results and Discussion
+5.1
+Overview: what transfers under source
+shift?
+The core question of this paper is what transfers
+under source shift. Before turning to the detailed re-
+sults, we answer it in two steps: first, which strate-
+gies remain effective in the cross-source setting;
+and second, how much of their in-source advantage
+is retained after the source changes.
+Which strategies transfer.
+Figure 5 shows that
+all four strategies yield a positive mean cross-
+source gain. Definitions give the largest improve-
+ment, LoRA + D1 and random few-shot show mod-
+erate gains, and similarity retrieval barely improves
+over zero-shot. The per-model points further show
+that example-based strategies are not always sta-
+ble: for both random and similarity retrieval, some
+models fall below zero on TCFD-EX, so introduc-
+ing TCFD-CR examples can fail to help—or even
+hurt—on the new source.
+How much of the in-source advantage is re-
+tained.
+Turning to the second question, a larger
+in-source gain does not necessarily survive source
+shift. Definitions and random few-shot retain their
+advantage relatively well. Definitions lie above the
+dashed diagonal, meaning their cross-source gain
+is even larger than their in-source gain; this indi-
+cates that definitions mainly supply TCFD label
+semantics rather than source-specific patterns from
+TCFD-CR. Random few-shot lies close to the di-
+agonal: although it uses TCFD-CR examples, its
+mean in-source advantage is largely retained after
+the source changes.
+By contrast, LoRA + D1 and similarity retrieval
+fall clearly below the diagonal, showing that the
+advantage they gain on TCFD-CR is harder to trans-
+fer. LoRA + D1 yields the largest in-source gain,
++14.1 pp, but retains only +3.7 pp on TCFD-EX, so
+0
+2
+4
+6
+8
+10
+12
+14
+In-source gain   macro-F1 on TCFD-CR  (pp)
+0
+2
+4
+6
+8
+10
+12
+14
+Cross-source gain   macro-F1 on TCFD-EX  (pp)
+perfect transfer  (y = x)
+no transfer  (y = 0)
+Source-binding plane: in-source vs. cross-source gain
+Definitions
+(in +3.2, cross +5.8)
+Random few-shot
+(in +2.9, cross +2.3)
+LoRA + D1
+(in +14.1, cross +3.7)
+Similarity retrieval
+(in +8.0, cross +0.5)
+Figure 5: Each adaptation strategy as a point in the in-
+source (x) vs. cross-source (y) ∆macro-F1 plane; the
+dashed diagonal y=x is perfect transfer. Faint points are
+per-model values (per-base for LoRA). Gains are over
+each strategy’s own no-adaptation baseline (definitions:
+D2 vs. D0; LoRA: adapter vs. base, both at D1; random
+and similarity: vs. D1 zero-shot).
+only part of what fine-tuning learns on TCFD-CR
+carries over to the new source. Similarity retrieval
+is even more source-bound: it improves TCFD-CR
+by +8.0 pp but yields almost no gain on TCFD-EX,
+only +0.5 pp. The strongest in-source strategy is
+therefore not necessarily the strongest cross-source
+one.
+Overall, Figure 5 gives a more concrete answer
+to the question in our title: what transfers most
+readily under source shift is semantic guidance that
+helps the model grasp what the TCFD categories
+mean; advantages that rely on source-specific deci-
+sion patterns in TCFD-CR, or on target-to-source
+textual similarity, are more easily lost when the
+source changes—even when they are strong in-
+source.
+5.2
+More specific definitions are not always
+better
+A natural expectation is that more detailed label
+definitions should help more: adding the 11 Rec-
+ommended Disclosures (D2) or the 27 criteria (D3)
+on top of pillar intent (D1) supplies the model with
+strictly more TCFD knowledge. Figure 6 shows
+this expectation breaks at both ends. Averaged over
+the eleven prompted models, TCFD-CR peaks at
+D1 and TCFD-EX peaks at D2; both sources drop
+5
+D0
+D1
+D2
+D3
+Definition specificity
+0.45
+0.50
+0.55
+0.60
+0.65
+0.70
+macro-F1
+peak D1
+peak D2
+Definition staircase (zero-shot)
+TCFD-CR test (mean, n=11)
+TCFD-EX (mean, n=11)
+Figure 6: Definition specificity under zero-shot prompt-
+ing, averaged over the eleven prompted models.
+at D3, with the larger drop on TCFD-CR. More spe-
+cific definitions are therefore not uniformly better—
+their effectiveness depends on whether the granu-
+larity matches the target text.
+Figure 7 confirms this at the model level: peaks
+scatter across D1–D3 on TCFD-CR but cluster at
+D2–D3 on TCFD-EX. Our claim is therefore not
+that one definition level is always optimal. The sta-
+ble pattern is directional: no model peaks earlier on
+TCFD-EX than on TCFD-CR. In other words, the
+TCFD-EX target tends to benefit from more spe-
+cific definitions. Full per-model macro-F1 across
+D0–D3 is in Appendix E.
+This pattern is consistent with the text charac-
+teristics of the two sources.
+TCFD-CR comes
+from real corporate reports, where instances are
+longer and more likely to mix business context, cli-
+mate actions, financial figures, and target-related
+statements. More specific definitions may there-
+fore push the model toward local keywords and
+away from the instance’s overall meaning.
+By
+contrast, TCFD-EX instances are shorter, more
+focused, and closer to the wording of the TCFD
+Recommended Disclosures. As a result, D2 better
+matches the granularity of TCFD-EX. Appendix F
+provides two Qwen3-32B zero-shot cases illustrat-
+ing this peak-shift mechanism: D1 works better for
+a noisy TCFD-CR instance, while D2 works better
+for a TCFD-EX instance whose wording closely
+matches a Recommended Disclosure.
+Takeaway.
+Definitions transfer because they en-
+code TCFD label semantics rather than source-
+specific examples. However, more detail is not
+always better. The best definition level depends on
+the target source: definitions help most when their
+granularity matches the target text.
+D0
+D1
+D2
+D3
+Definition level at peak macro-F1 (zero-shot)
+Qwen2.5-7B
+Qwen3-8B
+Qwen3.5-9B
+Qwen3.5-27B
+Qwen3-32B
+Llama-3.1-8B
+Llama-4-Scout
+Llama-3.3-70B
+Ministral-8B
+GPT-4o
+GPT-5-mini
+TCFD-CR test peak (in-source)
+TCFD-EX peak (cross-source)
+Figure 7: Per-model definition peak: the level (D0–D3)
+at which each model’s zero-shot macro-F1 is highest, on
+TCFD-CR test (blue) and TCFD-EX (orange). Models
+grouped by family, ordered by size.
+5.3
+Better in-source retrieval does not imply
+better transfer
+A natural expectation is that more refined example
+selection should help more: retrieving examples
+similar to the target instance should outperform ran-
+dom sampling. Table 1 reports the full per-model
+example-selection results. To better match a re-
+alistic deployment setting, for TF-IDF and dense
+retrieval we use, for each model, the (k, n) config-
+uration that performs best on TCFD-CR, and apply
+that same configuration directly to both TCFD-CR
+and TCFD-EX. Under this setting, random few-
+shot improves macro-F1 by +2.9 pp on TCFD-CR
+and by +2.3 pp on TCFD-EX. By contrast, TF-IDF
+and dense retrieval improve TCFD-CR by +8.0 pp
+and +7.9 pp respectively, but improve TCFD-EX
+by only +0.5 pp and +1.0 pp. Thus, retrieval is
+highly effective when the target texts and the adap-
+tation pool come from the same source, but this
+advantage does not transfer well to a new source.
+Figure 8 shows that this finding is not an artifact
+of averaging. For all prompted models, TF-IDF
+retrieval’s gain on TCFD-CR exceeds its gain on
+TCFD-EX, and for some models performance on
+TCFD-EX even drops. The cross-source problem
+is therefore not only that the gain becomes smaller:
+for some models, similarity retrieval directly hurts
+performance under source shift.
+The results above reflect a realistic best-on-CR
+6
+Zero-shot
+Random k=8, n=2
+TF-IDF best-on-CR
+Dense best-on-CR
+Model
+CR
+EX
+CR
+EX
+CR
+EX
+CR
+EX
+Qwen2.5-7B
+0.482
+0.569
+0.524
+0.634
+0.575
+0.626
+0.563
+0.580
+Qwen3-8B
+0.500
+0.616
+0.557
+0.630
+0.614
+0.629
+0.625
+0.658
+Qwen3.5-9B
+0.642
+0.661
+0.665
+0.671
+0.702
+0.672
+0.714
+0.667
+Qwen3.5-27B
+0.643
+0.678
+0.689
+0.705
+0.711
+0.713
+0.708
+0.689
+Qwen3-32B
+0.640
+0.661
+0.655
+0.681
+0.696
+0.668
+0.713
+0.668
+Llama-3.1-8B
+0.525
+0.605
+0.549
+0.655
+0.661
+0.614
+0.632
+0.639
+Llama-4-Scout
+0.566
+0.670
+0.638
+0.665
+0.681
+0.630
+0.706
+0.641
+Llama-3.3-70B
+0.597
+0.623
+0.661
+0.657
+0.718
+0.648
+0.696
+0.671
+Ministral-8B
+0.576
+0.631
+0.545
+0.650
+0.615
+0.598
+0.586
+0.625
+GPT-4o
+0.608
+0.679
+0.624
+0.677
+0.661
+0.663
+0.673
+0.670
+GPT-5-mini
+0.657
+0.679
+0.650
+0.699
+0.688
+0.669
+0.692
+0.674
+Mean
+0.585
+0.643
+0.614
+0.666
+0.666
+0.648
+0.664
+0.653
+Mean ∆vs zero-shot (pp)
+—
++2.9
++2.3
++8.0
++0.5
++7.9
++1.0
+Table 1: Macro-F1 on TCFD-CR (in-source) and TCFD-EX (cross-source) for four selection rules. Random uses
+fixed k=8, n=2; TF-IDF and Dense use the per-model best-on-CR (k, n), applied to both settings. Bold marks the
+best value per model in each setting; last row is the mean ∆over zero-shot.
+Qwen2.5-7B
+Qwen3-8B
+Qwen3.5-9B
+Qwen3.5-27B
+Qwen3-32B
+Llama-3.1-8B
+Llama-4-Scout
+Llama-3.3-70B
+Ministral-8B
+GPT-4o
+GPT-5-mini
+2.5
+0.0
+2.5
+5.0
+7.5
+10.0
+12.5
+ macro-F1 vs zero-shot (pp)
++9.3
++11.3
++6.1
++6.8
++5.6
++13.6
++11.4
++12.1
++3.9
++5.3
++3.1
++5.7
++1.3
++1.0
++3.5
++0.6
++0.8
+-4.0
++2.5
+-3.3
+-1.6
+-1.1
+(k8,n2)
+(k5,n3)
+(k3,n3)
+(k5,n2)
+(k5,n2)
+(k5,n3)
+(k3,n3)
+(k3,n3)
+(k3,n3)
+(k3,n3)
+(k3,n3)
+TF-IDF retrieval gain per model
+In-source (TCFD-CR test)
+Cross-source (TCFD-EX)
+Figure 8: TF-IDF retrieval gain over zero-shot, per
+model, with (k, n) tuned per model on TCFD-CR.
+Blue: in-source (TCFD-CR test); orange: cross-source
+(TCFD-EX).
+setting, but they do not yet fully isolate the source
+of the cross-source drop, because different meth-
+ods and different models may use different (k, n)
+configurations. To separate these factors, Figure 9
+fixes the prompt, the adaptation pool, and the ex-
+ample budget, and varies only the example selec-
+tion rule. In this aligned comparison, random few-
+shot shows no clearly stable in-source–cross-source
+gap, whereas TF-IDF and dense retrieval show a
+larger gap. This indicates that the source-bound
+effect comes mainly from the per-target similarity-
+selection step.
+Takeaway.
+Few-shot examples transfer across
+sources, but more refined selection does not nec-
+essarily transfer better. On TCFD-CR, similarity
+retrieval beats random by a wide margin; on TCFD-
+EX, random is the more reliable choice. The failure
+point is the assumption behind retrieval, namely
+that textual similarity approximates label similarity.
+Random k8n2
+TF-IDF k8n2
+Dense k8n2
+5
+0
+5
+10
+15
+Per-model asymmetry  in 
+ cs  (pp)
+(positive 
+ in-source gains more than cross-source)
+no asymmetry (y = 0)
+mean +0.6 pp
+[-1.4, +2.7]
+mean +4.3 pp
+[+3.3, +5.5]
+mean +5.3 pp
+[+3.4, +8.0]
+In-source vs. cross-source gap by selection rule
+Figure 9: Per-model in-source minus cross-source gap
+for each selection rule, all fixed at k=8, n=2 on the
+same TCFD-CR adaptation pool. Light dots are per-
+model; the point and bar mark the mean and its 95%
+paired-bootstrap CI.
+This assumption is useful when the target text and
+adaptation pool share a source, but weakens under
+source shift. The same asymmetry holds across
+the full k × n grid for both retrievers (∼5–7 pp
+in-source vs. ≤1 pp cross-source; Appendix G).
+For cross-source few-shot adaptation, a simple ran-
+dom baseline is therefore a stronger default than a
+stronger retriever.
+5.4
+Fine-tuning is in-source champion but not
+cross-source champion
+Compared with prompt engineering, fine-tuning
+is a stronger form of adaptation because it up-
+dates model parameters directly from labelled su-
+pervision. In our setting, this leads to the best in-
+source performance on TCFD-CR. The key ques-
+tion is whether this parameter-side learning cap-
+tures transferable TCFD label semantics, or mainly
+7
+0.50
+0.55
+0.60
+0.65
+0.70
+0.75
+In-source (TCFD-CR)
+Cross-source (TCFD-EX)
+D1 zs
+Best prompted
+LoRA + P0
+LoRA + D1
+LoRA + P0
+LoRA + D1
+macro-F1
+★ Best in-source (Llama-3.1-8B LoRA+P0, 0.7335)
+★ Best cross-source (Qwen3.5-27B, 0.7134)
+Gaps (pp)
+ZS → P0
+in-src gain
+P0 drop
+in − out
+P0 → D1
+cross-src lift
+Llama-3.1-8B
++20.9
++6.7
++0.4
+Qwen3-8B
++21.0
++5.5
++0.6
+Qwen3.5-9B
++8.1
++6.5
++1.6
+Qwen3-32B
++6.7
++4.4
++2.4
+Figure 10: Per-base LoRA trajectory across in-source (TCFD-CR) and cross-source (TCFD-EX) evaluation, with
+two non-LoRA baselines on the left. All LoRA values are three-seed means.
+fits source-specific decision patterns from TCFD-
+CR.
+Figure 10 shows that LoRA gives a large in-
+source gain on TCFD-CR for every fine-tuned base.
+LoRA also outperforms the best prompted strategy
+for two of the four bases; for Qwen3.5-9B and
+Qwen3-32B the best prompted strategy is slightly
+higher. This confirms that supervised fine-tuning
+is highly effective at fitting the TCFD-CR source
+distribution.
+However, this source fit does not fully transfer.
+Figure 10 also shows that the same LoRA adapters
+drop when evaluated on TCFD-EX with the train-
+ing prompt (P0). The cross-source drop is consis-
+tent across all four bases, ranging from −4.4 pp to
+−6.7 pp. This indicates that LoRA learns useful
+decision patterns for TCFD-CR, but part of this
+advantage is tied to the source.
+Because LoRA training updates the model pa-
+rameters directly from text–label pairs alone, the
+adapters never see any TCFD definition; all label
+semantics must be inferred from the supervision
+signal itself. This motivates a second test: if those
+semantics are not in the adapters, can we supply
+them at inference time instead? Keeping the trained
+adapters fixed, we replace the training-time prompt
+P0 with the D1 definition prompt and re-evaluate.
+Figure 10 shows that D1 improves cross-source per-
+formance for all four bases, with gains from +0.4 to
++2.4 pp. Its in-source effect, however, is mixed: D1
+slightly reduces performance on Llama-3.1-8B and
+Qwen3-8B, but improves Qwen3.5-9B and Qwen3-
+32B. D1 therefore does not make LoRA uniformly
+better; rather, it recovers part of the transferable la-
+bel semantics under source shift, with larger gains
+on the stronger base models. Per-base numbers are
+in Appendix H; a cross-strategy summary, includ-
+ing the supervised ClimateBERT-TCFD reference,
+is in Appendix I.
+Takeaway.
+LoRA yields the largest in-source
+gain on TCFD-CR, yet all four fine-tuned bases
+drop under source shift: the in-source champion is
+not the cross-source one. Since LoRA never sees
+explicit TCFD definitions during training, we keep
+the adapters fixed and add D1 definitions at infer-
+ence time. Cross-source performance consistently
+recovers, indicating that part of the loss reflects
+label semantics missing from the training signal,
+rather than something that can be solved by the
+learned weights alone. Cross-source robustness for
+fine-tuned models should therefore be treated as
+a joint design problem over weights and prompts,
+with the prompt-side correction larger on stronger
+base models.
+6
+Conclusion
+We studied TCFD classification as a cross-source
+adaptation problem, using TCFD-CR as source and
+TCFD-EX as the target. Across definitions, exam-
+ples, and fine-tuning, stronger in-source adaptation
+strategy does not necessarily imply better transfer.
+Definitions transfer most reliably, but their gran-
+8
+ularity must match the target text. Examples can
+transfer, but similarity retrieval is source-bound:
+a strong in-source retriever can be less reliable
+than random examples under source shift. Fine-
+tuning gives the best in-source performance, yet
+only partly transfers; adding definition at inference
+time partly recovers the cross-source loss without
+retraining.
+Practitioners may naturally choose the strategy
+that performs best on the available source, but our
+results show that this can be unsafe under source
+shift. We therefore translate the findings into safer
+defaults: match the definition prompt to the target
+text, prefer a small random few-shot pool over a
+similarity retriever, and keep a definition prompt
+at inference time even for fine-tuned models. The
+strongest in-source choice is rarely the strongest
+cross-source one.
+Limitations
+Our cross-source evaluation is built on a single
+dataset pair, adapting on TCFD-CR and evaluating
+on TCFD-EX. To our knowledge, these are cur-
+rently the only publicly available datasets that share
+the TCFD four-pillar label space across sources,
+which constrains cross-source evaluation to this
+pair. The two corpora nonetheless exhibit a non-
+trivial distributional gap (proxy A-distance 1.25;
+81.2% 5-fold source-classifier accuracy; §3.1), sug-
+gesting that this is not a near-duplicate evaluation
+but a meaningful setting for practitioners who need
+to anticipate how adaptation strategies behave un-
+der source shift.
+References
+Alix Auzepy, Elena Tönjes, David Lenz, and Christoph
+Funk. 2023. Evaluating TCFD reporting—a new
+application of zero-shot analysis to climate-related
+financial disclosures. PLOS ONE, 18(11):e0288052.
+Shai Ben-David, John Blitzer, Koby Crammer, and Fer-
+nando Pereira. 2007. Analysis of representations for
+domain adaptation. In Advances in Neural Informa-
+tion Processing Systems (NeurIPS), pages 137–144.
+Julia Anna Bingler, Mathias Kraus, Markus Leippold,
+and Nicolas Webersinke. 2022.
+Cheap talk and
+cherry-picking: What ClimateBERT has to say on
+corporate climate risk disclosures. Finance Research
+Letters, 47:102776.
+Tom B. Brown, Benjamin Mann, Nick Ryder, Melanie
+Subbiah, Jared Kaplan, Prafulla Dhariwal, Arvind
+Neelakantan, Pranav Shyam, Girish Sastry, Amanda
+Askell, and 1 others. 2020. Language models are few-
+shot learners. In Advances in Neural Information
+Processing Systems, volume 33, pages 1877–1901.
+Tom Calamai, Oana Balalau, and Fabian M. Suchanek.
+2025. Benchmarking the benchmarks: Reproducing
+climate-related NLP tasks. In Findings of the Asso-
+ciation for Computational Linguistics: ACL 2025.
+Association for Computational Linguistics.
+Nitay Calderon, Naveh Porat, Eyal Ben-David, Alexan-
+der Chapanin, Zorik Gekhman, Nadav Oved, Vitaly
+Shalumov, and Roi Reichart. 2024. Measuring the
+robustness of NLP models to domain shifts. In Find-
+ings of the Association for Computational Linguis-
+tics: EMNLP 2024. Association for Computational
+Linguistics.
+Tim Dettmers, Artidoro Pagnoni, Ari Holtzman, and
+Luke Zettlemoyer. 2023. QLoRA: Efficient finetun-
+ing of quantized LLMs. In Advances in Neural Infor-
+mation Processing Systems, volume 36.
+Korenari Doi and 1 others. 2024. Automated determina-
+tion of TCFD recommended disclosures through zero-
+shot text classification using large language models.
+JPX Working Paper Vol. 43, Japan Exchange Group.
+Joint research with Sherpa & Company.
+Qingxiu Dong, Lei Li, Damai Dai, Ce Zheng, Jingyuan
+Ma, Rui Li, Heming Xia, Jingjing Xu, Zhiyong Wu,
+Tianyu Liu, Baobao Chang, Xu Sun, Lei Li, and Zhi-
+fang Sui. 2024. A survey on in-context learning. In
+Proceedings of the 2024 Conference on Empirical
+Methods in Natural Language Processing. Associa-
+tion for Computational Linguistics.
+Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri,
+Abhinav Pandey, and 1 others. 2024. The Llama 3
+herd of models. arXiv preprint arXiv:2407.21783.
+Ishaan Gulrajani and David Lopez-Paz. 2021. In search
+of lost domain generalization. In International Con-
+ference on Learning Representations.
+Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan
+Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and
+Weizhu Chen. 2022. LoRA: Low-rank adaptation of
+large language models. In International Conference
+on Learning Representations.
+Aaron Hurst, Adam Lerer, Adam P. Goucher, Adam
+Perelman, and 1 others. 2024. GPT-4o system card.
+arXiv preprint arXiv:2410.21276.
+IFRS Foundation. 2023. IFRS S2 climate-related dis-
+closures. IFRS Sustainability Disclosure Standard.
+Pang
+Wei
+Koh,
+Shiori
+Sagawa,
+Henrik
+Mark-
+lund, Sang Michael Xie, Marvin Zhang, Akshay
+Balsubramani, Weihua Hu, Michihiro Yasunaga,
+Richard Lanas Phillips, Irena Gao, Tony Lee, Etienne
+David, Ian Stavness, Wei Guo, Berton A. Earnshaw,
+Imran S. Haque, Sara Beery, Jure Leskovec, Anshul
+Kundaje, and 4 others. 2021. WILDS: A benchmark
+of in-the-wild distribution shifts. In Proceedings of
+9
+the 38th International Conference on Machine Learn-
+ing, volume 139 of Proceedings of Machine Learning
+Research, pages 5637–5664. PMLR.
+Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying
+Sheng, Lianmin Zheng, Cody Hao Yu, Joseph E. Gon-
+zalez, Hao Zhang, and Ion Stoica. 2023. Efficient
+memory management for large language model serv-
+ing with PagedAttention. In Proceedings of the 29th
+Symposium on Operating Systems Principles (SOSP).
+ACM.
+Jiachang Liu, Dinghan Shen, Yizhe Zhang, Bill Dolan,
+Lawrence Carin, and Weizhu Chen. 2022.
+What
+makes good in-context examples for GPT-3? In Pro-
+ceedings of Deep Learning Inside Out: The 3rd Work-
+shop on Knowledge Extraction and Integration for
+Deep Learning Architectures. Association for Com-
+putational Linguistics.
+Sourab Mangrulkar, Sylvain Gugger, Lysandre Debut,
+Younes Belkada, Sayak Paul, and Benjamin Bossan.
+2022. PEFT: State-of-the-art parameter-efficient fine-
+tuning methods. GitHub repository, HuggingFace.
+Meta AI. 2025. The Llama 4 herd: The beginning of a
+new era of natively multimodal AI innovation. Blog
+post.
+Mistral AI. 2024. Un ministral, des ministraux: The
+world’s best edge models. Blog post.
+Marius Mosbach, Tiago Pimentel, Shauli Ravfogel, Di-
+etrich Klakow, and Yanai Elazar. 2023. Few-shot
+fine-tuning vs. in-context learning: A fair compari-
+son and evaluation. In Findings of the Association for
+Computational Linguistics: ACL 2023, pages 12284–
+12314. Association for Computational Linguistics.
+Keane Ong, Rui Mao, Deeksha Varshney, Erik Cambria,
+and Gianmarco Mengaldo. 2025. Towards robust
+ESG analysis against greenwashing risks: Aspect-
+action analysis with cross-category generalization.
+In Proceedings of the 63rd Annual Meeting of the As-
+sociation for Computational Linguistics. Association
+for Computational Linguistics.
+OpenAI. 2025. OpenAI GPT-5 system card. arXiv
+preprint arXiv:2601.03267. Model released and sys-
+tem card published Aug 2025; arXiv preprint de-
+posited Dec 2025.
+Keqin Peng, Liang Ding, Yancheng Yuan, Xuebo Liu,
+Min Zhang, Yuanxin Ouyang, and Dacheng Tao.
+2024. Revisiting demonstration selection strategies
+in in-context learning. In Proceedings of the 62nd An-
+nual Meeting of the Association for Computational
+Linguistics (ACL). Association for Computational
+Linguistics.
+Rui Qiu. 2023.
+TCFD_disclosure:
+A dataset of
+TCFD-labelled example disclosures. Hugging Face
+dataset.
+https://huggingface.co/datasets/
+rexarski/TCFD_disclosure.
+Qwen Team. 2026. Qwen3.5: Towards native multi-
+modal agents. Blog post.
+Nils Reimers and Iryna Gurevych. 2019.
+Sentence-
+BERT: Sentence embeddings using Siamese BERT-
+networks. In Proceedings of the 2019 Conference on
+Empirical Methods in Natural Language Processing
+and the 9th International Joint Conference on Natu-
+ral Language Processing (EMNLP-IJCNLP). Associ-
+ation for Computational Linguistics.
+Dmitri Roussinov, Serge Sharoff, and Nadezhda Puchn-
+ina. 2025. Controlling out-of-domain gaps in LLMs
+for genre classification and generated text detection.
+In Proceedings of the 31st International Conference
+on Computational Linguistics (COLING). Associa-
+tion for Computational Linguistics.
+Ohad Rubin, Jonathan Herzig, and Jonathan Berant.
+2022. Learning to retrieve prompts for in-context
+learning. In Proceedings of the 2022 Conference of
+the North American Chapter of the Association for
+Computational Linguistics: Human Language Tech-
+nologies. Association for Computational Linguistics.
+Victor Sanh, Albert Webson, Colin Raffel, Stephen H.
+Bach, Lintang Sutawika, Zaid Alyafeai, Antoine
+Chaffin, Arnaud Stiegler, Teven Le Scao, Arun Raja,
+and 1 others. 2022. Multitask prompted training en-
+ables zero-shot task generalization. In International
+Conference on Learning Representations (ICLR).
+Tobias Schimanski,
+Julia Bingler,
+Camilla Hys-
+lop, Mathias Kraus, and Markus Leippold. 2023.
+ClimateBERT-NetZero: Detecting and assessing net
+zero and reduction targets. In Proceedings of the
+2023 Conference on Empirical Methods in Natural
+Language Processing. Association for Computational
+Linguistics.
+Dominik Stammbach, Nicolas Webersinke, Julia Anna
+Bingler, Mathias Kraus, and Markus Leippold. 2023.
+Environmental claim detection. In Proceedings of
+the 61st Annual Meeting of the Association for Com-
+putational Linguistics (Volume 2: Short Papers). As-
+sociation for Computational Linguistics.
+Task Force on Climate-related Financial Disclosures.
+2017. Recommendations of the task force on climate-
+related financial disclosures. Report.
+Nicolas Webersinke, Mathias Kraus, Julia Anna Bin-
+gler, and Markus Leippold. 2021. ClimateBERT: A
+pretrained language model for climate-related text.
+Preprint, arXiv:2110.12010.
+Jason Wei, Maarten Bosma, Vincent Y. Zhao, Kelvin
+Guu, Adams Wei Yu, Brian Lester, Nan Du, An-
+drew M. Dai, and Quoc V. Le. 2022. Finetuned lan-
+guage models are zero-shot learners. In International
+Conference on Learning Representations (ICLR).
+An Yang, Anfeng Li, Baosong Yang, Beichen Zhang,
+and 1 others. 2025. Qwen3 technical report. arXiv
+preprint arXiv:2505.09388.
+An Yang, Baosong Yang, Beichen Zhang, Binyuan Hui,
+and 1 others. 2024. Qwen2.5 technical report. arXiv
+preprint arXiv:2412.15115.
+10
+A
+Per-class examples from each corpus
+Table 2 shows one example per class from TCFD-
+CR and TCFD-EX, extending the single Strategy
+pair in §3.1.
+B
+Prompt growth under the definition
+staircase
+Figure 11 shows one fixed classification instance
+under the four definition levels. The task instruc-
+tion, target instance, and output constraint are un-
+changed; only the definition block grows from label
+names (D0) to pillar intent (D1), Recommended
+Disclosures (D2), and criteria (D3).
+C
+Model portfolio
+Table 3 summarises the model portfolio used in the
+prompting experiments.
+D
+Implementation details
+Open-weight
+LLMs
+are
+served
+with
+vLLM 0.19.1 (Kwon et al., 2023) on 4×
+NVIDIA A100 40 GB GPUs.
+GPT-4o and
+GPT-5-mini are queried through the OpenAI
+Chat Completions API with temperature set to
+0. Outputs are parsed against a strict four-label
+format; outputs that fail to parse are marked as
+INVALID. TF-IDF retrieval is implemented with
+scikit-learn defaults, and dense retrieval uses
+all-mpnet-base-v2 sentence embeddings. LoRA
+fine-tuning uses PEFT (Mangrulkar et al., 2022)
+with 4-bit loading, BF16 compute, and gradient
+checkpointing.
+E
+Per-model macro-F1 across the
+definition staircase
+Table 4 reports the full per-model numbers behind
+Figures 6 and 7.
+F
+Case examples for the definition peak
+shift
+Figure 12 shows two Qwen3-32B zero-shot pre-
+dictions on Strategy instances, one from each cor-
+pus, that illustrate the source-dependent definition
+peak from §5.2: on a noisy TCFD-CR narrative
+the model is correct at D1 but routed away by key-
+word cues at D2/D3, while on a TCFD-EX instance
+whose wording closely tracks a Recommended Dis-
+closure the model fails at D1 and recovers from D2
+onwards.
+G
+Similarity-retrieval k × n sweep
+Table 5 reports the full k × n sweep for similarity
+retrieval.
+H
+Per-base LoRA macro-F1
+Table 6 reports the per-base numbers behind Fig-
+ure 10.
+I
+Best macro-F1 per strategy
+Table 7 reports the highest macro-F1 each adap-
+tation strategy reaches on TCFD-CR and TCFD-
+EX, with the champion model in parentheses.
+ClimateBERT-TCFD is included as a fully super-
+vised reference baseline (ClimateBERT fine-tuned
+on TCFD-CR training data; not part of the eleven-
+model prompted portfolio).
+11
+Class
+TCFD-CR (corporate report)
+TCFD-EX (TCFD example)
+Governance
+Report 2019 (SR 2019), as requested by the sharehold-
+ers. The hardcopies will be delivered once they are
+made available to the Company. [...] The environ-
+mental concerns like global warming, deforestation,
+climate change [...] affect every human, animal and
+nation on this planet.
+The ARCGS oversees the implications of sustainable
+development issues for the company under five sus-
+tainability themes, of which one is climate change.
+Strategy
+In October 2017, wildfires started to burn in California
+causing damage to many properties [...] The fires
+have forced many people to be evacuated from their
+homes and neighbourhoods and have continued to
+burn in the early weeks of 2018.
+As climate change progresses, the risk of physical
+damage and profit loss, such as that from floods and
+drought, is expected to increase in the future.
+Risk Mgmt.
+In our view, true sustainable investing cannot be
+achieved by simply voting a proxy, adding a direc-
+tor of sustainability or even divesting from an asset
+class. [. . . ] It requires integration across our products,
+across our product teams and across our entire organi-
+zation.
+Our focus for emerging risks is on reducing the impact
+should an event occur, and on advocacy efforts to
+reduce the likelihood of the risk manifesting.
+Metrics & Targets
+During
+2019,
+the
+Group
+produced
+approx.
+14,059 MWh of electrical energy from renew-
+able sources, 38% of which used for self-consumption
+on site [. . . ] 90% of production comes from renewable
+sources installed in Italy [...]
+Note 1 Targets are from a baseline of 12 months
+to 31 December 2020: Power emissions intensity
+— 321 KgCO2/MWh; Energy absolute emissions —
+75.0 MtCO2.
+Table 2: One example per class from each corpus. TCFD-CR is longer, narrative, and mixes climate content with
+business context; TCFD-EX is short declarative examples. Both items in a row carry the same class label.
+Model
+Size
+Release
+Qwen2.5-7B-Instruct
+7B
+Sep 2024
+Qwen3-8B-FP8
+8B
+Apr 2025
+Qwen3.5-9B
+9B
+Feb 2026
+Qwen3.5-27B-FP8
+27B
+Feb 2026
+Qwen3-32B
+32B
+Apr 2025
+Llama-3.1-8B-Instruct
+8B
+Jul 2024
+Llama-4-Scout
+17B active
+Apr 2025
+Llama-3.3-70B-Instruct
+70B
+Dec 2024
+Ministral-8B-Instruct-2410
+8B
+Oct 2024
+GPT-4o
+–
+May 2024
+GPT-5-mini
+–
+Aug 2025
+Table 3: Model portfolio used in the prompting experi-
+ments.
+12
+Fixed prompt frame used in all four settings
+Task: Classify the following text into one of the TCFD-recommended disclosure categories — the
+one whose pillar intent the instance best matches.
+[Definition block inserted here: D0 / D1 / D2 / D3]
+Paragraph to classify:
+Since 2016 we have been testing the resilience of our portfolio against the scenarios from the IEAs World Energy Outlook
+(WEO) report.
+Respond with EXACTLY one of these four labels and nothing else:
+Governance, Strategy, Risk
+Management, Metrics & Targets.
+Level
+Definition block inserted into the same prompt
+D0
+label names
+Categories:
+• Governance
+• Strategy
+• Risk Management
+• Metrics & Targets
+D1
++ pillar intent
+Categories and Definitions:
+Governance: Disclose the organization’s governance around climate-related risks and opportuni-
+ties.
+Strategy: Disclose the actual and potential impacts of climate-related risks and opportunities on
+the organization’s businesses, strategy, and financial planning where such information is material.
+Risk Management: Disclose how the organization identifies, assesses, and manages climate-
+related risks.
+Metrics & Targets: Disclose the metrics and targets used to assess and manage relevant climate-
+related risks and opportunities where such information is material.
+D2
++ 11 RDs
+D1, plus the official Recommended Disclosures under each pillar.
+For example, under Strategy:
+• Describe the climate-related risks and opportunities identified over the short, medium, and long
+term.
+• Describe the impact of climate-related risks and opportunities on businesses, strategy, and
+financial planning.
+• Describe the resilience of the organization’s strategy, taking into consideration different climate-
+related scenarios, including a 2◦C or lower scenario.
+D3
++ 27 criteria
+D2, plus criteria distilled from the TCFD implementation guidance.
+For example, under Strategy:
+• 03-01: Time horizon(s) for climate-related risks and opportunities.
+• 04-01: Impact on businesses or strategy.
+• 04-02: Impact on financial planning.
+• 05-02: Climate-related scenarios and associated time horizon(s).
+• 05-03: Impact of climate-related scenarios on the strategy.
+• 05-05: Impact of climate-related scenarios on financial planning.
+Across all pillars, D3 contains 27 criteria.
+Figure 11: A single prompt instance under the definition staircase. The frame, target instance, and output constraint
+are fixed; only the inserted definition block grows from D0 to D3.
+13
+D0
+D1
+D2
+D3
+Model
+CR
+EX
+CR
+EX
+CR
+EX
+CR
+EX
+Qwen2.5-7B
+0.450
+0.575
+0.482
+0.569
+0.514
+0.630
+0.439
+0.593
+Qwen3-8B
+0.514
+0.547
+0.500
+0.616
+0.524
+0.683
+0.505
+0.646
+Qwen3.5-9B
+0.597
+0.641
+0.642
+0.661
+0.613
+0.673
+0.577
+0.677
+Qwen3.5-27B
+0.591
+0.657
+0.643
+0.678
+0.653
+0.674
+0.638
+0.693
+Qwen3-32B
+0.601
+0.623
+0.640
+0.661
+0.625
+0.683
+0.571
+0.693
+Llama-3.1-8B
+0.514
+0.572
+0.525
+0.605
+0.491
+0.611
+0.532
+0.629
+Llama-4-Scout
+0.555
+0.623
+0.566
+0.670
+0.584
+0.673
+0.605
+0.684
+Llama-3.3-70B
+0.595
+0.599
+0.597
+0.623
+0.633
+0.660
+0.571
+0.682
+Ministral-8B
+0.559
+0.576
+0.576
+0.631
+0.532
+0.639
+0.471
+0.612
+GPT-4o
+0.515
+0.618
+0.608
+0.679
+0.627
+0.700
+0.571
+0.707
+GPT-5-mini
+0.589
+0.657
+0.657
+0.679
+0.637
+0.703
+0.613
+0.687
+Mean
+0.553
+0.608
+0.585
+0.643
+0.585
+0.666
+0.554
+0.664
+Table 4: Per-model zero-shot macro-F1 across the four definition levels, on TCFD-CR test (in-source) and TCFD-EX
+(cross-source). Bold marks each row’s best level per setting; the mean row averages over the eleven prompted
+models.
+Case A · TCFD-CR Strategy — D1 wins
+Case B · TCFD-EX Strategy — D2 onwards wins
+rec_test idx 119 · 401 chars · Qwen3-32B zero-shot
+disc idx 249 · 134 chars · Qwen3-32B zero-shot
+“In addition, the Queensland Government has established an
+$8.4 million CarbonPlus Fund administered by the depart-
+ment. The fund will enable greater participation by Aborigi-
+nal landholders in carbon markets, offset carbon emissions
+from the Queensland Government’s car fleet for two years,
+and incentivise carbon farming projects in Queensland by
+valuing environmental, social and cultural co-benefits.”
+“Since 2016 we have been testing the resilience of our portfolio
+against the scenarios from the IEAs World Energy Outlook
+(WEO) report.”
+D1 (4 pillars)
+Strategy ✓
+D2 (11 RDs)
+Metrics & Targets ×
+D3 (27 criteria) Metrics & Targets ×
+D1 (4 pillars)
+Risk Management ×
+D2 (11 RDs)
+Strategy ✓
+D3 (27 criteria) Strategy ✓
+Discursive narrative about a strategic carbon-investment fund.
+D1 recognises the strategic intent; D2 and D3 are pulled
+by the dense “carbon” vocabulary and route to Metrics &
+Targets via keyword matching.
+Near-verbatim paraphrase of TCFD’s Strategy Recom-
+mended Disclosure-c. D1’s abstract pillar text routes to
+Risk Management on the word “resilience”; D2 contains the
+matching RD wording and maps the example directly, with
+D3 retaining the criterion.
+Figure 12: Two Qwen3-32B zero-shot predictions illustrating the definition peak-shift mechanism. Case A: a noisy
+TCFD-CR instance is correct at D1 but mis-routed at D2/D3 by keyword cues. Case B: a TCFD-EX instance fails at
+D1 and succeeds from D2 onwards because the matching Recommended Disclosure wording is present at that level.
+14
+macro-F1
+∆vs zero-shot (pp)
+Configuration
+CR
+EX
+CR
+EX
+Zero-shot
+0.585
+0.643
+—
+—
+Random k8, n2
+0.614
+0.666
++2.9
++2.3
+TF-IDF k3, n2
+0.645
+0.643
++6.0
++0.0
+TF-IDF k3, n3
+0.654
+0.642
++6.9
+-0.1
+TF-IDF k5, n2
+0.651
+0.650
++6.5
++0.7
+TF-IDF k5, n3
+0.650
+0.642
++6.5
+-0.1
+TF-IDF k8, n2
+0.639
+0.654
++5.3
++1.1
+TF-IDF k8, n3
+0.651
+0.648
++6.6
++0.5
+Dense k3, n2
+0.646
+0.648
++6.0
++0.5
+Dense k3, n3
+0.645
+0.651
++6.0
++0.8
+Dense k5, n2
+0.638
+0.650
++5.3
++0.7
+Dense k5, n3
+0.648
+0.647
++6.3
++0.4
+Dense k8, n2
+0.642
+0.647
++5.7
++0.4
+Dense k8, n3
+0.652
+0.648
++6.7
++0.5
+Table 5: k × n sweep for similarity retrieval: mean
+macro-F1 over the eleven prompted models for each
+fixed configuration, ∆vs. zero-shot. k caps the total
+retrieved examples, n the per-class count; unlike Table 1,
+configurations are not tuned per model.
+Base D1
+LoRA P0
+LoRA D1
+Base
+CR
+EX
+CR
+EX
+CR
+EX
+Llama-3.1-8B
+0.525
+0.605
+0.733
+0.666
+0.722
+0.670
+Qwen3-8B
+0.500
+0.616
+0.710
+0.655
+0.705
+0.662
+Qwen3.5-9B
+0.642
+0.661
+0.703
+0.652
+0.717
+0.673
+Qwen3-32B
+0.640
+0.661
+0.707
+0.663
+0.730
+0.687
+Mean
+0.577
+0.636
+0.713
+0.659
+0.718
+0.673
+Table 6: Per-base LoRA macro-F1, 3-seed means. Base
+D1: zero-shot prompted, no LoRA. LoRA P0: adapter
+evaluated with the bare training prompt. LoRA D1:
+same adapter, D1 prompt swapped in at inference time.
+Bold marks each row’s best state per setting.
+Method
+TCFD-CR
+TCFD-EX
+ClimateBERT-TCFD (supervised)
+0.710
+0.648
+Zero-shot + definitions (best D)
+0.657 (GPT-5-mini, D1)
+0.707 (GPT-4o, D3)
+Random few-shot (k=8, n=2)
+0.689 (Qwen3.5-27B)
+0.705 (Qwen3.5-27B)
+TF-IDF retrieval (best-on-CR)
+0.718 (Llama-3.3-70B)
+0.713 (Qwen3.5-27B)
+Dense retrieval (best-on-CR)
+0.714 (Qwen3.5-9B)
+0.689 (Qwen3.5-27B)
+LoRA + P0 (training prompt)
+0.733 (Llama-3.1-8B)
+0.666 (Llama-3.1-8B)
+LoRA + D1 (D1 swapped in)
+0.730 (Qwen3-32B)
+0.687 (Qwen3-32B)
+Table 7: Best macro-F1 per strategy on TCFD-CR (in-
+source) and TCFD-EX (cross-source); champion model
+in parentheses. Bold marks the overall champion per
+setting.
+15

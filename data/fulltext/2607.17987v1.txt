@@ -1,0 +1,1531 @@
+Chiral Analysis of Smart Contracts: Detecting Vulnerabilities from
+Relational Inconsistencies Across Business Paths
+Yue Xue
+Independent Researcher
+Abstract
+Smart-contract vulnerabilities often arise not from a sin-
+gle obviously unsafe statement, but from inconsistencies
+between business operations that should correspond to
+one another. Examples include single and batch entry
+points, direct and adapter-based flows, quote and execu-
+tion paths, and inverse operations such as buy and sell.
+Existing analyzers are effective for many local syntactic
+and data-flow patterns, but they have limited support for
+vulnerabilities whose oracle is relational: whether two se-
+mantically paired paths preserve the same guards, state
+transitions, value flows, and failure behavior.
+This paper introduces chiral analysis, a relational
+model for detecting smart-contract vulnerabilities across
+corresponding business paths.
+The key insight is to
+treat a pair of paths as an implicit specification for each
+other.
+We formalize a chiral relation as a static ana-
+logue of a metamorphic relation, derive relation-induced
+obligations over guards, actors, state, value, ordering,
+failure behavior, and external interactions, and report
+a vulnerability when a violated obligation has security
+impact.
+We implement this idea in ChiralDetector, a
+prototype pipeline that extracts Solidity business paths,
+ranks candidate path pairs using static facts, applies
+LLM-based semantic filtering and detection, and vali-
+dates/deduplicates resulting findings.
+In a preliminary evaluation on the Phi protocol, Chi-
+ralDetector reduced 3,217 statically ranked path pairs
+to 1,643 semantic candidates, produced 101 deduplicated
+finding groups, and retained 44 strict-validator positives
+that manually collapsed to 13 effective unique issues.
+These findings include high-impact relation violations
+such as cross-art Merkle proof reuse, fee unit mismatches,
+public state-tracking helpers, and refund propagation
+gaps. The results suggest that chiral analysis can expose
+bug classes that are difficult to express as single-function
+rules, while providing a structured way to control LLM
+cost and validator precision.
+Keywords:
+smart contracts, vulnerability detection,
+program analysis, inconsistency detection, large language
+models
+1
+Introduction
+Smart-contract security analysis increasingly needs to
+reason about business logic rather than isolated unsafe
+statements.
+A decentralized application often exposes
+several paths for the same underlying operation: a di-
+rect claim and an adapter claim, a single trade and a
+batch trade, a view quote and an execution path, or a
+buy path and a sell path.
+These paths are not neces-
+sarily syntactically similar, and they may cross different
+contracts or helper functions. However, they often share
+a business invariant: the same actor should be authorized,
+the same fee should be charged, the same state should be
+consumed, or the reverse path should undo a compatible
+state transition.
+Existing smart-contract analyzers are strong at local
+vulnerability templates, taint-style dependencies, and
+syntactic or intermediate-representation facts [8, 7, 3].
+These techniques are valuable, but many business-logic
+bugs do not have a single local syntactic signature. For
+example, whether an adapter traps a refund depends on
+comparing the adapter path with the core path. Whether
+a batch operation preserves single-operation semantics
+depends on comparing per-item checks, value propaga-
+tion, and failure behavior. Whether a quote is safe de-
+pends on comparing it against the execution path it pre-
+dicts. In these cases, the missing oracle is relational: the
+bug exists because two corresponding paths disagree.
+Software-engineering research has long used inconsis-
+tency as a source of bug oracles. Rule-mining systems in-
+fer likely programming rules from repeated code facts and
+flag violations [2, 5].
+Clone and porting-bug detectors
+compare corresponding code regions to detect suspicious
+differences [4, 1]. Metamorphic testing defines relations
+between multiple executions when a single exact oracle is
+unavailable [6]. These ideas suggest a natural framing for
+smart contracts: instead of asking whether one function
+is locally unsafe, we can ask whether two business paths
+that should correspond violate their induced relational
+obligations.
+This paper proposes chiral analysis. We call two paths
+chiral when they are semantically paired but not required
+to be syntactically identical.
+The term is intended to
+capture business operations that are mirror-like, alter-
+native, wrapper/core, single/batch, lifecycle-related, or
+preview/execution-related. A chiral pair induces obliga-
+1
+arXiv:2607.17987v1  [cs.SE]  20 Jul 2026
+tions over semantic dimensions such as guards, actors,
+state updates, asset flows, ordering, failure behavior, and
+external dependencies. A chiral vulnerability is a viola-
+tion of such an obligation with a feasible security or pro-
+tocol impact.
+ChiralDetector operationalizes this idea for Solidity
+projects. It first extracts externally reachable business
+paths from a call graph and summarizes each path us-
+ing static facts over storage reads/writes, value transfers,
+modifiers, visibility, external calls, and entry types. It
+then ranks path pairs by shared state and call-footprint
+overlap to avoid exhaustive semantic comparison. The
+remaining pairs are passed through a low-cost semantic
+filter and a relation-aware detector. Finally, a strict val-
+idator attempts to falsify each finding against the source
+code, and a deduplication step merges reports that share
+the same root cause and likely fix.
+Our preliminary results on the Phi protocol show
+that chiral analysis can find concrete inconsistencies that
+are not naturally expressed as single-function detectors.
+From 3,217 static candidate pairs, ChiralDetector kept
+or marked 1,643 pairs for semantic detection. The detec-
+tor produced 201 cleaned finding/suspicious candidates,
+which were locally deduplicated to 101 groups. A strict
+validator retained 44 positives, and manual root-cause
+deduplication reduced these to 13 effective unique issues.
+These include cross-art Merkle proof reuse, fee-unit con-
+fusion, unauthorized public tracking helpers, refund prop-
+agation errors, and single/batch guard asymmetries.
+This paper makes the following contributions:
+• We introduce chiral analysis, a relational vulnerabil-
+ity model for smart contracts that treats correspond-
+ing business paths as implicit specifications for each
+other.
+• We formalize chiral relations as static analogues of
+metamorphic relations and define relation-induced
+obligations over seven semantic dimensions.
+• We design ChiralDetector, a path-centric detection
+pipeline that combines static pair reduction, LLM
+semantic judgment, strict validation, and root-cause
+deduplication.
+• We provide a preliminary evaluation on a real So-
+lidity protocol, showing that the model identifies 13
+manually deduplicated issues from relation-level in-
+consistencies.
+1.1
+Scope and Non-Goals
+This draft is written as a technical report rather than
+a compact conference submission. Our immediate goal
+is to make the problem formulation, detection logic, and
+early empirical evidence explicit enough for public discus-
+sion and replication. We therefore include design choices,
+negative cases, validation logic, and future benchmark
+plans that would normally be compressed or moved to
+an appendix in an eight-to-ten-page venue format.
+The scope of the current prototype is Solidity source
+analysis. We focus on vulnerabilities whose evidence de-
+pends on comparing two or more business paths.
+We
+do not aim to replace local detectors for reentrancy,
+unchecked calls, arithmetic mistakes, or access-control
+bugs when those bugs have clear single-function signa-
+tures. Instead, chiral analysis targets the cases where a
+local detector lacks an oracle: the suspicious behavior is
+only suspicious because a related path handles the same
+business object differently.
+We also do not claim that every chiral mismatch is
+exploitable. Some mismatches are documentation bugs,
+low-severity integration hazards, or protocol-design in-
+consistencies.
+The model therefore separates four lev-
+els: candidate relation, suspicious mismatch, validated
+vulnerability, and root-level finding.
+This separation
+is central to the method because relation mining is in-
+tentionally recall-oriented while final reporting must be
+precision-oriented.
+2
+Motivating Example
+This section motivates chiral analysis using representa-
+tive examples from our preliminary Phi study.
+The
+purpose is not to claim that every inconsistency is ex-
+ploitable, but to show why the relevant oracle lives across
+paths.
+2.1
+Direct and Batch Claim Paths
+Consider a protocol that exposes both a direct claim and
+a batch claim. A local analyzer may inspect each func-
+tion independently and find no obvious unsafe primitive.
+However, the two paths induce a single/batch relation: a
+batch claim should behave like repeated direct claims un-
+der the protocol’s declared atomicity and refund model.
+If the direct path recomputes a mint fee and refunds ex-
+cess payment, while the batch dispatcher forwards per-
+item values in a way that leaves excess ETH in the fac-
+tory, the bug is visible only by comparing the two busi-
+ness paths. The violated obligation is a value-flow obli-
+gation: equivalent claim operations should preserve the
+same payer, charged amount, and refund recipient.
+2.2
+Quote and Execution Paths
+Quote functions are another common source of relational
+oracles. A view path often predicts the result of an ex-
+ecution path, and users or integrators rely on that pre-
+diction to make economic decisions. If a boundary case
+is handled differently in the quote path and the execu-
+tion path, the local code may still look intentional. The
+problem emerges when the preview/execution relation is
+applied: both paths should use compatible price sources,
+fees, rounding directions, and boundary conditions.
+A
+2
+mismatch is not always a high-severity vulnerability, but
+it is a protocol-relevant inconsistency that should be re-
+ported and triaged.
+2.3
+Why This Is Not Clone Detection
+The paired paths in these examples are not necessarily
+clones. They may have different entry points, wrappers,
+helper calls, or path lengths. They may also be seman-
+tically opposite rather than similar, as in buy/sell or
+mint/burn.
+Chiral analysis therefore cannot rely only
+on syntactic similarity.
+It needs a program represen-
+tation that preserves call-graph structure and seman-
+tic facts, and a relation language that can express why
+two different-looking paths should nevertheless constrain
+each other.
+2.4
+A Concrete Relation Failure
+The clearest way to understand the model is to view a
+pair as a small relational specification. Suppose a factory
+exposes a direct claim path and an NFT adapter exposes
+a wrapper claim path.
+The direct path receives ETH
+from the user, computes the required minting fee, mints
+the asset, and refunds excess value to the caller.
+The
+wrapper path receives ETH from the same user-facing
+call, forwards value to the factory, and then relies on
+the factory’s refund behavior. A wrapper/core relation
+says that the adapter should preserve the identities of
+payer, receiver, and refund recipient unless the protocol
+intentionally documents a different custody model.
+The violation is not “the adapter calls the factory” or
+“the factory refunds ETH”. Each local behavior can be
+reasonable in isolation. The violation is that the compo-
+sition changes the sink of excess value: the refund may
+return to an intermediate contract rather than to the
+original user-facing payer. In the notation of this paper,
+the actor obligation fails because the refund actor in [[p]]
+is not preserved by the wrapper transformation TI, TO in
+[[q]]. This kind of finding is hard to express as a single
+syntactic rule, but natural as a failed chiral obligation.
+2.5
+A Non-Bug Chiral Mismatch
+Chiral analysis must also tolerate benign asymmetry. A
+batch path may intentionally be all-or-nothing while the
+corresponding single path succeeds or fails one item at a
+time. A preview function may intentionally be conserva-
+tive rather than exactly equal to execution. A privileged
+rescue path may bypass ordinary lifecycle checks because
+its purpose is emergency recovery. These cases should not
+be reported as vulnerabilities merely because two paths
+differ.
+For this reason, every relation type carries its own ex-
+pected transformation rather than a universal equality
+check. A single/batch relation requires an explicit atom-
+icity model. A preview/execute relation allows conserva-
+tive rounding. A lifecycle relation allows phase-specific
+guards, but requires that later phases not invalidate the
+state assumptions created by earlier phases. This typed
+interpretation is the main difference between chiral anal-
+ysis and a naive inconsistency detector.
+3
+Chiral Vulnerability Model
+3.1
+Program and Path Semantics
+We model a Solidity project as a labeled transition sys-
+tem:
+M = (Σ, I, O, →),
+(1)
+where Σ is the set of blockchain states, I is the set of
+transaction inputs, O is the set of observable outputs,
+and →is the execution relation. The state includes con-
+tract storage, balances, block context, and in-scope exter-
+nal contract state. Inputs include caller, value, calldata,
+signatures, and environmental assumptions. Outputs in-
+clude return values, reverts, logs, ETH/token transfers,
+and external calls.
+A business path p is a semantically meaningful call-
+graph slice:
+p = (entry, nodes, edges, cond, span).
+(2)
+The path may be a single function, an entry-to-leaf chain,
+a branch segment, a wrapper-to-core path, or a small
+path bundle. Each path denotes a partial transition:
+[[p]] : Σ × I ⇀Σ × O.
+(3)
+The transition is partial because the path may revert or
+be infeasible under a given input.
+For static detection, ChiralDetector approximates a
+path by a semantic fact summary:
+Φ(p) = (A, G, R, W, ∆S, ∆B, X, L, Ord),
+(4)
+where A captures actors and roles; G captures guards
+and preconditions; R and W are storage read/write sets;
+∆S and ∆B approximate state and asset transitions; X
+captures external calls; L captures logs, errors, and re-
+verts; and Ord captures ordering constraints such as
+check-effect-interaction structure.
+The summary is deliberately not a full formal seman-
+tics of the EVM. Full equivalence checking over smart-
+contract paths is too expensive and often unnecessary
+for audit triage. Instead, Φ(p) is a relation-oriented ab-
+straction: it preserves the facts that commonly define
+business invariants. For example, a path summary keeps
+whether a state flag is consumed, whether an array index
+is aligned with another array, whether ETH is refunded
+to a caller or to an intermediate contract, and whether a
+non-reentrant guard is present before an external interac-
+tion. These facts are sufficient to ask whether two paths
+obey an expected relation even when the exact arithmetic
+or all path conditions are not fully solved.
+3
+3.2
+Relation Granularity
+The unit of a chiral relation is a business path, not nec-
+essarily a function. This choice matters because smart
+contracts frequently distribute one operation across wrap-
+pers, internal helpers, library calls, and cross-contract
+dispatchers. A function-level detector can miss a wrap-
+per/core relation because the wrapper has little logic and
+the core function looks locally correct. Conversely, enu-
+merating every subpath is infeasible because the num-
+ber of possible segments grows rapidly with call-graph
+branching.
+We use three practical granularities.
+First, a single-
+function path is retained when the function modifies
+state, transfers value, affects authorization, or serves as a
+retained view/quote for a state-changing path. Second, a
+straight-line entry-to-leaf path is retained as a complete
+business flow when intermediate calls do not branch into
+different function calls. Third, a fork segment is retained
+when a function-call branch introduces multiple down-
+stream paths. The third case is important because many
+relation bugs arise at the boundary of a branch: one
+branch applies a check or settlement step and another
+branch omits it.
+3.3
+Chiral Relations
+A chiral relation is a static relational oracle over two busi-
+ness paths:
+Rχ = (p, q, τ, Pre, TI, TΣ, TO, Obl).
+(5)
+Here p and q are corresponding business paths, τ is the
+relation type, Pre is the precondition under which the
+relation is expected to hold, TI maps inputs for one side
+to corresponding inputs for the other side, TΣ relates
+initial states, TO defines the expected relation over final
+states and outputs, and Obl is a set of static obligations
+that approximate TO.
+This definition is intentionally close to metamorphic
+testing, but its usage is static and security-oriented. In
+metamorphic testing, a source input is transformed into
+a follow-up input and the two executions should satisfy
+an output relation. In chiral analysis, a source path is
+related to a follow-up path, and the two business opera-
+tions should satisfy a relation over guards, state, value,
+and observable behavior. The relation can be equality-
+like, inverse-like, conservative, or wrapper-preserving de-
+pending on τ.
+The relation also has a confidence level. Some pairs
+are explicit: names, documentation, or direct dispatch
+show that they implement the same operation.
+Other
+pairs are implicit: they touch the same storage variables
+and participate in the same lifecycle but have no naming
+cue. The current prototype treats relation discovery as
+a candidate generation problem, not a proof obligation.
+A candidate pair may be rejected later if the validator
+cannot justify why the two paths should constrain each
+other.
+Table 1 summarizes the relation types used by Chi-
+ralDetector.
+The table is intentionally typed:
+a sin-
+gle/batch pair should not be checked with the same equal-
+ity rule as an inverse buy/sell pair or a wrapper/core pair.
+3.4
+Relation-Induced Obligations
+An obligation is a checkable approximation of a chiral
+relation:
+o = (d, fp, rel, fq, pol, sev),
+(6)
+where d is a semantic dimension, fp and fq are facts ex-
+tracted from the two paths, rel is the expected relation
+between the facts, pol indicates whether the observed re-
+lation satisfies or violates the obligation, and sev is a
+severity hint.
+We use seven obligation dimensions. Guard obligations
+compare modifiers, require checks, pause checks, dead-
+line checks, nonce checks, eligibility checks, and signature
+requirements. Actor obligations compare caller, signer,
+payer, receiver, beneficiary, and refund identities. State
+obligations compare read/write sets, mapping keys, flags,
+counters, checkpoints, and state deltas. Value obligations
+compare units, fees, rewards, transfers, mint/burn behav-
+ior, refunds, and dust handling. Order obligations com-
+pare settlement timing and check-effect-interaction order.
+Failure obligations compare revert behavior, partial suc-
+cess semantics, errors, and events. External obligations
+compare oracle usage, callbacks, cross-contract calls, up-
+grade/config dependencies, and trust boundaries.
+3.5
+From Mismatch to Vulnerability
+A mismatch alone is not a vulnerability. A reportable
+chiral vulnerability requires a violated obligation and a
+witness with protocol-relevant impact:
+v = (χ, o, w, Impact).
+(7)
+The witness has the form:
+w = (σ, ip, iq, pc, evidence),
+(8)
+where pc is the path condition and evidence links the
+violation to source locations.
+Informally, a finding is
+valid when Pre(σ, ip, iq) holds, both path executions are
+feasible or their failure behavior is comparable, the ex-
+pected output/state relation TO is violated, and the vio-
+lation can cause loss, unauthorized state change, denial
+of service, griefing, accounting error, or another protocol-
+relevant impact.
+This distinction is important for precision.
+Chiral
+analysis produces candidates, suspicious mismatches, val-
+idated vulnerabilities, and root-level findings as separate
+artifacts. This separation follows prior SE practice: in-
+consistency signals are useful bug oracles, but not every
+inconsistency is a confirmed bug.
+4
+Table 1: Chiral relation types and their induced obligations.
+Relation type
+Typical shape
+Example obligations
+Similar flow
+Alternative ways to perform the
+same action
+Equivalent
+authorization,
+eligibility,
+nonce/deadline
+checks, consumed flags, fees, rewards, events
+Inverse flow
+Opposite operations over the same
+state space
+Inverse or conservation-preserving state/value deltas, com-
+patible fees, checkpoints, cooldowns, cleanup
+Single/batch
+Batch
+path
+corresponds
+to
+re-
+peated single path
+Per-item guard parity, array alignment, per-item state
+writes, explicit failure atomicity, equivalent settlement
+Wrapper/core
+Adapter, router, or proxy exposes
+a core path
+Caller/payer/receiver/refund preservation, unit preserva-
+tion, no weakened checks, no trapped dust/rewards
+Branch symmetric
+Symmetric branches inside a func-
+tion family
+Correct paired variables, caps, prices, decimals, storage
+keys, events, external calls
+Lifecycle
+Create/update/delete
+or
+re-
+quest/execute/claim phases
+Compatible creation and update constraints, cleanup of
+introduced state, valid state-machine transitions
+Shared settlement
+Multiple entries converge on a
+helper or accumulator
+Consistent settlement timing, indexes, reserves, reward
+debt, claim flags, and canonical helper usage
+Preview/execute
+View path predicts an execution
+path
+Compatible price source, fee model, rounding, boundary
+handling, conservative preview semantics
+Table 2: Obligation dimensions used to turn a chiral relation into checkable evidence.
+Dimension
+Compared facts
+Typical violation question
+Guard
+Modifiers,
+require
+checks,
+pause/deadline/nonce/signature
+checks
+Does one side admit an input that the paired side rejects for
+the same business object?
+Actor
+Caller, signer, payer, receiver, benefi-
+ciary, refund sink
+Does a wrapper, batch dispatcher, or inverse path silently
+change who pays, receives, or is authorized?
+State
+Read/write sets, mapping keys, flags,
+counters, checkpoints
+Does one path skip, delay, or corrupt a state transition re-
+quired by the paired path?
+Value
+Units,
+fees,
+rewards,
+refunds,
+mint/burn, transfers
+Are economically equivalent paths using incompatible units,
+fee bases, rounding, or settlement recipients?
+Order
+Check/effect/interaction order, set-
+tlement timing
+Does one side expose a race, callback, or stale-state window
+absent from the paired side?
+Failure
+Revert
+behavior,
+partial
+success,
+events, custom errors
+Does a batch or wrapper path hide failures, emit incompatible
+events, or violate declared atomicity?
+External
+Oracles,
+callbacks,
+cross-contract
+calls, upgrade/config dependencies
+Does one side rely on a weaker trust boundary or stale depen-
+dency than its pair?
+3.6
+Taxonomy of Chiral Vulnerabilities
+The vulnerability taxonomy is two-dimensional. The first
+axis is the relation type τ, which describes why two paths
+should correspond. The second axis is the violated obliga-
+tion dimension d, which describes what kind of security-
+relevant mismatch occurred. A reportable class can there-
+fore be named as a pair such as single/batch value-flow
+violation, wrapper/core actor-binding violation, inverse-
+flow state-delta violation, or preview/execute fee-model
+violation.
+This two-axis structure avoids an overly long flat list
+of bug classes. It also helps reviewers and auditors un-
+derstand generality.
+For example, “refund trapped in
+adapter” and “reward trapped in router” differ in pro-
+tocol details but share a wrapper/core actor/value vio-
+lation. “Batch claim does not refund excess value” and
+“batch trade delays lock validation” differ in impact but
+share a single/batch relation.
+This grouping supports
+both detector design and root-cause deduplication.
+We use three severity-facing labels in the current proto-
+type. A finding has a concrete violated obligation, source
+evidence, and plausible impact. A suspicious candidate
+has a real relation and mismatch but incomplete impact
+evidence. A discussion item identifies a design inconsis-
+tency that may be intentional, low severity, or dependent
+on protocol policy. The validator can reject any of these
+labels if the relation itself is unjustified or if the claimed
+impact is contradicted by the source code.
+4
+Method
+4.1
+Overview
+ChiralDetector detects chiral vulnerabilities in four
+stages: path extraction, candidate reduction, semantic
+detection, and validation/deduplication. Figure 1 shows
+the pipeline. The design goal is recall-first candidate dis-
+covery followed by precision-oriented validation. This di-
+5
+vision is necessary because exhaustive pairwise LLM judg-
+ment over all paths is costly, while purely static rules are
+too brittle for semantically opposite or wrapper-shaped
+relations.
+The pipeline is designed around a simple observation:
+static analysis is cheap enough to run broadly, while LLM
+semantic judgment is expressive enough to recognize busi-
+ness relations but too costly to apply without structure.
+ChiralDetector therefore uses static analysis to preserve
+candidate recall and reduce the pair space, then uses the
+LLM only on concrete path pairs with explicit source evi-
+dence. The final validator is deliberately stricter than the
+detector, because the detector’s job is to surface possible
+relational bugs while the validator’s job is to protect the
+final report from overclaiming.
+4.2
+End-to-End Algorithm
+The end-to-end algorithm is shown in Algorithm 3. The
+input is a Solidity project and a budget configuration.
+The output is a set of root-level findings with duplicate
+candidate identifiers retained for auditability.
+4.3
+Business Path Extraction
+ChiralDetector first constructs a project-level call graph
+from Solidity source code. The graph includes public and
+external entries, internal helper calls, and cross-contract
+calls that can be resolved statically. The unit of analysis
+is not limited to one function. We include single-function
+paths, entry-to-leaf chains, and branch segments around
+function-call forks because each of these can represent a
+business operation boundary.
+To avoid an unbounded path explosion, the current
+prototype focuses on externally reachable business paths
+and relation-relevant segments. A straight-line call chain
+without function-call branching is retained as one path.
+When a path branches into multiple function-call succes-
+sors, ChiralDetector retains the fork segment and each
+reachable branch path because relation violations often
+occur at the point where one branch applies a guard, fee,
+or state update that another branch omits. This design
+preserves middle segments without enumerating every ar-
+bitrary subpath.
+4.4
+Path Fact Summarization
+For each path, ChiralDetector extracts a compact fact
+summary.
+Static facts include function visibility, mu-
+tability, modifiers, require-like checks, storage reads
+and writes, mapping keys when recoverable, ETH/token
+transfers, external calls, events, custom errors, and call
+targets. The summary is intentionally lossy but relation-
+oriented:
+it keeps facts that can support obligations
+across paired paths.
+View functions are handled selectively. A pure query
+that is not called by a state-modifying or state-dependent
+path is usually not relation-relevant.
+A view path is
+retained when it predicts execution behavior, partici-
+pates in price/fee computation, or is called by a state-
+modifying path.
+This rule keeps preview/execute and
+helper/core relations while removing unrelated read-only
+utilities.
+4.5
+Candidate Pair Reduction
+Given n retained paths, exhaustive semantic comparison
+requires O(n2) pair judgments. ChiralDetector reduces
+this space with a static ranker before invoking an LLM.
+The ranker scores two paths using shared storage foot-
+print, overlapping external calls, related entry names,
+common helper usage, actor/value-flow similarity, and
+relation-shape hints such as single/batch or wrapper/core
+naming. The ranker is not a final classifier; it only pri-
+oritizes pairs whose facts suggest a possible relational
+oracle.
+The current prototype uses a conservative strategy: it
+prefers ranking and budgeted cutoffs over hard deletion
+when a signal is uncertain. This is important because
+chiral pairs may be opposite rather than syntactically
+similar. For example, buy/sell paths may have inverse
+state deltas and different names but still touch the same
+supply, balance, fee, and timestamp state.
+The ranker is a weighted sum over interpretable fea-
+tures:
+score(p, q) =
+X
+i
+λifi(Φ(p), Φ(q)).
+(9)
+Important
+features
+include
+shared
+write
+variables,
+read/write overlap, common external callees, common in-
+ternal helpers, relation-name hints, actor/value-flow over-
+lap, and lifecycle-object overlap. The weights in the pro-
+totype are heuristic rather than learned. This is accept-
+able for the current stage because the ranker is used to
+prioritize LLM work, not to make final vulnerability de-
+cisions. In a larger benchmark, these weights should be
+tuned against held-out projects and reported as an abla-
+tion.
+4.6
+Semantic Filtering and Detection
+The LLM stage has two tasks. The semantic filter de-
+cides whether two paths plausibly form a chiral relation
+and assigns a relation type. It is asked to keep both sim-
+ilar and opposite relations, and to avoid rejecting a pair
+merely because path lengths differ. The detector then
+asks whether the relation induces a violated obligation
+with concrete source evidence and impact. The prompt
+emphasizes that a report should identify the relation, the
+expected obligation, the observed mismatch, the source
+evidence, and the impact thesis.
+This division reduces cost compared with asking for
+full vulnerability analysis on every static pair.
+It also
+makes failures easier to inspect: a false negative can be
+attributed either to pair recall, semantic relation recogni-
+tion, or vulnerability judgment. In our implementation,
+6
+Solidity
+project
+Call graph and
+business paths
+Path fact
+summaries
+Static pair
+ranking
+LLM semantic
+filter
+Relation-aware
+detection
+Strict validation
+and dedup
+Root-level
+findings
+Figure 1: ChiralDetector pipeline.
+Static analysis reduces the pair space before LLM-based semantic judgment;
+validation and deduplication separate candidate mismatches from root-level findings.
+Table 3: High-level ChiralDetector algorithm.
+Input: Solidity project P, relation budget B, validator budget V
+Output: root-level findings F
+1. Parse contracts and build a project-level call graph G.
+2. Extract retained business paths P from external entries, single functions, straight-line chains, and fork segments.
+3. Compute path summaries Φ(p) for each p ∈P.
+4. Generate candidate pairs C = {⟨p, q⟩| p, q ∈P, p̸ = q} and score them using static relation features.
+5. Select the top-ranked or budget-feasible pairs CB without deleting uncertain high-recall signals too early.
+6. Ask the semantic filter to classify whether each pair in CB forms a plausible chiral relation and to assign relation type
+τ.
+7. For kept pairs, ask the detector to identify violated obligations, evidence, and impact.
+8. Run strict validation on detector positives; reject reports whose relation, evidence, or impact does not survive source-
+level falsification.
+9. Deduplicate validated reports by root cause and likely fix; return root-level findings F.
+both stages are executed with a low-cost coding-agent
+model and can be parallelized across independent pairs.
+The semantic filter is intentionally relation-first.
+It
+does not ask “is there a bug?” as the first question. In-
+stead, it asks whether the pair has a plausible business
+correspondence and what type of correspondence it is.
+This matters because a model can miss inverse or wrap-
+per relations when prompted only for similarity. The fil-
+ter therefore explicitly allows pairs with different starts,
+different path lengths, different function names, and op-
+posite economic directions.
+The detector is obligation-first. Given a kept relation,
+it asks which obligation would be expected under that
+relation type and whether the source violates it.
+The
+detector must name the relation, the expected behavior,
+the observed divergence, the source evidence, and the
+impact thesis.
+This prompt structure is a lightweight
+way to force the model to expose its oracle rather than
+merely produce a vulnerability-sounding conclusion.
+4.7
+Prompt Contracts
+We treat prompts as contracts rather than informal in-
+structions.
+The semantic-filter contract requires four
+fields:
+relation verdict, relation type, short rationale,
+and uncertainty.
+The detection contract requires six
+fields: pair identity, relation type, violated obligation, ev-
+idence, impact, and confidence. The validation contract
+is falsification-first: it asks whether the relation is justi-
+fied, whether the cited evidence exists, whether another
+code path invalidates the thesis, and whether the impact
+remains after considering protocol context.
+This contract style gives the pipeline inspectable fail-
+ure modes.
+If the semantic filter rejects a true pair,
+the failure is a relation-recognition miss. If the detector
+keeps a real relation but invents impact, the failure is an
+obligation-to-impact miss. If the strict validator rejects
+a true issue because it overlooks evidence, the failure is
+a validation false negative.
+These distinctions are use-
+ful for improving the system because each stage can be
+debugged independently.
+4.8
+Validation and Root-Cause Dedupli-
+cation
+The detector output is intentionally recall-oriented. Chi-
+ralDetector therefore applies a stricter validator that at-
+tempts to falsify each finding against the full source
+context. The validator checks whether the pair is real,
+whether cited code evidence exists, whether the expected
+relation is justified, whether an alternate code path in-
+validates the thesis, and whether the impact survives a
+skeptical reading.
+Finally, ChiralDetector deduplicates findings at the
+root-cause level.
+Two reports are merged when they
+point to the same underlying defect and the same likely
+fix, even if they arise from different pair shapes or use
+different wording.
+This step is essential for usability:
+relation-based detection can discover the same root cause
+through many path pairs.
+Root-cause deduplication is stricter than textual clus-
+7
+Table 4: Static ranking features. The ranker is designed for candidate prioritization, not final proof.
+Feature group
+Signal
+Why it helps
+Storage overlap
+Shared reads/writes, same mapping base, same
+object identifier
+Related business operations usually touch
+the same protocol object or accounting
+state.
+Call overlap
+Shared helpers, shared external calls, common
+settlement sink
+Wrappers,
+dispatchers,
+and variants of-
+ten converge on common implementation
+points.
+Relation names
+claim/batchClaim, buy/sell, preview/execute,
+create/update
+Naming is weak but useful when combined
+with state and call facts.
+Actor/value facts
+Same
+payer/receiver/signature/refund
+vari-
+ables or same ETH/token movement
+Many chiral bugs are actor-binding or value-
+flow mismatches.
+Lifecycle facts
+Same art, market, position, order, credential,
+or pool identifier
+Lifecycle
+paths
+should
+preserve
+state-
+machine constraints over the same object.
+Branch/fork facts
+Shared prefix with different call successors
+Mismatches frequently occur at function-
+call branch boundaries.
+tering. Two reports are not merged merely because they
+mention the same function. They are merged when a de-
+veloper would likely apply the same code fix to address
+both reports. Conversely, reports in the same code area
+remain separate when they require different fixes. In the
+Phi study, for example, art initialization zero-address val-
+idation and art time-boundary validation live near each
+other but were split because they have different root
+causes and fixes.
+5
+Implementation
+The current ChiralDetector prototype targets Solidity
+projects. Static extraction uses source-level parsing and
+call-graph reconstruction. LLM-based semantic filtering,
+detection, and strict validation are run through a coding-
+agent interface using a low-cost large language model.
+The validator prompt is falsification-first: it is instructed
+to reject findings when evidence is missing, when the re-
+lation is not justified, or when the claimed impact does
+not survive source-level reasoning.
+ChiralDetector records token usage, wall-clock time,
+model cost estimates, intermediate pair decisions, detec-
+tor outputs, validator verdicts, and deduplication clus-
+ters.
+These artifacts are used both for debugging the
+pipeline and for evaluating cost/recall tradeoffs. The im-
+plementation currently supports path-level analysis, se-
+mantic pair judgment, detection, strict validation, and
+manual root-cause review; full automated proof genera-
+tion is left to future work.
+5.1
+Artifact Design
+Every stage writes explicit artifacts.
+The static stage
+records retained paths, path summaries, and ranked
+pairs.
+The semantic stage records keep/maybe/reject
+decisions and relation rationales.
+The detection stage
+records per-pair vulnerability theses.
+The validation
+stage records valid, partially valid, discussion, and invalid
+decisions. The deduplication stage records cluster mem-
+bership, representative reports, and manual root-cause
+notes.
+This artifact design is important for a workflow that
+uses LLMs. Without intermediate artifacts, a failed run
+is difficult to interpret: it is unclear whether the sys-
+tem missed a pair, rejected a relation, failed to notice an
+obligation, hallucinated impact, or over-deduplicated re-
+ports. With artifacts, the pipeline can be audited stage
+by stage. The same artifacts also support later bench-
+mark construction because they expose candidate-level
+and root-level labels.
+5.2
+Parallel Execution
+The expensive stages are pair-local and can be paral-
+lelized. Semantic filtering can run independently for each
+static pair, detection can run independently for each kept
+pair, and validation can run independently for each find-
+ing group. The current implementation records per-item
+elapsed time and token usage so that cost estimates can
+be extrapolated to larger projects. Parallelism reduces
+wall-clock time, but it does not reduce model cost; there-
+fore pair reduction remains central.
+5.3
+Reproducibility Notes
+The current draft reports preliminary numbers from one
+full Phi run. A fully reproducible release should include
+the exact source revision, path extraction configuration,
+static ranking weights, prompt templates, model identi-
+fiers, retry policy, and all intermediate JSON artifacts.
+For arXiv release, we plan to include anonymized or san-
+itized artifacts when source licensing and disclosure con-
+straints allow it. Until then, the paper treats the Phi
+results as a case study rather than a public benchmark.
+8
+6
+Preliminary Evaluation
+6.1
+Research Questions
+Our preliminary evaluation asks three questions:
+• RQ1:
+Pair reduction.
+Can static ranking and
+semantic filtering reduce the path-pair search space
+to a manageable set without removing relation-rich
+pairs?
+• RQ2:
+Detection utility.
+Does relation-aware
+detection produce concrete smart-contract findings
+that are not merely wording variants of local syntac-
+tic rules?
+• RQ3:
+Cost and triage.
+What are the cost
+and deduplication characteristics of an LLM-assisted
+chiral-analysis pipeline?
+• RQ4: Validation behavior.
+How much does a
+strict falsification-first validator reduce noisy detec-
+tor output, and what kinds of issues survive?
+6.2
+Subject Protocol
+We evaluate ChiralDetector on the Phi protocol as a pre-
+liminary case study.
+Phi is useful for early evaluation
+because it contains multiple relation shapes: claim and
+batch-claim flows, adapter and factory flows, quote and
+execution paths, single and batch trading paths, lifecy-
+cle operations for art creation and update, and shared
+fee/reward accounting. We use the complete source avail-
+able to the analyzer and manually inspect strict-positive
+findings at the root-cause level.
+The protocol is not selected as a convenience example
+for a single known bug. It is useful because it stresses
+the exact relation shapes that motivated the model. It
+has cross-contract adapters, direct factory paths, state-
+changing trading paths, view pricing helpers, batched
+entry points, signature and Merkle claim variants, and
+lifecycle operations over art objects. These features al-
+low us to observe whether a relation-based pipeline finds
+multiple classes of inconsistencies rather than a single
+hard-coded case.
+The manual inspection protocol groups reports by root
+cause and likely fix. We intentionally do not count ev-
+ery pair-level report as a separate bug because relation
+analysis can rediscover one root cause through many pair
+shapes.
+We also keep partially valid reports separate
+from fully valid reports during validation, because early
+research prototypes benefit from preserving uncertain but
+plausible signals for later human triage.
+6.3
+Main Results
+Table 5 summarizes the Phi run. Starting from 3,217 stat-
+ically ranked candidate pairs, semantic filtering kept or
+marked 1,643 pairs for detection. The detector produced
+Table 5: Preliminary Phi results. Counts are artifacts
+from one full ChiralDetector run.
+Stage
+Count
+Static candidate pairs
+3,217
+Semantic keep/maybe pairs
+1,643
+Detector no-issue pairs
+953
+Detector not-pair pairs
+446
+Detector suspicious candidates
+141
+Detector finding candidates
+103
+Cleaned finding/suspicious candidates
+201
+Local deduplicated groups
+101
+Strict-validator positives
+44
+Manual root-cause issues
+13
+201 cleaned finding/suspicious candidates. A local dedu-
+plication and validation pass reduced these to 101 finding
+groups. A strict validator retained 44 groups as valid or
+partially valid, and manual root-cause deduplication col-
+lapsed those groups to 13 effective unique issues.
+The funnel shows two things.
+First, pair-level out-
+put is much noisier than root-level output.
+The 201
+cleaned finding/suspicious candidates collapse to 101 lo-
+cal groups, then to 44 strict-positive groups, and finally
+to 13 root-level issues. Second, this reduction is not a sign
+that the detector is useless; it is a sign that relation-based
+discovery is high recall and duplicate-heavy. The same
+root cause may be visible through direct/batch, wrap-
+per/core, and shared-settlement relations.
+A practical
+tool must therefore report both the final root issue and
+the supporting duplicate paths.
+Table 6 summarizes representative root-cause issues
+from the 13 manually deduplicated strict-positive groups.
+The results cover multiple relation types, including pre-
+view/execute, single/batch, wrapper/core, lifecycle, and
+similar-flow relations.
+6.4
+Qualitative Finding Analysis
+The highest-priority Phi findings illustrate different parts
+of the taxonomy.
+The Merkle proof issue is a similar-
+flow guard violation: a proof should bind the business
+object being claimed, and the paired claim paths reveal
+that the eligibility proof does not sufficiently bind the
+art identifier. The art creation fee issue is a value-unit
+violation: the same configuration value is interpreted un-
+der incompatible unit assumptions. The public tracking-
+helper issue is a state/access violation: helper functions
+that should behave as internal accounting transitions are
+exposed as public state-mutating paths. The refund prop-
+agation issues are wrapper/core and single/batch value-
+flow violations: equivalent user-facing operations do not
+preserve the refund recipient.
+Some retained issues are lower severity but still use-
+ful. Quote/execution mismatches may not directly steal
+funds if execution uses a safer helper, but they can mis-
+lead integrators and users. Delayed validation in a batch
+9
+Table 6: Representative manually deduplicated issues from the Phi case study.
+ID
+Root-cause summary
+Relation type
+Manual priority
+M10
+Merkle proof does not bind art identifier, allowing proof
+reuse across related art assumptions
+Similar flow / guard
+High
+M13
+Art creation fee is documented or validated as basis
+points but consumed as wei
+Value/unit
+High
+M12
+Public tracking helpers can corrupt curator position
+state
+State / access
+Medium–high
+M05
+Single trade path lacks non-reentrancy and differs from
+batch trade ordering/guard behavior
+Single/batch
+Medium–high
+M02
+Claim
+and
+batch-claim
+paths
+handle
+overpay-
+ment/refund propagation inconsistently
+Single/batch
+value
+flow
+Medium
+M04
+Claimable adapter forwards raw value and can receive
+refunds instead of the original user
+Wrapper/core
+value
+flow
+Medium
+M09
+Signature-claim path relies on off-chain discipline
+where Merkle path enforces verification type on chain
+Similar flow guard
+Medium
+M01
+Creator-fee quote path and execution-related pricing
+helper disagree on zero-supply boundary behavior
+Preview/execute
+Low–medium
+path may not bypass the final check, but it can reveal an
+inconsistent failure model or unnecessary gas griefing sur-
+face. Chiral analysis is useful partly because it exposes
+these inconsistencies with their relation context, allow-
+ing auditors to decide whether they are security findings,
+correctness bugs, or design discussions.
+6.5
+Validator Effect
+The strict validator materially changes the output dis-
+tribution. Before strict validation, the pipeline had 101
+locally deduplicated groups. After strict validation, 44
+groups remained valid or partially valid, and 57 were re-
+jected. Manual review of strict invalids found candidate-
+level false kills and unstable duplicate judgments, but no
+clear high-confidence root-level miss in the reviewed Phi
+run. This suggests that a strict validator is valuable as a
+precision layer, but it should not be treated as an infalli-
+ble oracle.
+The validator’s main benefit is not only rejecting false
+positives.
+It also forces the report format to become
+sharper. A detector may say that two paths are incon-
+sistent; the validator asks whether the relation is justi-
+fied, whether the evidence exists in the source, whether
+there is an alternate execution path that restores the in-
+variant, and whether the impact is still meaningful. This
+falsification-first posture is especially important for LLM-
+assisted analysis because vulnerability-sounding text can
+otherwise hide weak evidence.
+6.6
+Cost
+The full Phi run cost an estimated 212.70 CNY includ-
+ing semantic filtering, pair detection, reruns for missing
+items, and strict validation.
+The pre-strict sequential
+wall-clock time was approximately 4.01 hours, while strict
+validation consumed 10,820 seconds of summed per-item
+Table 7: Cost breakdown for the Phi preliminary run.
+Stage
+Time
+Cost (CNY)
+Semantic filter
+5,539 s
+65.17
+Pair detection
+7,664 s
+96.41
+Missing reruns
+1,235 s
+14.34
+Strict validation
+10,820 s
+36.79
+Total
+–
+212.70
+runtime across 101 item runs. These numbers are prelim-
+inary and depend on model pricing, prompt length, and
+parallelism. However, they show that the dominant cost
+is not the static graph analysis but the number of LLM
+pair judgments and validation runs.
+The cost table should be read as an engineering mea-
+surement rather than a fundamental limit.
+The cost
+can be reduced by improving static ranking, batching
+short relation judgments, caching source summaries, us-
+ing smaller models for semantic filtering, and reserving
+stronger models for strict validation.
+Conversely, cost
+can increase on projects with more externally reachable
+paths or more cross-contract wrappers. This is why the
+paper reports the funnel and not only the final finding
+count.
+6.7
+Interpretation
+The case study supports the central motivation of chiral
+analysis: many findings are easiest to express as violated
+path relations. Refund propagation issues arise by com-
+paring wrapper or batch paths against direct core paths.
+Fee-unit and quote mismatches arise by comparing se-
+mantic expectations across related paths. Single/batch
+guard asymmetries arise because one entry point receives
+a hardening check that its paired path lacks. These ex-
+amples are awkward to encode as isolated single-function
+10
+detectors but natural under relation-induced obligations.
+The evaluation is still preliminary. We have not yet
+built a large benchmark across many protocols, and the
+current ground truth relies on manual root-cause review
+rather than project-maintainer confirmation. We there-
+fore present the Phi results as evidence that the model-
+ing and pipeline are viable, not as a final measurement
+of general recall or precision.
+6.8
+Planned Baselines and Ablations
+An arXiv version should make clear what remains to be
+evaluated. We plan to compare ChiralDetector against
+four baselines. The first is direct-agent auditing, where a
+coding agent reads the project in chunks and reports vul-
+nerabilities without pair scaffolding. The second is static-
+only chiral ranking, where top-ranked pairs are manually
+or mechanically inspected without LLM semantic filter-
+ing. The third is embedding-only retrieval over functions
+or paths. The fourth is local detector output from exist-
+ing smart-contract analyzers where applicable.
+The key ablations are also clear from the pipeline. Re-
+moving branch-segment retention tests whether middle-
+path relations matter.
+Removing static ranking tests
+whether semantic filtering alone is affordable.
+Remov-
+ing relation-type prompts tests whether the model loses
+inverse and wrapper pairs when asked only for similar-
+ity. Removing strict validation tests how much detector
+output is noise. Removing root-cause deduplication tests
+whether pair-level reporting is usable for auditors.
+7
+Related Work
+7.1
+Smart-Contract Analysis
+Smart-contract analyzers commonly translate source or
+bytecode into an intermediate representation and check
+vulnerability patterns or semantic facts.
+Securify ex-
+tracts compliance and violation patterns from smart
+contracts [8].
+SmartCheck converts Solidity programs
+into an XML-like representation and applies pattern
+queries [7]. Slither builds a Solidity static-analysis frame-
+work around an intermediate representation and detector
+infrastructure [3]. ChiralDetector is complementary to
+these systems: it uses static facts and call-graph struc-
+ture, but its core oracle is a relation between business
+paths rather than a local vulnerability template.
+7.2
+Rule Mining and Inconsistency De-
+tection
+Prior SE work has shown that bugs can be detected by
+mining implicit rules or by finding inconsistent behavior
+across related code. Engler et al. detect deviant behavior
+by inferring common programming beliefs and flagging
+violations [2].
+PR-Miner mines implicit programming
+rules from large codebases [5]. CP-Miner and later incon-
+sistency detectors identify suspicious differences across
+cloned or related code regions [4, 1]. Chiral analysis fol-
+lows the same broad principle that inconsistency can be a
+bug oracle, but it differs in the matching unit: the corre-
+sponding objects are business paths that may be syntac-
+tically different, cross-contract, or semantically inverse.
+7.3
+Metamorphic Testing
+Metamorphic testing addresses the oracle problem by
+defining relations between multiple executions instead of
+requiring an exact expected output for one execution [6].
+Chiral analysis can be viewed as a static, contract-specific
+analogue of this idea. A chiral relation maps one business
+path to another and induces expected relations over state,
+outputs, and observable side effects. Unlike conventional
+metamorphic testing, our current prototype does not re-
+quire generating and executing concrete test inputs for
+every relation; it approximates relation violations using
+static facts and LLM-assisted semantic reasoning.
+7.4
+LLM-Assisted Program Analysis
+Large language models are increasingly used to summa-
+rize code, inspect security reports, and support agentic
+debugging. ChiralDetector uses LLMs in a constrained
+role: they judge relation semantics and vulnerability the-
+ses over a reduced candidate set, while static extraction,
+pair ranking, artifact tracking, validation, and dedupli-
+cation structure the workflow.
+This design treats the
+LLM as a semantic component inside a program-analysis
+pipeline rather than as a one-shot auditor over an entire
+codebase.
+7.5
+Positioning
+Against
+Direct
+Agent
+Auditing
+Direct agent auditing is a strong practical baseline be-
+cause modern coding agents can read source files, follow
+call chains, and reason about protocol logic. However,
+direct auditing has weak observability: when it misses a
+bug, it is difficult to know whether the model failed to in-
+spect the right files, failed to connect related paths, failed
+to notice the mismatch, or failed to classify the impact.
+Chiral analysis makes this process more inspectable by ex-
+ternalizing path pairs, relation labels, obligation checks,
+and validator decisions.
+The claim is not that pair-first analysis is always more
+powerful than an unrestricted agent. The claim is that
+pair-first analysis gives the agent a smaller and more
+testable semantic task. It also creates reusable artifacts
+for benchmark construction. If a direct agent finds a bug,
+the result is useful; if a chiral pipeline finds or misses a
+pair, the intermediate artifacts explain where the pipeline
+succeeded or failed.
+11
+8
+Discussion
+8.1
+Why Pair First?
+One might ask why a coding agent cannot simply read
+the code in chunks and directly report all vulnerabilities.
+The pair-first design gives the model a narrower and more
+auditable task. Instead of asking for an open-ended au-
+dit over a large project, ChiralDetector asks whether two
+concrete paths form a relation and whether that relation
+is violated. This reduces prompt ambiguity, records in-
+termediate decisions, and makes cost proportional to a
+ranked pair set rather than uncontrolled source explo-
+ration.
+This design also matches how many human auditors
+reason. Auditors often notice that one flow has a check
+and another related flow does not, or that a batch path
+uses a slightly different settlement order than the single
+path. Chiral analysis attempts to make that comparison
+explicit and repeatable. The benefit is not only automa-
+tion; it is a vocabulary for describing why a business-logic
+inconsistency matters.
+8.2
+Precision and Recall Tradeoff
+Chiral analysis is naturally recall-oriented at the candi-
+date stage. If the static ranker removes a true pair, later
+semantic reasoning cannot recover it.
+For this reason,
+the current prototype prefers conservative retention be-
+fore semantic filtering and uses strict validation only after
+detection. This design can produce duplicate and noisy
+candidates, but root-cause deduplication makes the final
+output manageable.
+8.3
+Limitations
+The current implementation has several limitations.
+First, path extraction is an approximation of Solidity
+semantics and may miss dynamically resolved calls or
+complex proxy behavior. Second, the LLM stages can
+produce both false positives and false negatives, espe-
+cially when source context is incomplete. Third, the cur-
+rent evaluation is a preliminary case study rather than a
+large-scale benchmark. Fourth, the system reports rela-
+tion violations but does not yet automatically construct
+executable proof-of-concept transactions.
+8.4
+Where Chiral Analysis May Fail
+Chiral analysis can miss vulnerabilities that do not have
+a meaningful paired path. A single isolated function with
+a unique bug may be better handled by a conventional de-
+tector or a direct audit. The method can also miss pairs
+when the static ranker fails to connect them, especially
+if they share little storage footprint and are linked only
+by high-level documentation. Conversely, it can produce
+noise when two paths touch the same state for legitimate
+but unrelated reasons.
+The approach also depends on model judgment for
+semantic relation recognition.
+A model may reject an
+inverse relation because the names differ, or it may
+overstate a mismatch because it ignores protocol policy.
+The strict validator reduces this risk but does not elimi-
+nate it. A future implementation should combine model
+judgment with more symbolic path conditions, stronger
+source slicing, and project documentation when avail-
+able.
+9
+Future Work
+9.1
+Benchmark Construction
+The next major step is to build a benchmark with root-
+level labels.
+A useful benchmark should include pro-
+tocols with direct/batch flows, router/core flows, pre-
+view/execute paths, inverse financial operations, lifecy-
+cle state machines, and shared settlement helpers. Each
+benchmark item should record the relation pair, the ex-
+pected obligation, the source evidence, the root cause,
+and the final label. Pair-level labels alone are insufficient
+because one root cause can appear in many pair-level
+candidates.
+9.2
+Witness Generation
+The current system reports source-level evidence and
+impact theses, but it does not automatically construct
+executable proofs.
+A stronger version should attempt
+witness generation for selected high-confidence findings.
+For value-flow issues, this may involve symbolic or con-
+crete transaction construction. For guard asymmetries,
+it may involve generating two related calls where one
+path accepts an input that the paired path rejects. For
+preview/execute mismatches, it may involve generating
+states where the quote diverges from execution.
+9.3
+Learning the Ranker
+The current ranker uses heuristic weights. A larger la-
+beled dataset would allow learning a ranking model over
+path-pair features. The goal would not be to replace se-
+mantic detection, but to reduce the number of LLM calls
+needed to achieve a target recall. A learned ranker could
+also expose which static features are most predictive for
+each relation type.
+10
+Threats to Validity
+Internal validity. Our manual deduplication and issue-
+priority labels may contain judgment errors. To reduce
+this risk, strict validation attempts to falsify each can-
+didate against source evidence, and manual grouping
+merges findings only when they share the same root cause
+and likely fix.
+12
+External validity. The preliminary evaluation uses
+one protocol. Phi contains several useful relation shapes,
+but it may not represent all Solidity projects. A broader
+evaluation should include DeFi protocols, NFT protocols,
+governance systems, bridges, and vault/router architec-
+tures.
+Construct validity. Chiral vulnerability is a broader
+concept than standard vulnerability templates.
+Some
+relation violations may be low-severity inconsistencies
+rather than exploitable bugs. We therefore distinguish
+suspicious candidates, validated vulnerabilities, and root-
+level findings.
+Cost validity. LLM cost depends on model pricing,
+prompt size, parallelism, caching, and retry policy. Re-
+ported cost should be interpreted as an implementation
+measurement, not a fixed property of the method.
+Disclosure validity.
+Some findings may require
+project-specific disclosure or maintainer confirmation be-
+fore being treated as confirmed vulnerabilities. This draft
+reports them as manually triaged research findings rather
+than externally confirmed advisories.
+11
+Conclusion
+This paper introduced chiral analysis, a relational ap-
+proach to smart-contract vulnerability detection.
+The
+central idea is to treat corresponding business paths as
+implicit specifications for each other and to detect vio-
+lations of the obligations induced by their relation. We
+formalized chiral relations, defined obligation dimensions
+and vulnerability witnesses, and implemented a proto-
+type pipeline that combines static path analysis with
+LLM-assisted semantic detection and strict validation. A
+preliminary Phi case study suggests that the approach
+can uncover meaningful business-logic inconsistencies
+across single/batch, wrapper/core, preview/execution,
+and similar-flow relations.
+Future work will expand
+the benchmark, compare against direct-agent and static-
+analysis baselines, and strengthen witness generation.
+References
+[1] Mohammadreza Ahmadi, Ferdian Thung, Jue Wang,
+and David Lo. Finding bugs using your own code:
+Detecting functionally-similar yet inconsistent code.
+In 30th USENIX Security Symposium, pages 2025–
+2042, 2021.
+[2] Dawson Engler, David Yu Chen, Seth Hallem, Andy
+Chou, and Benjamin Chelf. Bugs as deviant behavior:
+A general approach to inferring errors in systems code.
+In Proceedings of the Eighteenth ACM Symposium on
+Operating Systems Principles, pages 57–72, 2001.
+[3] Josselin Feist, Gustavo Grieco, and Alex Groce.
+Slither: A static analysis framework for smart con-
+tracts. In Proceedings of the 2nd International Work-
+shop on Emerging Trends in Software Engineering for
+Blockchain, pages 8–15, 2019.
+[4] Zhenmin
+Li,
+Shan
+Lu,
+Suvda
+Myagmar,
+and
+Yuanyuan Zhou. CP-Miner: Finding copy-paste and
+related bugs in large-scale software code.
+IEEE
+Transactions on Software Engineering, 32(3):176–192,
+2006.
+[5] Zhenmin Li and Yuanyuan Zhou. PR-Miner: Auto-
+matically extracting implicit programming rules and
+detecting violations in large software code. In Pro-
+ceedings of the 10th European Software Engineering
+Conference Held Jointly with 13th ACM SIGSOFT
+International Symposium on Foundations of Software
+Engineering, pages 306–315, 2005.
+[6] Sergio Segura, Gordon Fraser, Ana B. Sanchez, and
+Antonio Ruiz-Cortes. A survey on metamorphic test-
+ing.
+IEEE Transactions on Software Engineering,
+42(9):805–824, 2016.
+[7] Sergei Tikhomirov, Ekaterina Voskresenskaya, Ivan
+Ivanitskiy, Ramil Takhaviev, Evgeny Marchenko, and
+Yaroslav Alexandrov. SmartCheck: Static analysis of
+ethereum smart contracts. In Proceedings of the 1st
+International Workshop on Emerging Trends in Soft-
+ware Engineering for Blockchain, pages 9–16, 2018.
+[8] Petar Tsankov, Andrei Dan, Dana Drachsler-Cohen,
+Arthur Gervais, Florian B¨unzli, and Martin Vechev.
+Securify:
+Practical security analysis of smart con-
+tracts. In Proceedings of the 2018 ACM SIGSAC Con-
+ference on Computer and Communications Security,
+pages 67–82, 2018.
+13

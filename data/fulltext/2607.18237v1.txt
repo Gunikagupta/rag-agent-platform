@@ -1,0 +1,2401 @@
+The Many Senses of Visual Similarity:
+A Text-Prompted Image Perceptual Metric
+Sheng-Yu Wang1
+Yotam Nitzan2
+Aaron Hertzmann2
+Jun-Yan Zhu1
+Eli Shechtman2 Alexei A. Efros3
+Richard Zhang2
+1Carnegie Mellon University
+2Adobe Research
+3UC Berkeley
+Abstract
+Human visual similarity judgments are context-dependent. For example, two im-
+ages may be similar in shape but distinct in color. Existing perceptual similarity
+metrics, however, collapse these nuances into a single scalar value, offering no
+mechanism to condition on specific aspects. To bridge this gap, we introduce
+a large-scale dataset of human similarity judgments over image triplets, where
+each triplet is annotated across multiple, free-form semantic aspects of similarity.
+Benchmarking a broad range of frontier vision-language models (VLMs) reveals a
+considerable performance gap compared to human annotators’ concensus. Leverag-
+ing our data, we fine-tune a VLM to produce our Text-Prompted Image Perceptual
+Similarity (TPIPS) metric, capturing multiple senses of visual similarity depending
+on the specified text prompt. We demonstrate that TPIPS aligns more closely with
+human perception and generalizes reliably beyond the training distribution. Finally,
+we show that TPIPS unlocks new capabilities in text-guided retrieval, composi-
+tional search, and the fine-grained evaluation of generative models. Our code, data,
+and trained models are at https://peterwang512.github.io/TPIPS.
+1
+Introduction
+A long line of psychology research has established that human similarity judgments are context-
+dependent [4, 5]. The same holds for images: there are many senses of visual similarity, depending
+on which aspect (color, texture, illumination, semantics, style, etc) is being compared. Consider
+Figure 1: given the reference cow statue image (left), it is not immediately obvious which of the
+four candidate images on the right is the most similar overall to the reference. However, the answer
+becomes clear if the similarity judgement is conditioned on a specific visual aspect, such as the cow’s
+color, pose, or the image background.
+The image processing and computer vision communities have spent decades making progress on
+capturing human perceptual similarity, from hand-engineered distances like SSIM and others [1,
+6, 7] to learned metrics trained on annotated human similarity judgments, such as LPIPS [2] or
+DreamSim [3]. These methods, however, model similarity as a single, scalar quantity, without
+conditioning on the aspect of the comparison. While previous methods add a notion of conditioning
+by leveraging vision-language models [8, 9, 10], to our knowledge, no dataset collected with human
+perceptual similarity judgments exists to serve as validation.
+To fill this gap, we collect a large-scale dataset of one million human similarity judgments over 25K
+image triplets. Following triplet-based protocols standard in perceptual similarity studies [2, 3, 11],
+annotators provide relative perceptual judgements by comparing three images and indicating which
+are most or least similar. Different from prior work, we extend this protocol to perceptual judgements
+conditioned on various visual aspects. We collect 260K triplet-aspect condition combinations, where
+each triplet is annotated conditioned on multiple free-form visual aspects, each aspect yielding a
+separate set of similarity judgments. The triplets are generated using text-to-image models and
+Preprint.
+arXiv:2607.18237v1  [cs.CV]  20 Jul 2026
+Which is more similar to the reference?
+Reference Image
+LPIPS [2], DreamSim [3]
+SSIM [1]
+L2
+Prior Methods
+(Unconditional Similarity)
+Ours: Text-Prompted Image Perceptual Similarity (TPIPS)
+subject color
+cow statue pose
+ground surface
+flag pattern
+(None selected)
+Figure 1: The Many Senses of Similarity. Given a reference image (top left), the four candidate
+images (top right) are similar to the reference in different ways, such as subject color, pose, ground
+surface, or texture. But existing visual similarity measures (L2, SSIM [1], LPIPS [2], Dreamsim [3])
+collapse similarity into a single scalar, and thus producing ambiguous and inconsistent results. Our
+Text-Prompted Image Perceptual Similarity (TPIPS) can be conditioned on a particular sense of
+similarity (aspect), prompt-able by free-form text. With conditioning, this visual similarity problem is
+no longer ambiguous, and our method selects the most similar image aligned with human perceptual
+judgements.
+designed to be challenging. If the differences between candidates are too subtle, humans cannot
+reliably judge similarity; if they are too coarse, the task collapses to judging overall similarity, which
+current models already handle. We target the middle ground, with images that differ along multiple
+aspects simultaneously — through fine-grained variations in properties such as color, lighting, and
+texture.
+We use this syntheic dataset to construct a benchmark and evaluate a broad set of baselines, including
+recent open-source and proprietary VLMs [12, 13, 14, 15] and state-of-the-art multimodal embedding
+models [16, 17], revealing room for improvement. We find that even the strongest current VLM
+systems often do not agree with human similarity judgments on specified aspects. We carefully
+propose and analyze different architecture choices for tuning a VLM into an aspect-conditioned
+perceptual metric on our collected perceptual data. Our model, Text-Prompted Image Perceptual
+Similarity (TPIPS), narrows the performance gap considerably. To assess whether our metric remains
+reliable beyond the synthetic training distribution, we collect a second set of human similarity
+judgments over outputs generated by external algorithms, designed for four different vision and
+graphics tasks, spanning both generative and non-generative pipelines. Our model outperforms
+baselines in this setting too, suggesting that it can serve as a general-purpose perceptual metric for
+aspect-conditioned evaluation.
+We show several downstream applications: evaluation of generative vision models, where output and
+reference similarity is measured along specified visual axes, nearest-neighbor retrieval, where the
+same query image returns different neighbors under different aspects, and compositional retrieval,
+where multiple query images, each conditioned on a different visual aspect, can be combined to find
+images that match the criteria. Our code, data, and trained models are at https://peterwang512.
+github.io/TPIPS.
+2
+Related Works
+Perceptual similarity and preferences. Comparing two images is a fundamental problem in vision,
+with early approaches relying on hand-engineered, patch-based metrics [1, 6, 7]. With advances in
+deep image recognition [18, 19, 20, 21, 22, 23], learned deep features have been found to provide
+a more useful similarity signal than hand-engineered descriptors [2, 24, 25, 26, 27]. LPIPS [2],
+PieAPP [28], and DISTS [29] directly optimize deep features to align better with human judgments on
+low-level distortions. DreamSim [3] learns human perceptual judgments on synthesized images with
+high-level variations. Muttenthaler et al. [30] study perceptual judgments across object categories
+2
+with THINGS [11]. Other works improve metric robustness to spatial shifts [31], adversarial
+perturbations [32], and arbitrary transformations [33]. Alternative metrics isolate specific attributes
+like style [34, 35] or relationships between visual elements [36]. While these methods predict a
+single similarity score, similarity is inherently multi-faceted [4]. We address this by introducing a
+benchmark and model for human similarity judgements conditioned on various visual aspects. A
+separate but adjacent line of work uses pairwise human comparisons over generated or edited images
+to learn a scalar quality score over a single image [37, 38, 39, 40]. In contrast, we learn from triplet
+judgments to model pairwise similarity conditioned on visual aspects.
+Conditional representation. Various research has studied learning representations of an input
+conditioned on different aspects. A line of work explores learning conditional representation given
+an explicit aspect, but assumes a fixed, finite vocabulary of conditions [41, 42, 43, 44, 45]. More
+recent work generalizes the condition input to free-form text, including training-free methods via
+vision-language models [46, 47, 48] and training-based methods that curate conditional supervision.
+GeneCIS [8] and FocalLens [9] mine attribute-difference triplets from existing vision-language
+datasets, while Omni-Attribute [10] bootstraps supervision from VLM-generated labels and TF-
+QARE [48] prompts for an image’s object, background, or style and averages the embedding of the
+resulting description. A parallel line of work studies context-conditional categorization [49, 50], and
+composed image retrieval [51, 52, 53, 54] takes image-text inputs but uses the text to specify how
+the retrieved images should be different from the query image. Unlike prior conditional similarity
+work, we collect human similarity judgments directly under each aspect condition. This captures
+fine-grained relative differences not reliably present in image captions and VLM outputs, better
+aligning our method with human judgments than prior training-free, training-based methods and
+state-of-the-art VLMs.
+Vision-language models. Early vision-language models targeted a small number of tasks: dual-
+encoder contrastive models [22, 55, 56] such as CLIP [22] align image and text representations for
+retrieval and classification, while encoder-decoder models such as BLIP [57, 58] added captioning
+and visual question answering. Modern instruction-tuned multimodal models including Qwen-VL
+series [59, 60, 14, 61] and others [62, 63, 15, 64], and frontier proprietary systems such as Gemini [13]
+and GPT [12]—are trained on a much broader task mixtures [63, 60, 15] that, in some cases, also
+includes similarity benchmarks such as NIGHTS [3] and GeneCIS [8]. A parallel line of universal
+multimodal embedders, such as VLM2Vec [16, 65] and Qwen3-VL-Embedding [17], repurposes
+these backbones for instruction-conditioned retrieval. While VLMs can solve various vision tasks,
+we find that the performance gap remains for VLMs to yield human-aligned pairwise similarity
+judgments conditioned on specified aspects. Our benchmark and models aid in closing this gap.
+3
+Dataset collection
+Our goal is to collect a dataset of similarity judgments D, such that they can be used to train and
+evaluate a text-conditioned similarity algorithm. Human perceptual similarity is inherently relative:
+given a small set of candidates (e.g., 3 images), people can reliably identify the most different item,
+or the closer pair, with respect to visual aspects such as lighting, object pose, or background [4]. To
+do so, as shown in Figure 2, we collect two datasets: (1) a large, synthetic dataset on odd-one-out
+judgments, which we use for training, and (2) a smaller set on other vision and graphics algorithms to
+validate the generalization of our algorithm on real-world applications.
+3.1
+Odd-one-out dataset
+Given a pair of images, humans cannot reliably provide a similarity score directly, which led previous
+works to collect relative comparisons from image triplets by asking which of two image variations
+is closer to a given reference [2, 3], or which image is the most different [11]. In this setting, we
+adopt the odd-one-out task [11], and extend it to perceptual judgements conditioned on various visual
+aspects. That is, given a triplet, X = {x1, x2, x3}, we ask annotators to the pick one that looks most
+different under the text guidance c, recording it the result as y. Next, we describe our procedure for
+generating the triplet X and text conditionings c.
+Triplet generation. To construct our dataset, we curate a diverse yet controlled set of image variations.
+A core challenge lies in identifying an optimal difficulty regime: triplets must be neither trivial,
+where differences are too vast, nor uninformative, where differences are negligible. Furthermore,
+3
+Image 0
+Image 1
+Image 2
+Reference
+A
+B
+camera distance, flower color palette, lighting 
+warmth, tablecloth pattern, teapot handle direction…
+scene subject depiction, backyard garden setting,
+gray stone patio slabs, wooden fence background, green lawn foreground...
+(a) Text-to-Image Triplets (Odd-One-Out)
+(b) Other vision algorithms (2AFC)
+Select the image where <aspect> 
+looks MOST DIFFERENT
+Select image (A or B) where <aspect>
+looks MOST SIMILAR to the reference image
+Algorithm outputs
+Triplet Variations
+Synthetic 
+images
+Image
+Editing
+Image 
+Compositing
+Image-to-3D
+Input Image
+Edited Image
+FG or BG Image
+Composite
+GT View
+Rendered View
+Input Image
+Rendered View
+Novel View 
+Synthesis
+Ref:
+A/B:
+Text-to-Image
+Figure 2: Datasets. (left) We ask users which image within the triplet is the odd-one-out (OOO).
+The images are synthetically generated using variations of text-to-image models, using it to train our
+text-conditioned similarity model. (right) We test the generalization using outputs of algorithms on
+different vision and graphics tasks. We ask users which is more similar to a reference image, between
+two algorithm outputs, in a two-alternative forced choice (2AFC) setup.
+Table 1: Dataset statistics. We report the number of image triplets, triplet-aspect combinations, and
+total human votes. Each triplet-aspect combination receives 5 votes; annotators may also select “can’t
+tell,” in which case that vote is dropped. To also capture overall similarity, “overall” is included as
+one of the aspects in the odd-one-out dataset for both training and evaluation, whereas the 2AFC
+evaluation is aspect-conditioned only. See Appendix A for further details.
+(a) Odd-one-out dataset.
+Split
+Triplet
+Triplet-Aspect
+Human vote
+Train
+22,157
+234,662
+938,960
+Validation
+185
+1,947
+7,496
+Test
+2,000
+20,782
+98,039
+Total
+24,342
+257,391
+1,044,495
+(b) 2AFC out-of-distribution set.
+Source
+Triplet
+Triplet-Aspect
+Human Vote
+Img edit
+256
+1,633
+4,838
+Img composite
+294
+839
+2,947
+NVS
+180
+650
+2,444
+Im-to-3D
+397
+1,649
+6,020
+Total
+1,127
+4,771
+16,249
+images within a single triplet must exhibit variation across multiple independent text-conditioned
+aspects to necessitate multi-faceted reasoning. Randomly sampling from large-scale image datasets or
+subsampling a video dataset typically yields degenerate triplets, where one image is an outlier across
+all aspects or the visual distance between the images is too great to allow for meaningful comparison.
+Inspired by Fu et al. [3], we leverage text-to-image (T2I), language (LLM), and vision-language
+(VLM) models to propose candidate triplets and text conditionings at scale. We generate candidate
+triplets by sampling prompts from FLUX-Reason-6M [66]. A straightforward approach is to sample
+images from the same prompt, but this often fails to produce sufficiently diverse variations. As
+such, we use a language model to generate variations of a given prompt, before rendering the triplet.
+This produces a controlled yet diverse candidate set, while allowing humans to judge which of the
+text-induced variations are actually reflected in the images.
+Text guidance proposal and refinement. For each generated triplet, we first construct a candidate
+set of prompts. During prompt-variation generation, we also prompt an LLM to identify the aspects
+of the images that are intended to change. If the images were fully described by the input text
+prompts, this would be sufficient. However, as the mapping between prompts and images is not
+one-to-one, images may vary from the prompt, or show additional unspecified properties. As such,
+4
+we pass the triplet and the candidate list to a VLM for refinement, removing unrelated ones and
+adding visually-varying factors that are not explicit in the prompts (e.g., pose or object size).
+The resulting aspect list is intentionally over-complete, and it is not guaranteed to be aligned with
+how humans describe (or attend to) differences in the triplet. We therefore treat these as proposals
+and prune. For each triplet, we ask 5 annotators for judgments. We provide an additional “can’t
+tell” option, and if marked by 3 or more users, we remove the attribute from the list. From the
+remaining triplets we remove the “can’t tell” votes and normalize to get probability distribution
+y = (y1, y2, y3) ∈∆3. We also ask for overall similarity, recorded under the “overall” condition.
+Our final dataset is D = {(X(n), c(n), y(n))}n, where each datapoint is a tuple of image triplet
+X(n) = {x(n)
+1 , x(n)
+2 , x(n)
+3 }, aspect condition c(n), and human vote distribution y(n). We divide the
+dataset into train, validation, and test datasets, as summarized in Table 1.
+3.2
+Out-of-distribution 2AFC dataset
+To test generalization to different image variations and content, we curate an additional out-of-
+distribution evaluation set from the outputs of other computer vision algorithms. This choice is
+motivated by a practical use case of our framework—evaluating and comparing vision systems—and
+by the fact that algorithm outputs provide structured, perceptually meaningful variations.
+Unlike our main dataset, this setting is inherently reference-based: each query comes with a reference
+image (either the algorithm input or the ground-truth target) and multiple candidate outputs. We
+therefore adopt a 2-alternative-forced-choice (2AFC) protocol: given an aspect c, annotators are
+shown the reference xref and two randomly sampled outputs (x0, x1), and select which output is
+more similar to the reference under c, with multiple votes across annotators averaged as y ∈[0, 1].
+Similar to the odd-one-out dataset, we collect votes across 5 annotators and remove those with ≥3
+“can’t tell” votes. We also remove datapoints that have a tie, as they are not useful for evaluation.
+This produces an evaluation dataset Dext = {(xref, x0, x1, c, y)}. The external algorithms and
+domains used in this out-of-distribution set differ from the training data; an overview of dataset
+statistics is in Table 1. Additional details are in Appendix A.
+4
+Learning Text-Guided Perceptual Similarity
+4.1
+Objective
+We learn text-prompted similarity fθ(x1, x2 | c) to be consistent with the annotators’ choices in the
+odd-one-out dataset D. We show the objective in Figure 3. Suppose that for a triplet, all annotators
+selected xk to be the odd-one-out. This implies that the similarity between the other two images,
+fθ(xi, xj | c), where {i, j} = {1, 2, 3} \ {k}, should be the most similar to each other than any pair
+involving xk. Formally, we wish fθ to have the following property:
+fθ(xi, xj | c) > fθ(xk, xl | c) ∀l ∈{i, j}.
+(1)
+To encourage this behavior, we follow the softmax choice model used in prior triplet odd-one-out
+embeddings [30]. Defining ¯sk = sij = fθ(xi, xj | c) and temperature τ > 0, we model the predicted
+likelihood of k being chosen, comparing it to the human vote y with a standard cross-entropy loss.
+ˆyk = pθ(k | X, c) =
+exp
+ ¯sk/τ
+
+P3
+m=1 exp
+ ¯sm/τ
+,
+L(θ) = −E(X, c, y)∼D
+"
+3
+X
+k=1
+yk log ˆyk
+#
+.
+(2)
+4.2
+Architecture
+Vision-language models (VLMs) are a natural starting point, as one can prompt a VLM to judge the
+similarity of two images along a given text condition. However, we find a substantial gap between
+current VLMs’ zero-shot judgments and human perceptual choices (Section 5), motivating task-
+specific fine-tuning. As shown in Figure 3 (right), we explore three architectures that differ in how
+5
+𝑓!
+𝑥!
+𝑥"
+𝑥#
+Text-conditioned
+pairwise similarity
+𝑠!"
+𝑠!#
+𝑠"#
+Which image is most
+different in lighting?
+𝑦$
+Cross-
+Entropy
+Predicted
+odd-one-out
+𝜏
+Softmax
+𝑓!
+𝑓!
+VLM
+VLM
+(a) Late fusion (Embedding)
+𝑥"
+𝑥!
+“lighting”
+“lighting”
+Cos
+𝑐
+𝑐
+𝑓!
+= 𝑓$(𝑠", 𝑠#|𝑐)
+Human
+judgements
+𝑦
+Learning Similarity from Odd-one-out Data
+(b) Mid-fusion
+(Activation Difference) 
+VLM
+VLM
+𝑥"
+𝑥!
+“lighting”
+“lighting”
+Avg activation Δ
+𝑐
+𝑐
+𝑓!
+𝑠!"
+(c) Early fusion
+𝑥"
+𝑥!
+“lighting”
+𝑐
+𝑓!
+𝑟"
+𝑟!
+Cos
+VLM
+𝑠!"
+𝑠!"
+Figure 3: (left) Learning similarity from odd-one-out data. Users judge which image is the
+odd-one-out of the triplet, on a given condition (x1 in this case). We predict the text-conditioned
+pairwise similarity between all pairs in the triplet using fθ. Intuitively, the similarity between the
+non-chosen images, shown as s23 should be the greatest. The odd-one-out is predicted with a softmax
+(with temperature τ) on the similarities, with the embeddings trained with a cross-entropy loss. (right)
+Architecture choices for fθ: (a) Late fusion embeds the images separately and only compares the
+final activation; (b) Mid-fusion uses internal feature activations between separately-embedded images;
+(c) Early fusion embeds both images into the VLM directly.
+early the two images interact in the network, ranging from no interaction (late fusion) to full joint
+attention (early fusion). All three are trained end-to-end with our loss (Equation 2).
+Late fusion (embeddings). We repurpose the VLM as a text-guided embedding model, following
+recent work on instruction-tuned VLM retrievers [67, 68]. Given an image x and an aspect c, we
+form the prompt “Represent the similarity of the image based on <c> ” and feed it together with x into
+the VLM, taking the final, normalized hidden state of the last token as the embedding z = bgθ(x, c).
+Pairwise similarity is then the cosine of the two embeddings: fθ(x1, x2 | c) = bgθ(x1, c)⊤bgθ(x2, c).
+This is efficient at inference time, as embeddings can be precomputed and cached. As the two images
+never interact within the network, the model must commit to a text-guided summary independently.
+Mid fusion (activation distances). Following LPIPS [2], we can instead compare internal activations
+of the VLM from the LLM decoder layers. We feed the image-prompt pair into the VLM, and for
+each of L selected transformer layers, extract image tokens with token length T, unit-normalize
+them along the channel dimension d to obtain a per-layer feature ϕℓ(x, c) ∈RT ×d. The similarity
+is defined as the negative weighted ℓ2 distance between the per-layer features of the two images,
+averaged across image tokens, and summed over layers:
+fθ(x1, x2 | c) = −
+L
+X
+ℓ=1
+1
+T
+T
+X
+t=1
+wℓ(c) ⊙
+ ϕℓ(x1, c)t −ϕℓ(x2, c)t
+2
+2.
+(3)
+Unlike LPIPS, which tunes a fixed set of channel weights on top of a frozen backbone, our channel
+weights wℓ(c) ∈Rd are text-conditioned per-channel weights per layer, parameterized by an MLP
+that takes in the averaged text token embedding in the same layer. We additionally fine-tune the VLM
+itself with LoRA [69] adapters. Like late fusion, this architecture treats each image independently
+and fuses only at the comparison stage. Appendix B.2 analyzes these design changes in more detail.
+Early fusion lets the two images interact throughout the network. Both images and prompt “Measure
+the similarity between the two images based on <c> ” are packed into a single input sequence,
+[ c tokens ∥x1 patches ∥x2 patches ∥r1 ∥r2 ],
+so that every patch of x1 can attend to every patch of x2 at every layer, enabling direct patch-level
+correspondence. The two learnable register tokens r1, r2 act as text-conditioned readouts for the two
+images. Their final hidden states h1, h2 yields the similarity score: fθ(x1, x2 | c) =
+h⊤
+1 h2
+∥h1∥∥h2∥.
+6
+(a) Odd-one-out Perceptual Judgement
+Image 1
+Image 2
+Image 3
+Reference
+A
+B
+3D shape
+Surface texture
+Color tone
+Camera pose
+(b) 2AFC Perceptual Judgement
+Gemini-3.1-Pro
+GPT-5.4
+Qwen3-VL-Embedding-8B
+Ours
+Human
+Street surface 
+reflection
+Lighting 
+warmth
+Background skyline 
+prominence
+Car hood 
+position
+𝑥!
+𝑥"
+𝑥#
+Figure 4: Do humans agree with the model’s choice? We compare aspect-conditioned similarity
+among VLMs, our model, and humans, denoted by different dot colors and patterns. (Left) Odd-one-
+out: the dot location indicates each method’s selection of the most different image for the aspect.
+(Right) 2AFC: the dot location indicates the image is selected as more similar to the reference. Note
+that our method (black) agrees with the human judgment, whereas VLMs often do not.
+Importantly, by using careful design of the attention mask and positional encoding (please see
+Appendix C.2), we satisfy two desirable properties by construction, without any auxiliary loss:
+symmetry, fθ(x1, x2 | c) = fθ(x2, x1 | c), and identity, fθ(x, x | c) = 1 for any x. We detail the
+hyperparameter, training procedure, prompts, and backbones in Appendix C.
+5
+Experiments
+We evaluate on the odd-one-out and out-of-distribution 2AFC test sets. Our dataset improves VLMs
+on other perceptual similarity benchmarks. We discuss applications of our methods, such as aspect-
+conditioned retrieval and compositional retrieval, and show qualitative examples.
+Metrics. For each aspect in a triplet, we report models’ agreement with humans [2], measuring how
+often a random rater agrees with the model’s top choice. For an odd-one-out triplet with human vote
+distribution y = (y1, y2, y3) and model prediction ˆk = arg maxk ˆyk, agreement is yˆk–the probability
+humans vote the same as model prediction. Averaging all aspect conditions over the test set gives the
+expected rater–model agreement. The 2AFC analogue is defined identically over two choices.
+To contextualize absolute agreement numbers, we compute human consensus. It is defined as
+y2
+1 + y2
+2 + y2
+3, the expected agreement within raters for each aspect condition, averaged over the
+test set. This human consensus reflects the best achievable agreement; we report it alongside all
+agreement numbers. Likewise, the 2AFC analogue is defined identically over two choices.
+Baselines are organized below:
+• Classic: LPIPS [2], DreamSim [3]. Apply same similarity score regardless of the queried aspect.
+• Late fusion (embeddings): text-image embedding models including text-conditioned encoders
+(SteerViT [70])), late mixing of text and image embeddings (GeneCIS [8]), VLM-finetuned
+embedding models (VLM2Vec-2.0 [65], Qwen3-VL-Embedding [17]), and proprietary models
+(Gemini-2-Embedding [13]).
+• Early fusion: VLMs including open-weight models (Qwen3-VL [14], InternVL3.5 [71], and
+LLaVA-OneVision [63]) and proprietary models (GPT-5.4 and Gemini 3.1 Pro). Each model is
+given both images and the text prompt and asked to return a scalar value within [0, 10].
+• Mid-fusion (activation difference): we find that Qwen3-VL series is the best performing open-
+weight backbone in both late and early fusion, and focus on this family for the mid-fusion analysis.
+More implementation details of the baselines are in Appendix C.3.
+We present our main results in Figure 5. On our odd-one-out task, a substantial gap exists between
+the human consensus (67.5%, with 33.3% chance) and baseline model predictions across both
+7
+Chance
+LPIPS
+DreamSim
+GPT-5.4
+Gemini-3.1-Pro
+InternVL3.5 8B
+LLAVA-OV 7B
+Qwen3-VL 8B
+Ours
+Qwen3-VL-Emb 8B
+Ours
+Gemini-2-Embedding
+VLM2Vec v2.0
+SteerViT
+GeneCIS
+Qwen3-VL-Emb 8B
+Ours
+0%
+20%
+40%
+60%
+80%
+100%
+Model human agreement rate
+Odd-One-Out (in distribution)
+33.3
+46.2
+50.5
+55.5
+58.4
+53.5
+44.5
+54.5
+64.7
+44.0
+63.8
+54.1
+53.0
+51.4
+44.9
+58.3
+64.1
+  Human Consensus: 67.5%  
+Classic
+Early Fusion
+Mid Fusion
+Late Fusion
+Chance
+LPIPS
+DreamSim
+GPT-5.4
+Gemini-3.1-Pro
+InternVL3.5 8B
+LLAVA-OV 7B
+Qwen3-VL 8B
+Ours
+Qwen3-VL-Emb 8B
+Ours
+Gemini-2-Embedding
+VLM2Vec v2.0
+SteerViT
+GeneCIS
+Qwen3-VL-Emb 8B
+Ours
+2AFC (out-of-distribution)
+50.0
+69.5
+72.9
+73.7
+70.7
+64.2
+65.2
+59.2
+79.3
+71.9
+75.9
+71.2
+70.8
+74.0
+72.2
+73.5
+77.9
+  Human Consensus: 89.3%  
+Classic
+Early Fusion
+Mid Fusion
+Late Fusion
+Figure 5: How well do models agree with human perceptual judgement? We report model-human
+agreement rate across recent vision language models and text-image embedding methods, categorized
+as classic, early fusion, mid fusion, and late fusion. On the left, we show results on our synthetic
+dataset D. On the right, we show our held-out distribution Dext. Error bar denotes 2-standard error.
+We find that our method (red bars) consistently outperforms baselines in both in-domain odd-one-out
+tests and out-of-domain 2AFC tests. Our early fusion model has a marginally better model-human-
+agreement than the other two variants. The dotted line denotes the human-human agreement rate,
+serving as the performance ceiling. Extended comparisons are detailed in Table 3.
+Sim to Frame 0
+(Ref) 0
+32
+64
+96
+128
+Figure 6: Video example. Similarity between video frames to the initial frame. While the overall
+similarity is dominated by the main factors (camera angle, as well as sunshine), the metric can be
+steered to different attributes, such as the cup handle position.
+tasks. LPIPS (46.2%) and DreamSim (50.5%) are aspect-agnostic, and merely providing an overall
+similarity judgement is not sufficient. Among baselines, Gemini-3.1-Pro achieves the highest model-
+human agreement on the odd-one-out task at 58.4%. Among open-weight models, the embedding-
+based Qwen3-VL-Embed performs best on both tasks, and we therefore adopt it as the backbone
+for our approach. Fine-tuning on our data substantially narrows the gap to the human consensus,
+reducing it from 9.1% to 2.8% on the odd-one-out task. Notably, these gains translate to the held-out
+2AFC distribution, reducing error from 15.8% to 10.0%, above baselines. The larger gap leaves more
+room for improvement relative to the in-domain odd-one-out test set. Figure 4 shows qualitative
+examples.
+Early, mid, and late-fusion. Among the baseline models, no single fusion strategy consistently
+dominates. The comparisons are not direct as they are trained with various settings. Mid-fusion
+performs relatively poorly for off-the-shelf baselines, as such models are not designed to produce
+informative mid-level features directly. In the controlled setting where we fine-tune all model types
+under the same base model, early fusion consistently outperforms both middle and late fusion, albeit
+by a modest margin. This suggests that allowing the model to interact with both images from the
+earliest layers is beneficial for perceptual similarity judgements. On the other hand, the late fusion
+model achieves similar performance but enables efficient retrieval by precomputing embeddings. We
+will present our results mainly with the late fusion model unless specified. We analyze the effect of
+dataset scale and model size in more detail in Appendix B.2.
+8
+Camera Viewpoint
+Query
+TPIPS (Ours)
+Qwen3-VL-Embed
+Object Color
+Background
+Composition
+Season
+Background
+Retrieved Images (Similar Aspect, Different Overall)
+Figure 7: Aspect-conditioned Image Retrieval. Given a query on the left, our method retrieves
+images with respect to different visual aspects. Each row represents an aspect. Compared to the base
+model (Qwen-VL-8B-Embedding), our fine-tuned late-fusion model consistently retrieves images
+that better match the specified aspects. To encourage retrieval diversity, we adjust the ranking score
+by subtracting a fraction of the overall similarity from the aspect similarity. We also include retrieval
+results without this adjustment in Appendix B.1.
+Composited query
+Retrieved images
+Brushwork
+Color Palette
+Subject Matter
+Lighting Warmth
+Background
+Object Viewpoint
+Figure 8: Compositional retrieval. Each query is specified with different aspects, and we directly
+sum up similarity scores from two queries to rank the data. For example, combining (1) the painting
+of two sitting people conditioned on subject matter and (2) Monet’s painting conditioned on brush
+work yields Impressionist paintings of two sitting people. When we swap out the second query to be
+color-palette specific, we can retrieve portraits of two people in the same pink and blue color tone.
+9
+Qualitative video example. In Fig 6, we show a synthesized video of a camera rotating around a
+teacup, and calculate our metric from each frame to the initial frame. The main factors that vary is the
+“camera angle”, as well as “sunshine” that appears in the middle of the video. As such, the “overall”
+similarity mirrors these two main factors. However, the metric can be prompted to completely
+different factors. The “number of cups” stays nearly constant, while “number of spoons” drops when
+the spoon disappears behind the cup. More dramatically, prompting for the “cup handle position”
+causes a large perturbation, as the handle moves from the right to left side.
+Aspect-conditioned retrieval. Figure 7 illustrates how our method can retrieve perceptually similar
+images under different aspect conditions given the same query. We index the OpenImages [72]
+training set (1.7M images) and retrieve nearest neighbors conditioned on each aspect independently.
+We encourage the retrieval for each aspect to have more different-looking images by adjusting the
+similarity score to fθ(x1, x2 | caspect) −0.3 ∗fθ(x1, x2 | coverall), where caspect and coverall represent
+aspect and overall condition, respectively. The results clearly demonstrate that perceptual similarity
+is context-dependent. The same query yields meaningfully different nearest neighbors depending on
+the aspect condition. We provide retrieval results without the similarity adjustments in Appendix B.1.
+Compositional retrieval. Our method supports compositional queries by linearly combining sim-
+ilarity scores across multiple queries conditioned on different aspect conditions. We validate this
+on OpenImages again, and we also show results on the WikiArt dataset [73] (800K images), where
+aspects such as subject matter, brushwork, and color palette capture independently meaningful dimen-
+sions of visual similarity. As shown in Figure 8, composing queries across different aspects produces
+retrievals that jointly satisfy all specified conditions, and swapping a single query component leads to
+interpretably different results. We provide more qualitative results in Appendix B.1.
+6
+Discussion, Broader Impacts, and Limitations
+Beyond using our metric as a human-grained, aspect-conditioned judge, it can serve as a feedback
+signal to improve them, as recent work has leveraged VLM feedback to train image editing [74, 75]
+and generation [37, 76] models. Our method can also aid in interpretability systems that automatically
+discover and characterize neural features [77, 78]. Our metric offers human-aligned measurements
+to assess which fine-grained visual properties the discovered features encode. As generative and
+perceptual vision systems see broader deployment, interpretability becomes essential for public
+oversight, accountability, and informed regulation.
+Our VLM-based metric is substantially more expensive to compute than LPIPS or DreamSim. Also,
+our current embedding-based retrieval requires separate feature encoding and indexing for each
+aspect condition. In addition, our annotator pool is not representative of all viewers; perception
+varies across people, and our metric inherits that bias. Our method is also limited by training data
+diversity. We source prompts from FLUX-Reason-6M [66], which has more aesthetically curated
+images. Our aspect proposals are VLM-generated, and we can systematically miss aspects that VLMs
+cannot capture. Since our triplets often share similar semantic content, our learned metric is not fully
+disentangled from the original content (e.g., sunny beach images will have higher weather similarity
+scores on other similar sunny beach images than sunny forest images). Data-related issues could be
+addressed with more diverse image sources and human-annotated aspects in future work. That said,
+as VLMs continue to improve, our pipeline naturally benefits — and we view our human perceptual
+data as a complementary signal toward building more human-aligned models, offering a new angle
+for collecting fine-grained human perceptual judgments.
+Acknowledgments. We thank Nupur Kumari, Kangle Deng, and Antonio Torralba for helpful
+discussions and feedback on drafts. Sheng-Yu Wang is supported by the Google PhD Fellowship. The
+project was partly supported by Adobe Inc., the Packard Fellowship, the Institute of Information &
+Communications Technology Planning & Evaluation (IITP) grant funded by the Korean government
+(MSIT) (No. RS-2024-00457882, National AI Research Lab Project), NSF IIS-2239076, NSF
+ISS-2403303, and NSF IIS-2403305.
+References
+[1] Zhou Wang, Alan C Bovik, Hamid R Sheikh, and Eero P Simoncelli. Image quality assessment: from
+error visibility to structural similarity. IEEE Transactions on Image Processing, 13(4):600–612, 2004.
+10
+[2] Richard Zhang, Phillip Isola, Alexei A Efros, Eli Shechtman, and Oliver Wang. The unreasonable
+effectiveness of deep features as a perceptual metric. In Proceedings of the IEEE Conference on Computer
+Vision and Pattern Recognition (CVPR), pages 586–595, 2018.
+[3] Stephanie Fu, Netanel Y Tamir, Shobhita Sundaram, Lucy Chai, Richard Zhang, Tali Dekel, and Phillip
+Isola. DreamSim: Learning new dimensions of human visual similarity using synthetic data. In Advances
+in Neural Information Processing Systems (NeurIPS), 2023.
+[4] Amos Tversky. Features of similarity. Psychological Review, 84(4):327–352, 1977.
+[5] Douglas L Medin, Robert L Goldstone, and Dedre Gentner. Respects for similarity. Psychological Review,
+100(2):254–278, 1993.
+[6] Lin Zhang, Lei Zhang, Xuanqin Mou, and David Zhang. FSIM: A feature similarity index for image
+quality assessment. IEEE Transactions on Image Processing, 20(8):2378–2386, 2011.
+[7] Rafat Mantiuk, Kil Joong Kim, Allan G Rempel, and Wolfgang Heidrich. HDR-VDP-2: A calibrated
+visual metric for visibility and quality predictions in all luminance conditions. ACM Transactions on
+Graphics (Proc. SIGGRAPH), 30(4):40:1–40:14, 2011.
+[8] Sagar Vaze, Nicolas Carion, and Ishan Misra. GeneCIS: A benchmark for general conditional image
+similarity. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition
+(CVPR), pages 6862–6872, 2023.
+[9] Cheng-Yu Hsieh, Pavan Kumar Anasosalu Vasu, Fartash Faghri, Raviteja Vemulapalli, Chun-Liang Li,
+Ranjay Krishna, Oncel Tuzel, and Hadi Pouransari. Focallens: Instruction tuning enables zero-shot
+conditional image representations. arXiv preprint arXiv:2504.08368, 2025.
+[10] Tsai-Shien Chen, Aliaksandr Siarohin, Guocheng Gordon Qian, Kuan-Chieh Jackson Wang, Egor
+Nemchinov, Moayed Haji-Ali, Riza Alp Guler, Willi Menapace, Ivan Skorokhodov, Anil Kag, et al.
+Omni-attribute: Open-vocabulary attribute encoder for visual concept personalization. arXiv preprint
+arXiv:2512.10955, 2025.
+[11] Martin N Hebart, Adam H Dickter, Alexis Kidder, Wan Y Kwok, Anna Corriveau, Caitlin Van Wicklin,
+and Chris I Baker. THINGS: A database of 1,854 object concepts and more than 26,000 naturalistic
+object images. PLOS ONE, 14(10):e0223792, 2019.
+[12] OpenAI. GPT-4V(ision) system card. OpenAI Technical Report, 2023.
+[13] Gemini Team, Google.
+Gemini: A family of highly capable multimodal models.
+arXiv preprint
+arXiv:2312.11805, 2023.
+[14] Shuai Bai, Yuxuan Cai, Ruizhe Chen, Keqin Chen, Xionghui Chen, Zesen Cheng, Lianghao Deng, Wei
+Ding, Chang Gao, Chunjiang Ge, et al. Qwen3-vl technical report. arXiv preprint arXiv:2511.21631,
+2025.
+[15] Zhe Chen, Jiannan Wu, Wenhai Wang, Weijie Su, Guo Chen, Sen Xing, Muyan Zhong, Qinglong Zhang,
+Xizhou Zhu, Lewei Lu, et al. Internvl: Scaling up vision foundation models and aligning for generic
+visual-linguistic tasks. In Proceedings of the IEEE/CVF conference on computer vision and pattern
+recognition, pages 24185–24198, 2024.
+[16] Ziyan Jiang, Rui Meng, Xinyi Yang, Semih Yavuz, Yingbo Zhou, and Wenhu Chen. VLM2Vec: Training
+vision-language models for massive multimodal embedding tasks. In International Conference on
+Learning Representations (ICLR), 2025.
+[17] Mingxin Li, Yanzhao Zhang, Dingkun Long, Keqin Chen, Sibo Song, Shuai Bai, Zhibo Yang, Pengjun
+Xie, An Yang, Dayiheng Liu, Jingren Zhou, and Junyang Lin. Qwen3-VL-Embedding and Qwen3-VL-
+Reranker: A unified framework for state-of-the-art multimodal retrieval and ranking. arXiv preprint,
+2026.
+[18] Alex Krizhevsky, Ilya Sutskever, and Geoffrey E Hinton. ImageNet classification with deep convolutional
+neural networks. In Advances in Neural Information Processing Systems (NeurIPS), 2012.
+[19] Karen Simonyan and Andrew Zisserman. Very deep convolutional networks for large-scale image
+recognition. In International Conference on Learning Representations (ICLR), 2015.
+[20] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun. Deep residual learning for image recognition.
+In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pages
+770–778, 2016.
+[21] Alexey Dosovitskiy, Lucas Beyer, Alexander Kolesnikov, Dirk Weissenborn, Xiaohua Zhai, Thomas
+Unterthiner, Mostafa Dehghani, Matthias Minderer, Georg Heigold, Sylvain Gelly, Jakob Uszkoreit,
+and Neil Houlsby. An image is worth 16x16 words: Transformers for image recognition at scale. In
+International Conference on Learning Representations (ICLR), 2021.
+11
+[22] Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish
+Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, et al. Learning transferable visual models from
+natural language supervision. In International conference on machine learning, pages 8748–8763. PmLR,
+2021.
+[23] Maxime Oquab, Timothée Darcet, Théo Moutakanni, Huy Vo, Marc Szafraniec, Vasil Khalidov, Pierre
+Fernandez, Daniel Haziza, Francisco Massa, Alaaeldin El-Nouby, Mahmoud Assran, Nicolas Ballas,
+Wojciech Galuba, Russell Howes, Po-Yao Huang, Shang-Wen Li, Ishan Misra, Michael Rabbat, Vasu
+Sharma, Gabriel Synnaeve, Hu Xu, Hervé Jégou, Julien Mairal, Patrick Labatut, Armand Joulin, and Piotr
+Bojanowski. DINOv2: Learning robust visual features without supervision. Transactions on Machine
+Learning Research (TMLR), 2024.
+[24] Justin Johnson, Alexandre Alahi, and Li Fei-Fei. Perceptual losses for real-time style transfer and
+super-resolution. In European Conference on Computer Vision (ECCV), pages 694–711. Springer, 2016.
+[25] Leon A Gatys, Alexander S Ecker, and Matthias Bethge. Image style transfer using convolutional neural
+networks. In Proceedings of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR),
+pages 2414–2423, 2016.
+[26] Dan Amir and Yair Weiss. Understanding and simplifying perceptual distances. In Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pages 12226–12235, 2021.
+[27] Kyle Sargent, Ruiqi Gao, Philipp Henzler, Charles Herrmann, Aleksander Holynski, Li Fei-Fei, Jiajun
+Wu, and Jason Y Zhang. Vlic: Vision-language models as perceptual judges for human-aligned image
+compression. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition,
+2026.
+[28] Ekta Prashnani, Hong Cai, Yasamin Mostofi, and Pradeep Sen. PieAPP: Perceptual image-error assess-
+ment through pairwise preference. In Proceedings of the IEEE Conference on Computer Vision and
+Pattern Recognition (CVPR), pages 1808–1817, 2018.
+[29] Keyan Ding, Kede Ma, Shiqi Wang, and Eero P Simoncelli. Image quality assessment: Unifying structure
+and texture similarity. IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI),
+44(5):2567–2581, 2020.
+[30] Lukas Muttenthaler, Jonas Dippel, Lorenz Linhardt, Robert A Vandermeulen, and Simon Kornblith.
+Human alignment of neural network representations. In International Conference on Learning Represen-
+tations (ICLR), 2023.
+[31] Abhijay Ghildyal and Feng Liu. Shift-tolerant perceptual similarity metric. In European Conference on
+Computer Vision (ECCV), pages 91–107. Springer, 2022.
+[32] Sara Ghazanfari, Alexandre Araujo, Prashanth Krishnamurthy, Farshad Khorrami, and Siddharth Garg.
+LipSim: A provably robust perceptual similarity metric. In International Conference on Learning
+Representations (ICLR), 2024.
+[33] Markus Kettunen, Erik Härkönen, and Jaakko Lehtinen. E-LPIPS: Robust perceptual image similarity via
+random transformation ensembles. arXiv preprint arXiv:1906.03973, 2019.
+[34] Elena Garces, Aseem Agarwala, Diego Gutierrez, and Aaron Hertzmann. A similarity measure for
+illustration style. 2014.
+[35] Gowthami Somepalli, Anubhav Gupta, Kamal Gupta, Shramay Palta, Micah Goldblum, Jonas Geiping,
+Abhinav Shrivastava, and Tom Goldstein. Measuring style similarity in diffusion models. In European
+Conference on Computer Vision (ECCV), 2024.
+[36] Thao Nguyen, Sicheng Mo, Krishna Kumar Singh, Yilin Wang, Jing Shi, Nicholas Kolkin, Eli Shechtman,
+Yong Jae Lee, and Yuheng Li. Relational visual similarity. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition, 2026.
+[37] Jiazheng Xu, Xiao Liu, Yuchen Wu, Yuxuan Tong, Qinkai Li, Ming Ding, Jie Tang, and Yuxiao Dong.
+ImageReward: Learning and evaluating human preferences for text-to-image generation. arXiv preprint
+arXiv:2304.05977, 2023.
+[38] Yuval Kirstain, Adam Polyak, Uriel Singer, Shahbuland Matiana, Joe Penna, and Omer Levy. Pick-a-pic:
+An open dataset of user preferences for text-to-image generation. In Neural Information Processing
+Systems (NeurIPS), 2023.
+[39] Xiaoshi Wu, Yiming Hao, Keqiang Sun, Yixiong Chen, Feng Zhu, Rui Zhao, and Hongsheng Li. Human
+preference score v2: A solid benchmark for evaluating human preferences of text-to-image synthesis.
+arXiv preprint arXiv:2306.09341, 2023.
+[40] Keming Wu, Sicong Jiang, Max Ku, Ping Nie, Minghao Liu, and Wenhu Chen. Editreward: A human-
+aligned reward model for instruction-guided image editing. In International Conference on Learning
+Representations (ICLR), 2026.
+12
+[41] Ehsan Amid and Antti Ukkonen. Multiview triplet embedding: Learning attributes in multiple maps. In
+International Conference on Machine Learning (ICML), pages 1472–1480. PMLR, 2015.
+[42] Andreas Veit, Serge Belongie, and Theofanis Karaletsos. Conditional similarity networks. In Proceedings
+of the IEEE Conference on Computer Vision and Pattern Recognition (CVPR), pages 830–838, 2017.
+[43] Mariya I Vasileva, Bryan A Plummer, Krishna Dusad, Shreya Rajpal, Ranjitha Kumar, and David Forsyth.
+Learning type-aware embeddings for fashion compatibility. In European Conference on Computer Vision
+(ECCV), pages 390–405, 2018.
+[44] William Thong, Cees GM Snoek, and Arnold WM Smeulders. Cooperative embeddings for instance,
+attribute and category retrieval. arXiv preprint arXiv:1904.01421, 2019.
+[45] Reuben Tan, Mariya I Vasileva, Kate Saenko, and Bryan A Plummer. Learning similarity conditions
+without explicit supervision. In Proceedings of the IEEE/CVF International Conference on Computer
+Vision (ICCV), pages 10373–10382, 2019.
+[46] Masayuki Kawarada, Kosuke Yamada, Antonio Tejero-de Pablos, and Naoto Inoue. Training-free
+conditional image embedding framework leveraging large vision language models. In Proceedings of the
+IEEE/CVF Winter Conference on Applications of Computer Vision, pages 7636–7646, 2026.
+[47] Siting Li, Xiang Gao, and Simon Shaolei Du. Highlighting what matters: Promptable embeddings for
+attribute-focused image retrieval. In Advances in Neural Information Processing Systems (NeurIPS),
+2025.
+[48] Yibing Wei, Sudeep Katakol, Manuel Brack, Jinhong Lin, Haoyue Bai, Yu-Teng Li, Richard Zhang, Eli
+Shechtman, Hareesh Ravi, and Ajinkya Kale. Towards text-guided attribute-disentangled multimodal
+representation learning. In CVPR, 2026.
+[49] Zilin Wang, Sangwoo Mo, Stella X Yu, Sima Behpour, and Liu Ren. Open ad-hoc categorization with
+contextualized feature learning. In Proceedings of the IEEE/CVF Conference on Computer Vision and
+Pattern Recognition (CVPR), 2025.
+[50] Sehyun Kwon, Jaeseung Park, Minkyu Kim, Jaewoong Cho, Ernest K Ryu, and Kangwook Lee. Image
+clustering conditioned on text criteria. In International Conference on Learning Representations (ICLR),
+2024.
+[51] Nam Vo, Lu Jiang, Chen Sun, Kevin Murphy, Li-Jia Li, Li Fei-Fei, and James Hays. Composing text
+and image for image retrieval-an empirical odyssey. In Proceedings of the IEEE/CVF Conference on
+Computer Vision and Pattern Recognition (CVPR), pages 6439–6448, 2019.
+[52] Zheyuan Liu, Cristian Rodriguez-Opazo, Damien Teney, and Stephen Gould. Image retrieval on real-life
+images with pre-trained vision-and-language models. In Proceedings of the IEEE/CVF International
+Conference on Computer Vision (ICCV), pages 2125–2134, 2021.
+[53] Kuniaki Saito, Kihyuk Sohn, Xiang Zhang, Chun-Liang Li, Chen-Yu Lee, Kate Saenko, and Tomas Pfister.
+Pic2Word: Mapping pictures to words for zero-shot composed image retrieval. In Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR), pages 19305–19314, 2023.
+[54] Alberto Baldrati, Lorenzo Agnolucci, Marco Bertini, and Alberto Del Bimbo. Zero-shot composed image
+retrieval with textual inversion. In Proceedings of the IEEE/CVF International Conference on Computer
+Vision (ICCV), pages 15338–15347, 2023.
+[55] Xiaohua Zhai, Basil Mustafa, Alexander Kolesnikov, and Lucas Beyer. Sigmoid loss for language image
+pre-training. In Proceedings of the IEEE/CVF International Conference on Computer Vision (ICCV),
+pages 11975–11986, 2023.
+[56] Mehdi Cherti, Romain Beaumont, Ross Wightman, Mitchell Wortsman, Gabriel Ilharco, Cade Gordon,
+Christoph Schuhmann, Ludwig Schmidt, and Jenia Jitsev. Reproducible scaling laws for contrastive
+language-image learning. In Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern
+Recognition (CVPR), pages 2818–2829, 2023.
+[57] Junnan Li, Dongxu Li, Caiming Xiong, and Steven Hoi. BLIP: Bootstrapping language-image pre-
+training for unified vision-language understanding and generation. In International Conference on
+Machine Learning (ICML), pages 12888–12900. PMLR, 2022.
+[58] Junnan Li, Dongxu Li, Silvio Savarese, and Steven Hoi. BLIP-2: Bootstrapping language-image pre-
+training with frozen image encoders and large language models. In International Conference on Machine
+Learning (ICML), 2023.
+[59] Jinze Bai, Shuai Bai, Shusheng Yang, Shijie Wang, Sinan Tan, Peng Wang, Junyang Lin, Chang Zhou,
+and Jingren Zhou. Qwen-VL: A versatile vision-language model for understanding, localization, text
+reading, and beyond. arXiv preprint arXiv:2308.12966, 2023.
+[60] Peng Wang, Shuai Bai, Sinan Tan, Shijie Wang, Zhihao Fan, Jinze Bai, Keqin Chen, Xuejing Liu, Jialin
+Wang, Wenbin Ge, et al. Qwen2-VL: Enhancing vision-language model’s perception of the world at any
+resolution. arXiv preprint arXiv:2409.12191, 2024.
+13
+[61] Qwen Team. Qwen3.5: Unified vision-language foundation with early-fusion multimodal training.
+https://github.com/QwenLM/Qwen3.5, 2026. Technical blog post.
+[62] Jean-Baptiste Alayrac, Jeff Donahue, Pauline Luc, Antoine Miech, Iain Barr, Yana Hasson, Karel Lenc,
+Arthur Mensch, Katherine Millican, Malcolm Reynolds, Roman Ring, Eliza Rutherford, Serkan Cabi,
+Tengda Han, Zhitao Gong, Sina Samangooei, Marianne Monteiro, Jacob Menick, Sebastian Borgeaud,
+Andrew Brock, Aida Nematzadeh, Sahand Sharifzadeh, Mikolaj Binkowski, Ricardo Barreira, Oriol
+Vinyals, Andrew Zisserman, and Karen Simonyan. Flamingo: a visual language model for few-shot
+learning. In Alice H. Oh, Alekh Agarwal, Danielle Belgrave, and Kyunghyun Cho, editors, Advances in
+Neural Information Processing Systems, 2022.
+[63] Bo Li, Yuanhan Zhang, Dong Guo, Renrui Zhang, Feng Li, Hao Zhang, Kaichen Zhang, Yanwei Li, Ziwei
+Liu, and Chunyuan Li. LLaVA-OneVision: Easy visual task transfer. arXiv preprint arXiv:2408.03326,
+2024.
+[64] Zhiyu Wu, Xiaokang Chen, Zizheng Pan, Xingchao Liu, Wen Liu, Damai Dai, Huazuo Gao, Yiyang Ma,
+Chengyue Wu, Bingxuan Wang, Zhenda Xie, Yu Wu, Kai Hu, Jiawei Wang, Yaofeng Sun, Yukun Li,
+Yishi Piao, Kang Guan, Aixin Liu, Xin Xie, Yuxiang You, Kai Dong, Xingkai Yu, Haowei Zhang, Liang
+Zhao, Yisong Wang, and Chong Ruan. Deepseek-vl2: Mixture-of-experts vision-language models for
+advanced multimodal understanding, 2024.
+[65] Rui Meng, Ziyan Jiang, Ye Liu, Mingyi Su, Xinyi Yang, Yuepeng Fu, Can Qin, Zeyuan Chen, Ran Xu,
+Caiming Xiong, et al. VLM2Vec-V2: Advancing multimodal embedding for videos, images, and visual
+documents. arXiv preprint arXiv:2507.04590, 2025.
+[66] Rongyao Fang, Aldrich Yu, Chengqi Duan, Linjiang Huang, Shuai Bai, Yuxuan Cai, Kun Wang, Si Liu,
+Xihui Liu, and Hongsheng Li. Flux-reason-6m & prism-bench: A million-scale text-to-image reasoning
+dataset and comprehensive benchmark. arXiv preprint arXiv:2509.09680, 2025.
+[67] Ziyan Jiang, Rui Meng, Xinyi Yang, Semih Yavuz, Yingbo Zhou, and Wenhu Chen. VLM2Vec: Training
+vision-language models for massive multimodal embedding tasks. In International Conference on
+Learning Representations (ICLR), 2025.
+[68] Chankyu Lee, Rajarshi Roy, Mengyao Xu, Jonathan Raiman, Mohammad Shoeybi, Bryan Catanzaro,
+and Wei Ping. NV-Embed: Improved techniques for training LLMs as generalist embedding models. In
+International Conference on Learning Representations (ICLR), 2025.
+[69] Edward J. Hu, Yelong Shen, Phillip Wallis, Zeyuan Allen-Zhu, Yuanzhi Li, Shean Wang, Lu Wang, and
+Weizhu Chen. LoRA: Low-rank adaptation of large language models. In International Conference on
+Learning Representations (ICLR), 2022.
+[70] Jona Ruthardt, Manu Gaur, Deva Ramanan, Makarand Tapaswi, and Yuki M Asano. Steerable visual
+representations. arXiv preprint arXiv:2604.02327, 2026.
+[71] Weiyun Wang, Zhangwei Gao, Lixin Gu, Hengjun Pu, Long Cui, Xingguang Wei, Zhaoyang Liu, Linglin
+Jing, Shenglong Ye, Jie Shao, et al. Internvl3. 5: Advancing open-source multimodal models in versatility,
+reasoning, and efficiency. arXiv preprint arXiv:2508.18265, 2025.
+[72] Alina Kuznetsova, Hassan Rom, Neil Alldrin, Jasper Uijlings, Ivan Krasin, Jordi Pont-Tuset, Shahab
+Kamali, Stefan Popov, Matteo Malloci, Alexander Kolesnikov, Tom Duerig, and Vittorio Ferrari. The
+Open Images Dataset V4: Unified image classification, object detection, and visual relationship detection
+at scale. International Journal of Computer Vision (IJCV), 2020.
+[73] Wei Ren Tan, Chee Seng Chan, Hernan Aguirre, and Kiyoshi Tanaka. Improved artgan for conditional
+synthesis of natural image and artwork. IEEE Transactions on Image Processing, 28(1):394–409, 2019.
+[74] Nupur Kumari, Sheng-Yu Wang, Nanxuan Zhao, Yotam Nitzan, Yuheng Li, Krishna Kumar Singh,
+Richard Zhang, Eli Shechtman, Jun-Yan Zhu, and Xun Huang. Learning an image editing model without
+image editing pairs. In ICLR, 2026.
+[75] Grace Luo, Jonathan Granskog, Aleksander Holynski, and Trevor Darrell. Dual-process image generation.
+arXiv preprint arXiv:2506.01955, 2025.
+[76] Zeyue Xue, Jie Wu, Yu Gao, Fangyuan Kong, Lingting Zhu, Mengzhao Chen, Zhiheng Liu, Wei Liu,
+Qiushan Guo, Weilin Huang, and Ping Luo. DanceGRPO: Unleashing GRPO on visual generation. arXiv
+preprint arXiv:2505.07818, 2025.
+[77] Tamar Rott Shaham, Sarah Schwettmann, Franklin Wang, Achyuta Rajaram, Evan Hernandez, Jacob
+Andreas, and Antonio Torralba. A multimodal automated interpretability agent. In ICML, 2024.
+[78] Viacheslav Surkov, Chris Wendler, Antonio Mari, Mikhail Terekhov, Justin Deschenaux, Robert West,
+Caglar Gulcehre, and David Bau. One-step is enough: Sparse autoencoders for text-to-image diffusion
+models. arXiv preprint arXiv:2410.22366, 2024.
+[79] An Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen Yu, Chang Gao,
+Chengen Huang, Chenxu Lv, et al. Qwen3 technical report. arXiv preprint arXiv:2505.09388, 2025.
+14
+[80] Black Forest Labs. FLUX.1: Open-weight rectified flow transformers for text-to-image generation.
+https://blackforestlabs.ai/announcing-black-forest-labs/, 2024.
+[81] Zhangqi Jiang, Zheng Sun, Xianfang Zeng, Yufeng Yang, Xuanyang Zhang, Yongliang Wu, Wei Cheng,
+Gang Yu, Xu Yang, and Bihan Wen. Geditbench v2: A human-aligned benchmark for general image
+editing. arXiv preprint arXiv:2603.28547, 2026.
+[82] Chaorui Deng, Deyao Zhu, Kunchang Li, Chenhui Gou, Feng Li, Zeyu Wang, Shu Zhong, Weihao Yu,
+Xiaonan Nie, Ziang Song, et al. Emerging properties in unified multimodal pretraining. arXiv preprint
+arXiv:2505.14683, 2025.
+[83] Black Forest Labs. FLUX.2: Frontier visual intelligence. https://bfl.ai/blog/flux-2, 2025.
+[84] Meituan LongCat Team. LongCat-Image technical report. arXiv preprint arXiv:2512.07584, 2025.
+[85] Chenyuan Wu et al. OmniGen2: Towards instruction-aligned multimodal generation. arXiv preprint
+arXiv:2506.18871, 2025.
+[86] Qwen Team. Qwen-Image-Edit: Image editing with higher quality and efficiency. https://qwenlm.
+github.io/blog/qwen-image-edit, 2025.
+[87] Step1X-Image Team. Step1X-Edit: A practical framework for general image editing. arXiv preprint
+arXiv:2504.17761, 2025.
+[88] Lvmin Zhang, Anyi Rao, and Maneesh Agrawala. Scaling in-the-wild training for diffusion-based
+illumination harmonization and editing by imposing consistent light transport. In International Conference
+on Learning Representations (ICLR), 2025.
+[89] Yong Liu, Wenpeng Xiao, Qianqian Wang, et al. DreamLight: Towards harmonious and consistent image
+relighting. arXiv preprint arXiv:2506.14549, 2025.
+[90] Jianqi Chen, Yilan Zhang, Zhengxia Zou, Keyan Chen, and Zhenwei Shi. Zero-shot image harmonization
+with generative model prior. IEEE Transactions on Multimedia, 27:4494–4507, 2025.
+[91] Jonathan T. Barron, Ben Mildenhall, Dor Verbin, Pratul P. Srinivasan, and Peter Hedman. Mip-NeRF 360:
+Unbounded anti-aliased neural radiance fields. In Conference on Computer Vision and Pattern Recognition
+(CVPR), 2022.
+[92] Matthew Tancik, Ethan Weber, Evonne Ng, Ruilong Li, Brent Yi, Justin Kerr, Terrance Wang, Alexander
+Kristoffersen, Jake Austin, Kamyar Salahi, Abhik Ahuja, David McAllister, and Angjoo Kanazawa.
+Nerfstudio: A modular framework for neural radiance field development. In ACM SIGGRAPH Conference
+Proceedings, 2023.
+[93] Bernhard Kerbl, Georgios Kopanas, Thomas Leimkühler, and George Drettakis. 3D Gaussian splatting
+for real-time radiance field rendering. ACM Transactions on Graphics (SIGGRAPH), 2023.
+[94] Ben Mildenhall, Pratul P. Srinivasan, Matthew Tancik, Jonathan T. Barron, Ravi Ramamoorthi, and Ren
+Ng. Nerf: Representing scenes as neural radiance fields for view synthesis. In ECCV, 2020.
+[95] Thomas Müller, Alex Evans, Christoph Schied, and Alexander Keller. Instant neural graphics primitives
+with a multiresolution hash encoding. ACM Transactions on Graphics (SIGGRAPH), 2022.
+[96] Jianfeng Xiang, Zelong Lv, Sicheng Xu, Yu Deng, Ruicheng Wang, Bowen Zhang, Dong Chen, Xin Tong,
+and Jiaolong Yang. Structured 3d latents for scalable and versatile 3d generation. In Proceedings of the
+IEEE/CVF conference on computer vision and pattern recognition, pages 21469–21480, 2025.
+[97] Jiale Xu, Weihao Cheng, Yiming Gao, Xintao Wang, Shenghua Gao, and Ying Shan. InstantMesh:
+Efficient 3D mesh generation from a single image with sparse-view large reconstruction models. arXiv
+preprint arXiv:2404.07191, 2024.
+[98] Tencent Hunyuan3D Team. Hunyuan3D 2.1: From images to high-fidelity 3D assets with production-
+ready PBR material. arXiv preprint arXiv:2506.15442, 2025.
+[99] StepFun Step1X-3D Team. Step1X-3D: Towards high-fidelity and controllable generation of textured 3D
+assets. arXiv preprint arXiv:2505.07747, 2025.
+[100] Ilya Loshchilov and Frank Hutter. SGDR: Stochastic gradient descent with warm restarts. In International
+Conference on Learning Representations (ICLR), 2017.
+[101] Zihao Zhao, Eric Wallace, Shi Feng, Dan Klein, and Sameer Singh. Calibrate before use: Improving
+few-shot performance of language models. In International conference on machine learning, pages
+12697–12706. Pmlr, 2021.
+[102] Chujie Zheng, Hao Zhou, Fandong Meng, Jie Zhou, and Minlie Huang. Large language models are not
+robust multiple choice selectors. In International Conference on Learning Representations (ICLR), 2024.
+[103] Peiyi Wang, Lei Li, Liang Chen, Zefan Cai, Dawei Zhu, Binghuai Lin, Yunbo Cao, Lingpeng Kong,
+Qi Liu, Tianyu Liu, et al. Large language models are not fair evaluators. In Proceedings of the 62nd Annual
+Meeting of the Association for Computational Linguistics (Volume 1: Long Papers), pages 9440–9450,
+2024.
+15
+[104] Yinhan Liu, Myle Ott, Naman Goyal, Jingfei Du, Mandar Joshi, Danqi Chen, Omer Levy, Mike Lewis,
+Luke Zettlemoyer, and Veselin Stoyanov. RoBERTa: A robustly optimized BERT pretraining approach.
+arXiv preprint arXiv:1907.11692, 2019.
+[105] Dan Hendrycks, Steven Basart, Norman Mu, Saurav Kadavath, Frank Wang, Evan Dorundo, Rahul Desai,
+Tyler Zhu, Samyak Parajuli, Mike Guo, Dawn Song, Jacob Steinhardt, and Justin Gilmer. The many faces
+of robustness: A critical analysis of out-of-distribution generalization. ICCV, 2021.
+A
+Dataset collection and curation
+We extend Section 3 and provide the full curation pipeline behind the synthetic odd-one-out dataset
+used for training and in-distribution evaluation (Section A.1), and the vision-algorithm 2AFC set
+used for out-of-distribution evaluation (Section A.2). Throughout, we use the term aspect for the text
+condition c (e.g., lighting, color tone, scene geometry).
+Annotation crowdsourcing. We collect annotations on Amazon Mechanical Turk and Prolific.
+Reward per task is set to target an effective hourly rate of $10/hour. Sentinel checks are applied to
+every session. A sentinel triplet is constructed by duplicating one image from a real triplet, making
+the correct odd-one-out visually unambiguous. Sessions that fail the sentinels are returned, and the
+corresponding responses are excluded.
+Per-aspect “can’t tell” filter. To handle the case where the visual aspect condition is ambiguous,
+our annotation interface includes a “can’t tell” option in addition to the image choices. We collect
+5 annotations per triplet, discard the “can’t tell” vote, and only train and test on the image votes.
+To ensure sufficient votes for all visual aspects in the test set, we discard any aspect if 3 or more
+annotators mark “can’t tell” in the test set. The filter is applied independently per aspect. A triplet
+may keep some aspects and lose others, and we drop the triplet only when no aspect remains.
+A.1
+Odd-one-out dataset
+Image generation. We use the FLUX-Reason-6M [66] caption pool as base prompts. For each base
+prompt, an instruction-tuned LLM (Qwen3-4B-Instruct-2507 [79]) authors three controlled prompt
+variations along a small set of pre-specified axes (e.g., color, lighting, composition), so that within a
+triplet the three prompts deliberately differ on at least one axis. The three prompts are then rendered
+by FLUX.1-dev [80] with a shared random seed, 50 sampling steps, and guidance scale of 4.0. Below
+are the instructions to generate the prompt variation:
+System Prompt
+You are an expert at generating perceptual variations for odd-one-out perceptual
+studies.
+TASK: Given a base text prompt, generate THREE CLEARLY DISTINGUISHABLE
+text-to-image prompts (0, 1, 2) that form an interesting odd-one-out triplet.
+GOAL: These images will be shown to humans who must identify which image is
+"most different" from the others. For each visual FACTOR you vary, TWO images
+should be SIMILAR and ONE should be the "ODD" one (clearly different).
+CRITICAL DESIGN PRINCIPLES:
+1. Vary 5-7 visual factors across the triplet
+2. For EACH factor: two images share a similar value, one image is distinctly
+different
+3. DISTRIBUTE the "odd" role across images - don't make one image odd for all
+factors!
+- Example: Image 0 might be odd for "lighting" and "pose"
+- Image 1 might be odd for "background" and "texture"
+- Image 2 might be odd for "camera angle" and "color"
+4. This creates an INTERESTING perceptual puzzle where each image is "odd" in
+some ways but "similar" in others
+VISUAL FACTORS TO VARY (use contextual names, not category names):
+16
+- Color & Illumination →"lighting warmth", "shadow direction", "brightness
+level"
+- Material & Texture →"sofa fabric", "surface glossiness", "wood grain"
+- Geometry & Shape & Pose →"cat pose", "flower arrangement", "building
+height"
+- Background & Environment →"sky condition", "room clutter", "weather"
+- Composition & Spatial Arrangement →"object spacing", "framing tightness"
+- Camera →"camera distance", "viewing angle", "depth of field"
+- Photographic Style →"color saturation", "film grain", "contrast level"
+REQUIREMENTS:
+1. All three must describe the same subject(s) or scene
+2. Use VIVID, SPECIFIC descriptors - avoid "slightly" or "somewhat"
+3. Each prompt should produce an image DISTINGUISHABLE AT A GLANCE
+4. Factor names must be contextual: "cat pose" not "Geometry & Shape"
+5. Keep factor names short and understandable by non-experts
+EXAMPLE for "A golden retriever in a park":
+{
+"metadata": {
+"num_variations": 3,
+"factors": [
+{"name": "dog pose", "odd_image": 0, "similar_value": "sitting upright",
+"odd_value": "lying down"},
+{"name": "lighting", "odd_image": 1, "similar_value": "bright sunny",
+"odd_value": "overcast diffuse"},
+{"name": "background trees", "odd_image": 2, "similar_value": "lush
+green", "odd_value": "autumn orange"},
+{"name": "grass length", "odd_image": 0, "similar_value": "short
+manicured", "odd_value": "tall wild"},
+{"name": "camera angle", "odd_image": 1, "similar_value": "eye level",
+"odd_value": "low angle looking up"},
+{"name": "depth of field", "odd_image": 2, "similar_value": "sharp
+throughout", "odd_value": "blurred background"}
+]
+},
+"triplets": [
+{"id": 0, "prompt_or_edit_or_video_instruction": "A golden retriever lying
+down in tall wild grass in a sunny park with lush green trees, eye level
+shot, sharp focus throughout, bright natural lighting"},
+{"id": 1, "prompt_or_edit_or_video_instruction": "A golden retriever sitting
+upright in short manicured grass in a park under overcast diffuse light, low
+angle looking up, lush green trees, sharp focus throughout"},
+{"id": 2, "prompt_or_edit_or_video_instruction": "A golden retriever sitting
+upright in short manicured grass in a sunny park with autumn orange trees,
+eye level shot, blurred background, bright natural lighting"}
+]
+}
+OUTPUT FORMAT: Return ONLY valid JSON with the structure shown above.
+Remember: Make each image "odd" for roughly 2-3 factors, creating an interesting
+perceptual puzzle!
+Aspect proposal and refinement. Each triplet inherits the proposed aspects from its prompt-variation
+step. Because the prompt-to-image mapping is not faithful, we additionally pass the rendered triplet
+and its candidate aspect list to GPT-5.2 [12] and ask it to drop aspects that are not visibly varying
+across the three images and to add visually salient aspects that the prompts did not specify. The
+refinement instruction is:
+System Prompt
+You are analyzing three horizontally concatenated images (left, middle, right).
+17
+INITIAL AXES OF VARIATION:
+<list of aspects inserted here>
+TASK: Refine the initial axes based on the images. Keep most axes, remove only
+irrelevant ones, and add any new axes for visual differences that are actually
+present.
+RULES (must be strictly followed):
+1. Each axis must be a single, concise noun phrase.
+2. Do NOT use the words "and", "or", "not", parentheses, asterisks, commas, or
+any other symbols in an axis.
+3. Always name axes contextually for the subject (e.g., "cat pose", "sky
+brightness", "table material").
+4. Always include axes for pose, orientation, geometry, size, or viewpoint if
+subjects vary.
+5. Include axes for color, lighting, material, texture, background, composition,
+camera, or photographic style if relevant.
+6. Output only axes that actually vary between the images.
+7. Do not hallucinate axes that are not visually evident.
+8. Provide 5-10 axes sorted by importance, most important first.
+OUTPUT FORMAT: Numbered list
+1. [Most important axis]
+2. [Second axis]
+3. ...
+The output is an over-complete refined aspect list, which is then pruned by the can’t-tell filter from
+human annotation.
+Annotation interface. Annotators see three triangle-arranged images and a list of refined aspects
+rendered as draggable chips. For each aspect, they drag the chip onto the image they consider the
+odd-one-out, or onto a “can’t tell” bin (Figure 9). Each triplet is annotated by 5 workers; after the
+can’t-tell filter, the remaining votes form a categorical distribution y ∈∆3 over the three image
+positions. We additionally include one “overall” aspect per triplet by asking an unconditional question
+“which image looks most different overall?”. We treat “overall” as a regular aspect condition during
+training and evaluation.
+Odd-One-Out (Overall)
+Odd-One-Out (Aspects)
+Figure 9: Odd-one-out annotation interface. Annotators are shown three images. (Left) Annotators
+click the most different-looking image overall. (Right) Annotators are given a list of aspects as
+draggable chips, and assign each aspect either to the image they perceive as the odd-one-out or to
+“can’t tell”.
+18
+Table 2: Algorithms and aspects used in the 2AFC set. We report the algorithms used for our
+2AFC set and the number of triplet occurrences for each algorithm, along with the aspect list used.
+Source
+Algorithm (# triplets it appears in)
+Aspect list
+Image
+editing
+BAGEL (67), FLUX2-dev (83), LongCat-Image-Edit
+(72), OmniGen2 (92), Qwen-Image-Edit (64),
+Qwen-Image-Edit-2511 (69), Step1X-Edit v1.2 (65)
+6–10 aspects predicted by GPT-5.2 per sample and
+human-pruned
+Image
+compositing
+IC-Light (197), DreamLight (195),
+Diff-Harmonization (196)
+(fg-ref) facial features, hair texture, clothing detail;
+(bg-ref) lighting direction, lighting warmth, color
+tone, illumination
+Novel view
+synthesis
+Splatfacto (120), Nerfacto (120), Instant-NGP (120)
+scene geometry, scene sharpness, texture detail, color
+tone, lighting brightness
+Single-
+image 3D
+TRELLIS.2-4B (197), InstantMesh (199),
+Hunyuan3D-2.1 (199), Step1X-3D (199)
+3D shape, surface texture, material, color tone,
+camera pose, object size
+Figure 10: 2AFC annotation interface. Annotators see a reference image (center) and two candidates
+on two sides and select, for each aspect, which candidate is more similar to the reference, or “can’t
+tell”.
+A.2
+2AFC out-of-distribution evaluation set
+The 2AFC set is curated from outputs of real vision algorithms across four sources: image editing,
+image compositing, novel view synthesis (NVS), and single-image 3D. Each source contributes
+a reference image xref and outputs from multiple algorithms; a triplet pairs xref with two outputs
+from different algorithms, and the annotator picks the output more similar to xref for each aspect.
+Algorithms and aspect lists per source are summarized in Table 2.
+Image editing. Sources are drawn from GEditBench v2 [81], which includes 16 methods. We
+keep the 7 methods: BAGEL [82], FLUX2-dev [83], LongCat-Image-Edit [84], OmniGen2 [85],
+Qwen-Image-Edit [86], Qwen-Image-Edit-2511 [86], Step1X-Edit v1.2 [87]). The rest are dropped
+either because they crop or resize the input on at least some samples or because they are near-
+duplicate intermediate releases of one of the kept models. We further discard four edit categories
+from GEditBench v2 (chart editing, in-image text translation, text editing, and line-to-image) since
+they contains visual content out of our interest (e.g., text renders, charts, line sketches). For each
+sample, GPT-5.2 names the target aspect that the edit instruction explicitly changes (e.g., background
+setting for the instruction “replace the background with a modern office”) and 6–10 preserved aspects
+that should remain identical to the reference; both lists are then human-pruned. Both target and
+19
+preserved aspects are kept in the annotation list. Each triplet pairs the source photograph with two
+edits from different, random-selected methods of the same instruction. We drop triplets whose human
+majority votes are the same image for every aspect, since these are usually dominated by one method
+barely modifying the input.
+Image compositing. We use 10 foreground images of portraits crossed with 30 background reference
+photographs and run three methods on each pair: IC-Light (text-foreground-background-conditioned
+model) [88], DreamLight [89], and zero-shot Diff-Harmonization [90]. Each foreground-background
+pair yields two reference modes: foreground-reference (the foreground is xref and the aspects describe
+subject preservation) and background-reference (the background photograph is xref, and the aspects
+describe background preservation). We take random subsets from this collection to ensure the dataset
+size matches the other tasks.
+Novel view synthesis. We use 6 scenes from Mip-NeRF 360 [91] and 3 nerfstudio methods [92]:
+Splatfacto (3D Gaussian Splatting [93]), Nerfacto [94], and Instant-NGP [95]. All methods receive
+the same training views and render the same held-out poses; the reference image is the held-out
+ground-truth photograph at the test pose.
+Single-image 3D. We use inputs from 3D Arena and 4 methods: TRELLIS.2 [96], InstantMesh [97],
+Hunyuan3D-2.1 [98], and Step1X-3D [99]. Each method’s mesh is re-rendered in Blender at 4
+spaced-out azimuth angles per object; the reference image is the source photograph. Since there is no
+consistent canonical view for each method, camera poses from each method are randomly different
+from the reference. Hence, we also annotate and evaluate camera pose similarity in this setting.
+Annotation interface. Each triplet is presented as [xcand A | xref | xcand B], with the reference in the
+center. Per triplet, annotators are shown the aspect list and select, for each aspect, which candidate
+is more similar to the reference, or “can’t tell” (Figure 10). Each (triplet, aspect) is annotated by 5
+workers, and we apply the “can’t-tell” filter as before. Following Section 3.2, we additionally drop
+aspects whose post-filter vote is exactly tied. Unlike the odd-one-out evaluation, the 2AFC evaluation
+does not include an “overall” aspect: every comparison is explicitly conditioned on a visual aspect.
+B
+Additional results
+Extending Section 5, we provide additional analysis and benchmark evaluation in Section B.1, and
+we include additional ablations in Section B.2.
+B.1
+Additional analysis and benchmarks
+Table 3 includes analysis from more models, measured by their agreement with humans.
+Triplet oracle. Section 5 reports evaluation on pairwise metrics. Our goal is to create an algorithm
+that can judge pairwise distance, using the odd-one-out triplet task as a pretext training signal. Here,
+though the odd-one-out task is not the primary task, as an advantaged “oracle”, we provide all 3
+images to the VLM, and see how closely our pairwise algorithm (which only sees 2 images at a time)
+compares. To do so, we ask the model: “Which image is the most different among the three in terms
+of <aspect>?”, same as what the human annotators answered. This makes even untrained VLMs
+strong baselines under the triplet prompt. While Gemini-3.1-Pro reaches 62.0% on odd-one-out and
+GPT-5.4 reaches 77.9% total on 2AFC, our early fusion method still outperforms even without the
+structural advantage.
+In addition, we verify that finetuning a generative VLM to solve the odd-one-out task directly with
+the triplet yields the strongest result (see Ours-Triplet). However, such a model produces only a
+triplet decision and not a pairwise score, and therefore does not transfer to 2AFC evaluation and
+retrieval. The pairwise design is what makes the metric usable across all of these settings.
+Effect of model size. As expected, for most model families, agreement with humans increases with
+backbone size on both the in-distribution odd-one-out test and the 2AFC total. For example, in
+early fusion baselines, InternVL3.5 climbs 45.4% →54.2% from 1B to 14B, and Qwen3-VL climbs
+51.0% →54.5% from 2B to 8B. In our ablation studies (Section B.2), we also find that our method’s
+performance improves with model size (Table 6).
+20
+Table 3: Agreement with humans across model families and sizes. We show the best per-task type
+in bold and second-best underlined; gray values are standard errors over the test set. For the triplet
+task, our method variant is explicitly trained on odd-one-out tasks and does not apply to 2AFC tests.
+Type
+Family
+Size
+Odd-One-Out
+(in-distribution)
+2AFC (out-of-distribution)
+Editing
+Composite
+NVS
+Im-to-3D
+Total
+Classic
+LPIPS
+62M
+46.2±0.2
+62.2±1.0
+69.4±1.3
+96.9±0.5
+65.9±1.0
+69.5±0.6
+DreamSim
+258M
+50.5±0.2
+63.7±1.0
+67.0±1.4
+96.6±0.5
+75.8±0.9
+72.9±0.5
+Triplet
+GPT-5.4
+–
+57.6±0.2
+69.4±1.0
+78.6±1.1
+96.6±0.5
+78.5±0.8
+77.9±0.5
+Gemini-3.1-Pro
+–
+62.0±0.2
+70.6±0.9
+74.6±1.2
+96.1±0.6
+74.4±0.9
+76.1±0.5
+InternVL3.5
+1B
+38.9±0.2
+50.6±1.1
+50.8±1.5
+54.5±1.9
+51.0±1.1
+51.3±0.6
+2B
+40.0±0.2
+52.7±1.1
+63.0±1.4
+66.2±1.8
+56.7±1.1
+57.7±0.6
+4B
+53.9±0.2
+60.4±1.0
+63.6±1.4
+77.1±1.6
+71.5±0.9
+67.1±0.6
+8B
+53.3±0.2
+61.9±1.0
+69.3±1.3
+92.4±0.9
+68.2±1.0
+69.6±0.6
+14B
+56.0±0.2
+63.3±1.0
+71.5±1.3
+86.5±1.2
+76.6±0.9
+72.5±0.6
+LLAVA-OV
+0.5B
+45.2±0.2
+53.7±1.1
+51.3±1.5
+68.5±1.8
+51.1±1.1
+54.4±0.6
+7B
+53.9±0.2
+62.7±1.0
+69.7±1.3
+86.9±1.2
+77.1±0.9
+72.2±0.6
+Qwen3-VL
+2B
+47.8±0.2
+58.4±1.1
+64.1±1.4
+91.5±1.0
+68.3±1.0
+67.3±0.6
+4B
+56.1±0.2
+64.0±1.0
+67.1±1.4
+95.4±0.7
+77.3±0.9
+73.4±0.5
+8B
+57.1±0.2
+63.8±1.0
+68.1±1.3
+95.1±0.7
+78.6±0.8
+73.9±0.5
+Ours
+8B
+65.0±0.2
+–
+–
+–
+–
+–
+Early Fusion
+GPT-5.4
+–
+55.5±0.2
+67.0±1.0
+73.8±1.2
+96.8±0.5
+71.3±1.0
+73.7±0.5
+Gemini-3.1-Pro
+–
+58.4±0.2
+65.5±1.0
+66.5±1.4
+90.8±1.0
+70.1±1.0
+70.7±0.6
+InternVL3.5
+1B
+45.4±0.2
+57.2±1.1
+69.8±1.3
+88.7±1.1
+63.2±1.0
+65.8±0.6
+2B
+46.3±0.2
+61.5±1.0
+70.7±1.3
+82.3±1.4
+72.6±0.9
+69.8±0.6
+4B
+53.1±0.2
+57.9±1.1
+71.1±1.3
+25.2±1.6
+74.5±0.9
+61.5±0.6
+8B
+53.5±0.2
+60.2±1.0
+64.6±1.4
+45.4±1.9
+75.4±0.9
+64.2±0.6
+14B
+54.2±0.2
+55.5±1.1
+53.9±1.5
+23.6±1.6
+73.2±0.9
+57.0±0.6
+LLAVA-OV
+0.5B
+30.1±0.2
+51.0±1.1
+51.1±1.5
+65.7±1.8
+35.7±1.0
+47.7±0.6
+7B
+44.5±0.2
+57.7±1.1
+62.0±1.4
+69.4±1.7
+72.7±0.9
+65.2±0.6
+Qwen3-VL
+2B
+51.0±0.2
+60.4±1.0
+68.7±1.3
+93.1±0.9
+74.3±0.9
+71.1±0.6
+4B
+55.1±0.2
+61.1±1.0
+70.4±1.3
+88.5±1.2
+76.1±0.9
+71.6±0.6
+8B
+54.5±0.2
+55.4±1.1
+56.5±1.5
+47.3±1.9
+69.0±1.0
+59.2±0.6
+Ours
+8B
+64.7±0.2
+72.5±0.9
+75.6±1.2
+96.6±0.5
+81.2±0.8
+79.3±0.5
+Mid-Fusion
+Qwen3-VL-Emb
+2B
+43.9±0.2
+61.4±1.0
+72.0±1.3
+96.6±0.5
+69.9±1.0
+71.0±0.6
+8B
+44.0±0.2
+61.5±1.0
+71.3±1.3
+96.7±0.5
+72.7±0.9
+71.9±0.6
+Ours
+8B
+63.8±0.2
+71.2±0.9
+64.2±1.4
+96.8±0.5
+78.1±0.8
+75.9±0.5
+Late Fusion
+Gemini-2-Embedding
+–
+54.1±0.2
+61.5±1.0
+61.5±1.4
+95.8±0.6
+75.9±0.9
+71.2±0.6
+VLM2Vec v2.0
+2B
+53.0±0.2
+62.3±1.0
+66.6±1.4
+90.9±1.0
+73.5±0.9
+70.8±0.6
+SteerViT
+86M
+51.4±0.2
+67.9±1.0
+66.0±1.4
+96.6±0.5
+75.2±0.9
+74.0±0.5
+GeneCIS
+150M
+44.9±0.2
+62.4±1.0
+71.8±1.3
+96.3±0.6
+72.7±0.9
+72.2±0.6
+Qwen3-VL-Emb
+2B
+56.7±0.2
+64.4±1.0
+70.0±1.3
+92.7±0.9
+77.9±0.8
+73.9±0.5
+8B
+58.3±0.2
+62.9±1.0
+68.6±1.3
+94.5±0.7
+78.1±0.8
+73.5±0.5
+Ours
+8B
+64.1±0.2
+71.2±0.9
+72.1±1.3
+96.6±0.5
+80.0±0.8
+77.9±0.5
+Human confidence vs. model’s agreement with humans. As the perceptual task is subjective, often
+humans do not agree 100% on a given example. In Figure 11, we plot model performance against τ,
+how often humans agree with their top selected choice. Recall that 5 annotators are used per aspect,
+with some removed if they select “can’t tell”. Hence, τ increases at specific values (e.g, 3
+5, 4
+5, 3
+4,
+etc). As expected, at high confidence levels τ, performance rises monotonically for all methods,
+as low-confidence predictions are filtered out. The method rankings remain consistent across the
+entire threshold range. Our model maintains the smallest gap to human-human agreement at every τ,
+demonstrating that its advantage is not threshold-sensitive.
+Generalization to other benchmarks. Our proposed method extends image similarity to aspect-
+conditioning. Here, we test how well the method performs on generic image similarity on previous
+perceptual similarity datasets. In Table 4, we report results on BAPPS [2] and NIGHTS [3], two estab-
+lished perceptual similarity benchmarks designed to train and evaluate LPIPS [2] and DreamSim [3],
+respectively. Unlike our setting, these benchmarks are not aspect-conditioned and collect only overall
+perceptual similarities. Notably, training exclusively on our dataset and inferencing with the “overall”
+condition yields consistent improvements over the base VLM across both benchmarks, closing much
+of the gap to methods trained in-domain. This suggests that our dataset captures perceptual structure
+that transfers to other domains.
+We also compare to a previous dataset, Queryable Attribute Representation Extraction (QARE) [48]
+in Tab. 5, which creates a small synthetic dataset of different 4 objects, rendered on 4 backgrounds
+and 3 artistic styles with known variations, resulting in 48 images. The benchmark queries for these 3
+21
+0%
+20%
+40%
+60%
+80%
+100%
+Odd-One-Out
+(in-distribution)
+Early Fusion
+Mid Fusion
+Late Fusion
+Triplet
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Human confidence threshold
+0%
+20%
+40%
+60%
+80%
+100%
+2AFC
+(out-of-distribution)
+GPT-5.4
+Gemini-3.1-Pro
+InternVL3.5 8B
+LLAVA-OV 7B
+Qwen3-VL 8B
+Ours
+Human-human
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Human confidence threshold
+Qwen3-VL-Emb 8B
+Ours
+Human-human
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Human confidence threshold
+Gemini-2-Embedding
+VLM2Vec v2.0
+SteerViT
+GeneCIS
+Qwen3-VL-Emb 8B
+Ours
+Human-human
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Human confidence threshold
+GPT-5.4
+Gemini-3.1-Pro
+InternVL3.5 8B
+LLAVA-OV 7B
+Qwen3-VL 8B
+Human-human
+Model-human agreement rate
+Figure 11: Model’s agreement with humans as a function of confidence threshold. We filter by
+human confidence threshold (x-axis) and report model performance (y-axis) on the retained data.
+Table 4: Generalization to generic perceptual similarity: BAPPS [2] and NIGHTS [3] on low
+and mid-level similarity, respectively. Standard errors are in gray. Best is bold, runner-up is
+underlined. Ours is a fine-tuned late fusion model from Qwen3-VL-8B-Emb., which shows consistent
+improvement, even without training on either dataset directly. Our dataset subset with only overall
+conditions reported for comparison.
+Method
+Dataset
+BAPPS
+NIGHTS
+Ours–overall
+LPIPS
+68.4±0.2
+76.4±1.0
+53.9±0.8
+DreamSim
+68.3±0.2
+96.2±0.5
+65.1±0.7
+Qwen3-VL-8B-Emb.
+65.2±0.2
+87.9±0.8
+60.1±0.7
+Ours
+67.3±0.2
+94.0±0.6
+66.5±0.7
+attributes, and measures the recall in mAP and the tightness of the embeddings in AIS. Though not
+designed for this dataset, our method performs competitively with the provided baselines.
+More qualitative results. To extend Section 5, we present additional qualitative results below.
+Figure 12 and Figure 13 illustrate the range of aspect-conditioned similarities. Figure 14 expands
+the in-distribution odd-one-out and out-of-distribution 2AFC results. Figure 15 extends Figure 7
+and provides nearest-neighbor retrieval on OpenImages [72] without the similarity adjustment.
+Conditioning the same query on different aspects returns visibly different neighbor sets, and our
+method still visibly outperforms the base model qualitatively in this setup. Figure 16 extends Figure 8
+and provides more results on multi-query retrieval.
+B.2
+Additional ablations
+Table 6 reports the ablation results.
+Backbone scale. The 2B late-fusion model trails the 8B version by only a marginal gap on both
+the odd-one-out (63.7% vs. 64.1%) and 2AFC (77.4% vs. 77.9%) tasks, offering a more efficient
+alternative with competitive performance.
+Data scaling. Performance saturates early. The odd-one-out metric plateaus at 60% of training data
+(64.0%), and 2AFC reaches 78.0% at just 40%, on par with the full-data result. This suggests that
+gains from additional data within our current collection are limited, pointing to the need for either
+more diverse data or a more data-absorbing architecture.
+22
+Post-trained/
+Zero-shot
+Query-
+able
+Model
+mAP (↑)
+AIS (↓)
+Method
+Backbone
+Params
+obj
+sty
+bg
+all
+Zero-shot
+✗
+Vision
+Encoder
+CLIP
+–
+9.4
+13.1
+8.8
+4.5
+1.00
+SigLIP
+–
+10.0
+11.0
+10.1
+4.4
+1.00
+DINOv2
+–
+13.5
+6.8
+10.0
+4.2
+1.00
+DINOv3
+–
+12.1
+7.1
+11.2
+4.1
+1.00
+Zero-shot
+✓
+TF-QARE [48]
+Qwen2-VL
+2B
+8.7
+20.5
+37.1
+22.1
+0.63
+Qwen2-VL
+7B
+69.7
+73.9
+91.7
+78.4
+0.68
+Qwen2.5-VL
+3B
+38.7
+45.6
+91.5
+58.6
+0.78
+Qwen2.5-VL
+7B
+83.9
+56.9
+90.1
+77.0
+0.73
+Qwen2.5-VL
+32B
+79.0
+55.2
+91.7
+75.3
+0.81
+InternVL3
+1B
+47.8
+23.5
+65.6
+45.6
+0.74
+InternVL3
+2B
+46.9
+58.0
+90.2
+65.0
+0.75
+InternVL3
+8B
+78.0
+56.8
+91.7
+75.5
+0.55
+InternVL3
+14B
+85.8
+55.4
+91.7
+77.6
+0.78
+Gemma3
+4B
+55.6
+70.4
+83.9
+70.0
+0.88
+Gemma3
+12B
+82.9
+75.4
+91.7
+83.3
+0.88
+Post-trained
+✓
+VLM2VecV1 [67]
+Qwen2-VL
+7B
+8.9
+29.6
+11.6
+16.7
+0.97
+VLM2VecV2 [65]
+Qwen2-VL
+2B
+7.9
+27.0
+11.2
+15.4
+0.82
+Ours
+Qwen3-VL-Emb
+8B
+78.6
+75.1
+91.6
+81.7
+0.67
+Table 5: Generalization to QARE-Bench (Synthetic) [48] dataset. The benchmark measures
+disentanglement on objects, background, and style on a small set of 48 images. Our method is
+competitive with the provided benchmarks from QARE, with the highest mAP among 8B models
+and close to the 12B model.
+Table 6: Additional ablations. Each row flips one knob of our default models. The default rows (8B
+and 100%) are the default late fusion model. “Mid-fusion default” is the default mid-fusion model.
+Ablation
+Family
+Variant
+OOO test (%)
+2AFC total (%)
+Backbone scale
+Late fusion
+2B
+63.7±0.2
+77.4±0.5
+8B (default)
+64.1±0.2
+77.9±0.5
+Training data fraction
+Late fusion
+20%
+62.8±0.2
+76.6±0.5
+40%
+63.7±0.2
+78.0±0.5
+60%
+64.0±0.2
+77.4±0.5
+80%
+64.0±0.2
+77.5±0.5
+100% (default)
+64.1±0.2
+77.9±0.5
+Mid-fusion head
+Mid-fusion
+frozen backbone
+45.6±0.2
+72.9±0.5
+no aspect conditioning for channel weights
+59.8±0.2
+75.1±0.5
+default
+63.8±0.2
+75.9±0.5
+Mid-fusion architecture. Freezing the backbone collapses odd-one-out and 2AFC performance
+substantially (45.6% / 72.9% vs. 63.8% / 75.9% for the default), confirming that learning channel
+weights alone on a frozen VLM is insufficient. Removing aspect conditioning from the channel
+weights also degrades both metrics (59.8% / 75.1%), indicating that the optimal per-layer weighting
+is aspect-dependent and cannot be shared across conditions.
+C
+Implementation details
+In this section, we include training and hyperparameter details (Section C.1), architecture details for
+our early fusion model (Section C.2), and baseline details (Section C.3).
+C.1
+Training and hyperparameter selection
+Backbones. The late-fusion, mid-fusion, and early-fusion variants of our model all use Qwen3-VL-
+Embedding-8B [17] as the backbone. The triplet generative variant uses Qwen3-VL-8B-Instruct [14].
+23
+Table 7: Per-family hyperparameter search spaces. Most hyperparameters are sampled from
+discrete choices, and the learning rate is sampled from a continuous log-uniform distribution.
+Hyperparameter
+Late fusion
+Early fusion
+Triplet head
+Mid fusion
+Backbone
+Qwen3-VL-Emb-8B
+Qwen3-VL-Emb-8B
+Qwen3-VL-8B-Instruct
+Qwen3-VL-Emb-8B
+LoRA rank r
+{8, 16, 32, 64}
+{8, 16, 32, 64}
+{8, 16, 32, 64}
+{8, 16, 32, 64}
+Learning rate (log-uniform)
+[10−5, 5×10−4]
+[10−5, 5×10−4]
+[10−5, 5×10−4]
+[10−5, 5×10−4]
+Effective batch size
+{32, 64, 128, 256}
+{32, 64, 128, 256}
+{32, 64, 128, 256}
+{32, 64, 128, 256}
+Similarity temperature τ
+{0.05, 0.1, 0.2}
+{0.05, 0.1, 0.2}
+—
+log-uniform [10−3, 1.0]
+# probe layers
+—
+—
+—
+{3, 5, 8, 10, 14, 20}
+Table 8: Final hyperparameters used for every reported number.
+Hyperparameter
+Late fusion
+Early fusion
+Triplet head
+Mid fusion
+LoRA rank r
+16
+16
+16
+16
+Learning rate
+5×10−5
+1×10−4
+3×10−5
+1×10−4
+Effective batch size
+128
+128
+32
+32
+Similarity temperature τ
+0.05
+0.05
+—
+0.0025
+# probe layers
+—
+—
+—
+20
+Epochs
+1
+1
+1
+1
+Adaptation. We apply LoRA [69] to the language tower with lora_alpha = 2 · lora_r and dropout
+0.05. The vision tower is frozen for all reported models, as we find that tuning the vision tower
+doesn’t improve performance.
+Optimizer and schedule. We optimize using AdamW (weight decay 0.01, gradient clipping 1.0).
+The learning-rate schedule is a linear warmup over 3% of total steps followed by cosine decay to
+zero [100]. The triplet variant uses two parameter groups: backbone LoRA at the listed learning rate
+and the classification head at 5× that rate.
+Data and per-step batching. All four models are trained on the unfiltered training split (22,157
+triplets) for one epoch. Each aspect in a triplet is treated as one training example, so a triplet annotated
+for k aspects contributes k optimization examples per epoch. Per-device batch size is 1; the effective
+batch size is per-device batch size times gradient accumulation times eight GPUs, since our training
+is done on 8-GPU nodes.
+Permutation augmentation for triplet models. To alleviate position bias of vision language
+models [101, 102, 103], when training triplet models, the three images of every triplet are randomly
+permuted per batch item. At inference, we average over all six permutations and map probabilities
+back to the original positions.
+Model prompts. The aspect string c is inserted into the following prompts. For late fusion and mid
+fusion (one image per forward pass):
+“Represent the similarity of the image based on ⟨c ⟩.”
+For early fusion (two images per forward pass):
+“Measure the similarity between the two images based on ⟨c ⟩.”
+The “overall” aspect drops the “based on ⟨c ⟩” suffix.
+Hyperparameter sweep. We run an independent Bayesian search per family with validation human
+agreement as the target. The search spaces and the selected configurations are reported in Table 7 and
+Table 8, respectively.
+C.2
+Early-fusion architecture
+We describe the attention mask and positional encoding scheme that make the early-fusion architecture
+(Section 4.2) symmetric and identity-preserving by construction.
+24
+Input layout. The input sequence consists of four contiguous segments, with the aspect prompt first
+so that image patches can attend to it in the standard VLM fashion:
+t1, . . . , tM
+|
+{z
+}
+aspect tokens c
+∥p(1)
+1 , . . . , p(1)
+N
+|
+{z
+}
+image x1 patches
+∥p(2)
+1 , . . . , p(2)
+N
+|
+{z
+}
+image x2 patches
+∥r1, r2
+| {z }
+registers
+,
+where tm are the aspect text token embeddings, p(k)
+n
+denotes the n-th patch embedding of image
+xk (we assume both images have the same number of patches N), and r1, r2 are shared-parameter
+learnable register vectors shared across all examples.
+Positional encoding. We use M-RoPE [60], which assigns each token a three-dimensional position
+(t, h, w). For vision tokens we override the backbone default so that both images share the same
+temporal index and matching spatial indices at corresponding grid locations:
+pos
+ p(1)
+h,w
+
+= pos
+ p(2)
+h,w
+
+= (0, h, w),
+where (h, w) follow each image’s patch grid after preprocessing. Hence, the two images are distin-
+guished only by token content and by the attention mask, not by the image ordering.
+The aspect text is assigned sequential temporal positions t = 1, 2, . . . in sequence order, with
+(h, w) = (0, 0), while reserving t = 0 for all vision patches—this differs from default two-image
+preprocessing in which the second image often receives a larger temporal index.
+Registers. The two registers use the same learnable embedding vector and the same M-RoPE
+coordinates (treg, 0, 0) with treg set immediately after the maximum temporal index among all
+preceding tokens. They are therefore not distinguished by positional encoding; only their attention
+regions differ, as illustrated below.
+Attention mask. The attention mask is defined by the following rules:
+1. Aspect tokens are causal among themselves and hence attend to no image patches or registers,
+preserving the pretrained text-only behavior of the VLM.
+2. Image patches attend to all aspect tokens and to all image patches of both images, encouraging
+comparisons between two sets of image features. They do not attend to the registers.
+3. Registers are restricted: rk attends to the aspect tokens and to the patches of image xk only. This
+encourages rk to output an image-specific representation.
+The image-image block of the mask is symmetric, and the register block is symmetric in the analogous
+sense: r1’s access pattern to x1 mirrors r2’s access pattern to x2.
+Symmetry property. The two registers r1, r2 share the same learned embedding and the same
+positional encoding, and the attention mask treats the two image slots symmetrically. So if we swap
+x1 and x2, at every attention layer r1 now pools from x2 exactly as r2 did before (and vice versa);
+the two register hidden states are simply exchanged. Since cosine similarity is symmetric in its
+arguments,
+fθ(x1, x2, c) = fθ(x2, x1, c).
+Identity property. When x1 = x2 = x, the two image segments of the input sequence are token-
+for-token identical and the attention mask is symmetric, so the two segments produce identical
+hidden states at every transformer layer. Since r1 and r2 are tied and attend to identical contexts via
+structurally identical masks, h1 = h2. Hence
+fθ(x, x, c) = h⊤
+1h1
+∥h1∥2 = 1.
+C.3
+Baselines
+We provide more details of the baselines reported in Section 5. We organize baselines by how the two
+images interact, plus a separate triplet family that consumes three concatenated images at once. All
+baselines use greedy decoding (temperature 0). To avoid position bias of VLMs [101, 102, 103], for
+triplet and pairwise-score baselines we apply permutation averaging—6 orderings for odd-one-out,
+2 for 2AFC—and map results back to the original positions. Embedding baselines do not need
+permutation averaging because cosine similarity is symmetric.
+25
+Triplet baselines. The three input images are concatenated horizontally and the model is asked which
+side is the odd one out. We use the prompt:
+“I provide three horizontally concatenated images (left, middle, right). Which image is the
+most different among the three in terms of ⟨c ⟩? You need to choose: left, middle, right.
+Answer:”
+For 2AFC the three positions become reference (center) and two candidates (left, right):
+“I provide three horizontally concatenated images. The center image is the reference. Which
+candidate (left or right) is more similar to the reference in terms of ⟨c ⟩? Answer with one
+word: left or right. Answer:”
+When the aspect condition is “overall”, we remove “in terms of ⟨c ⟩” in these prompts.
+For open-weight models, we read logits at the answer position for the three (resp. two) target tokens
+and softmax. Models include InternVL3.5 [71], Qwen3-VL [14], and LLaVA-OneVision [63]. API
+models (GPT-5.4 [12], Gemini 3.1 Pro [13]) use text parsing.
+Pairwise 0–10 score baselines. The same VLMs are also evaluated in a pairwise mode, where each
+pair of images is rated for similarity on an integer scale of 0 (completely different) to 10 (identical).
+The prompt is:
+“I show you two images placed side by side (left and right). Rate how similar these two
+images are in terms of ⟨c ⟩on a scale of 0 to 10, where 0 means completely different and 10
+means identical. Answer with a single number from 0 to 10. Answer:”
+When the aspect is “overall”, we swap out “in terms of ⟨c ⟩” to “overall” in the prompt. We convert
+the response to a soft score either as E[d] = P10
+d=0 d · P(d) over digit-token logprobs. For API
+calls where we can only obtain the generated text, each text response is converted to a one-hot delta
+distribution over choices. The three pairwise scores per triplet are converted to a 3-way odd-one-out
+distribution by softmaxing the complementary-pair score (so the highest similarity between two
+images implies the third is the odd one out); for 2AFC we softmax the two reference–candidate
+scores.
+Late-fusion (embedding) baselines. Each image is embedded independently, optionally conditioned
+on a short aspect prompt; pairwise similarity is the cosine of the two embeddings. The 3-way odd-
+one-out and 2AFC distributions are formed by the same softmax aggregation as the pairwise-score
+baselines.
+Qwen3-VL-Embedding [17] (2B and 8B). The natively multimodal encoder version of Qwen3-VL
+with last-token pooling and L2-normalized output. We use the prompt “Represent the visual similarity
+of this image in terms of ⟨c ⟩.”.
+VLM2Vec v2.0 [16, 65]. A LoRA adapter on top of Qwen2-VL-2B-Instruct [60], used as released.
+We use the same prompt as Qwen3-VL-Embedding and pool the last non-pad hidden state.
+SteerViT [70]. A DINOv2-based ViT [23] augmented with steerable cross-attention that consumes a
+short aspect string. SteerViT’s text encoder is RoBERTa [104] rather than an instruction-tuned LLM,
+so the verbose embedding prompt above is shortened to the aspect token only (e.g., “lighting”). For
+the “overall” aspect we pass no text, which falls back to the unconditional DINOv2 backbone.
+GeneCIS [8]. A CLIP ViT-B/16 [22] fine-tuned on conditional image-similarity triplets mined from
+existing vision-language datasets. As with SteerViT, CLIP’s text encoder is short-text-friendly rather
+than instruction-tuned, so we feed the aspect token directly (e.g., “lighting”).
+Gemini Embedding 2 [13]. The natively multimodal embedding model, used via the official API.
+We interleave the aspect text and the image bytes inside a single content object so the embedding is
+aspect-conditioned.
+Mid-fusion baseline. For completeness we report a frozen Qwen3-VL-Embedding (2B and 8B) used
+in the LPIPS-style mid-fusion configuration: pairwise similarity is the negative aspect-conditioned ℓ2
+distance over selected language-tower layers (Equation 3). This is the same architectural class as our
+trained mid-fusion variant but without the trained channel-weight head, and isolates the contribution
+of training.
+26
+D
+Additional details
+D.1
+Compute cost
+All training and inference reported in this paper were run on eight NVIDIA A100 80GB nodes. We
+describe the runtime cost below.
+Dataset construction. Curating the odd-one-out dataset took around 24 GPU days for FLUX image
+generation and around 8 GPU days for the Qwen3 text prompt variations. Curating the 2AFC dataset
+took around 20 GPU hours for image compositing, 5 GPU hours for NVS, and 30 GPU hours for
+image-to-3D. We directly downloaded image editing results from GEditBench v2 [87].
+Final model training. Per-run wall-clock on eight A100s: late fusion 4.5 hours, mid fusion 9 hours,
+early fusion 8 hours, triplet head 7 hours.
+D.2
+Licenses
+Below we list the licenses of code, data, and models we used for this project.
+• Qwen3-VL and Qwen3-VL-Embedding: Apache 2.0.
+• InternVL3.5: Apache 2.0.
+• LLaVA-OneVision: Apache 2.0.
+• VLM2Vec v2.0: Apache 2.0.
+• SteerViT: MIT.
+• GeneCIS: CC BY-NC 4.0.
+• FLUX.1-dev: FLUX.1 [dev] Non-Commercial License v1.1.1.
+• FLUX-Reason-6M: Apache 2.0.
+• GEditBench v2: MIT.
+• Mip-NeRF 360: Apache 2.0.
+• NerfStudio: Apache 2.0.
+• IC-Light: Apache 2.0.
+• DreamLight: CC BY 4.0.
+• Diff-Harmonization: Apache 2.0.
+• TRELLIS.2: MIT.
+• InstantMesh: Apache 2.0.
+• Hunyuan3D-2.1: Tencent Hunyuan 3D 2.1 Community License.
+• Step1X-3D: Apache 2.0.
+27
+How similar do these images look?
+overall
+car
+roof  style
+car color
+…
+Dream
+Sim*
+car facing
+direction
+.35
+.71
+.66
+.84
+.60
+LPIPS*
+More similar
+.70
+…
+camera
+distance
+.84
+overall
+grape size
+…
+Dream
+Sim*
+leaf color
+.34
+.53
+.58
+.82
+.82
+LPIPS*
+More similar
+.56
+…
+background
+.66
+grape color
+Ours
+Existing Perceptual Metrics
+sim(𝑥!, 𝑥"|𝑐)
+sim(𝑥!, 𝑥")
+Figure 12: Examples of text-conditioned similarity score. Given two images, existing perceptual
+metrics provide only a crude, overall similarity measure. Our method reveals a key aspect of the
+problem by conditioning on the sense of similarity, denoted by the text-prompt c. (top) For example,
+the cars share a more similar color and are taken at a similar camera distance, whereas their facing
+direction and roof style are quite different. (bottom) The grape colors are different, while the grape
+size and the leaf color are the same. ∗We show 1-LPIPS [2] and 1-DreamSim [3] to convert the
+distances so that higher scores represent higher similarities.
+Figure 13: Exploring senses of similarity with our metric. Left (Sushi): The anchor is a close-up
+shot of sushi rolls. Prompts can prioritize similarity of shot composition (close-up vs. distant) or
+the sushie type, distinguishing similar rolls from dissimilar sashimi. Middle (Mushrooms): The
+anchor shows two white mushrooms. A color-based query sorts items from white to brown, while a
+count-based query reorders them according to the number of mushrooms present. Right (Horses):
+Similarity focuses either on the physical pose of the subjects or the specific texture and color of the
+ground. Similarity is reported as cosine similarity, ranging from -1 to 1.
+28
+(a) Odd-one-out Perceptual Judgement
+(b) 2AFC Perceptual Judgement
+Gemini-3.1-Pro
+GPT-5.4
+Qwen3-VL-Embedding-8B
+Ours
+Human
+Image 1
+Image 2
+Image 3
+Reference
+A
+B
+Coin stacking order
+Three coin arrangement
+Soft top-left lighting
+Subtle coin shadows
+Garnish
+arrangement
+Foreground
+prop presence
+Glass
+shape profile
+Rim
+coating
+𝑥!
+𝑥"
+𝑥#
+Image 1
+Image 2
+Image 3
+Reference
+A
+B
+Facial features
+Hair texture
+Clothing detail
+Jacket
+material
+Color 
+saturation
+Background
+wall color
+Camera 
+distance
+𝑥!
+𝑥"
+𝑥#
+Image 1
+Image 2
+Image 3
+Reference
+A
+B
+Scene sharpness
+Texture detail
+Color tone
+Lighting brightness
+Color
+saturation
+Fork
+visibility
+Strawberry
+placement
+Background
+setting
+𝑥!
+𝑥"
+𝑥#
+Image 1
+Image 2
+Image 3
+Reference
+A
+B
+3D shape
+Color tone
+Camera pose
+Object size
+Porch
+depth
+Porch column
+thickness
+Chair
+placement
+Ocean wave
+visibility
+𝑥!
+𝑥"
+𝑥#
+Figure 14: Additional qualitative results. We extend Figure 4 and provide more results for our
+odd-one-out and 2AFC test cases.
+29
+Composition
+Weather Condition
+Color Tone
+Camera Distance
+Background
+Number of Objects
+Composition
+Background
+Object Size
+Query
+TPIPS (Ours)
+Qwen3-VL-Embed
+Retrieved Images
+Composition
+Weather condition
+Camera distance
+Figure 15: Aspect-conditioned retrieval results without similarity adjustments. We extend
+results from Figure 7 and show retrieval results without similarity adjustments. For each query
+(left), conditioning on different aspects also returns different nearest neighbors. Left shows retrievals
+on OpenImages [72] using our trained late-fusion model, where it visibly produces better-aligned
+retrieval images than the base model’s retrieval on the right.
+30
+object category
+stroke quality
+rendition medium
+Composited query
+Retrieved images
+color palette
+brushwork
+composition 
+layout
+realism level
+scene setting
+painting medium
+rendition medium
+stroke quality
+color palette
+Figure 16: Additional compositional retrieval results. We extend results from Figure 8. Top
+two rows are compositional retrieval results from ImageNet-R [105], and the bottom two are from
+WikiArt [73].
+31

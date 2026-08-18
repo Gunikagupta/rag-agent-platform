@@ -1,0 +1,2150 @@
+Optimal transition states for polaron hopping transport without supercells
+Vasilii Vasilchenko,1, ∗Matteo Giantomassi,1 Samuel Ponc´e,1, 2 and Xavier Gonze1
+1European Theoretical Spectroscopy Facility, Institute of Condensed Matter and Nanosciences, Universit´e
+catholique de Louvain, Rue de l’Observatoire 8, bte L07.03.01, B-1348 Louvain-la-Neuve, Belgium
+2WEL Research Institute, avenue Pasteur 6, 1300 Wavre, Belgium
+(Dated: July 21, 2026)
+Polaron formation localizes charge carriers and drives a crossover from band-like to hopping trans-
+port in materials. Hopping dynamics can be obtained from DFT supercell calculations of transition
+states, but these suffer from polaron self-interaction, spurious electrostatics, and poor scaling with
+polaron size. We introduce a supercell-free framework for ab initio polaron hopping transport based
+on variational polaron equations and the string method. The approach optimizes transition states
+between self-trapped polaron states directly in reciprocal space and provides the polaron configu-
+rations along the path, enabling evaluation of adiabatic hopping rates and mobilities. We apply
+the method to LiF and rutile TiO2, revealing multi-step and anisotropic hopping mechanisms. In
+rutile TiO2, the computed electron-polaron mobility agrees with experiment, whereas band-like
+Boltzmann transport substantially overestimates the mobility. Our results establish a scalable route
+to first-principles polaron-hopping dynamics in materials in which charge motion is governed by
+self-trapping.
+I.
+INTRODUCTION
+In materials, polarons form when particles interact
+with atomic vibrations and become dressed by a phonon
+cloud1. This process changes the nature of the particle
+and affects the optical and transport properties of the
+host medium.
+Traditionally, polaron formation has been considered
+for electrons and holes in polarizable media with strong
+electron-phonon coupling (EPC), such as ionic crys-
+tals2,3.
+In these systems, the charge carrier distorts
+the lattice, inducing a local polarization field.
+In re-
+sponse, this polarization field interacts with the carrier
+and lowers its energy. As a result, a polaron forms: the
+carrier propagates through the crystal accompanied by
+its self-induced phonon field. More generally, polaronic
+effects have been observed and theoretically predicted
+in a broad range of materials, including include non-
+polar4,5 and two-dimensional materials6,7, organic crys-
+tals8,9, and polymers10,11.
+Polarons underlie multiple physical phenomena, in-
+cluding the renormalization of electronic bands12 and
+the enhancement of effective masses13. Polaron forma-
+tion may also lead to self-trapping, whereby a charge
+carrier becomes localized in the potential created by its
+self-induced polarization14.
+The competition between
+band renormalization and self-trapping strongly influ-
+ences the transport properties of a system.
+Depend-
+ing on the strength of the EPC, a system may undergo
+a crossover from band-like transport15 to polaron hop-
+ping16. In the former case, charge carriers remain mo-
+bile polarons, whose transport properties are affected by
+the associated phonon field9,17. In the latter scenario,
+polarons are self-trapped, and charge transfer occurs by
+hopping between localization sites. Such transitions are
+thermally activated as they require the system to cross
+energy barriers between localized states. As a result, in
+the hopping regime, the charge-carrier mobility is sub-
+stantially reduced and may fall below 1 cm2/V · s18,19.
+Experimentally, polaronic signatures in solids can
+be detected using angle-resolved photoemission spec-
+troscopy (ARPES)12, scanning tunnelling microscopy
+(STM)20, transport measurements21, and other tech-
+niques1. Recent advances in experimental methods and
+materials synthesis now allow a growing range of pola-
+ronic features to be probed, controlled, and analysed22,23,
+including hopping transport24–26.
+From the theoretical and computational perspective,
+various methods have been developed to address the
+problem of polaron formation: model Hamiltonians, su-
+percell density-functional theory (DFT) calculations and
+effective first-principles approaches27.
+The latter in-
+clude diagrammatic Monte Carlo (DMC)28, canonical-
+transformation techniques29–31, polaron Hamiltonian di-
+agonalization32,33, and variational approaches34,35. Al-
+though built on techniques originally developed for model
+Hamiltonians, these effective methods treat electrons,
+phonons, and EPC ab initio.
+Thus, they provide a
+favourable trade-off between computational complexity
+and an ab initio description of polarons in real ma-
+terials.
+Moreover, these approaches bypass key short-
+comings of direct DFT polaron calculations27: the po-
+laron self-interaction (pSIC), spurious electrostatic inter-
+actions, and unfavourable scaling with the polaron size.
+Therefore, in recent years, such methods have received
+considerable attention and development effort, becom-
+ing important tools in computational polaron physics.
+Their implementations are being developed in various
+ab initio codes, such as EPW32,33,36, Perturbo28,37,
+ABINIT38,39, and Q-Chem35,40.
+Beyond polaron formation, many of the aforemen-
+tioned methods can also describe polaron transport. In
+both the band-like and hopping regimes, ab initio polaron
+charge transfer can be captured using the first-principles
+DMC method28. This approach can be used to stochasti-
+cally evaluate the Kubo current-current correlation func-
+arXiv:2607.18096v1  [cond-mat.mtrl-sci]  20 Jul 2026
+2
+tion and compute transport quantities41.
+However, a
+more accurate description of the purely adiabatic hop-
+ping of self-trapped polarons is accessible through DFT.
+Indeed, the polaron potential energy surface (pPES)
+can be effectively sampled using DFT total-energy cal-
+culations, which also provide access to polaron forces.
+These forces, in turn, are necessary for computing op-
+timal paths42, which describe polaron hopping within
+the framework of transition-state-theory43. However, the
+aforementioned limitations of DFT restrict its applicabil-
+ity.
+Recently, the scalability of DFT-based polaron hop-
+ping calculations has been extended using machine-
+learning molecular dynamics44. Another route towards
+scalable and efficient hopping calculations is provided by
+effective first-principles methods, which give access to po-
+laron distortions. However, so far, only the framework of
+ab initio polaron equations32,33 has been used to com-
+pute linear transition paths for polaron transport45,46,
+thereby yielding an upper bound for the transition barri-
+ers. Nonetheless, existing fully variational frameworks34
+provide access to polaron energetics and forces for arbi-
+trary polaron configurations. Thus, they can be extended
+to compute optimized minimum-energy paths (MEPs)
+for polaron transfer and to describe polaron hopping dy-
+namics beyond the limitations of DFT.
+Accordingly, in this work, we extend the framework
+of variational polaron equations34 to the calculation of
+MEPs. Previously, we have demonstrated the capability
+of this formalism to describe self-trapped polarons in real
+materials39. These polarons correspond to local minima
+on the pPES, defined by the variational polaron energy
+expression, which depends on both electronic and vibra-
+tional degrees of freedom. The energy is expressed within
+the adiabatic strong-coupling approximation. Due to adi-
+abaticity, lattice fluctuations are neglected. Under the
+strong-EPC assumption, the polaron charge is assumed
+to localize instantaneously, adjusting to the lattice polar-
+ization. This separates the charge and lattice deforma-
+tion, while the variational nature of the formalism allows
+the corresponding electronic and phononic gradients to
+be evaluated.
+The explicit treatment of gradients en-
+ables efficient and scalable optimization techniques for
+finding polaron solutions. Moreover, it allows methods
+designed for computing MEPs to be implemented, con-
+necting these solutions on the pPES42.
+For this purpose, we implement the simplified string
+method47. For a given initial and final polaron configu-
+rations, it yields the MEP corresponding to the hopping
+transition. The MEPs are represented by a finite set of
+polaronic images, describing the evolution of the polaron
+energy, as well as its electronic and structural configu-
+ration, along the path. Within transition-state theory,
+MEPs provide the key ingredients required to describe
+polaron dynamics43.
+We show how the developed formalism can be applied
+to the calculation of polaron hopping transport. As rep-
+resentative cases, we consider two systems: LiF and rutile
+TiO2. LiF is a paradigmatic polaronic insulator, hosting
+both hole and electron polarons, and we use it to validate
+our variational transport framework. However, being a
+wide-bandgap insulator, LiF primarily serves as a bench-
+mark system and does not provide a direct connection
+to experiment. To address this limitation, we also con-
+sider rutile TiO2, one of the most extensively studied
+polaronic semiconductors. In this system, hopping-like
+electron mobility has been reported both theoretically48
+and experimentally18,19.
+In both systems, we compute hopping polaron transfer
+rates and mobilities. We show that linear transition paths
+are insufficient to describe polaronic transition states. We
+also show that hopping can be anisotropic, with certain
+directions being more energetically favourable than oth-
+ers. For the hole polaron in LiF, which is triply degen-
+erate, we show that hopping involves rotations between
+degenerate states as well as inter-site transitions. For the
+electron polaron in rutile TiO2, we obtain good agree-
+ment between our results, reported experimental mea-
+surements, and other theoretical methods. We find that
+approaches which do not assume particle localization,
+such as the Boltzmann transport equation (BTE), may
+be insufficient to describe charge transfer in systems with
+bound polarons. We also discuss the potential impact of
+non-adiabatic and weak-coupling effects49, which are ne-
+glected in our formalism by construction.
+Overall, the present framework showcases how effective
+first-principles approaches address the polaron transport
+in the hopping regime. Moreover, it could potentially be
+extended to more advanced all-coupling variational tech-
+niques35. Instead of relying on predetermined hopping
+paths or explicit supercells, the present method deter-
+mines transition paths variationally. This provides ac-
+cess to optimized activation barriers, attempt rates, and
+hopping mobilities within a single reciprocal-space po-
+laron formalism. Therefore, it provides a practical route
+for studying polaron-limited transport in polar semicon-
+ductors, oxides, halides, and other materials in which
+localized charge carriers determine functionality.
+II.
+RESULTS
+A.
+Hole polaron dynamics in LiF
+The hole polaron in LiF is localized on a fluorine atom,
+is triply degenerate, and exhibits D4h point-group sym-
+metry39. The polaron is strongly bound. In the thermo-
+dynamic limit, its binding and localization (vertical ion-
+ization) energies are Epol = −1.94 eV and εloc = 4.68 eV,
+respectively39. This polaron is small, with characteristic
+scale ap = 2.26 Bohr39. Charge transfer can occur from a
+given localization site to one of the nearest-neighbour flu-
+orine atoms. Since each degenerate solution is oriented
+along one of the Cartesian axes, there are two distinct
+hopping directions: one with a component along the po-
+laron axis and one lying in the plane perpendicular to
+3
+FIG. 1.
+Hole polaron in LiF. Examples of possible tran-
+sitions for a [001]-oriented polaron solution.
+The polaron-
+density isosurface is set to np(r) = 5 × 10−3 ˚A−3.
+it.
+For instance, for a [001]-aligned solution, hopping
+may occur along the [011] and [110] directions, respec-
+tively. Moreover, at each localization site, the polaron
+can switch between degenerate configurations by rotat-
+ing its principal axis. As a result, there are six possible
+transitions that modify the [001]-aligned polaron config-
+uration: (i) on-site rotation to the [100] or [010] align-
+ment, which are equivalent by symmetry; (ii) two inter-
+site hopping processes along the [110] direction: one pre-
+serves the [001] alignment, while the other involves ro-
+tation to either the [100] or [010] symmetry-equivalent
+alignment; (iii) three inter-site hopping processes along
+the [011] direction: one preserves the [001] alignment,
+while the other two involve rotation to the [100] or [010]
+non symmetry-equivalent alignment. Examples of these
+transitions are shown in Fig. 1.
+For an on-site rotation and an inter-site hopping event,
+Fig. 2 illustrates the initial linearly interpolated energy
+paths and the optimized MEPs. They also show the po-
+laron configurations in the initial, transition, and final
+states along the MEPs. The optimization lowers the en-
+ergy barriers and samples the pPES more accurately, re-
+vealing multi-step adiabatic transition mechanisms. For
+instance, the initial linearly interpolated path in Fig. 2a
+corresponds to a diabatic transition, in which only the
+atomic displacements evolve, and the polaron density re-
+mains in the initial and final configurations, changing
+abruptly at the transition point. This diabaticity arises
+from the crossing between two instances of the same de-
+generate polaron solution. Optimisation yields an adia-
+batic path with both the polaron density and the atomic
+displacements evolving smoothly, as illustrated by the
+evolution of polaron configurations in Fig. 2a.
+Inter-
+site hopping is more complex.
+Irrespective of whether
+the polaron principal axis changes between lattice sites,
+such transitions require a specific polaron orientation be-
+fore the hopping.
+As a result, the energy paths may
+exhibit multiple barriers, corresponding to distinct tran-
+sition states. In particular, Fig. 2b illustrates hopping
+along the [110] direction accompanied by a change in the
+polaron orientation from the [001] to the [100] Carte-
+sian axis. This process involves two consecutive transi-
+tion events: an on-site rotation and an inter-site hopping
+step. The hopping transition state, shown in Fig. 2b, is
+identical for all five hopping events. This polaron con-
+figuration is metastable and has D2h point-group sym-
+metry. It corresponds to the two-centre X−
+2 polaron ob-
+served in alkali halides14, whereas the initial and final
+states correspond to one-centre X0 polarons with D4h
+symmetry. We note that, in several alkali halides, the
+X−
+2 state has been predicted to be experimentally sta-
+ble14. However, pSIC-based approaches29,31–33, includ-
+ing the present one, consistently predict the X0 polaron
+to be the stable lowest-energy solution in LiF. It is pos-
+sible that the treatment of second-order EPC, together
+with anharmonic effects, could alter the relative stability
+of these solutions in favour of the X−
+2 polaron.
+For both rotation and pure translation, the extracted
+activation energies ∆Ea and effective attempt rates νeff
+are shown in Fig. 3a. The same panel also shows their
+extrapolation to the thermodynamic limit. The values of
+νeff are identical for both processes because this quantity
+is evaluated at the initial states, which are instances of
+the same degenerate polaron configuration.
+For the on-site rotation, we observe a significant re-
+duction of the energy barrier:
+∆Erot
+a
+= 20 meV for
+the optimized MEP, compared to ∆Erot
+a
+= 50 meV for
+the unoptimized path.
+Moreover, this barrier is much
+smaller than the magnitude of the polaron binding en-
+ergy, |Epol| = 1.94 eV, indicating an almost barrier-less
+transition between degenerate configurations.
+For the
+hopping processes, the barrier associated with the two-
+centre transition state is similar for all hopping events,
+with an average value of ∆Ea = 438 ± 2 meV. The ac-
+tivation energy for translation is therefore more than 20
+times larger than that for on-site rotation. Thus, inter-
+site translation is the limiting step for polaron charge
+transfer in LiF. For both rotation and translation, the
+effective attempt rate is νeff = 15.69 THz.
+The extracted parameters enable the evaluation of
+quantities describing polaron dynamics. Specifically, we
+compute the adiabatic polaron transfer rates kp and hop-
+ping mobilities µp. The polaron mobility is not defined
+for on-site rotation, since no charge transfer between lat-
+tice sites occurs. The temperature dependences of the
+transfer parameters are shown in Fig. 3a. The transition-
+state theory parameters and room-temperature transport
+quantities are gathered in Table I. At room temperature,
+the rotation rate is kp = 7.17 THz and increases with
+temperature. This value is of the same order as the fre-
+quency of the most strongly coupled longitudinal optical
+phonon, νLO = 18.66 THz, indicating a high transition
+probability between degenerate configurations localized
+on the same atom. While rotation exhibits a transfer rate
+of the order of THz, the corresponding rate for transla-
+tion is only kp ∼1 MHz. This results in a small hole
+hopping mobility, µp ∼10−8 cm2/V · s, characteristic of
+a strongly bound small polaron.
+4
+Start
+Transition
+End
+Reaction coordinate (-)
+0.00
+0.02
+0.04
+0.06
+Energy (eV)
+Ea
+a
+LiF (h+ )
+Rotation
+Initial
+MEP
+Initial state
+[001] orientation
+y
+z
+Intermediate state
+y
+z
+Transition state
+[011] orientation
+y
+z
+Intermediate state
+y
+z
+Final state
+[010] orientation
+y
+z
+Start
+Hopping
+End
+Reaction coordinate (-)
+0.0
+0.2
+0.4
+0.6
+0.8
+Energy (eV)
+Ea
+b
+LiF (h+ )
+Hopping
+Initial state
+[001] orientation
+x
+y
+Transition state (rotation)
+[101] orientation
+x
+y
+Intermediate state
+[100] orientation
+x
+y
+Transition state (hopping)
+[110] orientation
+x
+y
+Final state
+[100] orientation
+x
+y
+Start
+Hopping
+End
+Reaction coordinate (-)
+0.0
+0.2
+0.4
+0.6
+0.8
+Energy (meV)
+Ea
+c
+LiF (e
+)
+Hopping
+Initial state
+x
+y
+Transition state
+x
+y
+Final state
+x
+y
+FIG. 2.
+Polaron dynamics in LiF. Rows a, b and c correspond to: hole polaron on-site [001] →[010] rotation; hole polaron
+hopping along the [110] direction accompanied by on-site [001] →[100] rotation; electron hopping along the [110] direction.
+The first panel in each row shows the initial linear energy path and the optimized MEP. Other panels show the polaron in
+the initial, transition, and final configurations, corresponding to the green markers on the MEP. For the rotation, intermediate
+configuration are also shown. The polaron-density isosurface is set to np(r) = 5 × 10−3 ˚A−3 and np(r) = 5 × 10−5 ˚A−3 for hole
+and electron polarons, respectively.
+0.0
+0.2
+0.0
+0.2
+0.4
+Energy (eV)
+a
+LiF (h+ )
+Parameters
+Erot
+a
+h
+eff
+Ehop
+a
+200
+400
+600
+10
+9
+10
+3
+kp (THz)
+Transfer rate
+Hopping
+Rotation
+200
+400
+600
+10
+12
+10
+8
+10
+4
+p (cm2/V s)
+Hopping mobility
+0.00
+0.05
+N
+1/3
+p
+(
+)
+10
+4
+10
+3
+10
+2
+Energy (eV)
+b
+LiF (e
+)
+200
+400
+600
+T (K)
+15.5
+15.6
+kp (THz)
+200
+400
+600
+T (K)
+0.5
+1.0
+p (cm2/V s)
+FIG. 3.
+Charge-transfer parameters for polarons in
+LiF. Rows a and b correspond to the hole and electron po-
+larons, respectively.
+The first column shows activation en-
+ergies ∆Ehop
+a
+for hopping and ∆Erot
+a
+for rotation, together
+with the effective attempt energy hνeff. The parameters are
+computed for k/q wavevector meshes, with Np wavevectors,
+of increasing density:
+4 × 4 × 4 →12 × 12 × 12 (hole) and
+14×14×14 →20×20×20 (electron). Dashed lines indicate linear
+extrapolation to the thermodynamic limit. The second and
+third columns show the computed adiabatic transfer rates kp
+and hopping mobility µp. The mobility is zero for rotation.
+B.
+Electron polaron dynamics in LiF
+The electron polaron in LiF is localized on lithium
+atoms and is isotropic39. Since this polaron is isotropic,
+all nearest-neighbour lithium sites are equivalent, and
+electron transfer occurs along the nearest-neighbour di-
+rections of the ⟨110⟩family. Compared to the hole po-
+laron, this polaron is large and weakly bound.
+In the
+thermodynamic limit, its binding and localization en-
+ergies are Epol = −230 meV and εloc = −811 meV,
+respectively39.
+The characteristic length scale is ap =
+11.81 Bohr39. Hence, weak-coupling effects, which are
+neglected in our variational formalism and transition-
+state theory, may be important for the electron polaron.
+Therefore, we note that the following analysis is valid
+only within the strong-coupling and adiabatic approxi-
+mations.
+Electron-polaron hopping in LiF and the correspond-
+ing optimized MEP are illustrated in Fig. 2c. The ex-
+tracted transition-state theory parameters for this tran-
+sition are shown in Fig. 3b. In the thermodynamic limit,
+the activation energy is ∆Ea = 0.173 meV. This is ap-
+proximately three orders of magnitude smaller than the
+binding energy, indicating barrier-less adiabatic transfer
+at relevant temperatures. The effective attempt rate is
+5
+νeff = 13.08 THz.
+Figure 3b shows the temperature-
+dependent transport quantities computed using the ex-
+tracted parameters.
+Table I summarizes these param-
+eters and the computed room-temperature transport
+quantities. At room temperature, the adiabatic trans-
+fer rate and mobility are kp = 13 THz and µp =
+0.415 cm2/V·s, respectively. Small activation energy re-
+sults in a crossover from positive to negative temperature
+dependence of mobility already at ∆Ea/kB ≈2 K. The
+mobility is several orders of magnitude higher than that
+of the hole polaron, as expected for a large polaron with
+weaker binding. Within the adiabatic limit considered
+here, this value is typical of a polaron hopping process,
+being on the order of 10−1 cm2/V·s.
+C.
+Electron polaron dynamics in rutile TiO2
+The electron polaron in rutile TiO2 localizes on one
+of the Ti atoms occupying the 2a Wyckoff sites of the
+P42/mnm space group.
+These localization sites are
+shown in Fig. 4. Each of the two Ti sites in the primitive
+cell has local orthorhombic point symmetry and nearest-
+neighbour Ti atoms lying in either the (110) or (110)
+lattice plane. Irrespective of the localization site, the po-
+laron extends along the [001] principal axis of the crystal.
+There is no symmetry-equivalent degenerate polaron as-
+sociated with the same site.
+Figure 5 shows the binding energy Epol and local-
+ization energy εloc for this polaron.
+The extrapolated
+values indicate that the polaron is weakly bound, with
+Epol = −0.095 eV and εloc = −0.714 eV. Our findings
+agree with the results of Ref. 46, obtained with a simi-
+lar reciprocal-space approach32,33: Epol = −0.11 eV and
+εloc = −0.76 eV. As discussed in Ref. 39, the difference
+arises mainly from the different interpolation schemes
+used for the electron-phonon matrix elements. The com-
+puted characteristic length scale is ap = 4.95 Bohr, indi-
+cating a small polaron. For this polaron, there are three
+inequivalent possible transitions, shown in Fig. 4. With-
+out rotation, the polaron can transfer from one equivalent
+Ti site to another along the [001] and [110] directions.
+In contrast, transfer along the [111] direction requires
+a rotation that changes the plane in which the polaron
+density is primarily localized.
+Electron-polaron hopping in TiO2 is anisotropic. For
+the three directions considered, we obtain MEPs with
+substantially different profiles, as shown in Fig. 6. The
+same figure also illustrates the corresponding hopping
+processes.
+For the [110] and [111] directions, the
+MEPs depend on the k/q wavevector meshes.
+Since
+these meshes define the corresponding Born-von Karman
+(BvK) supercells, they must be sufficiently large to ac-
+commodate the transition state. All considered meshes
+are non-uniform, n×n×2n, 6 ≤n ≤11, and are sufficient
+to host the initial and final polaron states. However, the
+smallest meshes lead to charge transfer involving com-
+plete delocalization of the polaron at the transition state,
+(110) localization
+(110) localization & hopping
+FIG. 4.
+Electron polaron in rutile TiO2. Localization
+sites and hopping directions. The polaron-density isosurface
+is set to np(r) = 5 × 10−3 ˚A−3.
+followed by localization on another site. Such processes
+are discarded as they fall outside the scope of the adia-
+batic hopping-transport theory.
+The MEPs in Figs. 6b and 6c illustrate this behaviour
+for hopping along the [110] and [111] directions, show-
+ing the qualitative difference between localized transfer
+and transfer involving delocalization. We note that, for
+the [110] and [111] hopping processes, required meshes
+to obtain localized transfer are at least 9 × 9× 18 and
+11×11×22, respectively. In contrast, [001] transfer re-
+mains localized for all considered meshes, making it the
+most favourable transition. This behaviour is consistent
+with machine-learning molecular-dynamics (MLMD) cal-
+culations of polarons in TiO244, which report transition
+distributions of 74.3 %, 25.5 %, and 0.2 % for the [001],
+[110], and [111] directions, respectively.
+The extracted transition-state-theory parameters are
+shown in Fig. 7 and gathered in Table I. For hopping
+along the [111] direction, we do not extrapolate the acti-
+vation energy to the thermodynamic limit. Instead, the
+parameters are estimated using the largest considered
+k/q wavevector mesh that yields a localized transition,
+11×11×22, as larger meshes are computationally pro-
+hibitive. In principle, this should not significantly affect
+the results, since the activation energy ∆Ea varies only
+weakly with the k/q wavevector mesh.
+The initial linearly-interpolated energy barriers, agree
+with those obtained using a similar reciprocal-space ap-
+proach32,33, but without energy-path optimization46. For
+hopping along the [001] and [111] directions, our initial
+activation energies are ∆Ein
+a
+= 12 meV and ∆Ein
+a
+=
+124 meV, respectively, in agreement with Ref. 46, which
+reports ∆Ein
+a = 13 meV and ∆Ein
+a = 133 meV for the
+same transitions. However, after energy-path optimiza-
+tion, these barriers are reduced to ∆Ea = 4 meV and
+∆Ea = 78 meV, respectively.
+This highlights the im-
+portance of energy-path optimization, especially for the
+most favourable [001] transition, for which the optimized
+barrier is only one third of the initial value.
+The computed room-temperature charge-transfer pa-
+rameters are summarized in Table I. The temperature
+dependence of these parameters is shown in Fig. 7. The
+6
+0.000 0.025 0.050 0.075 0.100 0.125
+N
+1/3
+p
+(
+)
+0.50
+0.25
+Energy (eV)
+Epol = -0.095 eV
+loc = -0.714 eV
+TiO2 (e
+), polaron energy
+Epol
+loc
+FIG. 5.
+Electron polaron in rutile TiO2. Convergence of
+the binding energy Epol and charge localization energy εloc as
+a function of inverse linear supercell size N −1/3
+p
+. The param-
+eters are computed for non-uniform k/q meshes of increasing
+density: n×n×2n, 6 ≤n ≤11. Dashed lines indicate linear
+extrapolation to the thermodynamic limit.
+[001] transfer is the most favourable, with a transfer rate
+of kp = 13.54 THz, which is one order of magnitude
+higher than those of the other transitions. However, due
+to the low activation barrier, the mobility in this direc-
+tion switches from positive to negative temperature de-
+pendence at ∆E[001]
+a
+/kB ≈45 K. At room temperature,
+its value is µp = 0.446 cm2/V·s, which is typical of po-
+laron hopping.
+The comparison between the calculated adiabatic hop-
+ping mobility µp and experimental data is shown in
+Fig. 8. The reference experiments are based on resistivity
+and carrier-concentration measurements in rutile TiO2,
+using Nb-doped thin films grown on various substrates19
+and oxygen-deficient single crystals18. We observe that
+µp along the most favourable [001] direction agrees well
+with the experimental values and is closest to the mobil-
+ity measured in Nb-doped thin films. In the [110] and
+[111] directions, µp approaches the measured values at
+higher temperatures, T > 300 K, indicating thermally
+activated hopping.
+We also compute the mobility using the iterative Boltz-
+mann transport equation (iBTE) framework15, as imple-
+mented in the ABINIT software package50–52. The re-
+sulting values, shown in Fig. 8, overestimate both the
+hopping mobilities and the experimental values. Indeed,
+the iBTE does not assume carrier localization and de-
+scribes band-like transport, making it insufficient for
+semiconductors with self-trapped polarons. Thus, in such
+systems, charge transfer is better described within the
+hopping picture, as done in this work.
+We also compare the computed hopping mobilities
+with reference data obtained using other first-principles
+approaches to polaron dynamics.
+Figure 9 shows
+the comparison with the MLMD44 and first-principles
+DMC28 results. We observe that the mobility along the
+[001] direction follows the same temperature trend in
+our calculations and in DMC, although the latter gives
+slightly larger values.
+A similar behaviour is observed
+for the other directions, where the mobility increases
+with temperature. The discrepancy with DMC may be
+attributed to the fact that DMC is an all-coupling ap-
+proach, whereas our formalism is valid only in the strong-
+coupling limit. MLMD, in turn, treats polaron dynamics
+by training on DFT data that include arbitrary electron-
+phonon couplings, in contrast to our approach, where the
+coupling is treated at linear order. Temperature effects
+are also treated differently in DMC and MLMD, enter-
+ing through the current-current correlation function and
+the canonical ensemble, respectively. In our method, the
+activation barriers and attempt rates that define the mo-
+bilities are evaluated in the T = 0 K limit. In princi-
+ple, these parameters may be affected by changes in the
+pPES and MEPs as temperature increases. Including all-
+coupling and finite-temperature effects in our formalism
+may lead to better agreement with other methods, but
+lies beyond the scope of the present work.
+III.
+DISCUSSION
+The central result of this work is a scalable first-
+principles route to polaron hopping transport without
+supercell calculations.
+By combining variational po-
+laron equations with the simplified string method, we
+obtain optimized minimum-energy paths between pola-
+ronic states and extract the corresponding transition-
+state-theory parameters.
+This extends effective first-
+principles polaron methods from the calculation of lo-
+calized states to the calculation of hopping paths, rates,
+and mobilities. We apply the method to polarons in LiF
+and electron polaron in rutile TiO2, demonstrating its
+capability to describe polaron hopping in realistic mate-
+rials.
+We show that the formalism can capture anisotropic
+hopping processes involving multiple intermediate con-
+figurations. For all cases, we compute minimum-energy
+paths between polaronic states and estimate the cor-
+responding adiabatic hopping mobilities. The required
+adiabatic transport parameters are readily extracted
+from the energetics and polaron configurations along
+the MEPs.
+Our framework also highlights the im-
+portance of energy-path optimization:
+linear unopti-
+mized energy barriers can lead to underestimated hop-
+ping mobilities. Moreover, the optimization can reveal
+complex charge-transfer mechanisms involving multiple
+metastable states, as shown for the LiF hole polaron.
+For the electron polaron in rutile TiO2, we find good
+agreement between our results and previously reported
+experimental data. We further show that the widely used
+Boltzmann transport equation framework overestimates
+the carrier mobility, as it assumes band-like transport
+and does not account for carrier localization. Therefore,
+for semiconductors hosting small self-trapped polarons,
+our methodology may provide a more appropriate de-
+scription of charge transfer.
+Broadly, the present formalism provides a practical
+step towards bridging two separate descriptions of charge
+transport: band-like electron-phonon transport and lo-
+calized hopping of self-trapped carriers. For materials in
+which the relevant carriers are localized, the method of-
+7
+0
+5
+10
+15
+Energy (meV)
+Ea
+a
+[001] hopping
+0
+50
+100
+150
+Energy (meV)
+Ea
+b
+[110] hopping
+Initial
+MEP
+MEP (delocalized)
+Start
+Transition
+End
+Reaction coordinate (-)
+0
+50
+100
+150
+Energy (meV)
+Ea
+c
+[111] hopping
+Initial state
+Transition state
+Final state
+FIG. 6.
+Electron polaron dynamics in rutile TiO2.
+Rows a–c correspond to hopping along the [001], [110], and [111]
+directions, respectively. Each row shows the initial energy path, the optimized MEP, and the polaron in the initial, transition,
+and final configurations, corresponding to the green markers on the MEP. The configurations are shown in the (110) plane. For
+the [110] and [111] transitions, the pink curves denote MEPs corresponding to polaron delocalization at the transition state.
+For the transition states of the [110] and [111] hopping processes, the density isosurface is set to np(r) = 5 × 10−4 ˚A−3 to
+illustrate fine features. For all other states, the density isosurface is set to np(r) = 5 × 10−3 ˚A−3. Calculations correspond to
+non-uniform k/q meshes of increasing density: n×n×2n, with n = 6, 9 and 11 for the [001], [110] and [111] hopping. For the
+latter two processes, delocalized MEPs are obtained with n = 8 and 10, respectively.
+TABLE I. Transition-state theory and transport parameters for the polaron transfer considered in this work: activation energies
+∆Ea, effective attempt rates νeff, hopping distances R, adiabatic polaron transfer rates kp and hopping mobilities µp. The
+latter two are given at room temperature and at the crossover temperature T ∗= ∆Ea/kB, at which the mobility reaches its
+maximum and switches from positive to negative temperature dependence. Note that for LiF, T ∗is far beyond the material’s
+melting point. For the LiF hole polaron, hopping parameters are averaged over the five possible transitions. For the LiF
+electron polaron, hopping is isotropic.
+Polaron
+Process
+Parameters
+Transport
+T = 300 K
+T = T ∗
+∆Ea (meV) νeff (THz) R (˚A) T ∗(K)
+kp (THz)
+µp (cm2 V−1 s−1) µmax
+p
+(cm2 V−1 s−1)
+LiF (h+)
+rotation
+20.32
+15.69
+–
+–
+7.17
+–
+–
+hop
+437.76
+2.872
+5080
+6.98 × 10−7
+2.23 × 10−8
+1.09 × 10−2
+LiF (e−)
+hop
+0.17
+13.08
+2.872
+2
+13.00
+4.15 × 10−1
+2.75 × 101
+[001] hop
+3.86
+2.918
+45
+13.54
+4.46 × 10−1
+1.28
+TiO2 (e−) [110] hop
+80.86
+15.72
+6.428
+938
+0.69
+1.10 × 10−1
+2.95 × 10−1
+[111] hop
+78.01
+3.529
+905
+0.77
+3.31 × 10−2
+8.90 × 10−2
+fers a way to compute direction-resolved hopping chan-
+nels, compare competing transitions, and identify rate-
+limiting processes.
+It can also help to assess when
+conventional Boltzmann transport becomes inappropri-
+ate.
+Because the approach is supercell-free, it is well
+suited for systematic studies of polaron-limited trans-
+port in realistic materials. Future extensions beyond the
+adiabatic strong-coupling limit, including non-adiabatic,
+weak-coupling, anharmonic, and finite-temperature ef-
+fects, would further broaden its applicability.
+8
+0.0
+0.1
+N
+1/3
+p
+(
+)
+0.00
+0.05
+Energy (eV)
+TiO2 (e
+), parameters
+E[001]
+a
+h
+eff
+E[110]
+a
+E[111]
+a
+300 600 900
+T (K)
+10
+1
+100
+101
+kp (THz)
+Transfer rate
+[001]
+[110]
+[111]
+300 600 900
+T (K)
+10
+2
+10
+1
+100
+101
+p (cm2/V s)
+Hopping mobility
+[001]
+[110]
+[111]
+FIG. 7.
+Charge-transfer parameters for the electron
+polaron in rutile TiO2.
+First panel shows the adia-
+batic parameters: activation energies ∆Ea for hopping along
+the [001], [110], and [111] directions, together with the ef-
+fective attempt energy hνeff. The parameters are computed
+for non-uniform k/q meshes of increasing density: n×n×2n,
+6 ≤n ≤11.
+Dashed lines indicate linear extrapolation to
+the thermodynamic limit. For hopping along the [110] and
+[111] directions, at least n = 9 and n = 11, respectively, are
+required to obtain localized transfer. Second and third panels
+show the computed adiabatic transfer rates kp and mobilities
+µp.
+150
+200
+250
+300
+350
+400
+T (K)
+10
+1
+101
+103
+(cm2/V s)
+TiO2 (e
+), mobility
+p [001]
+p [110]
+p [111]
+iBTE
+[001]
+iBTE
+[100]
+Ref. [19]
+SiO2 substrate
+Ref. [19]
+r-Al2O3 substrate
+Ref. [19]
+c-Al2O3 substrate
+Ref. [18]
+[001]
+Ref. [18]
+[100]
+FIG. 8.
+Electron charge-carrier mobility in rutile
+TiO2. Solid curves indicate the adiabatic polaron hopping
+mobilities µp computed in this work.
+Subscripts indicate
+the charge-transfer direction. Markers correspond to exper-
+imental measurements on Nb-doped thin films and oxygen-
+deficient single crystals, extracted from Refs. 19 and 18,
+respectively.
+For the former, the mobilities are direction-
+averaged, and subscripts indicate the substrate.
+Dashed
+curves indicate the mobilities computed within the iBTE
+framework.
+IV.
+METHODS
+In this work, we investigate adiabatic polaron hop-
+ping transport within the framework of variational po-
+laron equations34.
+In particular, we extend the exist-
+ing methodology, implemented in the ABINIT software
+package38,39, to enable the calculation of MEPs on the
+pPES using the simplified string method47,53.
+In this section, we describe the developed methodol-
+ogy. First, we recall the variational polaron equations
+framework and its range of applicability. We also discuss
+its main features, namely the explicit variational expres-
+sion for the polaron binding energy and the correspond-
+ing gradients. Next, we show how these features enable
+sampling of the pPES and optimization of MEPs using
+the string method. This is followed by a description of
+transition-state theory for adiabatic transitions, treated
+within the developed approach. Finally, we provide the
+computational details used to obtain the input parame-
+200
+400
+600
+T (K)
+10
+2
+10
+1
+100
+101
+(cm2/V s)
+TiO2 (e
+), mobility
+Ref. [44]
+MLMD
+p [111]
+p [110]
+p [001]
+Ref. [28]
+DMC [001]
+Ref. [28]
+DMC [100]
+FIG. 9.
+Comparison with other theoretical works
+for the electron charge-carrier mobility in rutile TiO2.
+Shaded regions indicate the adiabatic polaron hopping mobil-
+ities µp computed in this work, bounded by the effective at-
+tempt rate ν ≡νeff, shown by the solid curves, and the LO fre-
+quency at Γ, ν = νLO, shown by the dotted curves. Subscripts
+indicate the charge-transfer direction.
+The dashed brown
+curve shows the direction-averaged MLMD results of Ref. 44.
+The orange and purple curves show the first-principles DMC
+results of Ref. 28.
+ters for the materials considered in this work: LiF and
+rutile TiO2.
+A.
+Variational polaron equations
+In the variational polaron equations framework 39, the
+ab initio polaron binding energy is defined in reciprocal
+space as a variational expression,
+Epol[A, B] =
+σ
+Np
+X
+nk
+|Ank|2(εnk −εloc) + qεloc + 1
+Np
+X
+qν
+|Bqν|2ωqν
+−1
+N 2p
+X
+mnk
+qν
+A∗
+mk+qB∗
+qνgmnν(k, q)Ank + (c.c.),
+(1)
+where σ = ±1 corresponds to electron addition/removal.
+The energy depends on the electron and phonon param-
+eters of the material: electronic energies εnk, phonon
+frequencies ωqν, and electron-phonon matrix elements
+gmnν(k, q). The k/q-wavevector meshes, each with Np
+points, correspond to a BvK supercell consisting of Np
+unit cells hosting the polaron. Note that there is no ex-
+plicit real space calculations in the formalism, so that the
+direct use of supercells is avoided.
+The variational subspace is defined by the sets of elec-
+tronic and phonon coefficients A = {Ank} and B =
+{Bqν}. The electronic coefficients originate from the ex-
+pansion of the polaron wavefunction ϕp(r) in the basis of
+Kohn-Sham (KS) states ψnk(r),
+ϕp(r) =
+1
+p
+Np
+X
+nk
+Ankψnk(r).
+(2)
+The
+normalization
+of
+the
+polaron
+wavefunction,
+⟨ϕp|ϕp⟩= 1, is enforced in Eq. (1) through the La-
+grange multiplier εloc.
+This quantity represents the
+9
+polaron localization (vertical ionization) energy.
+The
+phonon coefficients represent the deformation field,
+being the components of the Fourier transform of the
+polaron-induced displacements ∆τ = {∆τκαp} in the
+phonon-momentum subspace,
+∆τκαp = −σ 2
+Np
+X
+qν
+B∗
+qν
+eκαν(q)
+p
+2Mκωqν
+eiq·Rp.
+(3)
+Here, for an atom κ with mass Mκ in unit cell p, eκαν(q)
+denotes the Cartesian component α of the phonon eigen-
+mode.
+Equations (1)-(3) describe self-trapped polarons in
+the strong-coupling adiabatic (Landau-Pekar) approxi-
+mation3. Within this approximation, lattice fluctuations
+are neglected, and the electronic charge density is as-
+sumed to adjust instantaneously to the lattice polariza-
+tion due to strong electron-phonon interactions. Accord-
+ingly, the polaron wavefunction ϕp(r; ∆τ) depends para-
+metrically on the structural distortion ∆τ.
+Moreover,
+this dependence is treated to lowest order in ∆τ, corre-
+sponding to a frozen deformation that defines the adia-
+batic self-trapping potential. The resulting polaron bind-
+ing energy determines the adiabatic pPES governing the
+structural distortions.
+Constrained
+optimization
+of
+the
+binding
+energy,
+min⟨ϕp|ϕp⟩=1 Epol[A, B], as well as sampling of the pPES,
+is facilitated by the explicit treatment of the electronic
+and phonon gradients:
+∇AnkEpol = 2σ
+Np
+Ank (εnk −εloc)
+−2
+N 2p
+X
+mνq
+
+Amk−qB∗
+qνgnmν(k −q, q)
++ Amk+qBqνg∗
+mnν(k, q)
+
+,
+(4)
+∇BqνEpol = 2
+Np
+Bqνωqν
+−2
+N 2p
+X
+nmk
+A∗
+mk+qgmnν(k, q)Ank.
+(5)
+These gradients enable optimization of the binding en-
+ergy using efficient gradient-based techniques39.
+They
+also facilitate the identification of multiple polaronic so-
+lutions on the pPES within a single system. Moreover,
+they allow MEPs between different polaronic configura-
+tions to be determined. In what follows, we show how
+Eqs. (1)-(5) can be used for this purpose through the
+simplified string method47.
+B.
+String method for minimum-energy paths
+A formulation of the string method can be found in
+Refs.47,53. Here, we outline the simplified string method
+and its algorithmic implementation in the context of the
+variational polaron equations.
+The general problem can be stated as follows: given
+two polaronic configurations, find the MEP connecting
+them on the pPES defined by Epol[A, B].
+The basic
+idea of the string method is to determine the MEP by
+evolving an energy curve γ = (A, B), connecting the two
+polarons, under the potential force field −∇Epol. The
+curve is a MEP if the normal component of the force
+field vanishes,
+∇E⊥
+pol[γ] = 0,
+(6)
+where
+∇E⊥
+pol[γ] = ∇Epol[γ] −∇E∥
+pol[γ].
+(7)
+Here, the tangential component is given by
+∇E∥
+pol[γ] =
+ ∇Epol[γ] · ˆτ[γ]
+
+ˆτ[γ],
+(8)
+where ˆτ[γ] denotes the unit tangent vector to the curve.
+For a curve represented by a discrete set of points, γ =
+{Ai, Bi}, the evolution of each point is governed only
+by the normal component of the force field, ∇E⊥
+pol[γ].
+By contrast, the tangential component ∇E∥
+pol[γ] moves a
+point along the curve without changing its shape, modi-
+fying only the curve parametrization. The key idea of the
+simplified string method is therefore to evolve the curve
+using the full force field ∇Epol[γ] while enforcing a fixed
+parametrization.
+In the variational polaron equations framework, the
+polaron force field has separated electronic and vibra-
+tional components, ∇AnkEpol and ∇BqνEpol. Moreover,
+for a fixed deformation field B, the optimal electronic
+configuration A can always be obtained by minimizing
+Epol[A, B] with respect to the electronic coefficients only.
+Hence, an energy curve γ can be parametrized solely by
+the phonon coefficients B, since they uniquely determine
+the electronic coefficients A through this constrained op-
+timization. Consequently, the evolution of a discretized
+curve is governed by the phonon gradient in Eq. (5), to-
+gether with a fixed parametrization in terms of the de-
+formation field,
+γB : αi ↔Bi,
+αi ∈[0, 1].
+(9)
+This simplifies the search for MEPs to the constrained
+evolution of the deformation field.
+The process can then be expressed as follows. For a
+curve represented by an array of polaron images with de-
+formation fields Bi and fixed parametrization γB, one
+first determines the corresponding optimal charge distri-
+butions Ai. The deformation field is then evolved over
+an artificial time step ∆t according to the full phonon
+force,
+˙Bi = −∇BEpol[Ai, Bi].
+(10)
+10
+After this evolution step, the updated deformation fields,
+˜Bi, may no longer satisfy the chosen parametriza-
+tion because of the tangential force component.
+The
+parametrization is therefore restored by redistributing
+the points along the curve, ˜Bi →Bi. In what follows,
+we describe the algorithmic details of this procedure.
+C.
+String method: algorithmic details
+The implementation of the string method within the
+variational polaron equations framework involves the fol-
+lowing steps. Let B(n)
+i
+denote the array of deformation
+fields corresponding to the N + 1 polaron images at the
+n-th iteration of the energy-curve evolution. To update
+the curve, we first optimize the electronic degrees of free-
+dom A(n)
+i
+for each image at fixed deformation fields B(n)
+i
+.
+This corresponds to the optimization of a single polaron
+state at fixed geometry. The procedure follows the gen-
+eral gradient-based workflow of the variational polaron
+equations, described in Ref. 39.
+Next, the integration of Eq. (10) can be performed
+using any suitable solver. In our implementation, we use
+the forward Euler method:
+˜B
+(n)
+i
+= B(n)
+i
+−∆t ∇BEpol[A(n)
+i
+, B(n)
+i
+],
+(11)
+where the time step ∆t is taken to be the same for all
+images. The updated set of configurations B(n+1)
+i
+is ob-
+tained through reparametrization,
+˜B
+(n)
+i
+→B(n+1)
+i
+.
+(12)
+In the present implementation, the parametrization is en-
+forced using equal arc length, so that the images remain
+equidistant along the curve. To achieve this, the interme-
+diate values ˜B
+(n)
+i
+are first associated with a non-uniform
+mesh ˜α(n)
+i
+:
+˜α(n)
+i
+= si/sN,
+si = si−1 + ∥˜B
+(n)
+i
+−˜B
+(n)
+i−1∥,
+1 ≤i ≤N,
+s0 = 0.
+(13)
+Interpolation is then performed,
+(˜α(n)
+i
+, ˜B
+(n)
+i
+) →(αi, B(n+1)
+i
+),
+(14)
+to obtain the images on the uniform mesh αi = i/N. For
+this step, we use cubic spline interpolation. The process
+is iterated until the maximum displacement change of the
+curve,
+d = ∆t−1 max
+i
+∥B(n+1)
+i
+−B(n)
+i
+∥,
+(15)
+falls below a chosen tolerance, d < δ. In this work, we
+use δ = 10−6.
+D.
+String method: initial configurations
+The final component required for the MEP optimiza-
+tion procedure is the specification of an initial energy
+path. For N + 1 polaron images, this path can be con-
+structed from the deformation fields representing the ini-
+tial and final configurations, B0 and BN, respectively.
+In the simplest scenario, once a polaron with configu-
+ration B0 has been obtained by solving the variational
+polaron equations, Np translated solutions,
+{eiq·RpB0},
+(16)
+can be automatically generated by primitive translations
+Rp39.
+Hence, BN may be chosen from among these
+translated configurations. Alternatively, one may solve
+the variational polaron equations for two translationally
+inequivalent polarons39 and use the corresponding defor-
+mation fields as B0 and BN.
+From the initial and final deformation fields, the cor-
+responding structural distortions can be obtained using
+Eq. (3). The initial distribution of images along the en-
+ergy path can then be generated by linear interpolation,
+∆τ i = ∆τ 0 + iN −1 (∆τ N −∆τ 0)
+(17)
+followed by a reciprocal-space transform ∆τ i →Bi ob-
+tained by inverting Eq. (3):
+Bqν = −q
+2
+X
+καp
+∆τ ∗
+καp
+p
+2Mκωqνeκαν(q)eiq·Rp.
+(18)
+In this way, the equal-arc-length parametrization of the
+curve is already enforced at the initial stage. With this
+initial guess, all ingredients required to integrate the sim-
+plified string method into the variational polaron equa-
+tions framework are available. The workflow for finding
+minimum-energy paths is illustrated in Fig. 10.
+E.
+Polaron hopping transport
+Once the MEPs are obtained, they can be analysed
+within Marcus theory for electron transfer in chemical
+reactions43.
+In the context of polaron motion, similar
+theoretical descriptions were developed by Emin and Hol-
+stein54, and by Austin and Mott55.
+For polaron hop-
+ping, these approaches are formally equivalent48 and we
+refer to them as the Marcus-Emin-Holstein-Austin-Mott
+(MEHAM) theory. Within our framework, this theory is
+applied to describe adiabatic polaron hopping.
+The key ingredient in the MEHAM theory is the con-
+figurational diagram for the transition between hopping
+sites.
+In our approach, this diagram is obtained from
+MEP optimization and is schematically illustrated in
+Fig. 11. The initial and final hopping states are treated
+as localized polarons oscillating around their equilibrium
+lattice configurations. If a polaron has sufficient energy
+to overcome the energy barrier, it may transfer from the
+11
+Polarons with structural distortions ∆τ 0 and ∆τ N
+N + 1 polaron images with
+∆τ i = ∆τ 0 + iN −1 (∆τ N −∆τ 0)
+Deformation field ∆τ i ↔Bi
+Fixed deformation field Bi
+Optimize for charge distribution Ai
+d < δ
+Fixed charge distribution Ai
+Update Bi →˜Bi
+Equal arc length parametrization
+Interpolate ˜Bi →Bi so the images are equidistant:
+
+˜αi, ˜Bi
+ spline
+−−−→(αi, Bi) on a uniform grid αi = i/N
+Minimal energy path
+Epol[Ai, Bi]
+Yes
+No
+FIG. 10.
+Flow diagram for polaron minimum-energy
+path optimization using the simplified string method
+within the variational polaron equations framework.
+∆τ0 and ∆τN are the initial and final structural distortions.
+˜Bi indicate intermediate deformation fields without the im-
+posed parametrization.
+initial to the final configuration. Within this theory, the
+transition may occur in either the adiabatic or diabatic
+regime. In the adiabatic case, atomic vibrations can be
+neglected during the transfer event because the hopping
+attempt frequency is high compared to the characteris-
+tic frequency of nuclear motion. The dominant transfer
+mechanism is therefore thermally activated hopping over
+the activation barrier. In the diabatic case, the hopping
+attempt frequency is lower than the characteristic fre-
+quency of atomic vibrations. The transition then occurs
+between diabatic potential-energy surfaces and may in-
+volve quantum tunnelling through the diabatic barrier.
+Figure 11 shows the adiabatic and diabatic transition
+paths.
+By construction, however, the variational po-
+laron equations formalism assumes the adiabatic strong-
+coupling approximation. Therefore, only adiabatic tran-
+sitions are described consistently within the present ap-
+proach. In what follows, we therefore focus on adiabatic
+polaron transport.
+In the MEHAM framework, charge transfer is charac-
+terized by three main parameters: the activation energy
+∆Ea, the electronic coupling V , and the reorganization
+energy λ. The activation energy ∆Ea represents the en-
+ergy barrier for adiabatic transfer. The electronic cou-
+pling V quantifies the interaction between the initial and
+final polaron wavefunctions and reflects the lowering of
+the diabatic barrier. The reorganization energy λ is the
+vertical excitation energy required to transfer the polaron
+Start
+Hopping
+End
+Reaction coordinate
+Energy
+Ea
+V
+Transition paths:
+Adiabatic
+Diabatic
+FIG. 11.
+Configurational energy diagram for polaron
+transfer in a representative system. Open circles rep-
+resent the MEP for polaron hopping obtained using the sim-
+plified string method. Solid orange and blue curves represent
+the adiabatic and diabatic transition paths, respectively. The
+latter is obtained by parabolic fitting of the MEP near the ini-
+tial and final configurations, shown as dashed orange curves.
+The activation energy, electronic coupling, and reorganization
+energy are denoted by ∆Ea, V , and λ, respectively.
+from the initial to the final electronic configuration at
+fixed lattice deformation.
+Typically, the diabatic parameters λ and V are esti-
+mated by parabolic fitting of the MEP48. Alternatively,
+the polaron configurations along the MEP allow these
+parameters to be computed directly, without relying on
+a fitting model. This may be important when the MEP
+is not well described by the standard parabolic model56.
+For instance, one can define a transition path correspond-
+ing to a vertical excitation of the polaron wavefunction
+from the initial to the final state, ϕ0
+p →ϕN
+p , followed
+by relaxation of the polaron geometry along the reaction
+coordinate:
+λ0→N
+i
+= Epol[AN, Bi] −Epol[AN, BN].
+(19)
+The reorganization energy can then be estimated as λ ≡
+λ0→N
+0
+.
+The electronic coupling can be evaluated at the image
+ihop corresponding to the hopping state as57:
+V = H0N
+ihop,
+Hjk
+i
+= ⟨ϕj
+p| ˆHpol[Bi]|ϕk
+p⟩.
+(20)
+Here, the polaron Hamiltonian is
+Hpol
+nk,n′k′[B] = qδnk,n′k′εnk
+−1
+Np
+X
+ν
+h
+Bk′−k,νg∗
+n′nν(k, k′ −k)
++ B∗
+k−k′,νgnn′ν(k′, k −k′)
+i
+,
+(21)
+obtained from Eq. (4) by setting ∇AnkEpol ≡0 and im-
+posing the normalization ⟨ϕp|ϕp⟩= 1. This definition of
+the electronic coupling can be further refined as58
+V eff =
+V −s(H00
+ihop + HNN
+ihop )/2
+1 −s2
+,
+(22)
+12
+where s = ⟨ϕ0
+p|ϕN
+p ⟩is the wavefunction overlap.
+Adiabatic transfer is also characterized by the at-
+tempt frequency ν. This additional parameter represents
+the characteristic frequency of nuclear motion associated
+with the hopping process. It can be approximated as the
+frequency of the most coupled phonon mode, participat-
+ing in the polaron formation, such as the longitudinal
+optical phonon mode at q = Γ45,48, ν ≡νLO:
+hνLO = ωLO
+q=Γ.
+(23)
+Alternatively, within the present variational framework,
+ν can be estimated as an effective average of the phonon
+frequencies at the initial configuration, ν ≡νeff:
+hνeff = ∥B0∥−2 X
+qν
+|B0,qν|2ωqν.
+(24)
+Compared to νLO, this definition has the advantage of
+accounting for contributions from multiple phonon modes
+to adiabatic hopping.
+The distinction between the adiabatic and diabatic
+regimes can be assessed through the transmission coef-
+ficient κ. Within Landau-Zener theory59–61, it is given
+by
+κ =
+2P12
+1 + P12
+,
+(25)
+where the Landau–Zener transition probability is
+P12 = 1 −exp
+
+−π3/2|V |2
+hν√λkBT
+
+.
+(26)
+Here kB is the Boltzmann constant and T is the tem-
+perature. A value of κ close to unity indicates adiabatic
+charge transfer.
+In the adiabatic regime, the polaron transfer rate has
+an Arrhenius-like form,
+kad
+p = ν exp
+h
+−∆Ea
+kBT
+i
+(27)
+and depends on the activation energy and the effective
+attempt frequency.
+In the diabatic regime, the tunnelling transfer rate is
+kdiab
+p
+=
+2π|V |2
+√4πλkBT exp
+h
+−(∆Ediff + λ)2
+4λkBT
+i
+.
+(28)
+In this case, the rate depends explicitly on the electronic
+coupling. The tunnelling barrier is determined by the re-
+organization energy and the difference between the bind-
+ing energies of the final and initial states,
+∆Ediff = Epol[AN, BN] −Epol[A0, B0].
+(29)
+The hopping mobility can be obtained using the
+Einstein-Smoluchowski relation,
+µp = eD
+kBT .
+(30)
+Here, the diffusion coefficient associated with hopping
+between the initial and final polaron configurations is
+D = R2n kp.
+(31)
+The transfer rate kp can correspond to either regime, and
+n denotes the number of equivalent hopping sites. The
+hopping distance between the sites is denoted by R.
+Note that MEPs, obtained within the present frame-
+work correspond to adiabatic transitions because of
+the underlying adiabatic strong-coupling approximation.
+Therefore, the transfer mobility is treated with Eq. (27),
+and the corresponding mobility is adiabatic, regardless of
+the value of the transition probability κ. From Eqs. (27),
+(30) and (31) it also follows that the adiabatic mobility
+exhibits crossover from negative to positive temperature
+dependence at T ∗= ∆Ea/kB. The latter regime corre-
+sponds to the stabilization of the polaron diffusion, and
+tendency towards the µp ∼T −1 dependence of the mo-
+bility.
+F.
+Computational details
+In this work, we investigate polaron hopping in LiF
+and rutile TiO2. Polarons are obtained using the varia-
+tional polaron equations framework, as implemented in
+the ABINIT software package38. MEPs are computed
+using our implementation of the simplified string method
+within this framework.
+The input parameters are computed with ABINIT, us-
+ing PBE62 for LiF and LDA for the XC energy in TiO2.
+The latter is used for rutile TiO2 because PBE yields
+imaginary phonon frequencies in this system. We use the
+version 0.5 of the norm-conserving pseudopotential set63
+from the PseudoDojo project64. Table II reports the
+relaxed structural parameters, plane-wave energy cut-
+offs, and k/q-wavevector meshes used to compute the
+electronic and phonon parameters for each system. The
+atomic positions and lattice parameters of each system
+are relaxed until the maximum absolute force falls be-
+low 10−6 Ha/Bohr. The KS electronic eigenvalues εnk
+and wavefunctions ψnk are computed self-consistently
+on fixed k-wavevector meshes.
+The electronic density
+obtained from these calculations is then used in subse-
+quent non-self-consistent runs to compute these quanti-
+ties on k-meshes of arbitrary size. Phonon dispersions
+ωqν, eigenmodes eκαν(q), and first-order derivatives of
+the KS potential ∂καqvKS are first computed on coarse
+q-wavevector meshes and subsequently interpolated onto
+q-wavevector meshes of arbitrary density50,51.
+The electron-phonon matrix elements gmnν(k, q) are
+computed
+on
+arbitrary
+k/q-wavevector
+meshes
+by
+Fourier-interpolating the short-range part of the scat-
+tering potentials, while the long-range contributions are
+treated analytically50,51,65,66. The parameters required
+for the long-range treatment may require denser k-
+wavevector meshes than those used in the ground-state
+13
+TABLE II.
+The set of materials studied in this work with optimized lattice constants and computational parameters of
+groundstate and DFPT calculations. Ecut denotes the plane-wave energy cutoff. Listed k- and q-wavevector meshes represent
+the minimal Γ-centered uniform grids required for convergence of: (i) KS electronic bands εnk, wavefunctions ψnk, phonon
+dispersions ωqν and eigenmodes eκα,ν(q); (ii) dielectric tensor ϵ∞and Born effective charges Z; (iii) quadrupoles Q. For cubic
+systems with the Fm3m space group, Q ≡0 by symmetry, and are not explicitly computed.
+Materials
+Space group
+XC
+Lattice (Bohr) Ecut (Ha)
+k/q-mesh
+a
+εnk, ψnk, ωqν, eκα,ν(q) ϵ∞, Z
+Q
+LiF
+Fm3m
+PBE
+7.6753
+45
+6×6×6
+6×6×6
+–
+a
+c
+TiO2 (rutile)
+P42/mnm
+LDA 8.5878 5.5141
+40
+8×8×8
+8×8×8 8×8×8
+calculations to ensure convergence. These meshes are re-
+ported in Table II.
+V.
+DATA AVAILABILITY
+The data that support the findings of this article are
+openly available on the Materials Cloud Archive67.
+VI.
+CODE AVAILABILITY
+ABINIT
+is
+available
+under
+the
+GNU
+Gen-
+eral
+Public
+Licence
+from
+the
+ABINIT
+website:
+https://www.abinit.org.
+ACKNOWLEDGMENTS
+V.V. acknowledges funding by the FRS-FNRS Belgium
+through FRIA. S. P. is a Research Associate of the Fonds
+de la Recherche Scientifique - FNRS. This publication
+was supported by the Walloon Region in the strategic axe
+FRFS-WEL-T. Computational resources have been pro-
+vided by the supercomputing facilities of the Universit´e
+catholique de Louvain (CISM/UCL), the Consortium des
+Equipements de Calcul Intensif en F´ed´eration Wallonie
+Bruxelles (CECI) funded by the FRS-FNRS under Grant
+No. 2.5020.11 and computational resources on Lucia, the
+Tier-1 supercomputer of the Walloon Region with infras-
+tructure funded by the Walloon Region under the Grant
+Agreement No. 1910247.
+AUTHOR CONTRIBUTIONS
+V.V. formulated and implemented the string method
+within the variational polaron equations framework, per-
+formed the calculations, and wrote the first draft of
+the manuscript.
+M.G. helped with the implementa-
+tion.
+M.G., S.P., and X.G. analysed the results and
+contributed to writing the manuscript.
+S.P. and X.G.
+supervised the project. All authors approved the final
+manuscript.
+COMPETING INTERESTS
+The authors declare no competing interests.
+14
+∗Corresponding author: vasilii.vasilchenko@uclouvain.be
+1 C. Franchini, M. Reticcioli, M. Setvin, and U. Diebold, Po-
+larons in materials, Nature Reviews Materials 6, 560–586
+(2021).
+2 L.
+D.
+Landau,
+Electron
+motion
+in
+crystal
+lattices,
+Physikalische
+Zeitschrift
+der
+Sowjetunion
+3,
+644–645
+(1933).
+3 S. I. Pekar, Local quantum states of electrons in an ideal
+ion crystal, Zhurnal Experimentanoi i Teoritiskeskoi Fiziki
+16, 341 (1946).
+4 V.
+Vasilchenko,
+S.
+Levchenko,
+V.
+Perebeinos,
+and
+A. Zhugayevych, Small polarons in two-dimensional pnic-
+togens: A first-principles study, The Journal of Physical
+Chemistry Letters 12, 4674–4680 (2021).
+5 K. Zhang, C. Fu, S. Kelly, L. Liang, S.-H. Kang, J. Jiang,
+R. Zhang, Y. Wang, G. Wan, P. Siriviboon, M. Yoon,
+P. D. Ye, W. Wu, M. Li, and S. Huang, Thickness-
+dependent polaron crossover in tellurene, Science Advances
+11, eads4763 (2025).
+6 M. Kang, S. W. Jung, W. J. Shin, Y. Sohn, S. H. Ryu,
+T. K. Kim, M. Hoesch, and K. S. Kim, Holstein polaron
+in a valley-degenerate two-dimensional semiconductor, Na-
+ture Materials 17, 676–680 (2018).
+7 W. H. Sio and F. Giustino, Polarons in two-dimensional
+atomic crystals, Nature Physics 19, 629–636 (2023).
+8 A. Zhugayevych and S. Tretiak, Theoretical description
+of structural and electronic properties of organic photo-
+voltaic materials, Annual Review of Physical Chemistry
+66, 305–330 (2015).
+9 B. K. Chang, J.-J. Zhou, N.-E. Lee, and M. Bernardi, In-
+termediate polaronic charge transport in organic crystals
+from a many-body first-principles approach, npj Computa-
+tional Materials 8, 63 (2022).
+10 J. L. Bredas and G. B. Street, Polarons, bipolarons, and
+solitons in conducting polymers, Accounts of Chemical Re-
+search 18, 309–315 (1985).
+11 Y. Wu, B. Li, X. Zhu, Z. Wang, R. Yin, Z. Zheng, B. Zhao,
+H. Shang, Q.-S. Deng, Y.-Z. Tan, Y. Zhang, C. Ma, S. Tan,
+Y. Luo, J. Yang, J. G. Hou, and B. Wang, Polaron su-
+perlattices in n-doped single conjugated polymers, Nature
+Nanotechnology 20, 1580–1587 (2025).
+12 S. Ciuchi, R. C. Hatch, H. H¨ochst, C. Faber, X. Blase,
+and S. Fratini, Molecular fingerprints in the electronic
+properties of crystalline organic semiconductors: From ex-
+periment to theory, Physical Review Letters 108, 256401
+(2012).
+13 Y. Yamada and Y. Kanemitsu, Electron-phonon interac-
+tions in halide perovskites, NPG Asia Materials 14, 48
+(2022).
+14 T. G. Castner and W. K¨anzig, The electronic structure of
+V-centers, Journal of Physics and Chemistry of Solids 3,
+178–195 (1957).
+15 S. Ponc´e, W. Li, S. Reichardt, and F. Giustino, First-
+principles calculations of charge carrier mobility and con-
+ductivity in bulk semiconductors and two-dimensional ma-
+terials, Reports on Progress in Physics 83, 036501 (2020).
+16 Y. Natanzon, A. Azulay, and Y. Amouyal, Evaluation of
+polaron transport in solids from first-principles, Israel Jour-
+nal of Chemistry 60, 768–786 (2020).
+17 F. Liu, Z. Yang, Y. Luo, S. Guo, C. Zhang, S. Choo,
+X. Xu, S. G. Jeong, J. S. Kumar, X. Wang, A. Mkhoyan,
+M. Bernardi, and B. Jalan, Understanding polaronic trans-
+port in complex oxides by combining precise synthesis and
+first-principles many-body theory, Reports on Progress in
+Physics 89, 028003 (2026).
+18 E. Yagi, R. R. Hasiguti, and M. Aono, Electronic conduc-
+tion above 4 K of slightly reduced oxygen-deficient rutile
+TiO2-x, Phys. Rev. B 54, 7945–7956 (1996).
+19 S. X. Zhang, D. C. Kundaliya, W. Yu, S. Dhar, S. Y.
+Young, L. G. Salamanca-Riba, S. B. Ogale, R. D. Vispute,
+and T. Venkatesan, Niobium doped TiO2: Intrinsic trans-
+parent metallic anatase versus highly resistive rutile phase,
+Journal of Applied Physics 102, 013701 (2007).
+20 M. Setvin, C. Franchini, X. Hao, M. Schmid, A. Janotti,
+M. Kaltak, C. G. Van de Walle, G. Kresse, and U. Diebold,
+Direct view at excess electrons in TiO2 rutile and anatase,
+Physical Review Letters 113, 086402 (2014).
+21 C. Crevecoeur and H. De Wit, Electrical conductivity of
+Li doped MnO, Journal of Physics and Chemistry of Solids
+31, 783–791 (1970).
+22 L. P. Ren´e de Cotret, M. R. Otto, J.-H. P¨ohls, Z. Luo,
+M. G. Kanatzidis, and B. J. Siwick, Direct visualization
+of polaron formation in the thermoelectric SnSe, Proceed-
+ings of the National Academy of Sciences 119, e2113967119
+(2022).
+23 H. Liu, A. Wang, P. Zhang, C. Ma, C. Chen, Z. Liu,
+Y.-Q. Zhang, B. Feng, P. Cheng, J. Zhao, L. Chen, and
+K. Wu, Atomic-scale manipulation of single-polaron in a
+two-dimensional semiconductor, Nature Communications
+14, 3690 (2023).
+24 M. Tyunina, M. Savinov, O. Pacherova, and A. Dejneka,
+Small-polaron transport in perovskite nickelates, Scientific
+Reports 13, 10.1038/s41598-023-39821-z (2023).
+25 K. P. Mohamed Jibri, J. Archana, M. Navaneethan, and
+S. Harish, Small polaron hopping conduction mechanism
+and enhanced thermoelectric power factor in the perovskite
+LaCoO3 ceramic, Physical Chemistry Chemical Physics
+25, 12914–12922 (2023).
+26 Y. Liu, Y. Lv, P.-A. Chen, Z. Ming, X. Qiu, J. Xia,
+L. Cheng, F. Li, H. Ju, X. Wang, A. R. b. M. Yusoff,
+L. Jiang, L. Liao, H. Sirringhaus, and Y. Hu, Identify-
+ing and overcoming the polaron-induced mobility limit in a
+2D germanium halide perovskite, ACS Nano 20, 5839–5849
+(2026).
+27 Z. Dai, J. Lafuente-Bartolome, and F. Giustino, Po-
+larons from first principles (2025), arXiv:2512.06176 [cond-
+mat.mtrl-sci].
+28 Y. Luo, J. Park, and M. Bernardi, First-principles dia-
+grammatic Monte Carlo for electron–phonon interactions
+and polaron, Nature Physics 21, 1275–1282 (2025).
+29 N.-E. Lee, H.-Y. Chen, J.-J. Zhou, and M. Bernardi, Facile
+ab initio approach for self-localized polarons from canoni-
+cal transformations, Physical Review Materials 5, 063805
+(2021).
+30 Y. Luo, B. K. Chang, and M. Bernardi, Comparison of the
+canonical transformation and energy functional formalisms
+for ab initio calculations of self-localized polarons, Physical
+Review B 105, 155132 (2022).
+31 P. J. Robinson, J. Lee, A. Mahajan, and D. R. Reichman,
+Ab initio polaron wave functions, Physical Review B 111,
+054304 (2025).
+15
+32 W. H. Sio, C. Verdi, S. Ponc´e, and F. Giustino, Ab initio
+theory of polarons: Formalism and applications, Physical
+Review B 99, 235139 (2019).
+33 W. H. Sio, C. Verdi, S. Ponc´e, and F. Giustino, Polarons
+from first principles, without supercells, Physical Review
+Letters 122, 246403 (2019).
+34 V. Vasilchenko, A. Zhugayevych, and X. Gonze, Varia-
+tional polaron equations applied to the anisotropic Fr¨ohlich
+model, Physical Review B 105, 214301 (2022).
+35 M. K. A. Baumgarten, H. Wu, T. Jiang, and J. Lee, A
+scalable translationally invariant variational theory of ab
+initio polarons (2026), arXiv:2605.05675 [cond-mat.mtrl-
+sci].
+36 H. Lee, S. Ponc´e, K. Bushick, S. Hajinazar, J. Lafuente-
+Bartolome, J. Leveillee, C. Lian, J.-M. Lihm, F. Macheda,
+H. Mori, H. Paudyal, W. H. Sio, S. Tiwari, M. Zacharias,
+X. Zhang, N. Bonini, E. Kioupakis, E. R. Margine, and
+F. Giustino, Electron–phonon physics from first principles
+using the EPW code, npj Computational Materials 9, 156
+(2023).
+37 J.-J. Zhou, J. Park, I.-T. Lu, I. Maliyov, X. Tong, and
+M. Bernardi, Perturbo: A software package for ab initio
+electron–phonon interactions, charge transport and ultra-
+fast dynamics, Computer Physics Communications 264,
+107970 (2021).
+38 M. J. Verstraete, J. Abreu, G. E. Allemand, B. Amadon,
+G. Antonius, M. Azizi, L. Baguet, C. Barat, L. Bas-
+togne, R. B´ejaud, J.-M. Beuken, J. Bieder, A. Blanchet,
+F. Bottin,
+J. Bouchet,
+J. Bouquiaux,
+E. Bousquet,
+J. Boust, F. Brieuc, V. Brousseau-Couture, N. Brouwer,
+F. Bruneval, A. Castellano, E. Castiel, J.-B. Charraud,
+J. Cl´erouin, M. Cˆot´e, C. Duval, A. Gallo, F. Gendron,
+G. Geneste, P. Ghosez, M. Giantomassi, O. Gingras,
+F. G´omez-Ortiz, X. Gonze, F. A. Goudreault, A. Gr¨uneis,
+R. Gupta, B. Guster, D. R. Hamann, X. He, O. Hell-
+man, N. Holzwarth, F. Jollet, P. Kestener, I.-M. Lygat-
+sika, O. Nadeau, L. MacEnulty, E. Marazzi, M. Migno-
+let, D. D. O’Regan, R. Outerovitch, C. Paillard, G. Pe-
+tretto, S. Ponc´e, F. Ricci, G.-M. Rignanese, M. Rodriguez-
+Mayorga, A. H. Romero, S. Rostami, M. Royo, M. Sar-
+raute, A. Sasani, F. Soubiran, M. Stengel, C. Tantardini,
+M. Torrent, V. Trinquet, V. Vasilchenko, D. Waroquiers,
+A. Zabalo, A. Zadoks, H. Zhang, and J. Zwanziger, Abinit
+2025: New capabilities for the predictive modeling of solids
+and nanomaterials, The Journal of Chemical Physics 163,
+164126 (2025).
+39 V. Vasilchenko, M. Giantomassi, S. Ponc´e, and X. Gonze,
+Variational first-principles approach to self-trapped po-
+larons, Physical Review B 112, 014314 (2025).
+40 E. Epifanovsky, A. T. B. Gilbert, X. Feng, J. Lee, Y. Mao,
+N. Mardirossian, P. Pokhilko, A. F. White, M. P. Coons,
+A. L. Dempwolff, Z. Gan, D. Hait, P. R. Horn, L. D. Ja-
+cobson, I. Kaliman, J. Kussmann, A. W. Lange, K. U.
+Lao, D. S. Levine, J. Liu, S. C. McKenzie, A. F. Morri-
+son, K. D. Nanda, F. Plasser, D. R. Rehn, M. L. Vidal,
+Z.-Q. You, Y. Zhu, B. Alam, B. J. Albrecht, A. Aldos-
+sary, E. Alguire, J. H. Andersen, V. Athavale, D. Bar-
+ton, K. Begam, A. Behn, N. Bellonzi, Y. A. Bernard,
+E. J. Berquist, H. G. A. Burton, A. Carreras, K. Carter-
+Fenk, R. Chakraborty, A. D. Chien, K. D. Closser,
+V. Cofer-Shabica, S. Dasgupta, M. de Wergifosse, J. Deng,
+M. Diedenhofen, H. Do, S. Ehlert, P.-T. Fang, S. Fatehi,
+Q. Feng, T. Friedhoff, J. Gayvert, Q. Ge, G. Gidofalvi,
+M. Goldey, J. Gomes, C. E. Gonz´alez-Espinoza, S. Gu-
+lania, A. O. Gunina, M. W. D. Hanson-Heine, P. H. P.
+Harbach, A. Hauser, M. F. Herbst, M. Hern´andez Vera,
+M. Hodecker, Z. C. Holden, S. Houck, X. Huang, K. Hui,
+B. C. Huynh, M. Ivanov, A. J´asz, H. Ji, H. Jiang,
+B. Kaduk, S. K¨ahler, K. Khistyaev, J. Kim, G. Kis,
+P. Klunzinger, Z. Koczor-Benda, J. H. Koh, D. Kosenkov,
+L. Koulias, T. Kowalczyk, C. M. Krauter, K. Kue, A. Ku-
+nitsa, T. Kus, I. Ladj´anszki, A. Landau, K. V. Lawler,
+D. Lefrancois, S. Lehtola, R. R. Li, Y.-P. Li, J. Liang,
+M. Liebenthal, H.-H. Lin, Y.-S. Lin, F. Liu, K.-Y. Liu,
+M. Loipersberger, A. Luenser, A. Manjanath, P. Manohar,
+E. Mansoor, S. F. Manzer, S.-P. Mao, A. V. Marenich,
+T. Markovich, S. Mason, S. A. Maurer, P. F. McLaughlin,
+M. F. S. J. Menger, J.-M. Mewes, S. A. Mewes, P. Mor-
+gante, J. W. Mullinax, K. J. Oosterbaan, G. Paran, A. C.
+Paul, S. K. Paul, F. Pavoˇsevi´c, Z. Pei, S. Prager, E. I.
+Proynov, A. R´ak, E. Ramos-Cordoba, B. Rana, A. E.
+Rask, A. Rettig, R. M. Richard, F. Rob, E. Rossomme,
+T. Scheele, M. Scheurer, M. Schneider, N. Sergueev, S. M.
+Sharada, W. Skomorowski, D. W. Small, C. J. Stein, Y.-
+C. Su, E. J. Sundstrom, Z. Tao, J. Thirman, G. J. Tornai,
+T. Tsuchimochi, N. M. Tubman, S. P. Veccham, O. Vy-
+drov, J. Wenzel, J. Witte, A. Yamada, K. Yao, S. Yeganeh,
+S. R. Yost, A. Zech, I. Y. Zhang, X. Zhang, Y. Zhang,
+D. Zuev, A. Aspuru-Guzik, A. T. Bell, N. A. Besley, K. B.
+Bravaya, B. R. Brooks, D. Casanova, J.-D. Chai, S. Cori-
+ani, C. J. Cramer, G. Cserey, A. E. DePrince, R. A. DiS-
+tasio, A. Dreuw, B. D. Dunietz, T. R. Furlani, W. A. God-
+dard, S. Hammes-Schiffer, T. Head-Gordon, W. J. Hehre,
+C.-P. Hsu, T.-C. Jagau, Y. Jung, A. Klamt, J. Kong, D. S.
+Lambrecht, W. Liang, N. J. Mayhall, C. W. McCurdy,
+J. B. Neaton, C. Ochsenfeld, J. A. Parkhill, R. Peverati,
+V. A. Rassolov, Y. Shao, L. V. Slipchenko, T. Stauch, R. P.
+Steele, J. E. Subotnik, A. J. W. Thom, A. Tkatchenko,
+D. G. Truhlar, T. Van Voorhis, T. A. Wesolowski, K. B.
+Whaley, H. L. Woodcock, P. M. Zimmerman, S. Faraji,
+P. M. W. Gill, M. Head-Gordon, J. M. Herbert, and A. I.
+Krylov, Software for the frontiers of quantum chemistry:
+An overview of developments in the Q-Chem 5 package,
+The Journal of Chemical Physics 155, 084801 (2021).
+41 A. S. Mishchenko, L. Pollet, N. V. Prokof’ev, A. Kumar,
+D. L. Maslov, and N. Nagaosa, Polaron mobility in the “be-
+yond quasiparticles” regime, Phys. Rev. Lett. 123, 076601
+(2019).
+42 D. Sheppard, R. Terrell, and G. Henkelman, Optimization
+methods for finding minimum energy paths, The Journal of
+Chemical Physics 128, 134106 (2008).
+43 R. A. Marcus, Electron transfer reactions in chemistry.
+Theory and experiment, Reviews of Modern Physics 65,
+599–610 (1993).
+44 V. C. Birschitzky, L. Leoni, M. Reticcioli, and C. Franchini,
+Machine learning small polaron dynamics, Physical Review
+Letters 134, 216301 (2025).
+45 J. Lafuente-Bartolome, C. Lian, and F. Giustino, Topo-
+logical polarons in halide perovskites, Proceedings of the
+National Academy of Sciences 121, e2318151121 (2024).
+46 Z. Dai and F. Giustino, Identification of large polarons and
+exciton polarons in rutile and anatase polymorphs of ti-
+tanium dioxide, Proceedings of the National Academy of
+Sciences 121, e2414203121 (2024).
+47 W. E, W. Ren, and E. Vanden-Eijnden, Simplified and im-
+proved string method for computing the minimum energy
+paths in barrier-crossing events, The Journal of Chemical
+Physics 126, 164103 (2007).
+16
+48 N. A. Deskins and M. Dupuis, Electron transport via po-
+laron hopping in bulk TiO2: A density functional theory
+characterization, Physical Review B 75, 195212 (2007).
+49 J.-M. Lihm and S. Ponc´e, Beyond-quasiparticle transport
+with vertex correction:
+Self-consistent ladder formalism
+for electron-phonon interactions, Physical Review X 16,
+011008 (2026).
+50 G. Brunin, H. P. C. Miranda, M. Giantomassi, M. Royo,
+M. Stengel, M. J. Verstraete, X. Gonze, G.-M. Rig-
+nanese, and G. Hautier, Phonon-limited electron mobility
+in Si, GaAs, and GaP with exact treatment of dynamical
+quadrupoles, Physical Review B 102, 094308 (2020).
+51 G. Brunin, H. P. C. Miranda, M. Giantomassi, M. Royo,
+M. Stengel, M. J. Verstraete, X. Gonze, G.-M. Rignanese,
+and G. Hautier, Electron-Phonon beyond Fr¨ohlich: Dy-
+namical Quadrupoles in Polar and Covalent Solids, Physi-
+cal Review Letters 125, 136601 (2020).
+52 R. Claes, G. Brunin, M. Giantomassi, G.-M. Rignanese,
+and G. Hautier, Assessing the quality of relaxation-
+time approximations with fully automated computations
+of phonon-limited mobilities, Phys. Rev. B 106, 094302
+(2022).
+53 W. E, W. Ren, and E. Vanden-Eijnden, String method for
+the study of rare events, Physical Review B 66, 052301
+(2002).
+54 D. Emin and T. Holstein, Studies of small-polaron motion
+iv. adiabatic theory of the hall effect, Annals of Physics 53,
+439–520 (1969).
+55 I. G. Austin and N. F. Mott, Polarons in crystalline and
+non-crystalline materials, Advances in Physics 50, 757–812
+(2001).
+56 H. Houmsi, B. Skl´enard, M. Guillaumont, F. m. c. Triozon,
+and J. Li, Revisiting the extraction of coupling strengths for
+polaron hopping from an ab initio approach, Phys. Rev. B
+111, 165147 (2025).
+57 F. Wu and Y. Ping, Combining Landau–Zener theory and
+kinetic Monte Carlo sampling for small polaron mobility
+of doped BiVO4 from first-principles, Journal of Materials
+Chemistry A 6, 20025–20036 (2018).
+58 A. Farazdel, M. Dupuis, E. Clementi, and A. Aviram,
+Electric-field induced intramolecular electron transfer in
+spiro π-electron systems and their suitability as molecu-
+lar electronic devices. A theoretical study, Journal of the
+American Chemical Society 112, 4206–4214 (1990).
+59 L. D. Landau, A theory of energy transfer on collisions,
+Physikalische Zeitschrift der Sowjetunion 1, 88 (1932).
+60 L. D. Landau, A theory of energy transfer on collisions,
+Physikalische Zeitschrift der Sowjetunion 2, 46 (1932).
+61 C. Zener, Non-adiabatic crossing of energy levels, Proceed-
+ings of the Royal Society of London. Series A, Containing
+Papers of a Mathematical and Physical Character 137,
+696–702 (1932).
+62 J. P. Perdew, K. Burke, and M. Ernzerhof, Generalized gra-
+dient approximation made simple, Physical Review Letters
+77, 3865–3868 (1996).
+63 D. R. Hamann, Optimized norm-conserving Vanderbilt
+pseudopotentials, Physical Review B 88, 085117 (2013).
+64 M. van Setten, M. Giantomassi, E. Bousquet, M. Ver-
+straete, D. Hamann, X. Gonze, and G.-M. Rignanese, The
+PseudoDojo: Training and grading a 85 element optimized
+norm-conserving pseudopotential table, Computer Physics
+Communications 226, 39–54 (2018).
+65 C. Verdi and F. Giustino, Fr¨ohlich electron-phonon vertex
+from first principles, Physical Review Letters 115, 176401
+(2015).
+66 V. A. Jhalani,
+J.-J. Zhou,
+J. Park,
+C. E. Dreyer,
+and M. Bernardi, Piezoelectric electron-phonon interaction
+from ab initio dynamical quadrupoles: Impact on charge
+transport in wurtzite GaN, Phys. Rev. Lett. 125, 136602
+(2020).
+67 V. Vasilchenko, M. Giantomassi, S. Ponc´e, and X. Gonze,
+Optimal transition states for polaron hopping transport
+without supercells, Materials Cloud Archive (2026), draft.

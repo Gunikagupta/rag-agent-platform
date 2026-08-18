@@ -1,0 +1,1623 @@
+Computing All Lattice-Rectangle Counts by
+Rational Staircase Sums
+Dmitry Babichev
+Independent researcher, France
+Denis Pinchuk
+Independent researcher, USA
+Abstract
+Let F(n) be the number of rectangles, not necessarily axis-parallel, whose vertices belong to the
+n × n square grid of lattice points. We compute the complete table F(1), . . . , F(N) exactly in
+O(M(N) log N) coefficient-ring operations and O(N log N) ring elements of working memory, where
+M(N) is a regular bound for multiplying degree-N polynomials. The ring-level statement assumes
+that 6 is invertible; over Z the only division is instead performed exactly in the elementary boundary
+term. With quasi-linear polynomial multiplication the arithmetic bound is O(N log2 N). The
+algorithm applies a square-root cover before coefficient extraction and evaluates the resulting rational
+wedge and triangular sums by a local-denominator divide-and-conquer recursion. Primitive directions
+are recovered coefficientwise by Möbius inversion, followed by five prefix sums. A modular number-
+theoretic-transform (NTT) implementation with certified Chinese-remainder (CRT) recovery is
+evaluated experimentally against the O(N 3/2) all-values algorithm.
+2012 ACM Subject Classification Theory of computation →Design and analysis of algorithms;
+Theory of computation →Computational geometry
+Keywords and phrases Lattice rectangles, exact counting, generating functions, product trees,
+symbolic computation
+1
+Introduction
+Let F(n) denote the number of rectangles, axis-parallel or oblique, whose four vertices belong
+to the point grid {0, . . . , n −1}2. The sequence (F(n))n⩾1 is OEIS A085582 [19]. Babichev
+and Babichev [2] give an O(N 3/2)-operation algorithm for constructing the complete table
+F(1), . . . , F(N). We give an exact algorithm with arithmetic complexity O(M(N) log N).
+Throughout, M(N) is a nondecreasing, superadditive, at-least-linear bound for multiplying
+degree-N polynomials over the coefficient ring, and M(cN) = O(M(N)) for every fixed c > 0.
+These standard regularity assumptions make constant changes in truncation length harmless.
+The problem lies at the intersection of lattice-point enumeration, primitive direction
+counting, and fast formal-series computation. Barvinok’s fixed-dimensional method encodes
+lattice points in rational polyhedra by short rational generating functions [6]; its algorithmic
+development includes Barvinok and Pommersheim [4], projection of lattice-point sets by
+Barvinok and Woods [5], and conversion between rational generating functions and explicit
+piecewise counting functions by Verdoolaege and Woods [23]. Explicit formulas for rational
+polygons based on Dedekind–Rademacher sums are given by Beck and Robins [8]; see also
+their monograph [9]. Those results seek short encodings or evaluate a fixed polyhedral
+counting problem. Here the output itself is the dense vector of N consecutive coefficients, so
+our analysis instead charges the dense polynomial work needed to produce all of them.
+Primitive lattice points in planar domains have a substantial analytic and algorithmic
+literature. Huxley and Nowak study asymptotics in convex planar domains [16], while
+Pawlewicz and Pătraşcu give sublinear algorithms for Farey order statistics and primitive
+points in polygons [20]. Reusing the same weighted direction–side contributions across
+every endpoint, while returning the complete prefix, distinguishes our task from a single
+arXiv:2607.17982v1  [cs.CG]  20 Jul 2026
+2
+Computing All Lattice-Rectangle Counts
+primitive-point query. Rational staircases also occur in the theory of Dedekind–Carlitz
+polynomials and rational cones [7]; Breuer and von Heymann give a Euclidean-algorithm
+recursion for rational staircases in Z2 [12]. Our construction instead uses an index region
+with product denominators, and its recursion is balanced and dyadic so that local polynomial
+spans, rather than Euclidean remainders, control the cost.
+On the algebraic side, the product- and remainder-tree tools used below go back to
+Borodin and Moenck [10] and are treated systematically in [24]; Newton inversion of formal
+series uses the classical fast-series machinery of Brent and Kung [11].
+For each fixed leading direction coordinate, geometric series eliminate the side variables
+and leave two rational kernels over a wedge of direction indices. Exchanging the direction
+pair with the side pair gives a square-root cover: every contributing tuple has a direction
+index or a side index at most
+√
+N. Inclusion–exclusion reduces the whole truncated series to
+a small wedge and one triangular overlap. A balanced recursion decomposes each resulting
+index region into dyadic rectangles and stores every partial rational sum over the product
+denominator of its own index intervals. This locality prevents intermediate polynomials from
+acquiring the full global degree at every recursive node. Coefficientwise Möbius inversion
+then restores primitive directions, and five ordinary prefix sums recover every output value.
+The resulting ring-level theorem is valid over a commutative ring with identity in which
+6 is invertible. Every formal-series denominator created by the recursion has constant term
+one. Over Z, the same construction remains integral and the boundary polynomial F0(n)
+in (1) is evaluated by an exact division by 6 before it is added. With M(N) = O(N log N)
+multiplication the bound becomes O(N log2 N). The implementation evaluates the identities
+in two transform-friendly 61-bit fields and reconstructs the exact output only after the
+modular series computations.
+Our contributions are the square-root cover at the series level, explicit closed overlap
+formulas, the local-denominator recursion over the two index regions and its span analysis,
+exact primitive recovery, and an NTT/CRT implementation compared with the O(N 3/2)
+all-values algorithm of [2]. The same prior work also studies the single-query problem. A
+companion manuscript develops that direction further, giving an exact O(n log n)-operation
+algorithm for one prescribed value F(n) by Möbius divisor layers and batched Euclidean
+floor-moment evaluation [3]; the present paper instead targets the complete prefix by rational
+generating series.
+The next section gives the complete geometric and algebraic overview. The following
+sections derive the kernels, square-root cover, overlap formulas, dyadic-region evaluator,
+complexity bound, primitive recovery, and complete pseudocode. Experiments follow the
+theorem, while detailed derivations, executable formulas, exact arithmetic, and bit complexity
+are placed in the appendices.
+2
+Overview of the all-values method
+The all-values construction computes the whole prefix F(1), . . . , F(N) simultaneously. This
+section introduces the two coefficient arrays and follows them through the square-root cover,
+local-denominator recursion, primitive extraction, and final prefix sums. The organizing idea
+is to group contributions by their larger bounding-box dimension instead of recomputing the
+same direction and side sums separately for every endpoint.
+After the geometric symmetries are fixed, a > b > 0 are the positive coordinates of a
+primitive direction vector and x ⩾y > 0 are the integer multipliers of the two perpendicular
+sides.
+Dmitry Babichev and Denis Pinchuk
+3
+▶Definition 2.1 (Threshold and bounding-box gap). For such a representative, its threshold
+and bounding-box gap are, respectively,
+m := ax + by,
+g := (ax + by) −(ay + bx) = (a −b)(x −y).
+Thus m is the larger bounding-box dimension and g ⩾0 is the difference between the two
+dimensions.
+The placement count in every grid larger than the threshold is a quadratic polynomial in
+n −m. We therefore build two coefficient arrays: one counts tuples of threshold m, and the
+other records their bounding-box gaps. Once these arrays are known, five ordinary prefix
+sums recover every value F(n).
+The coefficient arrays are obtained as follows. For one fixed direction coordinate a,
+geometric series sum the two side variables explicitly; the remaining direction coordinate
+becomes ℓ= a + b with a < ℓ< 2a. The layers therefore form one wedge-shaped index
+region. We call the involution (a, b) ↔(x, y) direction–side symmetry. It implies that every
+relevant tuple has either a direction index or a side index at most
+√
+N. Inclusion–exclusion
+then reduces the full series to the small part of this wedge and one triangular overlap
+correction, with only O(
+√
+N) indices in each role. A balanced recursion covers these regions
+by dyadic rectangles. A rectangle wholly inside a region is evaluated at once from two
+interval product trees; only rectangles meeting a boundary are split. Each recursive state
+keeps the denominator belonging to its own two intervals, which prevents the intermediate
+polynomials from acquiring the full global degree too early. Finally, coefficientwise Möbius
+inversion removes nonprimitive directions, and the five prefix sums produce the output table.
+We now make this outline exact. We use z as the formal generating variable and truncate
+every series modulo zN+1.
+▶Definition 2.2 (Staircase). An affine staircase is a finite set of integer pairs obtained by
+intersecting a Cartesian product of integer intervals with one or two strict affine half-planes.
+In this paper, staircase always means an affine staircase whose defining slopes and number of
+boundary lines are independent of N.
+The following standard parametrization fixes the geometric multiplicities used throughout
+the paper and matches the notation of [2].
+▶Lemma 2.3 (Geometric parametrization). Define
+F0(n) =
+n
+2
+2
++
+n−1
+X
+s=2
+(s −1)(n −s)2 = n(n −1)2(2n −1)
+6
+.
+(1)
+For x ⩾y ⩾1, put
+W(x, y) =
+(
+2,
+x = y,
+4,
+x > y.
+Then the contribution of the strict direction representatives is
+F1(n) =
+X
+a>b>0, x⩾y⩾1
+gcd(a,b)=1, ax+by⩽n
+W(x, y)(n −ax −by)(n −ay −bx),
+(2)
+and the complete count is
+F(n) = F0(n) + F1(n).
+(3)
+4
+Computing All Lattice-Rectangle Counts
+Proof. Every rectangle has perpendicular side vectors x(a, b) and y(−b, a), where x, y are
+positive integers and (a, b) is primitive. Reflections and interchange of the sides give a unique
+representative with a ⩾b ⩾0 and x ⩾y. Its bounding-box dimensions are ax + by and
+ay + bx, so it has (n −ax −by)(n −ay −bx) translations. For a > b > 0, the reflection orbit
+has size two when x = y and four when x > y, giving (2).
+There are two boundary direction classes. If b = 0, primitivity forces (a, b) = (1, 0) and
+gives the
+ n
+2
+2 axis-parallel rectangles. If a = b, primitivity forces (a, b) = (1, 1). Writing
+s = x + y, this class contributes Pn−1
+s=2 (s −1)(n −s)2. This proves (1); the three classes are
+disjoint and exhaustive, proving (3).
+◀
+▶Theorem 2.4 (All-values theorem). Let R be a commutative ring with identity in which 6
+is a unit, and let M satisfy the regularity assumptions stated in the introduction. The images
+in R of F(1), . . . , F(N) can be computed in O(M(N) log N) ring operations and O(N log N)
+ring elements of working memory. Over Z, the same algebraic bounds hold when the cost
+is counted in integer-ring operations and stored integers: all staircase denominators have
+constant term one, and the sole division by 6 in F0(n) is exact. If M(N) = O(N log N), the
+arithmetic bound becomes O(N log2 N).
+▶Remark 2.5 (Modular realization). The theorem is independent of a particular multiplication
+implementation. The modular NTT realization uses the transform-friendly field hypothesis
+in Appendix B.3 and reconstructs only the final coefficients.
+The next sections prove the stages above in that order. The longer algebraic derivations
+and implementation refinements are collected in Appendices A and B.
+3
+One direction layer and the two generating kernels
+This section eliminates the two side variables for one leading direction coordinate and
+identifies the two rational series used by the rest of the algorithm. The first records how many
+tuples attain each threshold; the second records the gap between their two bounding-box
+dimensions.
+▶Definition 3.1 (Direction layer and primitive-free strict kernels). For a fixed a ⩾2, the sum
+over directions 1 ⩽b < a and strict side representatives x > y is the direction layer indexed
+by a. Put
+fj = 1 −zj,
+Aj = zj
+fj
+,
+Bj = zj
+f 2
+j
+.
+(4)
+The primitive-free strict kernels are
+H0(z) =
+X
+a>b⩾1
+AaAa+b,
+(5)
+C0(z) =
+X
+a>b⩾1
+(a −b)BaAa+b.
+(6)
+Here primitive-free means that gcd(a, b) = 1 has not yet been imposed; strict refers to the
+representatives a > b and x > y.
+▶Lemma 3.2 (Layer generating functions). For a fixed layer a, put ℓ= a + b and t = x −y.
+Its threshold and gap are
+m = at + ℓy,
+(a −b)(x −y) = (2a −ℓ)t,
+Dmitry Babichev and Denis Pinchuk
+5
+and its two generating series are
+Ha(z) = Aa
+X
+a<ℓ<2a
+Aℓ,
+(7)
+Ca(z) = Ba
+X
+a<ℓ<2a
+(2a −ℓ)Aℓ.
+(8)
+Moreover,
+[zm]H0 = #{a > b > 0, x > y > 0 : ax + by = m},
+(9)
+[zm]C0 =
+X
+a>b>0, x>y>0
+ax+by=m
+(a −b)(x −y).
+(10)
+Proof. The substitution above is a bijection between 1 ⩽b < a, x > y > 0 and a < ℓ< 2a,
+t, y > 0. Since Aa = P
+t⩾1 zat and Ba = P
+t⩾1 tzat, summing first over t and y gives the two
+layer formulas. Summing the layers over a ⩾2 gives H0 and C0, and coefficient extraction
+gives the displayed interpretations.
+◀
+All generating-series identities below are taken modulo zN+1.
+4
+A square-root cover of the full series
+This section applies direction–side symmetry before coefficient extraction, ensuring that
+every retained rational term has a small direction index or a small side index. Its purpose is
+to replace the unbounded direction wedge by two copies with only K =
+j√
+N
+k
+active indices,
+correcting their intersection explicitly.
+Set
+K =
+j√
+N
+k
+.
+If ax + by ⩽N, then ax ⩽N; hence a > K and x > K cannot both hold. Moreover, the
+involution
+(a, b) ←→(x, y)
+preserves both the exponent and the weight in (10).
+▶Definition 4.1 (Small and overlap kernels). The small kernels Hs(z) and Cs(z) are the
+restrictions of H0(z) and C0(z), respectively, to tuples with a ⩽K. The overlap kernels
+H∩(z) and C∩(z) are their further restrictions to tuples satisfying both a ⩽K and x ⩽K.
+▶Lemma 4.2 (Square-root cover). Modulo zN+1,
+H0 = 2Hs −H∩,
+C0 = 2Cs −C∩.
+(11)
+Proof. The admissible tuples are covered by {a ⩽K} ∪{x ⩽K}. The two sets have equal
+generating series by the involution above, and their intersection must be subtracted once.
+◀
+Writing ℓ= a + b, the small parts are
+Hs =
+X
+2⩽a⩽K
+Ha =
+X
+2⩽a⩽K
+X
+a<ℓ<2a
+AaAℓ,
+(12)
+Cs =
+X
+2⩽a⩽K
+Ca =
+X
+2⩽a⩽K
+X
+a<ℓ<2a
+(2a −ℓ)BaAℓ.
+(13)
+Only factors fj with j < 2K occur.
+6
+Computing All Lattice-Rectangle Counts
+5
+Closed formulas for the overlap
+The square-root cover counts its intersection twice. This section evaluates that overlap
+explicitly and reduces both kernels to a constant-size family of separable rational atoms over
+two staircase-shaped index regions.
+Define the finite series
+Wj =
+K−1
+X
+y=1
+zjy = zj −zKj
+fj
+,
+(14)
+Rj =
+K−1
+X
+y=1
+(K −y)zjy = (K −1)zj −Kz2j + z(K+1)j
+f 2
+j
+,
+(15)
+and
+Q(1)
+a
+= z(K+1)a
+fa
+,
+Q(2)
+a
+= z(K+1)a
+f 2a
+.
+(16)
+For fixed a > b and ℓ= a + b, the overlap condition is t, y ⩾1 and t + y ⩽K. Summing
+this finite triangle gives
+H∩=
+X
+2⩽a⩽K
+X
+1⩽b<a
+
+AaWa+b −Q(1)
+a Wb
+
+,
+(17)
+C∩=
+X
+2⩽a⩽K
+X
+1⩽b<a
+(a −b)
+
+BaWa+b −Q(1)
+a Rb −Q(2)
+a Wb
+
+.
+(18)
+The two finite-sum identities behind these formulas are derived in Appendix A.1. The terms
+indexed by a + b are evaluated over R∧and retain the inequalities a < ℓ< 2a from the layer
+formula. The correction terms indexed by b are evaluated over R△with 1 ⩽b < a.
+Every factor in (12), (13), (17), and (18) is a linear combination of a constant number of
+atoms
+χ(j)zαj
+(1 −zj)r ,
+r ∈{1, 2},
+α ∈{1, . . . , K + 1},
+(19)
+where χ(j) is a polynomial of degree at most one.
+6
+Rectangle decomposition and local denominators
+The layer formula and the overlap correction leave exactly two index regions. The com-
+putational core splits each region into dyadic rectangles. A balanced recursion follows the
+boundary of each staircase while storing every partial rational sum over the denominator of
+its own local intervals. The denominator construction is a specialized product tree; classical
+product and remainder trees and their complexity are treated in [10, 24].
+We now evaluate sums of products of (19) over either of the two staircase regions
+R∧= {(i, j) : 2 ⩽i ⩽K, i < j < 2i},
+(20)
+R△= {(i, j) : 2 ⩽i ⩽K, 1 ⩽j < i}.
+(21)
+In R∧the indices are i = a and j = a+b; in R△they are i = a and j = b. Thus both regions
+encode the same direction sums written in the coordinates used by their rational atoms.
+Dmitry Babichev and Denis Pinchuk
+7
+▶Definition 6.1 (Staircase-sum operators). For two families
+Ui = χ(i)zαi
+f r
+i
+,
+Vj = ψ(j)zβj
+f s
+j
+,
+where χ and ψ are polynomials of degree at most one and r, s, α, β are integers satisfying
+1 ⩽r, s ⩽2 and 1 ⩽α, β ⩽K + 1, define
+Wedge(U, V ) :=
+X
+(i,j)∈R∧
+UiVj =
+K
+X
+i=2
+X
+i<j<2i
+UiVj,
+(22)
+Triangle(U, V ) :=
+X
+(i,j)∈R△
+UiVj =
+K
+X
+i=2
+X
+1⩽j<i
+UiVj.
+(23)
+Both sums are evaluated by the same interval-pair routine described below. The triangular
+call has the single boundary j = i, while the wedge call tests both j = i and j = 2i. At
+the root the interval pairs are I = [2, K], J = [3, 2K −1] for the wedge and I = [2, K],
+J = [1, K −1] for the triangle; empty ranges are omitted. The rectangle decomposition is
+useful because every complete block separates: for intervals I, J with I × J inside the region,
+X
+i∈I
+X
+j∈J
+UiVj =
+ X
+i∈I
+Ui
+! 
+X
+j∈J
+Vj
+
+.
+The interval trees below represent these two one-dimensional sums over their local common
+denominators.
+▶Definition 6.2 (Marked interval data). For an interval I in the first index role, define
+DI =
+Y
+i∈I
+f r
+i ,
+PI =
+X
+i∈I
+χ(i)zαi DI
+f r
+i
+.
+(24)
+Here DI is the local denominator and PI is its marked numerator; thus PI/DI = P
+i∈I Ui.
+For an interval J in the second role, define analogously
+EJ =
+Y
+j∈J
+f s
+j ,
+TJ =
+X
+j∈J
+ψ(j)zβj EJ
+f s
+j
+.
+Thus EJ and TJ are the local denominator and marked numerator for the second role, and
+TJ/EJ = P
+j∈J Vj.
+▶Definition 6.3 (Stored dense span). Every stored polynomial carries the smallest monomial
+shift known from its construction. Its stored dense span is the length of the remaining
+coefficient interval; the zero polynomial has span zero. Leading zero coefficients created by a
+later cancellation need not be removed.
+The marked data are constructed in balanced interval trees. If I = I0 ⊔I1, then
+DI = DI0DI1,
+PI = PI0DI1 + DI0PI1.
+(25)
+The analogous merge constructs EJ, TJ. All products are truncated modulo zN+1.
+Figure 1 illustrates the geometric test made at every recursive state. A product of dyadic
+index intervals is accepted, discarded, or split according to its position relative to the straight
+8
+Computing All Lattice-Rectangle Counts
+boundary lines. The four block polynomials DI, EJ, PI, TJ used by this test are the marked
+interval data of Definition 6.2.
+(a) triangle region R△: j < i
+(b) wedge region R∧: i < j < 2i
+full block
+PITJ
+discard
+i
+j
+full
+discard
+j
+i
+admissible pair
+complete dyadic block
+boundary block
+Figure 1 The two staircase regions on grids with the same square cell size: 16 × 16 for the
+triangle and 16 × 32 for the wedge. The wedge has twice as many columns because its horizontal
+index ranges up to 2K. Blue cells use the actual one-based indices, so each panel contains exactly
+P16
+i=2(i−1) = 120 admissible pairs. Each green dyadic block lies wholly in its region and is evaluated
+by one product PITJ; the gray block is disjoint. Orange dashed dyadic blocks meet a red boundary
+and are recursively split.
+▶Definition 6.4 (Cross numerator). Fix one of the two staircase regions R. The two index
+roles are distinct copies, even when their numerical intervals overlap. For an interval state
+(I, J), its cross numerator is
+CrossR(I, J) := DIEJ
+X
+(i,j)∈(I×J)∩R
+UiVj.
+When R is fixed by the call, we write Cross(I, J). Its common denominator is DIEJ even
+when the underlying numerical intervals overlap. The state is full if I × J ⊆R, disjoint if
+I × J ∩R = ∅, and partial otherwise.
+If I × J is wholly contained in the staircase, then
+Cross(I, J) = PITJ.
+If it is disjoint from the staircase, the numerator is zero.
+Otherwise split the longer interval (breaking ties arbitrarily), so the dyadic rectangles
+retain bounded aspect ratio. For I = I0 ⊔I1,
+Cross(I, J) = Cross(I0, J)DI1 + Cross(I1, J)DI0.
+(26)
+The analogous formula applies when J is split.
+The full/disjoint tests use only interval endpoints. For I = [a, b] and J = [c, d], they are
+R
+I × J ⊆R
+I × J ∩R = ∅
+R△
+a > d
+b ⩽c
+R∧
+b < c and d < 2a
+a ⩾d or c ⩾2b
+(27)
+Dmitry Babichev and Denis Pinchuk
+9
+Every other rectangle meets a boundary and is split. These strict inequalities implement
+j < i and i < j < 2i exactly, including boundary cells.
+The weights in (13) and (18) are absorbed by the identities
+X
+i<j<2i
+(2i −j)UiVj = 2 Wedge(iUi, Vj) −Wedge(Ui, jVj),
+(28)
+X
+i>j
+(i −j)UiVj = Triangle(iUi, Vj) −Triangle(Ui, jVj).
+(29)
+Equations (12)–(18) now give a complete reduction to the two staircase operators. Every
+summand is a separable product UiVj, and the only nonseparable factors, 2i −j and i −j,
+are removed by (28) and (29). The complete fixed expansion is
+Hs = Wedge(Ai, Aj),
+Cs = 2 Wedge(iBi, Aj) −Wedge(Bi, jAj),
+H∩= Wedge(Ai, Wj) −Triangle(Q(1)
+i , Wj),
+C∩= 2 Wedge(iBi, Wj) −Wedge(Bi, jWj)
+−Triangle(iQ(1)
+i , Rj) + Triangle(Q(1)
+i , jRj)
+−Triangle(iQ(2)
+i , Wj) + Triangle(Q(2)
+i , jWj).
+(30)
+Thus all four series require only a fixed number of staircase calls. As written, H∩contains
+one triangular call and C∩contains four. The implementation evaluates these five terms
+with two recursive triangular traversals; Appendix A.2 gives the exact algebraic reduction.
+7
+Complexity analysis
+Having reduced both kernels to a constant number of staircase calls, this section charges
+their polynomial work scale by scale. The key point is that a boundary meets few rectangles
+at a coarse scale, while the local polynomial span of each such rectangle grows in the opposite
+proportion.
+▶Lemma 7.1 (Local span). For an interval I ⊆[1, 2K], the marked numerator PI of
+Definition 6.2 has dense span O(K|I|). A cross numerator CrossR(I, J) has dense span
+O(K(|I| + |J|)); in particular, a balanced state whose interval lengths are Θ(h) has span
+O(Kh).
+Proof. For one role, the denominator degree is at most 2 P
+i∈I i = O(K|I|). After extracting
+the monomial shift supplied by the construction, the spread of the exponents αi is O(K|I|).
+For a cross state, the corresponding bounds for the two index roles add, giving O(K(|I| +
+|J|)).
+◀
+▶Lemma 7.2 (Boundary states at one scale). Fix a dyadic scale h. In either staircase
+recursion, the number of partial states whose two interval lengths are Θ(h) is O(K/h). The
+number of full states returned at the same scale is also O(K/h).
+Proof. Every interval occurring in the recursion is a node of one of the two balanced dyadic
+interval trees. The root side lengths differ by at most a constant factor, and splitting a
+longest side preserves this property: up to endpoint rounding and the constant-size base
+cases, every partial state satisfies c ⩽|I|/|J| ⩽C for absolute constants c, C > 0. Thus a
+10
+Computing All Lattice-Rectangle Counts
+state whose first interval has length in [h, 2h) uses only O(1) adjacent dyadic levels for its
+second interval.
+At any fixed level the first-role intervals have disjoint interiors and partition a range of
+length O(K), so only O(K/h) of them have length Θ(h). Fix one such interval I. Over the
+vertical strip I × R, either boundary j = i or j = 2i spans a second-coordinate interval of
+length O(h). At each of the O(1) admissible second-role levels, only O(1) intervals J with
+disjoint interiors can meet that span. Hence each fixed I participates in O(1) partial states,
+and the total number of partial states is O(K/h).
+A full state is returned without descendants. Apart from a possible full root in a constant-
+size base case, every returned full state is a child of a partial state at the same scale up to a
+fixed factor. Since a split has two children, the same O(K/h) bound holds for full states.
+◀
+▶Lemma 7.3 (Total span). The sum of all local polynomial spans visited by one staircase
+computation is O(K2 log K) = O(N log N).
+Proof. At scale h, Lemma 7.2 gives O(K/h) partial or full cross states that construct a
+polynomial; disjoint states return before doing so. Lemma 7.1 bounds every such span by
+O(Kh), for O(K2) total cross span at that scale. A marked interval tree likewise has O(K/h)
+nodes of length Θ(h), each with span O(Kh). Summing over O(log K) dyadic scales proves
+the claim.
+◀
+▶Proposition 7.4 (Staircase evaluation complexity). One call to Wedge or Triangle, including
+its marked denominator trees and root inversion, uses O(M(N) log N) arithmetic operations
+and O(N log N) coefficient-ring elements of working memory.
+Proof. At one scale, Lemmas 7.1 and 7.2 bound the sum of operand spans by O(K2), and
+every recursion state performs only a constant number of polynomial products and additions.
+Superadditivity and monotonicity of M, together with stability under constant dilation,
+bound all products at that scale by O(M(K2)) = O(M(N)); additions cost O(K2). The
+O(log K) scales therefore cost O(M(N) log N).
+The root denominators have degree O(
+ P
+j⩽2K j
+
+) = O(K2) = O(N) and constant term
+one. Newton inversion consequently costs O(M(N)) [11, 24]. Retaining all marked-tree and
+cross-state polynomials uses the total-span bound O(K2 log K) = O(N log N); depth-first
+evaluation cannot increase it. A constant number of aligned calls may share a marked tree
+or final inverse without changing either asymptotic bound.
+◀
+8
+Primitive extraction and recovery of F
+The kernels above still include nonprimitive directions. This section applies Möbius inversion
+coefficientwise and then recovers the whole table F(1), . . . , F(N) from ordinary prefix sums;
+we use the standard divisor-sum form of Möbius inversion [1].
+For 1 ⩽m ⩽N, write hm = [zm]H0 and cm = [zm]C0, and set all zeroth entries to zero.
+Möbius inversion on the common divisor of the direction gives
+h∗
+m =
+X
+d|m
+µ(d)hm/d,
+c∗
+m =
+X
+d|m
+µ(d)d cm/d.
+(31)
+Here µ is the Möbius function. The factor d in the second formula occurs because the gap
+weight scales linearly with the direction.
+For the side diagonal x = y, primitive extraction has the closed form
+d∗
+m =
+m −1
+2
+
+.
+(32)
+Dmitry Babichev and Denis Pinchuk
+11
+Indeed, for a fixed sum s ⩾3 there are φ(s)/2 primitive pairs a > b > 0 with a + b = s,
+where φ is Euler’s totient function. Together with P
+s|m φ(s) = m, the missing cases s = 1, 2
+give exactly the floor in (32).
+▶Definition 8.1 (Primitive threshold arrays). Put
+Xm = 4h∗
+m + 2d∗
+m,
+Ym = 4c∗
+m.
+(33)
+The arrays (Xm)m⩽N and (Ym)m⩽N are the primitive threshold arrays: Xm supplies the
+quadratic coefficient and Ym the linear gap coefficient for threshold m.
+Then the strict-direction contribution is
+F1(n) =
+X
+1⩽m<n
+ Xm(n −m)2 + Ym(n −m)
+
+,
+F(n) = F0(n) + F1(n).
+(34)
+All values of (34) are obtained in linear time from the five prefix sums
+X
+Xm,
+X
+mXm,
+X
+m2Xm,
+X
+Ym,
+X
+mYm.
+For a direct streaming implementation, define
+SrX(n) =
+X
+m<n
+mrXm
+(0 ⩽r ⩽2),
+SrY (n) =
+X
+m<n
+mrYm
+(0 ⩽r ⩽1).
+Expanding the two powers in (34) gives the exact update formula used by the implementation:
+F1(n) = n2S0X(n)−2nS1X(n)+S2X(n)+nS0Y (n)−S1Y (n),
+F(n) = F0(n)+F1(n). (35)
+After emitting F(n), update SrX ←SrX + nrXn and SrY ←SrY + nrYn. Thus the sums
+used for the next endpoint still contain precisely the indices m < n + 1.
+▶Proposition 8.2 (Exact primitive recovery). Equations (31)–(34) recover exactly the geomet-
+ric count (2) for every 1 ⩽n ⩽N. The two Möbius transforms take O(N log N) arithmetic
+operations by direct divisor–multiple loops, and the final recovery of all N values takes O(N)
+operations.
+Proof sketch. Coefficientwise Möbius inversion removes the common divisor of (a, b); the
+gap kernel gains the displayed factor d because its weight is homogeneous of degree one
+in the direction. For a primitive tuple, the two box dimensions differ by (a −b)(x −y),
+which gives F1(n) in (34); adding F0(n) gives the complete count. Divisor–multiple loops
+cost O(N log N) and the five prefixes recover each F(n) in constant time. Full details are in
+Appendix A.4.
+◀
+Proof of Theorem 2.4. Lemma 4.2 is an exact inclusion–exclusion identity, and equa-
+tions (12)–(18) give its four rational series. Equations (28) and (29) rewrite them as a
+constant number of Wedge and Triangle calls.
+Proposition 7.4 evaluates those calls in
+O(M(N) log N) operations and O(N log N) ring elements. Proposition 8.2 then extracts
+primitive directions and all output values in O(N log N) additional operations and O(N)
+additional ring elements. Since polynomial multiplication is at least linear, this is within the
+claimed arithmetic bound.
+Over Z, every series operation above is integral because each inverted denominator has
+constant term one. Evaluate F0(n) = n(n −1)2(2n −1)/6 by exact integer division before
+adding it in (34); this proves the integer variant without assuming that 6 is a unit. Under
+the modular hypothesis of Appendix B.3, the same identities are evaluated in each field and
+the final residues are uniquely reconstructed because the modulus product exceeds F(N).
+Sequential modular runs preserve the stated peak ring-element memory bound.
+◀
+12
+Computing All Lattice-Rectangle Counts
+9
+Complete algorithm
+The recursion (25)–(26) is the complete evaluator for one wedge or triangular sum. The
+following top-level pseudocode shows how those sums are assembled into the output table.
+It is written over one coefficient ring; a modular implementation repeats it in the required
+fields and reconstructs only the final coefficients.
+1 procedure AllRectangleCounts(N)
+2
+K ←√
+N
+; truncate every series modulo zN+1
+3
+form the atom families A, B, W, R, Q(1), Q(2)
+4
+evaluate Hs, Cs, H∩, C∩by (12)–(18) using the staircase recursion
+5
+H0 ←2Hs −H∩; C0 ←2Cs −C∩
+6
+extract hm = [zm]H0 and cm = [zm]C0
+7
+compute h∗
+m, c∗
+m by the two Möbius transforms in (31)
+8
+form Xm, Ym by (33) and their five prefix sums
+9
+for n = 1, . . . , N do recover F(n) from (34)
+10
+return (F(1), . . . , F(N))
+11 end procedure
+Algorithm 1 Complete all-values algorithm.
+For completeness, the two lower-level algorithms used inside Algorithm 1 are given next.
+For R = R∧the roots are I = [2, K] and J = [3, 2K −1]; for R = R△they are I = [2, K]
+and J = [1, K −1]. Empty endpoint ranges are omitted.
+1 procedure Staircase(U, V, R)
+2
+choose (Iroot, Jroot) from the two ranges above
+3
+build the balanced marked trees (DI, PI) and (EJ, TJ)
+4
+S ←Cross(Iroot, Jroot, R)
+5
+return S/(DIrootEJroot) (mod zN+1)
+6 end procedure
+7 procedure Cross(I, J, R)
+8
+if I × J is disjoint from R then return 0
+9
+if I × J ⊆R then return PITJ
+10
+if |I| ⩾|J| then
+11
+split I = I0 ⊔I1 into its balanced children
+12
+return Cross(I0, J, R)DI1 + Cross(I1, J, R)DI0
+13
+else
+14
+split J = J0 ⊔J1 into its balanced children
+15
+return Cross(I, J0, R)EJ1 + Cross(I, J1, R)EJ0
+16
+end if
+17 end procedure
+Algorithm 2 Local-denominator evaluation of one staircase sum.
+The call uses R∧for Wedge and R△for Triangle. Multiplying an atom family by its index
+supplies the weighted variants in (28) and (29). The optimized schedule uses two forms of
+fusion. Rank-two fusion carries two marked numerators through the same denominator-lifting
+recursion. Frontier fusion evaluates same-region families separately down to a common
+fixed-depth frontier, adds their equal-denominator numerators there, and shares all lifts above
+the frontier. The implementation combines these operations with the two-traversal reduction
+of Appendix A.2 and the shared common-denominator construction of Appendix B.1.
+Dmitry Babichev and Denis Pinchuk
+13
+1 procedure OptimizedKernels(N)
+2
+K ←√
+N
+; truncate every series modulo zN+1
+3
+build one denominator tree on [1, 2K] and reuse its left half for the first index role
+4
+construct index-weighted marked numerators by the logarithmic- derivative identity (48)
+5
+evaluate wedge terms by rank-two fusion and frontier fusion
+6
+replace the five triangular traversals by the two traversals in (40) plus (42)
+7
+lift H0, C0 to one denominator and invert it once
+8
+return the coefficient arrays (hm), (cm)
+9 end procedure
+Algorithm 3 Optimized ring-level schedule for the main text.
+Appendix A.2 derives the two-traversal reduction used by Algorithm 3. Appendix B gives
+the shared-tree schedule, exact modular realization, CRT reconstruction, and coefficient-
+growth bounds.
+10
+Experiments
+The experiment compares two single-threaded all-values algorithms: the O(N 3/2) method
+of [2] and the O(N log2 N) method developed here. Both methods construct the complete
+prefix F(1), . . . , F(N). For a fair all-values baseline, the threshold sums of [2] are accumulated
+into every prefix endpoint by range additions; this adds O(N log N) work and does not change
+its O(N 3/2) bound. During timing, endpoint-only output suppresses all but the last printed
+value; it does not suppress construction of the prefix.
+For the measured range, the baseline stores exact values in signed 128-bit integers. The
+proposed program implements Algorithms 1–3 and the formulas in Appendices A.3 and B.2.
+Its two modular computations use the primes in (49) sequentially, followed by incremental
+CRT. Direct convolution is used when the shorter operand has at most 48 coefficients, and
+families sharing a staircase recursion are combined after four common levels; these two tuning
+constants are fixed for every input size.
+The programs were run on an AMD Ryzen 9 5950X system with 128 GiB of physical
+memory. GCC 16.1.0 from MSYS2 UCRT64 compiled both as C++20 with -O3, -DNDEBUG,
+and -march=native. The active power scheme was High performance. Each process ran
+with priority class High and processor-affinity mask 0x4, which selects one logical processor.
+Measurements cover N = 210, . . . , 223. Each plotted point is the arithmetic mean of ten
+runs. The ancillary data record the means used in the figure; the plot is a descriptive scaling
+comparison, and no statistical inference from the timing sample is intended.
+Figure 2 shows that the two running-time curves meet near N = 221, after which the
+proposed implementation overtakes the baseline. When divided by N log2
+2 N, the proposed
+running time remains approximately stable across the measured range. By contrast, the
+baseline time divided by N 3/2 increases at the larger sizes. This trend is consistent with the
+baseline’s increasingly sparse updates across a growing array, although no hardware-counter
+measurements were made. The proposed method has a larger constant at small sizes; its
+dominant NTT passes use dense, regular access patterns, which plausibly contributes to the
+steadier measured throughput as the problem grows.
+14
+Computing All Lattice-Rectangle Counts
+210
+211
+212
+213
+214
+215
+216
+217
+218
+219
+220
+221
+222
+223
+10−3
+10−2
+10−1
+100
+101
+102
+103
+104
+maximum size N = 2k
+running time (seconds)
+Running times of the algorithms
+O(N 3/2)
+O(N log2
+2 N)
+210
+211
+212
+213
+214
+215
+216
+217
+218
+219
+220
+221
+222
+223
+0.05
+0.1
+0.2
+0.5
+maximum size N = 2k
+normalized running time (µs)
+Normalized running times
+O(N 3/2)
+O(N log2
+2 N)
+Figure 2 Mean running times over ten runs under the common one-processor launch policy. Left:
+elapsed time on a logarithmic scale. Right: the baseline time normalized by N 3/2 and the proposed
+time normalized by N log2
+2 N; both normalized values are in microseconds. Only the arithmetic
+means are shown; the figure is intended as a descriptive scaling comparison.
+11
+Reproducibility
+Links to the GitHub repository containing the reference implementations, build instructions,
+and experiment scripts will be added in the next version.
+12
+Future work
+Two extensions appear especially useful: parallel evaluation that preserves shared denominator
+data, and block-separable production of the output prefix.
+The two modular runs, the butterflies within one NTT stage, and independent stair-
+case states at a fixed recursion scale offer immediate parallelism.
+A useful many-core
+implementation should nevertheless preserve the near-linear total work and the O(N log N)
+shared-memory bound: assigning whole recursion subtrees to workers without coordination
+can replicate large denominator polynomials and make memory, rather than arithmetic, the
+limiting resource.
+A more ambitious goal is to make the output block-separable after one shared preprocessing
+phase. Partition [1, N] into disjoint intervals [kr, ℓr] and let worker r compute F(kr), . . . , F(ℓr)
+independently. Such preprocessing would have to turn the marked denominator trees and
+the common series inverse into a representation supporting coefficient-window queries, for
+example through middle products or transposed polynomial multiplication. It would also have
+to expose the input coefficients needed by the divisor–multiple Möbius transform without
+repeating the full transform on every worker. The final recovery step is already compatible
+with this organization: the five prefix-sum accumulators evaluated immediately before kr
+seed a local scan of (34) over the whole block. The unresolved question is whether the
+preceding kernel construction and primitive extraction can be given the same block interface
+with total work O(M(N) log N), shared space O(N log N), and running time close to the
+total work divided by the number of processors, up to polylogarithmic overhead.
+Dmitry Babichev and Denis Pinchuk
+15
+13
+Conclusion
+The complete prefix of lattice-rectangle counts can be computed exactly in O(M(N) log N)
+coefficient-ring operations and O(N log N) ring elements of working memory. The square-
+root cover is applied before coefficient extraction, and the remaining rational staircase sums
+are evaluated over local product denominators. Primitive extraction and five prefix sums
+then recover all values. Under transform-friendly quasi-linear multiplication the bound
+specializes to O(N log2 N). The measured normalization is consistent with that scaling: the
+running-time curves meet near N = 221 and the modular implementation is faster at the
+larger measured sizes while retaining certified exact reconstruction.
+16
+Computing All Lattice-Rectangle Counts
+A
+Rational-series details
+This appendix supplies the algebraic derivations behind the optimized execution schedule,
+executable formulas, and the detailed recovery proof omitted from the main line of the
+argument. The central polynomial-span proof is in Section 7.
+A.1
+Derivation of the overlap formulas
+This subsection verifies the two finite triangular sums used in the overlap correction, using
+standard finite geometric and arithmetic–geometric identities [14], and shows that every
+resulting factor has the generic atom form in (19).
+Fix a > b, write ℓ= a + b, and recall that the overlap condition is t, y ⩾1 and t + y ⩽K.
+Summing first over t gives
+X
+t,y⩾1
+t+y⩽K
+zat+ℓy = AaWℓ−Q(1)
+a Wb.
+(36)
+Applying u d/du to the finite sum with ut in place of zat and then setting u = za, or
+evaluating the arithmetic–geometric sum directly, gives
+X
+t,y⩾1
+t+y⩽K
+tzat+ℓy = BaWℓ−Q(1)
+a Rb −Q(2)
+a Wb.
+(37)
+Summing the first identity over 2 ⩽a ⩽K, 1 ⩽b < a gives (17); multiplying the second
+identity by a −b before the same summation gives (18). Together with (12) and (13), every
+factor is a linear combination of a constant number of atoms
+χ(j)zαj
+(1 −zj)r ,
+r ∈{1, 2},
+α ∈{1, . . . , K + 1},
+where χ(j) has degree at most one. Therefore the overlap is a constant number of wedge
+and triangular staircase sums.
+A.2
+Optimized operator schedule and the two-traversal reduction
+The fixed expansion (30) is an identity of rational series. This subsection turns it into
+the optimized schedule used by the implementation. In the terminology introduced before
+Algorithm 3, rank-two fusion carries the two marked numerators belonging to one gap weight,
+while frontier fusion shares the upper lifts of several same-region recursions. The weighted
+overlap nevertheless contains five literal triangular traversals after the monomials of W and R
+are expanded. The rest of this subsection reduces those five traversals to two before invoking
+the recursion.
+For
+Trianglegap(U, V ) :=
+X
+1⩽j<i⩽K
+(i −j)UiVj
+we extend every first-role family that starts at i = 2 by setting its i = 1 term to zero. Thus
+all families in the identities below have the same index set {1, . . . , K}, all unqualified index
+sums in this subsection use that set, and the exact transposition identity is
+Trianglegap(U, V ) = Trianglegap(V, U)+
+ X
+i
+iUi
+! 
+X
+j
+Vj
+
+−
+ X
+i
+Ui
+! 
+X
+j
+jVj
+
+. (38)
+Dmitry Babichev and Denis Pinchuk
+17
+Indeed, the two triangular sums partition the off-diagonal part of the separable double sum
+on the right, while the diagonal has zero weight.
+Write
+A(K)
+j
+= zKj
+fj
+,
+R(12)
+j
+= (K −1)zj −Kz2j
+f 2
+j
+,
+R(3)
+j
+= z(K+1)j
+f 2
+j
+,
+so that W = A −A(K) and R = R(12) + R(3). Also put
+Sep(U, V ) :=
+ X
+i
+iUi
+! 
+X
+j
+Vj
+
+−
+ X
+i
+Ui
+! 
+X
+j
+jVj
+
+.
+After transposition, the last atom R(3) and the factor −A(K) combine. Because the transposed
+Q(1) factor is active only for the original first index j ⩾2, their combined second factor is
+Vj =
+(
+−zK/f1,
+j = 1,
+ −zKj + z(K+1)j
+/fj = −zKj,
+2 ⩽j ⩽K.
+(39)
+Equivalently,
+Vj = −zKj −1j=1
+zK+1
+f1
+.
+Here 1P equals one when the predicate P holds and zero otherwise. Applying (38) gives
+Trianglegap(Q(1), R) + Trianglegap(Q(2), W)
+= Trianglegap(R(12), Q(1)) + Trianglegap(Q(2), A)
++ Trianglegap(Q(2), V) + Sep(Q(1), R).
+(40)
+The first two terms on the right are the two remaining recursive traversals. The first uses one
+marked numerator because the shifts zi and z2i are adjacent. The fourth term, Sep(Q(1), R),
+uses only root sums, while the third is evaluated without a staircase traversal.
+Put w = zK and define
+S0 =
+K
+X
+i=2
+Q(2)
+i ,
+S1 =
+K
+X
+i=2
+iQ(2)
+i ,
+Sw =
+K
+X
+i=2
+wiQ(2)
+i .
+The elementary finite identity
+i−1
+X
+j=1
+(i −j)wj = (i −1)w −iw2 + wi+1
+(1 −w)2
+(41)
+gives the combined triangular term in closed form:
+Trianglegap(Q(2), V) = −w(S1 −S0) −w2S1 + wSw
+(1 −w)2
+−zK+1
+f1
+(S1 −S0).
+(42)
+The two formal divisions by 1 −w = 1 −zK are linear: coefficients in each residue class
+modulo K are prefix-summed, and the operation is repeated for the square. The exceptional
+j = 1 term uses the already available factor f1 and one root product.
+Consequently (40) replaces five literal weighted triangular traversals by two. The re-
+maining work is a constant number of marked-root constructions, ordinary root products,
+18
+Computing All Lattice-Rectangle Counts
+and linear formal divisions. Only adjacent shifts are packed into one dense numerator;
+widely separated shifts remain shifted polynomials until the closed formula is applied. Thus
+Lemma 7.1 is unchanged. The index-one atom exposed by the transposition is lifted along
+one root-to-leaf path, whose geometrically growing products cost O(M(N)) in total. This
+optimization changes neither the O(M(N) log N) time bound nor the O(N log N) space
+bound.
+The direct recursive evaluator and the optimized ring-level schedule now appear as
+Algorithms 2 and 3 in the main text.
+A.3
+Executable local-polynomial and shared-root formulas
+This subsection makes explicit the formulas needed to translate the optimized schedule into
+code. A stored shifted polynomial is a pair (s, p) representing zsp(z), where p(0) may be
+nonzero. If u = min{s, t}, its exact truncated arithmetic is
+(s, p) + (t, q) =
+ u, zs−up + zt−uq
+(mod zN+1−u)
+
+,
+(s, p)(t, q) =
+ s + t, pq
+(mod zN+1−s−t)
+
+.
+(43)
+Pairs with shift greater than N are zero. Trailing zero coefficients are removed after every
+operation. At a leaf i, the denominator is (1 −zi)r and the marked numerator is χ(i)zαi, or
+zero when that atom is inactive. Equations (25) and (26) then apply without any implicit
+change of denominator. The linear divisions used in (42) are equally explicit: if Q = P/(1−zd)
+and missing coefficients have value zero, then
+qj = pj + 1j⩾dqj−d
+(0 ⩽j ⩽N).
+(44)
+Applying this recurrence twice divides by (1 −zd)2; the case d = 1 is ordinary coefficient
+prefix summation.
+The full and empty rectangle tests are the endpoint conditions in (27). Every remaining
+rectangle is partial and is split as in Algorithm 2.
+For rank-two fusion, let (P (u)
+I
+, T (u)
+J
+), u ∈{1, 2}, be two marked-family pairs on the same
+denominator trees, and fix scalars λ1, λ2. The fused numerator is defined on a full rectangle
+by
+Crossλ(I, J) = λ1P (1)
+I
+T (1)
+J
++ λ2P (2)
+I
+T (2)
+J .
+(45)
+On a partial rectangle it obeys exactly the component-independent lifting recurrence (26).
+Thus one may either carry the two components separately or add their transformed products
+before the inverse transform; both routes return the same numerator.
+Finally, write
+∆1 =
+K
+Y
+i=1
+(1 −zi),
+∆2 =
+2K
+Y
+j=1
+(1 −zj).
+The aliased first-role tree includes an inactive leaf at i = 1. Cancelling one resulting factor
+f1 = 1 −z represents the two assembled kernels as
+H0 =
+NH
+∆1∆2/f1
+,
+C0 =
+NC
+∆2
+1∆2/f1
+.
+Consequently the exact shared-root lift used by the implementation is
+D = ∆2
+1∆2
+f1
+,
+H0 = ∆1NH
+D
+,
+C0 = NC
+D .
+(46)
+Dmitry Babichev and Denis Pinchuk
+19
+No general polynomial division is required for cancelling f1: division by 1 −z is coefficient
+prefix summation. To invert D, start with G1 = D(0)−1 = 1 and double the correct prefix
+by
+G2m = Gm
+ 2 −DGm
+
+(mod zmin{2m,N+1}).
+(47)
+Then [zq]H0 = [zq](∆1NHG) and [zq]C0 = [zq](NCG) for 0 ⩽q ⩽N. Frontier fusion only
+changes where equal-denominator numerators are added; it does not change any formula
+above or the returned series.
+A.4
+Primitive extraction and exact recovery
+This subsection supplies the detailed multiplicity and homogeneity argument behind the two
+Möbius transforms and the final placement polynomial.
+Full proof of Proposition 8.2. Equation (9) counts every strict-side tuple with threshold
+m = ax + by. If (a, b) = d(a0, b0), then the threshold is multiplied by d; hence hm =
+P
+d|m h∗
+m/d. The weight (a −b)(x −y) also gains a factor d, so
+cm =
+X
+d|m
+d c∗
+m/d.
+Their Dirichlet inverses are µ and d 7→µ(d)d, proving (31).
+For a primitive strict tuple let
+m = ax + by,
+δ = (a −b)(x −y).
+Its other bounding-box dimension is ay + bx = m −δ, so its placement count is
+(n −m)(n −m + δ) = (n −m)2 + δ(n −m).
+Direction symmetry and exchange of the unequal side coordinates give multiplicity four,
+hence 4h∗
+m, 4c∗
+m. On the side diagonal the weight is two and δ = 0, giving 2d∗
+m. This proves
+the formula for F1(n) in (34); adding F0(n) by (3) gives F(n).
+The divisor–multiple loops have total length P
+d⩽N ⌊N/d⌋= O(N log N).
+The five
+displayed prefixes recover each F(n) in constant time after one linear pass.
+◀
+B
+Exact arithmetic and implementation details
+This appendix explains how the ring-level construction is shared across calls, how it is
+evaluated exactly in fixed-width modular arithmetic, and which assumptions change beyond
+the supported endpoint range.
+B.1
+Shared trees and fused traversals
+The fixed expansion (30) contains terms with the same denominators, regions, or weights.
+The following reductions combine them before the staircase recursion while preserving the
+recursion states and the bound of Proposition 7.4.
+Put
+f1 = 1 −z,
+∆=
+K
+Y
+i=2
+(1 −zi).
+20
+Computing All Lattice-Rectangle Counts
+For denominator exponent one, the left half of the second-role tree already has denominator
+E[1,K] = f1∆. Represent the first role on the same interval tree [1, K], set its marked
+numerator at leaf i = 1 to zero, and let a lightweight structural copy refer to the existing
+denominator polynomials. This represents the same rational sum over i ⩾2, with one extra
+common factor f1. At the root that factor is cancelled by formal division by 1 −z, which is
+a prefix sum of coefficients. The tree E2
+[1,K] built for the squared second role is subsequently
+reused as the squared first-role tree. No dense polynomial is copied, and the extra tree
+structure has only O(K) nodes.
+The implementation also fuses algebraically related products before their inverse trans-
+forms. A denominator lift has the form PLDR + PRDL; both products are accumulated in
+the frequency domain and share one inverse transform. More generally, two aligned rank-one
+forms λ1U1V1 + λ2U2V2 over the same full rectangle share their inverse transform, and a
+rank-two version of Cross carries the pair through the same partial-state recursion. The
+two weighted terms in (28) or (29) are therefore carried by one denominator-lifting traversal.
+Several numerator families have the same region and root denominator but widely
+separated shifts. Packing them into one dense polynomial would destroy the shifted-span
+bound. The program instead descends a fixed number of common boundary levels, evaluates
+each family separately below that frontier, adds the local numerators there, and lifts the sum
+only once through the shared upper levels. This frontier fusion is used for both regions. The
+strict kernels H0 and C0 are finally lifted to one common root denominator; one Newton
+inverse and two products with that inverse produce both quotient series.
+One frequently used marked family is obtained without a product-tree pass. For
+EI(z) =
+Y
+i∈I
+(1 −zi)
+logarithmic differentiation gives
+X
+i∈I
+izi
+1 −zi = −zE′
+I(z)
+EI(z) .
+(48)
+Hence its marked numerator is read from the already available denominator in linear time
+at every node. The exact two-traversal reduction is in Appendix A.2, and its ring-level
+execution is summarized by Algorithm 3.
+B.2
+Exact modular implementation
+The mathematical algorithm is independent of finite-range engineering choices. The reference
+C++ implementation uses the truncated polynomial products, Newton inversion, Möbius
+sums, and five-prefix recovery proved in the main text. For N ⩽230 it specializes the
+coefficient fields, output accumulator, and polynomial indices to fixed widths.
+The common-denominator coefficients can be much larger than the final answer, so they
+are never materialized as unbounded integers. The complete series construction, Möbius
+extraction, and linear recovery are run independently modulo
+p1 = 2305842979148922881,
+p2 = 2305842811645198337.
+(49)
+In both fields 6 is invertible, as required by Theorem 2.4. Both primes satisfy 232 | pi −1,
+and the 2-primary component generated by 3 has order 232. An ordinary truncated product
+needs transform length at most 4N ⩽232, so all required roots of unity exist.
+Dmitry Babichev and Denis Pinchuk
+21
+For completeness, let R = 264 and p′ = −p−1 (mod R). A field element x is stored as
+xR mod p, and the Montgomery reduction used after a 128-bit product is
+Redp(t) = t +
+ (tp′) mod R
+
+p
+R
+(mod p).
+(50)
+The numerator is divisible by R; one conditional subtraction returns the canonical represent-
+ative. For a transform length L | (p −1) put ωL = 3(p−1)/L (mod p). With
+baj =
+L−1
+X
+k=0
+akωjk
+L ,
+ak = L−1
+L−1
+X
+j=0
+bajω−jk
+L
+,
+the truncated product used throughout the trees is
+(ab)<q =
+ NTT−1
+L
+ NTTL(a) ⊙NTTL(b)
+
+<q ,
+L = 2⌈log2(deg a+deg b+1)⌉.
+(51)
+Here ⊙denotes componentwise multiplication of the two transformed vectors. Operands are
+first shortened to the requested prefix, and the result is then cut to q coefficients. A small
+direct-convolution cutoff and radix-two versus radix-four butterflies affect running time but
+not this identity.
+Each modular run returns the complete vector (F(1), . . . , F(N)) mod pi. The program
+immediately incorporates that vector into an exact array by incremental Chinese remaindering
+and releases the modular workspace before starting the next field. Thus the two large
+denominator trees are never resident simultaneously.
+Explicitly, suppose the current exact representative is x modulo M and the next modular
+run returns r modulo a coprime prime p. The update is
+t =
+ r −(x mod p)
+
+(M −1 mod p) mod p,
+x ←x + Mt,
+M ←Mp.
+(52)
+It is applied independently to every recovered value F(n), beginning with M = 1 and x = 0.
+The exact value reported in [2],
+F(230) = 4851850095158746095561485451592336296,
+(53)
+certifies the fixed reconstruction range. The sequence is nondecreasing, because an n × n
+grid embeds in the next grid. Hence (53) bounds every requested value with n ⩽230. Direct
+comparison gives p1p2 > F(230), so the two residues determine every answer uniquely and
+the program’s two-limb unsigned accumulator is sufficient.
+The accompanying C++20 program contains a radix-four/two Cooley–Tukey trans-
+form [13] over these two NTT fields [21, 18], shifted dense polynomials, Newton series
+inversion, the local-denominator recursion, divisor–multiple Möbius extraction, five-prefix re-
+covery, and incremental CRT. Modular multiplication uses 64-bit Montgomery reduction [17].
+The stated endpoint is an arithmetic and indexing guarantee. The in-memory staircase
+representation still uses the O(N log N) space proved above, so a literal endpoint run needs
+correspondingly large hardware or an out-of-core variant.
+B.3
+Bit complexity and larger endpoints
+The implementation bound 230 comes from two fixed 61-bit moduli, a two-word output
+integer, and 32-bit polynomial indices. Extending the implementation requires the following
+changes.
+22
+Computing All Lattice-Rectangle Counts
+component
+required change
+indices and degrees
+replace int by size_t or an unsigned 64-bit type
+output accumulator
+replace the two-word BigUInt by a dynamic limb array
+exact reconstruction
+choose the least number of fields whose characteristic product
+exceeds a certified upper bound for F(N)
+NTT roots
+for L = 2⌈log2(2N+1)⌉require L | (pi −1) for every modulus
+memory
+if necessary, process tree levels out of core; the present represent-
+ation uses O(N log N) words
+Table 1 Changes needed beyond N = 230.
+The asymptotic result of [2] gives
+F(N) = Θ(N 4 log N),
+BF (N) := ⌈log2(F(N) + 1)⌉= 4 log2 N +log2 log N +O(1). (54)
+This determines the asymptotic size of the dynamic output accumulator. For a concrete
+endpoint, let UF (N) ⩾F(N) be a certified numerical upper bound and put
+BU(N) =
+
+log2
+ UF (N) + 1
+
+.
+The CRT range is determined by UF (N), not merely by the asymptotic bit length in (54).
+Let MZ(b) denote the bit complexity of multiplying two b-bit integers. Table 2 compares
+the previous and proposed all-values methods. The word-RAM has Θ(log N)-bit words. The
+bit bounds charge arithmetic on polynomially bounded exact values by O(MZ(log N)) and
+use MZ(b) = O(b log b) [15]. The proposed bit bound is conditional on the transform-friendly
+field hypothesis stated below the table.
+method
+word-RAM operations
+bit operations
+previous all-values method [2]
+O(N 3/2)
+O(N 3/2 log N log log N)
+proposed all-values method
+O(N log2 N)
+O(N log3 N log log N)
+Table 2 Time complexity in the machine-word and bit models. The bit column uses quasi-
+linear integer multiplication; the proposed bit bound is conditional on the transform-friendly field
+hypothesis stated below.
+For the proposed method, assume at every required transform length a constant-size
+family of coefficient fields with Θ(log N)-bit elements, the necessary roots of unity, and
+characteristic product larger than a certified output bound. A field multiplication costs
+O(MZ(log N)) bit operations, so the exact algorithm uses
+Tbit(N) = O
+ N log2 N MZ(log N)
+
+.
+(55)
+In particular,
+Tbit(N) =
+(
+O(N log4 N),
+schoolbook integer multiplication,
+O(N log3 N log log N),
+quasi-linear integer multiplication.
+The second line uses the O(b log b) integer-multiplication algorithm of Harvey and van der
+Hoeven [15]; its classical fast-Fourier- transform (FFT) predecessor is the Schönhage–Strassen
+algorithm [22]. On a word random-access machine (word-RAM) with Θ(log N)-bit words, the
+Dmitry Babichev and Denis Pinchuk
+23
+same statement is O(N log2 N) word operations and O(N log N) words of working memory.
+The staircase trees occupy O(N log2 N) bits, while the output table itself contains Θ(N log N)
+bits.
+For a fixed family of b-bit prime fields, as long as the fields contain the required roots,
+the exact number of runs is
+r = min
+(
+s :
+s
+Y
+i=1
+pi > UF (N)
+)
+= min
+(
+s :
+s
+X
+i=1
+log2 pi > log2 UF (N)
+)
+.
+For comparable primes this is approximately ⌈BU(N)/b⌉. Repeating the O(N log2 N) modular
+computation that many times yields O(N log3 N) fixed-word operations as a range-dependent
+upper bound. In the asymptotic field model of (55), the field elements have Θ(log N) bits
+and a constant-size family suffices. Incremental CRT keeps both the staircase storage and
+the growing exact output within O(N log N) fixed-size words throughout this fixed-word
+regime.
+The two primes in (49) support transforms only through length 232. Once L > 232, new
+primes with larger two-adic order, multiword prime fields, or suitable extension fields are
+required in addition to the index and CRT changes in Table 1. None of these finite-width
+changes alters the algebraic O(M(N) log N) theorem.
+References
+1
+Tom M. Apostol. Introduction to Analytic Number Theory. Undergraduate Texts in Mathem-
+atics. Springer, 1976. doi:10.1007/978-1-4757-5579-4.
+2
+Dmitry Babichev and Sergey Babichev. Counting all lattice rectangles in the square grid in
+near-linear time, 2026. arXiv:2604.22456, doi:10.48550/arXiv.2604.22456.
+3
+Dmitry Babichev and Tatiana Shpakova. Counting lattice rectangles in O(n log n) arithmetic
+operations. Companion manuscript in preparation, 2026.
+4
+Alexander Barvinok and James E. Pommersheim. An algorithmic theory of lattice points
+in polyhedra. In New Perspectives in Algebraic Combinatorics, volume 38 of Mathematical
+Sciences Research Institute Publications, pages 91–147. Cambridge University Press, 1999.
+5
+Alexander Barvinok and Kevin Woods. Short rational generating functions for lattice point
+problems. Journal of the American Mathematical Society, 16(4):957–979, 2003. doi:10.1090/
+S0894-0347-03-00428-4.
+6
+Alexander I. Barvinok. A polynomial time algorithm for counting integral points in polyhedra
+when the dimension is fixed.
+Mathematics of Operations Research, 19(4):769–779, 1994.
+doi:10.1287/moor.19.4.769.
+7
+Matthias Beck, Christian Haase, and Asia R. Matthews. Dedekind–Carlitz polynomials as
+lattice-point enumerators in rational polyhedra. Mathematische Annalen, 341(4):945–961,
+2008. doi:10.1007/s00208-008-0220-9.
+8
+Matthias Beck and Sinai Robins. Explicit and efficient formulas for the lattice point count in
+rational polygons using Dedekind–Rademacher sums. Discrete & Computational Geometry,
+27(4):443–459, 2002. arXiv:math/0111329, doi:10.1007/s00454-001-0082-3.
+9
+Matthias Beck and Sinai Robins. Computing the Continuous Discretely: Integer-Point Enu-
+meration in Polyhedra.
+Undergraduate Texts in Mathematics. Springer, 2 edition, 2015.
+doi:10.1007/978-1-4939-2969-6.
+10
+Allan Borodin and Robert Moenck. Fast modular transforms. Journal of Computer and
+System Sciences, 8(3):366–386, 1974. doi:10.1016/S0022-0000(74)80029-2.
+11
+Richard P. Brent and H. T. Kung. Fast algorithms for manipulating formal power series.
+Journal of the ACM, 25(4):581–595, 1978. doi:10.1145/322092.322099.
+12
+Felix Breuer and Frederik von Heymann. Staircases in Z2. Integers, 10(6):807–847, 2010.
+doi:10.1515/INTEG.2010.058.
+24
+Computing All Lattice-Rectangle Counts
+13
+James W. Cooley and John W. Tukey.
+An algorithm for the machine calculation of
+complex Fourier series.
+Mathematics of Computation, 19:297–301, 1965.
+doi:10.1090/
+S0025-5718-1965-0178586-1.
+14
+Ronald L. Graham, Donald E. Knuth, and Oren Patashnik. Concrete Mathematics. Addison–
+Wesley, 2 edition, 1994.
+15
+David Harvey and Joris van der Hoeven. Integer multiplication in time O(n log n). Annals of
+Mathematics, 193(2):563–617, 2021. doi:10.4007/annals.2021.193.2.4.
+16
+Martin N. Huxley and Werner G. Nowak. Primitive lattice points in convex planar domains.
+Acta Arithmetica, 76(3):271–283, 1996. doi:10.4064/aa-76-3-271-283.
+17
+Peter L. Montgomery. Modular multiplication without trial division. Mathematics of Compu-
+tation, 44(170):519–521, 1985. doi:10.1090/S0025-5718-1985-0777282-X.
+18
+Henri J. Nussbaumer.
+Fast Fourier Transform and Convolution Algorithms, volume 2
+of Springer Series in Information Sciences.
+Springer, 2 edition, 1982.
+doi:10.1007/
+978-3-642-81897-4.
+19
+OEIS Foundation. A085582: Number of rectangles with corners on an n × n grid. URL:
+https://oeis.org/A085582.
+20
+Jakub Pawlewicz and Mihai Pătraşcu. Order statistics in the Farey sequences in sublinear
+time and counting primitive lattice points in polygons. Algorithmica, 55(2):271–282, 2009.
+doi:10.1007/s00453-008-9221-z.
+21
+John M. Pollard. The fast Fourier transform in a finite field. Mathematics of Computation,
+25(114):365–374, 1971. doi:10.1090/S0025-5718-1971-0301966-0.
+22
+Arnold Schönhage and Volker Strassen. Schnelle multiplikation großer zahlen. Computing,
+7(3–4):281–292, 1971. doi:10.1007/BF02242355.
+23
+Sven Verdoolaege and Kevin Woods. Counting with rational generating functions. Journal of
+Symbolic Computation, 43(2):75–91, 2008. doi:10.1016/j.jsc.2007.07.007.
+24
+Joachim von zur Gathen and Jürgen Gerhard.
+Modern Computer Algebra.
+Cambridge
+University Press, 3 edition, 2013. doi:10.1017/CBO9781139856065.

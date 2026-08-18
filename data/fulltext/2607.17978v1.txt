@@ -1,0 +1,3994 @@
+RuNNer 2.0: A Software Suite for High-Dimensional Neural Network Potentials
+Alexander L. M. Knoll,1, 2 Moritz R. Sch¨afer,1, 2 K. Nikolas Lausch,1, 2 Moritz Gubler,3, 4
+Henry Wang,1, 2 Richard Springborn,1, 2 Redouan El Haouari,1, 2 Alea Miako Liebetrau,1, 2
+Jonas A. Finkler,3 Emir Kocer,1, 2 Marco Eckhoff,5 Gunnar Schmitz,1, 2 and J¨org Behler1, 2, ∗
+1Lehrstuhl f¨ur Theoretische Chemie II, Ruhr-Universit¨at Bochum, 44780 Bochum, Germany
+2Research Center Chemical Sciences and Sustainability,
+Research Alliance Ruhr, 44780 Bochum, Germany
+3University of Basel, Department of Physics, Klingelbergstrasse 82, CH-4056 Basel, Switzerland
+4PSI Center for Scientific Computing, Theory and Data,
+Paul Scherrer Institute, 5232 Villigen PSI, Switzerland
+5ETH Zurich, Department of Chemistry and Applied Biosciences,
+Vladimir-Prelog-Weg 2, 8093 Zurich, Switzerland
+We present RuNNer 2.0, the “Ruhr University Neural Network energy representation”, a highly
+optimized software suite for training and evaluating high-dimensional neural network potentials
+(HDNNPs) of the second, third, and fourth generation. Long-range electrostatics and charge equi-
+libration (QEq) for the description of non-local charge transfer in fourth-generation (4G) HDNNPs
+are accelerated by quasi-linear-scaling plane-wave methods, reducing QEq computational complex-
+ity from O(N 3) to O(N log2 N) such that linear or quasi-linear scaling is achieved across all HDNNP
+generations. An optimized memory management strategy eliminates the training overhead tradi-
+tionally associated with long-range interactions, allowing 4G-HDNNPs to be trained with the same
+efficiency as their local counterparts. Developed in modern Fortran (2003/2008 standards), com-
+bined with a hybrid MPI/OpenMP parallelization scheme, RuNNer 2.0 has been designed to run
+efficiently in any CPU environment, from cost-effective local workstations to massive HPC clusters.
+Its modular library architecture facilitates straightforward binding to external simulation software;
+native interfaces to LAMMPS and the Atomic Simulation Environment (ASE) provide full access to
+all its features, including built-in committee-based uncertainty quantification. The high efficiency
+and scalability of the RuNNer 2.0 ecosystem are demonstrated through detailed benchmarks.
+I.
+INTRODUCTION
+Machine learning potentials (MLPs) have transformed
+computational materials science and chemistry [1–6] by
+combining the computational efficiency of classical force
+fields with an accuracy approaching that of electronic
+structure methods. Two decades of methodological de-
+velopment have produced model architectures spanning
+the full range from very efficient and highly accurate po-
+tentials tailored to a particular system [7–12] to broadly
+applicable foundation models trained on large and di-
+verse datasets [13–16]. All these architectures increas-
+ingly embed physically motivated priors such as long-
+range electrostatics or dispersion directly into the model,
+improving data efficiency and the reliability of out-of-
+distribution predictions [17].
+High-dimensional
+neural
+network
+potentials
+(HDNNPs),
+introduced in 2007 [7],
+have been the
+first MLP type applicable to large systems containing
+thousands of atoms, such as the systems exemplified
+in Fig. 1.
+In the following years, HDNNPs have been
+continuously further developed to extend their scope and
+applicability. To enable a clear assessment of the physics
+included in the different HDNNP models, recently a
+classification scheme into different generations has been
+∗joerg.behler@rub.de
+introduced [18], which can also be applied to many other
+types of MLPs.
+The original HDNNPs introduced in 2007 are now clas-
+sified as second-generation (2G) HDNNPs for a distinc-
+tion from earlier first-generation neural network poten-
+tials that are restricted to low-dimensional systems. 2G-
+HDNNPs proposed the representation of the potential en-
+ergy as a sum of environment-dependent atomic energy
+contributions, each predicted by a feed-forward neural
+network from atomic features describing the local atomic
+environments. Third-generation (3G) HDNNPs [19, 20]
+augment this short-range energy by a long-range elec-
+trostatic term based on environment-dependent partial
+charges predicted by an additional set of atomic net-
+works. Moreover, dispersion interactions beyond the lo-
+cal environments can be included. However, 3G models
+still assume that charges are determined solely by the
+local chemical environment. Therefore, they are unable
+to describe non-local charge transfer, i.e., processes in
+which the charge distribution in the system changes in
+response to a far-away perturbation. Fourth-generation
+(4G) HDNNPs [21–23] overcome this restriction by allow-
+ing charge to redistribute according to the global struc-
+ture and composition of the system using a global charge
+equilibration (QEq) scheme [24]. The ability to describe
+such global phenomena is essential for systems such as
+charged defects in ionic crystals, metal atoms adsorbed
+on doped oxide surfaces, or the protonation state of or-
+ganic molecules.
+arXiv:2607.17978v1  [physics.chem-ph]  20 Jul 2026
+2
+While the HDNNP method has been developed in the
+RuNNer code – the Ruhr University Neural Network en-
+ergy representation – starting almost two decades ago, in
+the following years due to the popularity of the method,
+many other HDNNP codes have been published, such
+as AMP [25], Ænet [26], ANI-1 [27], Tensormol [28],
+SIMPLE-NN [29], n2p2 [30], PiNN [31], PANNA [32],
+and Fortnet [33], and each of these software packages
+has its specific advantages and limitations. In spite of
+this variety of codes, recent methodological extensions
+like the development of 4G-HDNNPs require substantial
+structural changes in the software architecture, and con-
+sequently older codes like RuNNer 1.3 and most of the
+other HDNNP codes do not offer a high-performance im-
+plementation suitable for routine production calculations
+of all HDNNP generations on equal footing.
+In this work, we present RuNNer 2.0, the successor
+of RuNNer 1.3 [34, 35]. The code has been completely re-
+designed from scratch to optimize its performance taking
+recent advances with a particular focus on 4G-HDNNPs
+into account.
+We have chosen an implementation in
+modern Fortran (2003/2008 standards) for its maturity,
+high performance, support by multiple compilers and the
+long-term availability and stability of Fortran-based soft-
+ware. A quasi-linear-scaling plane-wave QEq solver re-
+duces the cost of global charge equilibration, a key step
+in 4G-HDNNPs, from O(N 3) to O(N log2 N). This algo-
+rithmic advance, combined with a hybrid MPI/OpenMP
+parallelization scheme and a memory management strat-
+egy that removes the training overhead historically as-
+sociated with long-range interactions, makes large-scale
+4G-HDNNP molecular dynamics and training computa-
+tionally tractable for the first time.
+Committee mod-
+els are natively supported across all training and predic-
+tion workflows via highly efficient implementations that
+maximize computation sharing.
+RuNNer 2.0 further
+provides general, extensible interfaces upon which spe-
+cific integrations are built.
+This includes native sup-
+port for LAMMPS and the Atomic Simulation Environ-
+ment (ASE), exposing all of these capabilities, including
+committee-based uncertainty quantification, to two of the
+most widely used atomistic simulation frameworks, and
+is complemented by a Python workflow layer for dataset
+management and training analysis.
+The paper, which describes this implementation, is
+structured as follows: Section II introduces the theoret-
+ical framework underlying all HDNNP generations im-
+plemented in RuNNer 2.0, including the energy expres-
+sions, descriptor formalisms, long-range interaction mod-
+els, and optimization objective. Section III describes how
+this framework is translated into an efficient, modular
+software architecture.
+We then present extensive per-
+formance benchmarks in Section IV before demonstrat-
+ing the practical importance of the 4G framework for a
+specific example, an extension of the Au/MgO(Al∗) non-
+local charge transfer benchmark [22].
+II.
+METHODS
+A.
+High-Dimensional Neural Network Potentials
+An
+overview
+of
+second-generation
+(2G),
+third-
+generation (3G) and fourth-generation (4G) HDNNPs is
+provided in Fig. 2. A concise summary of these meth-
+ods will be given in the next sections to introduce the
+essential background needed for the discussion of the im-
+plementation in RuNNer 2.0. A more detailed descrip-
+tion of HDNNPs, the underlying methods and the train-
+ing procedures can be found in several comprehensive
+reviews [18, 34, 35, 40, 41].
+1.
+2G-HDNNPs
+2G-HDNNPs are local MLPs based on the assumption
+that the majority of atomic interactions is short-ranged.
+The total potential energy E2G of 2G-HDNNPs for a
+system containing N atoms is given by the sum of the
+atomic energy contributions Ei [7],
+E2G =
+N
+X
+i=1
+Ei (Gi (R)) ,
+(1)
+where each Ei is predicted by an element-specific feed-
+forward neural network as a function of a feature vector
+Gi. This vector encodes the local chemical environment
+within a cutoff radius rcut based on the atomic coordi-
+nates of the neighbor atoms R = {ri}. The features are
+constructed to fulfill the mandatory invariances of the po-
+tential energy with respect to translation, rotation, and
+permutation [42]. There is one neural network evaluation
+per atom in the system (Fig. 2a) such that the compu-
+tational cost scales linearly with system size. Analyti-
+cal forces Fj are obtained by chain-rule differentiation
+through the feature maps,
+Fj = −∇RjE2G = −
+N
+X
+i=1
+Mi
+X
+µ=1
+∂Ei
+∂Gi,µ
+∂Gi,µ
+∂Rj
+,
+(2)
+where Gi,µ denotes the µ-th component of the Mi-
+dimensional atomic feature vector Gi.
+Consequently,
+vectorial or tensorial properties, e.g., the stress tensor,
+derived from the atomic energies preserve equivariance.
+The parameters of the neural networks are adjusted in
+an iterative training procedure such that the sum of the
+learned atomic energies matches the total energies of a
+set of reference electronic structure calculations. In ad-
+dition, atomic forces are typically used for training the
+neural network weight parameters.
+3
+FIG. 1. Illustrations of materials and system sizes RuNNer 2.0 has been designed for. a) Diffusion of a calcium ion at a
+calcium silicate-water interface (hydrogen: white, surface oxygen: red, water oxygen: blue, silicon: yellow, calcium: ochre) [36].
+b) Metal organic framework MOF-5 [37, 38] (hydrogen: white, carbon: grey, oxygen: red, zinc: purple. c) Water dissociation
+at the LiMn2O4–water interface [39] (hydrogen: white, lithium: purple, surface oxygen: red, water oxygen: blue, hydroxide
+oxygen: cyan, manganese: purple).
+2.
+3G-HDNNPs
+Third-generation (3G) HDNNPs extend the energy ex-
+pression by incorporating explicit long-range interactions
+beyond the cutoff radius, which are included in 2G-
+HDNNPs only implicitly in an averaged way. A defin-
+ing characteristic of 3G-HDNNPs is that the long-range
+energy Elong is expressed through interactions based on
+environment-dependent atomic properties P = {Pi} that
+are predicted by additional atomic neural networks as lo-
+cal quantities (Fig. 2b),
+E3G =
+N
+X
+i=1
+Ei (Gi) + Elong (P(G)) ,
+(3)
+where we have dropped the dependence of the feature
+maps G of all atoms on the coordinates R for bet-
+ter readability. While the original 3G-HDNNP formu-
+lation focused on electrostatic interactions mediated by
+environment-dependent atomic charges [19, 20], RuN-
+Ner 2.0 generalizes this concept to arbitrary long-range
+interaction terms, since also the tails of dispersion inter-
+actions beyond the cutoff can become important in some
+cases. The energy of 3G-HDNNPs is given by
+E3G =
+N
+X
+i=1
+Ei (Gi)+Eelec (q (G))+EvdW (V (G)) , (4)
+where q and V denote the machine-learned atomic
+charges for electrostatics and Hirshfeld volumes for van
+der Waals energies [43, 44] of all atoms, respectively.
+Therefore, while the machine-learned properties P are
+strictly local, the resulting long-range interactions can
+have an infinite range, e.g., when using Ewald summa-
+tion for electrostatics, or a much increased range in case
+of dispersion. In case of electrostatics, an optional total
+charge constraint may be applied to the learned atomic
+charges during inference.
+Training of 3G-HDNNPs is commonly performed in a
+sequential manner.
+First, the auxiliary property mod-
+els expressing P are trained against reference quantities
+obtained from electronic-structure calculations. The re-
+sulting long-range contributions are then evaluated and
+subtracted from the total reference energies and forces,
+allowing the short-range model to be trained to the resid-
+uals.
+This decomposition improves learning efficiency
+and avoids double counting of long-range interactions.
+3.
+4G-HDNNPs
+In spite of including long-range interactions, 3G mod-
+els are still “local” since even interactions beyond the
+cutoff exclusively rely on environment-dependent atomic
+properties. Therefore, in general 2G and 3G MLPs are
+not applicable to systems with non-local dependencies
+like long-range charge transfer [23]. 4G-HDNNP [22, 23]
+models overcome this limitation by introducing globally
+equilibrated charges [21, 24]. The charge equilibration
+(QEq) [24] step in 4G-HDNNPs employs atomic elec-
+tronegativities χi and hardnesses Ji, which are learned
+4
+FIG. 2.
+Flowcharts depicting the different generations of HDNNPs.
+a) In 2G-HDNNPs the local atomic environments of
+the central atoms i (orange) are defined by a cutoff radius (dashed orange circle). The Cartesian coordinates of all neighbor
+atoms (R) are used to construct feature vectors Gi, which feed into element-specific atomic neural networks (here, e.g., red
+for oxygen, grey for hydrogen). Each network predicts the respective atomic energy Ei, and these energies are combined to
+yield the total energy E2G.
+b) In 3G-HDNNPs, feature vectors are constructed similarly (where we have compressed the
+information for different atoms into a stacked representation for brevity), but feed into several groups of element-specific neural
+networks to predict distinct atomic properties. The atomic charges qi determine the electrostatic energy Eelec via Coulomb
+interactions, while atomic Hirshfeld volumes Vi serve as the basis for the van der Waals dispersion contribution EvdW. The
+atomic energies Ei yield the local energy Eenv, which represents the part of the energy not covered by Elong. c) 4G-HDNNPs
+use the atomic feature vectors to predict atomic electronegativities χi and hardnesses Ji. These parameters form the basis
+of a charge equilibration (QEq) scheme that distributes the total charge qtot across all atoms. The resulting atomic charges
+qi encode global information about the charge distribution throughout the system. In a standard 4G model, this non-local
+information channel feeds directly into the atomic neural networks as additional input feature to predict consistent atomic
+energies Ei forming the environment-dependent energy contribution Eenv. Combined with the electrostatic interaction of the
+equilibrated charges Eelec and the 3G-like vdW term EvdW, the total energy E4G captures both short-range and long-range
+effects.
+Panel c) also illustrates the ee4G-HDNNP architecture, which extends the 4G model by introducing electrostatic
+embedding (ee) channels. Here, in addition to feeding the atomic charges directly into the atomic energy network, the qi are
+also used to compute element-specific electrostatic potentials (Γz
+i ) serving as additional non-local input features for the atomic
+energy predictions.
+5
+in the training process (Fig. 2c). QEq then distributes
+the total charge of the system qtot among the atoms such
+that the charge distribution minimizes an electrostatic
+energy functional. This procedure is described in detail
+in Sec. II C. The resulting atomic charges qi are used for
+two purposes: the calculation of the long-range electro-
+static energy and to extend the atomic feature vectors
+by including global information to overcome the strict
+locality of the atomic energies Ei. Moreover, for non-
+periodic systems the QEq step, which adds information
+about the total charge qtot of the system, generalizes the
+applicability of HDNNPs to multiple total charge states.
+The energy E4G is defined as
+E4G =
+N
+X
+i=1
+Ei (Gi, qi (G, qtot))
+(5)
++ Eelec (q (G, qtot)) + EvdW (V (G)) .
+The
+electrostatically
+embedded
+variant
+(ee4G-
+HDNNP [45]) additionally appends a vector of element-
+specific electrostatic potentials at each atomic site to
+the feature vector,
+providing additional information
+about the local electrostatic environment resulting from
+the equilibrated charges.
+Like 3G-HDNNPs, fourth
+generation models are typically trained in two steps.
+B.
+Atomic Features
+The feature vector Gi encodes the local environment
+of atom i using features that are invariant under transla-
+tion, rotation, and permutation of chemically equivalent
+neighbors within the cutoff radius. RuNNer 2.0 pro-
+vides two classes of features: atom-centered symmetry
+functions and overlap matrix fingerprints.
+1.
+Atom-Centered Symmetry Functions
+The atom-centered symmetry function (ACSF) [42]
+features implemented in RuNNer 2.0 comprise radial
+and angular functions encoding the positions of the
+neighboring atoms up to the cutoff radius, which is typ-
+ically chosen between 5 and 10 ˚A.
+Radial ACSFs probe the element-resolved radial neigh-
+bor densities. The most commonly used radial function
+has the form (labeled type 2 following the notation in
+42)
+G(2)
+i,µ =
+X
+j∈Ni
+exp
+ −ηµ(rij −Rshift,µ)2
+fcut(rij) ,
+(6)
+where ηµ controls the Gaussian width, Rshift,µ positions
+the center, fcut is a smooth cutoff function, j runs over
+all neighbors Ni and µ separates functions with different
+parameters. Additionally, RuNNer 2.0 provides a sim-
+ple counting function, which is the element-specific sum
+of the plain cutoff functions with respect to all neighbors
+of a given element.
+Angular ACSFs encode the angu-
+lar distribution of the neighboring atoms and three types
+are available: type 3, type 8, and type 9. The functional
+forms of all ACSFs are provided in the SI, Sec. 1 A 2, and
+a detailed description of their properties can be found in
+Ref. 42.
+In their original formulation, different chemical el-
+ements
+are
+distinguished
+by
+constructing
+separate,
+element-wise sets of ACSFs, each evaluated with its own
+set of parameters such as ηµ and Rshift,µ. Alternatively,
+all ACSFs in RuNNer 2.0 can be augmented by element-
+embracing prefactors [46] that directly encode the chem-
+ical identity of the neighboring atoms, avoiding the need
+for using element-wise feature sets.
+For magnetic sys-
+tems, spin-dependent prefactors modulate each pairwise
+or triplet contribution according to the local spin embed-
+ding [47].
+2.
+Overlap Matrix Fingerprints
+RuNNer 2.0 provides an implementation of atom-
+centered overlap matrix (OM) fingerprints, which are
+well-established features for environment comparison and
+structural discrimination [48, 49] and have been used in
+the context of MLPs, e.g., in the graph neural network
+EOSnet [50].
+In RuNNer 2.0, the OM is evaluated for each atomic
+environment as a feature map, which is differentiable with
+respect to atomic positions to enable consistent force pre-
+dictions.
+Since all neighbors in the local environment
+contribute to the atomic OM employing Gaussians of
+element-specific widths, the OM representation avoids
+the explicit combinatorial bookkeeping required by con-
+ventional element-specific features. Specifically, at each
+neighbor site j we place a minimal set of norb normalized
+atom-centered Gaussian-type functions Γjν(r), where ν
+enumerates the members of the local GTO basis, i.e.,
+basis functions distinguished by their angular character
+and Gaussian width. The overlap matrix element for the
+environment of atom i referring to atom pair jk, where
+j and k include all neighbors and the central atom i, is
+then given by
+S i
+jν,kµ =
+Z
+Γjν(r) Γkµ(r) dr ,
+(7)
+yielding a symmetric matrix Si ∈Rni
+bas×ni
+bas, with ni
+bas =
+(|Ni| + 1)norb.
+To ensure locality, each atom-centered
+basis function is multiplied by the cutoff factor associated
+with its distance from the central atom; equivalently, the
+cutoff-smoothed overlap matrix elements are
+eS i
+jν,kµ = fcut(rij) S i
+jν,kµ fcut(rik) .
+(8)
+The OM features are then constructed from the eigen-
+6
+value spectrum λi of eS i,
+Λ i =
+ U iT eS iU i ,
+λ i = diag(Λ i) ,
+(9)
+where Λ is the diagonal matrix of eigenvalues and the
+columns of U are orthonormal eigenvectors.
+The first
+n entries of λi then yield a sorted and truncated set
+of eigenvalues as the feature vector. In the context of
+MLPs, however, this representation still has a critical
+drawback: since eigenvalues may cross for some struc-
+tural changes, discontinuities may be introduced in the
+first feature derivatives, which is problematic for force
+learning.
+To make the OM a robust feature vector for MLPs,
+RuNNer 2.0 employs a smooth spectral projection that
+eliminates the eigenvalue-crossing by replacing the or-
+dered list of eigenvalues by an order-invariant, smooth
+function of the spectrum. We define a fixed grid {xj}ng
+j=1
+of ng points in [0, L], e.g., xj = L j/ng, and map the
+spectrum to features via
+g l
+j =
+nλ
+X
+i=1
+sin
+ λ l
+i xj
+
+,
+j = 1, . . . , ng ,
+(10)
+where nλ = norb is the total number of eigenvalues. This
+transformation has two main consequences for MLPs: (i)
+the obtained feature vector is invariant under permuta-
+tions of eigenvalues (hence no sorting is required), and
+(ii) features are smooth in λi even at eigenvalue cross-
+ings of the original OM. Consequently, the feature deriva-
+tives are well-defined and continuous. The calculation of
+derivatives is presented in the SI, Sec. 1 A 3 d.
+C.
+Electrostatics and Charge Equilibration
+Both, 3G- and 4G-HDNNPs, require an efficient evalu-
+ation of long-range Coulomb interactions. RuNNer 2.0
+expresses the electrostatic energy using a Coulomb ker-
+nel E based on Gaussian charge distributions of element-
+specific width σ,
+Eelec = 1
+2qTEq ,
+(11)
+with the matrix elements Eij between two normalized
+Gaussians defined as
+Eij =
+
+
+
+
+
+
+
+
+
+
+
+
+
+1
+σi
+√π ,
+if i = j
+erf
+ 
+rij
+√
+2γij
+!
+rij
+,
+otherwise
+(12)
+and γij =
+q
+σ2
+i + σ2
+j .
+The Gaussian smearing preserves the correct 1/r be-
+havior at large separations while removing the short-
+range divergence. Additionally, a screening function can
+be applied inside the atomic environments to dampen
+the electrostatic energy at distances that can be fully de-
+scribed by the atomic energies.
+In third-generation models, the atomic charges qi are
+learned as local environment-dependent properties sub-
+ject to an overall charge constraint. 4G-HDNNPs intro-
+duce a charge equilibration step based on the QEq scheme
+by Rappe et al. [24], which distributes the total charge
+of the system by minimizing the energy expression
+EQEq = 1
+2qTAq + qTχ ,
+(13)
+with
+A = E + JTI .
+(14)
+In this second order Taylor expansion of the total energy
+the first order expansion coefficient is the vector of atomic
+electronegativities χ, while the second order prefactor is
+the vector of atomic hardnesses J. I is the identity ma-
+trix.
+Setting dEQEq
+dq
+= 0 leads to the system of linear equa-
+tions
+
+
+
+
+
+A
+1
+...
+1
+1 . . . 1
+0
+
+
+
+
+
+
+
+
+
+
+q1
+...
+qN
+λ
+
+
+
+
+=
+
+
+
+
+
+−χ1
+...
+−χN
+qtot
+
+
+
+
+,
+(15)
+or
+A′q′ = −χ′ ,
+(16)
+where the Lagrange multiplier λ is chosen such that the
+charge constraint PN
+i qi = qtot is fulfilled.
+To ensure that A stays positive definite, J > 0 must
+be enforced. In RuNNer 2.0, this can be done by ap-
+plying activation functions to the output of the hardness
+model. Electronegativities are typically not constrained
+and may become negative, which is physically reasonable
+for electropositive species [21].
+Calculating the derivatives of Eq. 13 to obtain the
+atomic force contributions formally requires the deriva-
+tives of the charges with respect to the atomic coordi-
+nates.
+For large-scale production calculations, this is
+prohibitively expensive since it requires solving 3N linear
+systems of equations. However, as first shown by Handy
+and Schaefer [51] and later transferred to the problem
+of charge equilibration by Poier et al. [52], we can use
+the Lagrange method of undetermined multipliers to ob-
+tain the forces by solving only a single system instead.
+This “force trick” is explained in more detail in the SI,
+Sec. 1 D 2.
+7
+D.
+van der Waals Interactions
+Dispersion interactions are incorporated in RuNNer
+2.0 through a Hirshfeld volume-based scheme [43] in
+which environment-dependent Hirshfeld volumes Vi are
+predicted by atomic neural networks.
+Following the
+Tkatchenko-Scheffler method [44], these volumes can be
+employed to scale the free-atom C6 coefficients to obtain
+pair-wise dispersion energies adjusting to the local chem-
+ical environments,
+Cij
+6 = Cij,free
+6
+· Vi · Vj .
+(17)
+The dispersion energy is then the sum of the scaled pair-
+wise C6/r6 contributions over all atom pairs with ap-
+propriate damping to avoid short-range divergence [53].
+Dispersion interactions are typically truncated beyond a
+very large cutoff radius that must be converged for the
+system of interest. Alternatively, in particular if DFT
+reference data is used, HDNNP energies can be com-
+bined with established dispersion corrections like the D3
+method [54].
+E.
+Two-Body Repulsion
+RuNNer 2.0 provides an implementation of the
+Ziegler–Biersack–Littmark (ZBL) potential [55] (see SI,
+Sec. 1 E 1, for details). This enables adding short-range
+nuclear repulsion between atoms to any HDNNP gener-
+ation.
+F.
+Parameter Optimization
+Neural network parameters are adjusted by minimiz-
+ing a loss function that compares predicted energies,
+forces, and atomic properties with reference electronic-
+structure data. RuNNer 2.0 supports gradient descent
+(GD), stochastic gradient descent (SGD), Adam [56], and
+two variants of the extended Kalman filter (standard and
+fading-memory) [57]. The mathematical details of each
+optimizer, including the Kalman filter update equations
+and hyperparameter scheduling, are provided in the SI,
+Secs. 1 G 1 and 1 G 2.
+III.
+IMPLEMENTATION DETAILS
+In this section we describe how the theoretical frame-
+work of Section II is efficiently translated into the RuN-
+Ner 2.0 software.
+We cover the overall code archi-
+tecture, parallelization and memory strategies, the spe-
+cific model and feature types available, the electrostatics
+solver choices, and the interfaces to external simulation
+software.
+A.
+Four-Level Architecture
+The central design challenge of RuNNer 2.0 has been
+to reconcile two very different requirements: the high-
+performance implementation needed for large-scale atom-
+istic simulations and the flexibility needed to rapidly pro-
+totype new methodical developments. The solution is a
+hierarchical structure consisting of four levels.
+1.
+Level 1
+At the lowest level, self-contained object-oriented types
+encapsulate individual data structures and their immedi-
+ate operations (Fig. 3 – Level 1). For example, RuNNer
+2.0 provides a generally applicable neural network type
+with attached weights and biases, a feature calculator
+managing feature map evaluation, and a data loader with
+automatic memory budget determination. These types
+are designed to be as small and independent as possible.
+They communicate through simple, intrinsic data types
+rather than shared mutable states, which enables easy
+extensions. We favor composition over inheritance: ad-
+vanced capabilities are built by embedding simple types
+within larger ones, rather than by constructing deep class
+hierarchies.
+This way, the individual components stay
+light-weight and modular, making them easy to under-
+stand, to extend, and to replace.
+2.
+Level 2
+The second level consists of building blocks that com-
+bine multiple types to perform mathematically inten-
+sive operations, such as batched forward and backward
+passes, chain rule applications, parameter updates, or
+dispersion energy calculations (Fig. 3 – Level 2). Each
+routine in this layer is self-contained, making the building
+blocks reusable across different workflows and simplify-
+ing incremental code changes like performance enhance-
+ments, future GPU acceleration, or new methodological
+developments.
+3.
+Level 3
+The third level comprises workflows, which are pro-
+cedural routines that initialize types, schedule calls to
+building blocks, and handle input and output (Fig. 3 -
+– Level 3). These workflows are the public-facing API.
+Since the underlying building blocks are stateless and
+context-free, adding a new physical term requires only
+a new building block and its insertion into the relevant
+workflow, with no structural coupling to any other part
+of the code.
+RuNNer 2.0 can therefore combine 2G
+short-range energies, electrostatics (3G or 4G), Hirshfeld
+volume-based dispersion corrections, and short-range re-
+pulsion within a single prediction pipeline: each contri-
+8
+FIG. 3. Overview of the RuNNer 2.0 suite and its components organized in a hierarchy of four levels. Self-contained, object-
+oriented types (Level 1) form the basis of the program, whose state is altered through independent, functional building blocks
+(Level 2).
+Complex tasks are managed through procedural workflows (Level 3), which also form the capabilities of the
+standalone RuNNer 2.0 binary. The individual workflows are exposed through multiple C-bound interfaces (Level 4), that
+make them easily accessible by other languages and tools. We provide custom embeddings for Python, the Atomic Simulation
+Environment (ASE), and LAMMPS. A detailed explanation of each level is given in the main text.
+9
+bution is independently developed and tested at the type
+or building-block level, and the combination is controlled
+by workflow logic.
+4.
+Level 4
+The three levels discussed so far form the RuNNer 2.0
+library, which is the basis of the standalone executable
+program. The highest level four contains the interfaces
+through which users may interact with the library or the
+binary application (Fig. 3 – Level 4). We provide a native
+pair style for LAMMPS (s. Section III I 1) and a generic
+Python interface that is fully integrated into the atomic
+simulation environment (ASE) [58] as a Calculator
+object (s.
+Section III I 2).
+Both access RuNNer 2.0
+through a shared library object. Furthermore, RuNNer
+2.0 can be accessed through Python in the form of the
+ASE-like I/O calculator RuNNerbin. While the high-
+level interfaces are usually specific to the calling code,
+they all access the same library routines. This way, all
+HDNNP generations are natively supported in all inter-
+facing codes. The interfaces are described in more detail
+in Sec. III I.
+B.
+Parallelization Strategy and Batching
+RuNNer 2.0 employs a two-level parallelization strat-
+egy: MPI (Message Passing Interface) distributes work
+across compute nodes (or processes within a node) and
+OpenMP exploits thread-level parallelism within each
+process.
+1.
+Training
+At startup, the master process reads the model pa-
+rameters and dataset and broadcasts this information
+to all workers (Fig. 4 – Training).
+Structures are dis-
+tributed across MPI ranks by round-robin assignment,
+which achieves approximate load balance when structures
+have similar atom counts and densities.
+Within each
+epoch, each MPI task processes its local subset: neigh-
+bor lists are generated serially for its structures, whereas
+feature evaluation over atoms and unrolled matrix mul-
+tiplications for chain rules are OpenMP parallelized, and
+the linear-algebra kernels in the forward and backward
+passes are offloaded to a threaded BLAS/LAPACK li-
+brary. Appropriate batching strategies improve perfor-
+mance by increasing the size of the parallel regions within
+a batch. After each optimizer step the gradients from
+all ranks are accumulated by a collective reduction, the
+master updates the network weights, and the updated
+parameters are broadcast before the next batch.
+For Kalman filter optimizers the multistream variant
+of Singraber et al. [59] is used: each MPI rank provides
+one data stream and a single Kalman update step is per-
+formed, avoiding a sequential gradient loop. A similar
+procedure is applied to all other optimizers implemented
+in RuNNer 2.0.
+2.
+Prediction
+When predicting a full dataset (Fig. 4 – Predic-
+tion), model weights and feature scaling data are broad-
+cast to all ranks and the structure set is divided into
+memory-adapted chunks (see Section III C) that are dis-
+tributed among ranks.
+Similarly to training, all ranks
+build neighbor lists, evaluate features, perform the for-
+ward/backward pass, run charge equilibration and elec-
+trostatics calculations, and compute gradients in paral-
+lel under OpenMP. Forces are accumulated locally and
+no inter-rank communication is needed after the forward
+pass, up until the final results are collected by the master
+process and written to the output file.
+While parallelization at the structure level among
+ranks is possible when predicting an entire dataset, this
+is not viable for molecular dynamics.
+When interfac-
+ing RuNNer 2.0 with a simulation propagator like
+LAMMPS (Fig. 4 – MD), typically a domain decompo-
+sition scheme is used where atoms and their neighbor
+lists are distributed across MPI tasks. In this case, each
+task handles the computation of feature values, model
+predictions, and initial gradient concatenation. For 3G
+and 4G models, the electrostatic and QEq steps require
+global knowledge of the simulation cell. In the LAMMPS
+interface this is handled through LAMMPS’ native do-
+main decomposition and ghost-atom communication lay-
+ers, which assemble the full local-plus-ghost atom list
+on the root MPI task where we perform a single, global
+charge equilibration and electrostatics calculation, before
+distributing the resulting per-atom quantities back via
+LAMMPS’ forward/reverse communication mechanism
+and continuing with the remaining calculation steps in
+parallel.
+C.
+Memory Management
+Training and prediction require holding neighbor lists,
+feature vectors, and their derivatives in memory si-
+multaneously, which for large datasets can exceed the
+available RAM. RuNNer 2.0 addresses this challenge
+through a chunked data-loading strategy implemented in
+FileDataLoader (Fig. 3 – Level 1), which enables an op-
+timal tradeoff between memory consumption and compu-
+tational efficiency. This strategy ensures that RuNNer
+2.0 scales across a wide range of hardware architectures.
+10
+FIG. 4. Hybrid MPI/OpenMP parallelization strategy in RuNNer 2.0 for the three main workflows training, prediction, and
+molecular dynamics (MD). During training (left panel), structures are distributed across MPI tasks, where each task handles
+the per-batch operations like feature evaluation, forward/backward pass, charge equilibration (QEq), electrostatic evaluation,
+and chain-rule application. All of these operations are parallelized across threads via OpenMP. The calculated gradients θ are
+collected on the root MPI task and a collective optimizer step is performed before the updated parameters are redistributed to
+the MPI tasks and the next batch is loaded. When predicting one chunk of a dataset using the standalone RuNNer 2.0 binary
+(middle panel), operations follow a similar scheme. After each task has calculated the requested properties (e.g., energies,
+forces, stress) for its subset of structures, the information is collected on the root MPI task and written to output files. When
+interfacing to RuNNer 2.0 through a molecular dynamics (MD) code like LAMMPS (right panel), usually only a single,
+large structure is predicted that is fragmented across MPI tasks. Each task uses OpenMP to compute features, perform the
+forward/backward passes through the models, and compute force and stress contributions by applying the appropriate gradient
+chain rules. For 3G and 4G electrostatics/charge equilibration, all local properties and their gradient contributions must be
+collected on the master MPI rank where OpenMP parallelization is performed before the results are redistributed and required
+gradient contributions can be added on each task. The resulting arrays are then reduced by the MD propagator to yield the
+final energies E, forces F, and lattice stress.
+1.
+Training
+Before the training loop begins, RuNNer 2.0 esti-
+mates the RAM required by the six major components:
+the raw structure data, the neighbor lists, the precom-
+puted feature vectors, their nuclear coordinate deriva-
+tives, and, for 4G models, the global charge features and
+the associated Coulomb matrix A. The memory budget
+can be set explicitly or left to be queried automatically
+from the operating system. The dataset (structures and
+their neighbor lists) is partitioned into the smallest num-
+ber of equal-sized chunks that fit within the budget.
+When the entire dataset fits into a single chunk, the
+code dynamically attempts to precompute and cache all
+features and their derivatives before the loop over train-
+ing epochs begins. Feature evaluation is then absent from
+the inner loop, saving computational time by avoiding
+to recalculate the same values every epoch and maxi-
+mizing the benefit of the batched matrix operations and
+OpenMP parallelism.
+When multiple chunks are re-
+quired, features are computed on-the-fly for each batch
+and released immediately after the optimizer step. The
+two approaches can be mixed at a fine-grained level: for
+example, feature vectors can be cached while their deriva-
+tives, which require substantially more memory, are re-
+computed on demand.
+Storage space of environment-dependent features and
+their derivatives scales linearly with the number of atoms
+in the training dataset.
+For 4G and ee4G force train-
+ing, the additional features with a global dependency
+(charges, electrostatic embeddings) and their derivatives
+are equally cached. It is noted that in 4G models stor-
+age of the dense matrix ∂q
+∂r scales O
+ N 2
+with the num-
+ber of atoms in the system. For 4G charge training, the
+Coulomb matrix and its inverse are precomputed and
+stored, and the required memory also scales quadratically
+with the number of atoms per structure (see Sec. III G 2
+for a more comprehensive explanation).
+2.
+Prediction
+RuNNer 2.0’s prediction mode enables the efficient
+recalculation of entire datasets.
+This is often practi-
+cally useful, e.g., for evaluating the performance of a
+trained potential on validation datasets.
+In prediction
+mode the number of chunks is adjusted such that all
+feature values and their derivatives fit into memory for
+a single chunk.
+This maximizes the throughput for
+OpenMP-parallelizable operations like feature evaluation
+and neighbor list construction, which are performed for
+the entire chunk at once and then consumed batch by
+batch during the forward pass. Because structures are
+independent, each chunk can be distributed over MPI
+11
+ranks without cross-structure communication.
+In simulation runs, i.e., typically for a single large sys-
+tem, each MPI task of RuNNer 2.0 manages memory
+as required for the part of the simulation box it owns.
+At the first simulation step, the code creates a buffered
+neighbor list and a static feature storage space. If the
+number of atoms or neighbors owned by the task changes
+during the simulation, these structures are resized with
+a preallocated safety margin. Because such reallocations
+are rare, this strategy yields a substantial performance
+increase compared to dynamic reallocation.
+D.
+Available Models
+RuNNer 2.0 adopts a modular model architecture
+that separates generic machine-learning models from rep-
+resentations of physical observables.
+Generic models,
+such as neural networks, provide reusable functionality
+for tasks including parameter management, forward eval-
+uation, and gradient propagation. Property models build
+upon these components to represent specific quantities of
+interest, such as energies, forces, charges, or other atomic
+quantities.
+To facilitate interoperability across workflows, all prop-
+erty models implement a common interface that defines
+the routines required for training and inference.
+This
+abstraction allows model components to be exchanged
+without modifications to the surrounding infrastructure
+and ensures consistent integration into optimization, pre-
+diction, and analysis workflows.
+A
+prominent
+example
+is
+the
+implementation
+of
+RuNNer
+2.0’s
+HDNN
+model
+type,
+in
+which
+species-specific
+neural
+networks
+are
+combined
+into
+a unified property model.
+In addition,
+RuNNer
+2.0
+provides
+generic
+elemental
+property
+models
+(ElementalPropertyModel) for fitting environment-
+independent quantities.
+1.
+Second-Generation HDNNPs
+In RuNNer 2.0 the second generation model is rep-
+resented by a single HDNN type. Network architectures
+like the number of layers, nodes, and activation functions
+can be specified on a per-element and per-committee
+member basis.
+User-defined atomic reference energies
+can be subtracted from the training targets. During pre-
+dictions, these atomic energies are added back to the net-
+work output to obtain total energies that are numerically
+consistent with the underlying reference method.
+2.
+Third-Generation HDNNPs
+Local properties needed for computing interactions be-
+yond the cutoff radius (s. Eq. 3) are predicted by dedi-
+cated HDNN instances that may share feature represen-
+tations with the short-range energy model. The result-
+ing electrostatic and dispersion energies are subsequently
+evaluated using the interaction models described in Sec-
+tions II C and II D; their respective solver implementa-
+tions are discussed in Section III F. In the code base, a
+calculator for dispersion interactions is added as a sepa-
+rate type (Fig. 3 – Level 1) and is therefore available for
+all HDNNP generations and compatible with committee
+evaluation.
+3.
+Fourth-Generation HDNNPs
+In RuNNer 2.0, two property models predict atomic
+electronegativities χ and hardnesses J,
+respectively.
+Through the choice of the explicit property model
+(HDNN or ElementalPropertyModel) it is possi-
+ble to express these properties as environment- or solely
+element-dependent quantities. The equilibrium charges
+are then obtained by minimizing the electrostatic energy
+under the constraint of total charge conservation, solving
+the linear system of Eq. 16. The concrete solver imple-
+mentations and their computational scaling are discussed
+in Section III F.
+E.
+Feature Map Implementation
+The feature map framework in RuNNer 2.0 is de-
+signed for extensibility: new feature maps can be added
+by implementing a well-defined interface and are then
+registered in the feature calculator, without the need
+to modify any other part of the library. RuNNer 2.0
+ships reference implementations of atom-centered sym-
+metry functions and the overlap matrix descriptor.
+1.
+Atom-Centered Symmetry Functions
+To accelerate feature evaluation, ACSFs sharing com-
+mon parameters, such as the cutoff function, neigh-
+bor element specifications, and ACSF type, are grouped
+into batches to compute multiple features simultaneously,
+with the per-feature parameters (η, Rshift, ζ) stored as
+arrays [30].
+Common intermediate quantities such as
+pairwise distances, angles, and cutoff function values are
+computed once per group and reused across all members,
+eliminating redundant calculations. The batch structure
+also exposes single instruction, multiple data (SIMD)
+vectorization opportunities across the per-feature param-
+eter arrays.
+Quantities depending only on the feature
+parameters but are independent of the atomic positions
+are precomputed at initialization and cached, avoiding
+repeated evaluations on the same system.
+12
+2.
+Overlap Matrix
+The overlap matrix features (Section II B 2) are imple-
+mented as a feature map type following the same inter-
+face as the ACSF types.
+The smooth spectral projec-
+tion of Eq. 10 is the default variant; the original sorted-
+eigenvalue form is also available.
+F.
+Electrostatics Solvers
+For periodic systems, which we consider as the typi-
+cal scenario, Eq. 11 is evaluated via direct Ewald sum-
+mation [60], scaling as O(N 3/2), or via two mesh-
+based schemes–a plane-wave solver and PPPM [61]–both
+of which achieve O(N log N) scaling by evaluating the
+Coulomb kernel in reciprocal space via FFT. For non-
+periodic systems a direct pairwise Coulomb sum is used.
+For 4G models, the charges are obtained by solving
+the (N + 1) × (N + 1) system of linear equations given in
+Eq. 16 at every evaluation step. A direct LU factorization
+scales as O(N 3) and is feasible only for small to medium-
+sized systems. Iterative conjugate gradient (CG) solvers
+reduce the per-step cost, but a naive matrix-vector prod-
+uct Av still scales O(N 2) because the Coulomb kernel
+couples every pair of atoms.
+For these reasons, RuNNer 2.0 employs the quasi-
+linear-scaling particle mesh charge equilibration scheme
+of Gubler et al. [62].
+The central insight is that the
+matrix-vector product (A · q)i is equivalent to the gradi-
+ent of the electrostatic energy with respect to the charge
+on atom i,
+(A · q)i = ∂Eelec
+∂qi
+=
+Z
+ρi(|r −ri|) V (r) dr ,
+(18)
+where ρ(r) = P
+j qjρj(∥r−rj∥) is the current total charge
+density and V (r) its electrostatic potential.
+For peri-
+odic boundary conditions, V (r) is obtained by solving
+Poisson’s equation in Fourier space: the charge density
+is projected onto a uniform real-space grid, transformed
+by FFT, multiplied by the reciprocal-space kernel 4π/G2
+(where G denotes the magnitude of the reciprocal lat-
+tice vector G), and back-transformed.
+Evaluating the
+integral of the electrostatic potential V (r) over the lo-
+calized atomic density ρi then yields (A · q)i for every
+atom at O(N log N) total cost, dominated by the FFT;
+the integral is quasi-local because the Gaussian densities
+ρi decay exponentially, so only a small real-space vol-
+ume around atom i needs to be sampled. Crucially, this
+procedure evaluates the matrix-vector product without
+ever forming the N × N Coulomb matrix A. The same
+Fourier-space machinery also yields analytical forces and
+the stress tensor without increasing the computational
+scaling complexity, by evaluating further convolutions
+with the same transformed potential.
+In practice, the number of CG iterations often in-
+creases with system size.
+Gubler et al.
+found empir-
+ically that for real systems the overall method scales
+as O(N log2 N). This algorithmic advance is the origin
+of the orders-of-magnitude higher efficiency compared to
+other 4G implementations as demonstrated in Fig. 5.
+G.
+Computational Performance Considerations
+1.
+Order of Feature Evaluation in Training
+Using the force vector of atom i for training does not
+only require its feature values Gi but also the partial
+derivatives with respect to its nuclear coordinates of all
+feature vectors of the neighboring atoms containing the
+central atom i in their respective cutoff radii (see Eq. 2).
+RuNNer 2.0 provides two complementary evaluation
+strategies, which are selected automatically based on the
+fraction of force components/vectors per structure batch
+that are selected for parameter updates.
+Importantly,
+these strategies only optimize performance and do not
+influence the final training results (up to numerical dif-
+ferences caused by altered summation order).
+In the atom-centric route, all derivatives of a central
+atom i’s feature vector with respect to its neighbors are
+computed in a single pass and the resulting Jacobian is
+cached for the whole structure batch. This Jacobian is
+then reused for every force component in the batch that
+involves atom i as a neighbor. This route is mandatory
+for 4G-HDNNPs because the global charge feature cre-
+ates a dense dependency between every atom’s energy
+and every other atom’s position; it is also preferred for
+small periodic structures where the number of neighbors
+per atom is larger than the total number of atoms in the
+unit cell, and when the fraction of forces to be used in
+training is above 50%. In the neighbor-centric route, only
+the derivatives of neighbors’ feature vectors with respect
+to one specific target atom are evaluated and no batch-
+wide Jacobian is stored, which reduces peak memory sub-
+stantially if only a small fraction of atoms is selected for
+force updates per batch.
+For small periodic systems with many neighbors per
+atom an additional optimization sums all periodic-image
+contributions from a central atom to a target force dur-
+ing packing, so that the number of backward passes per
+force component scales with the number of atoms in the
+structure rather than the number of neighbors.
+2.
+4G-HDNNP Charge Training
+For 4G charge training, Eq. 16 must be solved repeat-
+edly to obtain the atomic charges q based on the updated
+electronegativities χ and hardnesses J. Since
+q′ = −A′−1χ′ ,
+(19)
+the Coulomb matrix A and its inverse A−1 can be
+cached, which reduces this step to a single efficient
+13
+matrix-vector product.
+If the hardness is kept fixed
+throughout training, the Coulomb matrices for all struc-
+tures can be precomputed and inverted once before the
+training loop begins. If the hardness is learned along with
+the electronegativities, the Coulomb matrix is stored
+without the hardness contributions to its diagonal ele-
+ments; after each forward pass, it is then updated with
+the new hardness values and re-inverted. Even in this
+case, a substantial performance gain is achieved by avoid-
+ing the repeated construction of the Coulomb matrix
+from scratch.
+3.
+HDNNP Committees
+Committee models enable active learning protocols
+and often provide more stable predictions through aver-
+aging [63]. They consist of Ncomm independently initial-
+ized and trained networks that are evaluated jointly for
+each input structure. Training multiple committee mem-
+bers is supported natively in RuNNer 2.0: each mem-
+ber is trained as an independent network with its own
+random weight parameter initialization and architecture
+and the parallelization and memory management strate-
+gies described above apply equally to committee training
+and to single-network training. When features and their
+derivatives are evaluated on the fly, this reduces the per-
+committee training cost substantially.
+Otherwise, the
+per-member training cost is essentially identical to that
+of a single model.
+At evaluation time, RuNNer 2.0
+computes neighbor lists and feature maps once per call;
+each of the Ncomm networks then performs its own for-
+ward pass over the shared feature vectors. The marginal
+cost of adding a committee member is therefore approx-
+imately equal to the cost of a single neural-network for-
+ward pass for each member and atom, which is typically
+small compared to feature evaluation and neighbor-list
+construction for realistic system sizes. All per-member
+outputs — energies, forces, stresses, charges, and Hirsh-
+feld volumes — are stored separately and can be accessed
+by the user. Mean values are used for MD propagation,
+while the standard deviation provides a direct measure
+of uncertainty that can be used to trigger retraining in
+active learning loops.
+H.
+Available Optimizers
+For optimizing the neural network weights, RuNNer
+2.0 supports gradient descent (GD), stochastic gradient
+descent (SGD), Adam [56], and two variants of the ex-
+tended Kalman filter (standard and fading-memory) [57].
+The gradient-based optimizers (GD, SGD, and Adam)
+are parallelized by averaging gradients across MPI ranks
+after each local backward pass. The Kalman filter vari-
+ants require a different procedure because the update
+equations couple all parameters through a covariance ma-
+trix: for these, the multistream formulation of Singraber
+et al. [59] is used, in which each MPI rank provides one
+data stream and the full Kalman update is performed
+collectively.
+This makes the Kalman filter scale under
+MPI parallelism nearly as efficiently as gradient descent.
+Mathematical details are provided in the Supporting In-
+formation, Sec. 1 G 2 d.
+I.
+Interfaces to External Software
+RuNNer 2.0 provides C binding interfaces to key
+computational routines, enabling straightforward inte-
+gration into other programming language environments
+and simulation codes. In the following, this is demon-
+strated for native interfaces to LAMMPS [64] and
+Python, the latter being further integrated into the
+Atomic Simulation Environment (ASE) [58].
+1.
+LAMMPS Interface
+RuNNer
+2.0
+provides
+a
+native
+pair
+style
+for
+LAMMPS [64] supporting all HDNNP generations–
+including 4G charge equilibration, dispersion corrections,
+and committee uncertainty quantification–within a stan-
+dard LAMMPS simulation workflow.
+The interface is
+implemented as a thin C++ layer on the LAMMPS side
+that communicates with the RuNNer 2.0 shared library
+through ISO C bindings. This design decouples the two
+codebases: the RuNNer 2.0 library evolves indepen-
+dently, and the narrow C interface only requires updates
+when new library functionalities need to be exposed to
+the driver application.
+The neighbor list produced by LAMMPS’ domain de-
+composition is converted into RuNNer 2.0’s internal
+format before feature evaluation, supporting multiple si-
+multaneous cutoff radii. For 3G and 4G models, long-
+range electrostatics and QEq require a globally con-
+sistent view of the atomic charges: the interface uses
+LAMMPS’s forward and reverse communication layers
+to assemble the full local-plus-ghost atom list before QEq
+and to distribute the resulting atomic charges back to the
+owning ranks afterwards. Stress tensors are computed
+through the virial theorem for 2G-HDNNPs and analyt-
+ically for all other HDNNP generations and passed back
+to LAMMPS in the standard format required for NPT
+simulations.
+Committee models are evaluated in a single call to
+the RuNNer 2.0 library, with the averaged energies and
+forces used for MD propagation. Individual member pre-
+dictions are optionally stored as per-atom arrays, provid-
+ing direct access to uncertainty estimates during produc-
+tion simulations without any additional computational
+overhead. The interface also provides feature extrapola-
+tion detection: at each MD step a check is performed if
+any atomic environment falls outside the training data
+distribution, which can be used as a starting point for
+14
+active learning or to terminate the simulation before un-
+physical behavior might occur.
+2.
+ASE: RuNNerlib
+RuNNer 2.0 provides a Python calculator for the
+Atomic Simulation Environment (ASE) [58] that enables
+access to the full suite of RuNNer 2.0 capabilities from
+within ASE’s ecosystem. The key design choice is to com-
+municate directly with the RuNNer 2.0 shared library
+through Python’s ctypes interface rather than through
+on-disk files: atomic positions, cell vectors, and species
+are passed in memory and energies, forces, and stresses
+are returned in the same call. This eliminates the I/O
+overhead that makes file-based calculators less perfor-
+mant, especially for large-scale simulations. The plugin
+is distributed as a standalone package [65] that requires
+only a working RuNNer 2.0 installation; no modifica-
+tions to ASE are needed. Committee models are sup-
+ported in ASE in an identical way to the LAMMPS in-
+terface, with averaged properties used by default and in-
+dividual member outputs available for uncertainty esti-
+mation.
+3.
+ASE: RuNNerbin and Workflow Management
+The RuNNerlib calculator described above is opti-
+mized for low-latency in-memory evaluation and is the
+appropriate interface for molecular dynamics, geome-
+try optimization, and on-the-fly uncertainty monitoring.
+Managing a complete potential development workflow in-
+cluding dataset curation, feature design, iterative train-
+ing, convergence analysis, and active learning, requires
+a different integration point.
+This is provided by the
+broader runnerase ecosystem, a collection of Python
+packages that expose the full RuNNer 2.0 workflow
+through ASE-compatible interfaces.
+At the workflow level, RuNNerbin is a subprocess-
+based calculator that invokes the RuNNer 2.0 exe-
+cutable directly and manages the associated file-based
+protocols for training and standalone prediction. Rather
+than communicating through the shared library in mem-
+ory, RuNNerbin prepares the required input files, dis-
+patches the binary, and parses all output back into struc-
+tured Python objects.
+This design is intentional: file-
+based decoupling enables the restart of training jobs,
+monitoring, and compatibility with batch schedulers,
+where the Python orchestration process and the compute
+job run independently. A lightweight SLURM submission
+utility included in the ecosystem allows submitting com-
+plex training workflows as sequences of dependent batch
+jobs, with states managed between individual runs en-
+tirely in Python.
+Every quantity produced by a RuNNer 2.0 training
+run is represented by a dedicated storage class that reads
+and writes RuNNer 2.0’s native file formats and ex-
+poses the data as NumPy arrays. This includes network
+weights, input and output scaling parameters, precom-
+puted feature values, dataset partitions, and per-epoch
+metrics including energies, forces, stresses, and arbitrary
+atomic properties like charges or Hirshfeld volumes. This
+makes the complete training state directly accessible to
+Python-based postprocessing without manual file pars-
+ing. Feature maps can be generated programmatically
+from physical heuristics and pruned by variance or impor-
+tance thresholds derived from the training data, with sep-
+arate utilities for dataset inspection, composition analy-
+sis, and structure visualization with OVITO [66].
+The runnerase ecosystem also provides a self-
+contained active learning framework that couples com-
+mittee disagreement directly to the training loop. During
+a simulation, each evaluation is processed by all commit-
+tee members; when the spread of their predictions ex-
+ceeds a configurable threshold, the flagged configuration
+is collected, submitted for DFT evaluation, and incorpo-
+rated into the training set before the next training round.
+Because committee support runs through all RuNNer
+2.0 workflows without additional overhead, this auto-
+mated retraining cycle requires no modifications to the
+simulation protocol.
+The reader and writer for RuNNer 2.0’s native struc-
+ture format are maintained as a part of the official ASE
+distribution and are available to ASE users without ad-
+ditional installation. All other runnerase packages are
+distributed as independent entries[65, 67–71] and a sin-
+gle wrapper package [72] on the Python Package Index
+(PyPI), allowing users to conveniently install all packages
+at once or only the components relevant to their use case.
+IV.
+COMPUTATIONAL PERFORMANCE
+We benchmark RuNNer 2.0’s computational perfor-
+mance on CPU-based hardware for three typical applica-
+tions: molecular dynamics simulations in LAMMPS [64],
+property evaluation via the ASE interface [58], and model
+training using RuNNer 2.0 directly. LAMMPS bench-
+marks are compared against the open-source HDNNP
+codes n2p2 [30] and PANNA 2.0 [32]. Timings are re-
+ported for large supercells of a water reference system (96
+atoms per unit cell) at the respective compiler-optimized
+production settings. Full details of the test systems are
+provided in the SI, Sec. 2 B.
+A.
+LAMMPS MD Performance
+Figure
+5
+summarizes
+the
+performance
+of
+the
+pair style runner for energy and force predictions
+across different system sizes, parallelization strategies,
+and HDNNP generations. Detailed hardware specifica-
+tions are given in the SI, Sec. 2 B.
+All generations exhibit favorable scaling with the num-
+ber of OpenMP threads (Fig. 5a) for a 96,000-atom sys-
+15
+tem. For 2G-HDNNPs, the runtime is dominated by fea-
+ture evaluation, with minor contributions from force cal-
+culation ( dE
+dG
+dG
+dr ) and neighbor list assembly. Near-ideal
+speedup is maintained up to 64 threads, beyond which
+synchronization overhead limits further gains.
+Adding
+electrostatics in the 3G-HDNNP case introduces a major
+contribution from the long-range solver in the same order
+of magnitude as the feature evaluation. The 4G-HDNNP
+model carries the additional cost of the global charge
+equilibration; consequently, the runtime is dominated
+by QEq and electrostatic force evaluation via the force
+trick (see Sec. II C). The FFT operations in the plane-
+wave solver exhibit near-ideal scaling up to 96 threads,
+at which point memory access across the two CPUs of a
+single compute node becomes a bottleneck. Nevertheless,
+the code still benefits from additional resources up 192
+threads, i.e., the full compute node, with a maximum 4G-
+HDNNP throughput of approximately 0.03 ns d−1 based
+on a time step of 1 fs.
+For 2G-HDNNPs, MPI strong scaling stays ideal for
+up to 36 compute nodes (6,912 cores) across all investi-
+gated system sizes from 12,000 to approximately 12 mil-
+lion atoms, with no evidence of a communication bot-
+tleneck until the per-node workload becomes too small
+in comparison to MPI overhead (Fig. 5b). For instance,
+simulation length per day for 1.5 million atoms increases
+from 0.03 ns/day (1 fs timestep) on a single node, to
+1.12 ns/day when using all 36 nodes.
+The single out-
+of-memory point for 12 million atoms when using only
+one node (total RAM: 768 Gigabyte) confirms that mem-
+ory, not performance, is the practical constraint at this
+scale. In all cases, optimal performance is reached by ex-
+ploiting RuNNer 2.0’s hybrid parallelization, assigning
+eight OpenMP threads to each MPI task. As evident in
+panels (c) and (d) the 2G-HDNNP performance of RuN-
+Ner 2.0 is on par with the HDNNP implementations
+n2p2 [30] and PANNA [32] on a 96,000-atom system un-
+der pure-MPI and hybrid MPI/OpenMP parallelization,
+respectively. RuNNer 2.0 reaches lower absolute wall
+times than both codes across the tested configurations,
+with the gap widening at low MPI task counts where
+RuNNer 2.0’s more efficient per-core feature evaluation
+provides the largest advantage.
+It is noted that these
+tests are not exhaustive, and all three codes perform
+competitively.
+Nevertheless, this result is particularly
+striking when considering the design philosophy of the
+different frameworks. RuNNer 2.0 focuses strongly on
+reusable workflows, employing a unified codebase where
+the LAMMPS interface utilizes the exact same high-
+performance prediction routines as the ASE interface and
+the standalone RuNNer 2.0 training binary.
+In contrast, other implementations often diverge at
+the architectural level; for instance, PANNA maintains
+a fully independent LAMMPS interface, a design choice
+that facilitates its excellent OpenMP parallelization char-
+acteristics.
+Furthermore, RuNNer 2.0’s development
+was fundamentally centered around the complex chal-
+lenges of 4G-HDNNPs, where global charge equilibration
+rather than local potential evaluation represents the pri-
+mary computational bottleneck. The fact that RuNNer
+2.0 maintains such high efficiency for 2G-HDNNPs de-
+spite this focus on 4G-specific optimizations underscores
+the robustness of its core kernels.
+Demonstrably, RuNNer 2.0 outperforms both n2p2
+and PANNA in 4G-HDNNP simulations of systems with
+96, 768, and 2592 atoms (Fig. 5e).
+Simulations of
+larger systems are possible with RuNNer 2.0 (Fig. 5a),
+whereas the computational scaling of the other codes lim-
+its their use to moderately sized systems. For each code,
+we choose the optimally supported parallelization scheme
+(MPI for n2p2 and PANNA, OpenMP for RuNNer 2.0).
+The n2p2 4G timings use the iterative QEq implemen-
+tation of Kocer et al. [73], with an improved solver con-
+tributed in preparation for this benchmark;[74] even with
+these improvements, n2p2 is slower than RuNNer 2.0
+by up to two orders of magnitude, as is PANNA. We
+note that PANNA uses a slightly different ACSF imple-
+mentation and predicts the required atomic properties as
+part of a single model with multiple output nodes. The
+fundamental reason is algorithmic: n2p2’s iterative QEq
+requires one full O(N 2) matrix–vector product with the
+dense Coulomb matrix per CG iteration, whereas RuN-
+Ner 2.0’s plane-wave decomposition reduces each such
+product to O(N log N). As system size grows from 96 to
+2592 atoms the gap widens accordingly. In RuNNer 2.0,
+the plane-wave/CG variant consistently outperforms the
+direct Ewald solver confirming that the reciprocal-space
+decomposition is the more practical choice for all but the
+smallest simulation cells.
+B.
+RuNNerlib ASE Performance
+The ASE calculator interface (RuNNerlib) provides a
+Python-accessible route to RuNNer 2.0 potentials for,
+e.g., structure optimizations, vibrational analysis, and
+molecular dynamics [58]. Figure 6 shows the wall time
+as a function of committee size for three system sizes
+(96, 12,000, and 96,000 atoms) and all three HDNNP
+generations.
+The actual wall time grows far more slowly than
+the naive expectation of independent committee mem-
+ber evaluations (gray reference bars). Because neighbor
+lists and feature vectors are computed once and shared
+across all committee members, the cost of adding a mem-
+ber is limited to the neural network forward pass itself,
+which is a small fraction of the total step time for re-
+alistically sized systems.
+Committees of four to eight
+members are therefore computationally affordable even
+for 96,000 atoms, which matters in practice given their
+role in uncertainty quantification and active learning. As
+expected from the LAMMPS benchmarks, the contribu-
+tion of the electrostatic and QEq contributions to the
+total cost grows with increasing system size and gener-
+ation. For a 4G-HDNNP model with a committee size
+of eight at 96,000 atoms, solving the QEq equations ac-
+16
+1
+8
+16
+32
+64
+96
+128
+192
+Number of OpenMP Threads
+10−2
+10−1
+100
+101
+102
+Time / Step [s]
+2G
+a) OpenMP Scaling (96000 atoms)
+Timing Contributions
+Total Time
+Feature Evaluation
+Forward/Backward
+2G Forces
+Neighborlist Transfer
+Other
+Ideal Scaling
+Electrostatics
+QEq
+1
+8
+16
+32
+64
+96
+128
+192
+Number of OpenMP Threads
+3G
+1
+8
+16
+32
+64
+96
+128
+192
+Number of OpenMP Threads
+4G
+192
+384
+768
+1536
+3072
+6912
+1
+2
+4
+8
+16
+36
+10−3
+10−2
+10−1
+100
+101
+Time / Step [s]
+Nodes
+Total Threads
+b) 2G-HDNNP MPI Scaling
+Number of Atoms
+12k
+96k
+324k
+768k
+1.5 million
+12 million
+Ideal scaling
+Out Of Memory
+1
+1
+1
+1
+1
+1
+1
+1
+2
+4
+8
+16
+32
+64
+100
+101
+Time / Step [s]
+MPI Tasks
+OpenMP Threads
+c) 2G-HDNNP MPI Scaling (96k atoms)
+n²p²
+PANNA
+RuNNer
+Lowest Time
+64
+32
+16
+8
+4
+2
+1
+1
+2
+4
+8
+16
+32
+64
+100
+101
+Time / Step [s]
+MPI Tasks
+OpenMP Threads
+d) 2G-HDNNP MPI/OpenMP Scaling (96k atoms)
+n²p²
+PANNA
+RuNNer
+Lowest Time
+10−2
+10−1
+100
+101
+102
+103
+Time / Step [s]
+96 atoms
+e) 4G-HDNNP Scaling
+n²p²
+PANNA
+RuNNer (Ewald/Direct)
+RuNNer (PW/CG)
+10−2
+10−1
+100
+101
+102
+103
+Time / Step [s]
+768 atoms
+1 2 4 8 163264
+1 2 4 8 163264
+1 2 4 8 163264
+1 2 4 8 163264
+10−2
+10−1
+100
+101
+102
+103
+Time / Step [s]
+2592 atoms
+MPI Tasks
+MPI Tasks
+OpenMP Threads
+OpenMP Threads
+FIG. 5.
+Prediction performance of pair style runner in LAMMPS for a water reference system. (a) OpenMP thread scaling
+for 2G, 3G, and 4G-HDNNPs at 96,000 atoms, with per-step wall time decomposed by timing contributions. (b) 2G MPI strong
+scaling for 2G-HDNNPs from 12,000 to about 12 million atoms for up to 36 compute nodes (192–6912 total threads); the marker
+labeled OOM indicates an out-of-memory failure. (c) Pure-MPI scaling at 96,000 atoms comparing RuNNer 2.0, n2p2 [30],
+and PANNA [32]. (d) Hybrid MPI/OpenMP scaling at 96,000 atoms for the same three codes. (e) 4G-HDNNP scaling for
+96, 768, and 2592 atoms as a function of MPI tasks (left two columns) and OpenMP threads (right two columns), comparing
+RuNNer 2.0 (Ewald/direct and plane-wave/CG), n2p2, and PANNA. Detailed test setup and hardware specifications are given
+in the SI, Secs. 2 B 0 a and 2 C.
+17
+counts for the majority of the per-step time, while for
+2G-HDNNP models the forward pass remains the domi-
+nant contribution at all sizes tested.
+0.00
+0.05
+0.10
+0.15
+96 atoms
+0
+1
+2
+3
+4
+Time / Step [s]
+12000 atoms
+2G
+3G
+4G
+1
+2
+4
+8
+1
+2
+4
+8
+1
+2
+4
+8
+Committee Size
+0
+10
+20
+30
+96000 atoms
+Timing Contributions
+Feature Evaluation
+Forward/Backward
+2G Forces
+Electrostatics
+QEq
+Other
+Naive Scaling
+FIG. 6.
+Wall time per evaluation step of the RuNNerlib
+ASE calculator as a function of committee size for 2G-, 3G-,
+and 4G-HDNNPs at three system sizes (96, 12,000, and 96,000
+atoms). Bars are decomposed by timing contribution; gray
+bars indicate the naive overhead expected from independent
+sequential committee evaluations. Detailed hardware specifi-
+cations are given in the SI, Sec. 2 B 0 b.
+C.
+Training Performance
+Models trained using RuNNer 2.0 reach state-of-the-
+art accuracy on energy (≤1 meV atom−1) and force
+labels (≤100 meV ˚A
+−1).
+Apart from that, efficient
+training is critical for the iterative workflows underpin-
+ning HDNNP development, since active learning, hyper-
+parameter optimization, and committee construction re-
+quire many training runs.
+Figure 7 compares total wall times for 100 training
+epochs with RuNNer 2.0 with its predecessor RuN-
+Ner 1.3 employing four memory management strategies
+as a function of OpenMP thread count. The test setup
+was chosen such that both codes achieve similar accu-
+racy with a nearly identical number of optimizer steps.
+Further details are provided in the SI, Sec. 2 D.
+The four strategies span the spectrum from maximum
+throughput on a HPC cluster to limited resources, e.g.,
+on a local workstation. When the entire dataset fits in
+RAM, all features and their derivatives are precomputed
+once and cached before the loop over epochs begins, keep-
+ing feature evaluation entirely outside the inner loop.
+When memory is more limited, RuNNer 2.0 may load
+the dataset in multiple chunks, in which case the features
+can be recomputed on-the-fly for each structure batch
+and discarded immediately, or the precomputed features
+can be read from a disk cache. For comparison purposes,
+we additionally test the intermediate case of loading the
+full dataset in a single chunk, but computing features on-
+the-fly nonetheless. The choice of strategy has significant
+impact on all training procedures, but especially so on
+4G charge and force training, because 4G models require
+storing global charge features and the Coulomb matrix
+in addition to the standard per-atom feature derivatives.
+For 2G-HDNNP force training (Fig. 7a), RuNNer
+2.0 is an order of magnitude faster than RuNNer 1.3
+at identical thread counts. Both the RAM-cached and
+disk-cached variants of RuNNer 2.0 show similar abso-
+lute wall times and negligible sensitivity to thread count.
+This is because the training loop is dominated by the
+optimizer step of the Kalman filter, which profits little
+from OpenMP parallelization. This provides an impres-
+sive lower bound for the overall training time with RuN-
+Ner 2.0. However, a fair comparison to the RuNNer 1.3
+baseline must take into account that the older code re-
+computes all feature derivatives on-the-fly. In this low-
+memory scenario, RuNNer 2.0 still significantly outper-
+forms the preceding code version. This is mainly due to
+the strongly optimized feature evaluation in RuNNer
+2.0. Since 3G-HDNNP force training is algorithmically
+analogous to 2G training, we do not show explicit tim-
+ings.
+For 4G-HDNNP force training (Fig. 7b), the advan-
+tage of full RAM caching is most pronounced:
+with
+all (global) features and their derivatives precomputed,
+RuNNer 2.0 completes each epoch 25 times faster than
+RuNNer 1.3.
+Notably, the 4G force training time in
+RuNNer 2.0 is only negligibly slower than the 2G-
+18
+HDNNP force training time. On-the-fly feature computa-
+tion narrows the advantage because the global charge fea-
+ture derivatives are expensive to evaluate. However, this
+setup profits most from OpenMP parallelization, bring-
+ing it down to the same order of magnitude as the cached
+variant at 16 threads. For 4G-HDNNP charge training
+(Fig. 7c), RuNNer 1.3 precomputes the Coulomb ma-
+trix of all structures before beginning the training loop.
+The comparison with this strategy in RuNNer 2.0 ex-
+hibits a five- to tenfold speedup.
+Notably, RuNNer
+2.0 is still faster than RuNNer 1.3 re-evaluating the
+Coulomb matrix on-the-fly when executed in OpenMP-
+parallel.
+100
+101
+102
+a) 2G Force Training
+100
+101
+102
+b) 4G Force Training
+1
+2
+4
+6
+8
+16
+Number of OpenMP Threads
+100
+101
+102
+c) 4G Charge Training
+Strategies & Configurations
+1 chunk, RAM cache
+1 chunk, on-the-fly
+2+ chunks, on-the-fly
+2+ chunks, disk cache
+RuNNer 1.3
+Wall Time [min]
+FIG. 7. Total training wall times for 100 epochs using RuN-
+Ner 2.0 versus RuNNer 1.3 as a function of OpenMP thread
+count for four memory management strategies:
+full RAM
+cache (one chunk, precomputed), on-the-fly evaluation with
+one chunk, on-the-fly with multiple chunks, and disk cache.
+(a) 2G force training. (b) 4G force training. (c) 4G charge
+network training. Details about the training data and test
+setup are provided in the SI, Sec. 2 D.
+V.
+4G-HDNNP BENCHMARK: NON-LOCAL
+CHARGE TRANSFER IN Au/MgO
+In order to show in which situations 4G-HDNNPs are
+required to obtain a physically correct PES that can-
+not be provided by local or semilocal MLPs, we use an
+adapted version of the benchmark originally designed by
+Ko et al. and investigate the adsorption of a gold adatom
+on a clean and aluminum-doped MgO(001) slab formed
+by a 3 × 3 supercell. To probe the range dependence of
+the effect, we consider a series of three slab thicknesses
+spanning 3, 4, and 5 bulk unit cells (3 × 3 × 3, 3 × 3 × 4,
+and 3 × 3 × 5 supercells).
+On the pristine MgO(001) surface, a gold adatom in-
+teracts primarily through electrostatic polarization and
+dispersion, with a modest energetic preference for adsorp-
+tion above an oxygen atop site. The character of this in-
+teraction changes fundamentally when a deep subsurface
+Mg2+ ion is replaced by Al3+. In DFT, the excess posi-
+tive charge of the Al3+ dopant in combination with the
+constraint of an overall neutral system results in a nega-
+tively charged Au atom. In response, the two adsorption
+sites become almost iso-energetic, with a slight prefer-
+ence for the magnesium atop site in case of the 3 × 3 × 3
+slab. This charge redistribution extends over many lat-
+tice spacings, i.e., the charge state of the adsorbed Au
+atom is sensitive to a dopant that is located well out-
+side the receptive field of the HDNNP. Local MLPs like
+2G-HDNNPs, but also MLPs including long-range elec-
+trostatics based on environment-dependent charges only,
+cannot represent this effect and result in a qualitatively
+incorrect PES. Since this charge transfer is present ir-
+respective of the distance between the Al and the Au
+atoms, also message passing-based MLPs are generally
+unable to capture this charge transfer as it is always pos-
+sible to construct a slab that is thicker than the range
+covered by the message passing steps.
+To demonstrate the need for a global description, we
+trained both a 2G- and a 4G-HDNNP committee on en-
+ergies only, using the same DFT reference dataset, con-
+sisting of adsorption energy curves as a function of Au–
+surface distance for adsorption above the O and Mg atop
+sites in both a pristine and an Al-doped MgO slab across
+all three thicknesses (3 × 3 × 3, 3 × 3 × 4, and 3 × 3 × 5
+supercells).
+As expected, the local 2G-HDNNP model produces
+exactly identical adsorption curves for the pristine and
+doped slabs at every thickness (Fig. 8, upper row), being
+blind to the deep subsurface dopant, and a geometry op-
+timization results in the adsorption of the Au atom at an
+oxygen site in both cases. We note that the exact energy
+landscape learned by the 2G-HDNNP in principle rep-
+resents an average across the two different systems and
+the exact shape will vary depending on the training run
+aiming to minimize the overall loss.
+On the other hand, the 4G-HDNNP model, whose QEq
+scheme enables charges to respond to the global struc-
+ture of the slab, matches the DFT reference for both the
+19
+pristine and doped cases with high fidelity at all three
+slab thicknesses, correctly capturing the doping-induced
+change in both the binding strength and the site prefer-
+ence. Since the effect is reproduced independently of slab
+thickness, this directly illustrates why message passing-
+based MLPs cannot capture it either: one can always
+construct a slab thicker than the message-passing range.
+The committee disagreement remains narrow throughout
+the well-sampled distance range and widens only close to
+the repulsive wall where training data are sparse.
+This benchmark demonstrates that the limitations of
+local models in charge-transfer systems are not merely
+quantitative but categorical, and that the 4G-HDNNP
+framework implemented in RuNNer 2.0 overcomes
+these limitations without sacrificing transferability to the
+non-charge-transfer regime.
+VI.
+CONCLUSIONS
+We have presented RuNNer 2.0, a high-performance
+software suite for training and applying second-, third-,
+and fourth-generation high-dimensional neural network
+potentials. RuNNer 2.0 has been designed to run on
+a wide range of cost-effective CPU-based architectures,
+from simple laptops via desktop workstations to large and
+massively parallel HPC environments utilizing thousands
+of cores across dozens of nodes.
+While large-scale simulations of local MLPs like 2G-
+HDNNPs have become routine in recent years, to date
+implementations of global fourth-generation MLPs have
+remained computationally significantly more demand-
+ing.
+Therefore, a central focus of the development
+of RuNNer 2.0 has been on making large-scale 4G-
+HDNNP molecular dynamics simulations computation-
+ally tractable by overcoming the prohibitive O(N 3) scal-
+ing of QEq with system size. RuNNer 2.0 overcomes
+this bottleneck by using a quasi-linear plane-wave QEq
+scheme, which evaluates the Coulomb matrix–vector
+product via FFT at O(N log2 N) cost without ever form-
+ing the dense matrix. In practice, this reduces the per-
+step wall time of 4G-HDNNP molecular dynamics by sev-
+eral orders of magnitude compared to previous implemen-
+tations making production simulations of large systems
+feasible. Consequently, RuNNer 2.0 achieves linear or
+quasi-linear scaling with system size across all HDNNP
+generations.
+For 2G-HDNNPs, MPI strong scaling in
+LAMMPS-based MD simulations holds ideally across all
+tested system sizes up to 12 million atoms and 36 com-
+pute nodes comprising approximately 7000 cores.
+Full committee support is included in RuNNer 2.0 at
+no structural overhead: neighbor lists and feature vec-
+tors are computed once and shared across all members,
+ensuring that uncertainty estimates come cheaply for in-
+ference and enabling on-the-fly quality assessment during
+production runs.
+Similar algorithmic improvements apply to HDNNP
+training, where these shared committee structures signif-
+icantly streamline ensemble optimization. Moreover, ad-
+vanced caching strategies reduce the per-epoch wall time
+by a factor of 5–25 relative to RuNNer 1.3, successfully
+closing the training cost gap for energy and force training
+between 2G- and 4G-HDNNPs.
+All performance gains rest on a four-level modular ar-
+chitecture implemented in modern Fortran with hybrid
+MPI/OpenMP parallelization and tested via a thorough
+continuous integration pipeline.
+This clean design en-
+sures that RuNNer 2.0 is not only exceptionally robust
+but also easily extensible for future potential generations
+and custom features.
+To seamlessly support the broader computational
+chemistry ecosystem, RuNNer 2.0 features direct, high-
+performance interfaces to common simulation environ-
+ments such as LAMMPS and ASE; for instance, the
+RuNNerlib in-memory ASE calculator exposes the un-
+derlying high-performance kernels to Python with neg-
+ligible interface overhead.
+The complete, open-source
+RuNNer 2.0 software suite, including pre-compiled
+conda packages, user and developer documentation, and
+application guides, is openly accessible via our public
+repository.
+In summary, RuNNer 2.0 closes the gap between
+the physical fidelity of fourth-generation models and the
+computational demands that large-scale atomistic sim-
+ulations impose, opening the 4G-HDNNP framework to
+systems and timescales that were previously accessible
+only to local MLPs.
+VII.
+DATA AND SOFTWARE AVAILABILITY
+The source code of RuNNer 2.0 is publicly avail-
+able under a GPL-v3 license at https://gitlab.
+com/runner-suite/runner2.
+Pre-built binaries are
+provided as conda packages at https://anaconda.
+org/conda-forge/runner.
+The source code of run-
+nerase is hosted on Gitlab at https://gitlab.com/
+runner-suite/runnerase-2.0 and all packages pro-
+vided under that namespace can be installed via pip.
+Training datasets and analysis scripts to produce the fig-
+ures in this work can be found at https:/gitlab.com/
+runner-suite/runner2-paper-data.
+ACKNOWLEDGMENTS
+We thank Djamil Maouene, Rainer Oswald, Jasper
+Kr¨ahe, Bernadeta Prus, Daniel Trzewik, Jan Elsner,
+Amir Omranpour, Maite B¨ohm, Yeliz G¨urdal, and Tsz
+Wai Ko for careful validation and helpful discussions.
+Moreover, we thank the Paderborn Center for Parallel
+Computing (PC2) for the provided computational re-
+sources, and Robert Schade for his generous technical
+support for the benchmark calculations. We thank Aidan
+Thompson and Axel Kohlmeyer for their support in mak-
+ing pair style runner available in LAMMPS, as well
+20
+−2
+−1
+0
+1
+2
+Au adsorption energy Eads (eV)
+Pristine
+Doped
+2.0
+2.2
+2.4
+2.6
+2.8
+3.0
+3.2
+3.4
+Distance to surface (Å)
+−2
+−1
+0
+1
+2
+Au adsorption energy Eads (eV)
+Pristine
+2.0
+2.2
+2.4
+2.6
+2.8
+3.0
+3.2
+3.4
+Distance to surface (Å)
+Doped
+2G-HDNNP
+4G-HDNNP
+HDNNP O (atop)
+HDNNP Mg (atop)
+DFT O
+DFT Mg
+Curve minimum
+3×3×3
+3×3×4
+3×3×5
+Committee (1σ)
+FIG. 8. Adsorption energy Eads of a gold adatom on a MgO(001) surface as a function of the vertical Au–surface distance for
+adsorption above the O (blue/solid) and Mg (orange/dashed) atop sites computed with a local 2G-HDNNP committee (upper
+row) and a global 4G-HDNNP committee (lower row). The energy is referenced to the isolated Au atom and the bare slab, so
+that Eads = 0 corresponds to the Au atom far from the surface. The left column shows the pristine MgO surface, while the
+right column refers to the doped surface with three Mg2+ replaced by Al3+ at the bottom of the slab far from the adsorption
+site. Within each panel, three MgO(001) slab thicknesses (3×3×3, 3×3×4, and 3×3×5 supercells) are overlaid and encoded
+by color shade from dark (thick, 3 × 3 × 3) to light (thin, 3 × 3 × 5). The HDNNP predictions (colored lines) are compared to
+the DFT reference (small markers); for the doped 3 × 3 × 5 slab a few DFT single points did not reach SCF convergence and
+are omitted from those reference curves. Crosses denote the HDNNP energy minimum of each curve. Insets in the upper (2G)
+row show top (z) and side views of the pristine (left) and doped (right) slab.
+as Ask Hjorth Larsen and Adam Jackson for helpful dis-
+cussion and deployment work on the ASE interface. This
+work was supported by the Deutsche Forschungsgemein-
+schaft (DFG) through the Cluster of Excellence RESOLV
+(EXC 2033, project number 390677874) and the Priority
+Programme SPP 2363 “Utilization and Development of
+Machine Learning for Molecular Applications” (project
+number 495842446). A.L.M.K. gratefully acknowledges
+support from the Studienstiftung des deutschen Volkes.
+1
+Supplementary Information: RuNNer 2.0: A Software Suite for High-Dimensional
+Neural Network Potentials
+Alexander L. M. Knoll,1,2 Moritz R. Sch¨afer,1,2 K. Nikolas Lausch,1,2 Moritz Gubler,3,4
+Henry Wang,1,2, Richard Springborn,1,2 Redouan El Haouari,1,2 Alea Miako
+Liebetrau,1,2 Jonas A. Finkler,3, Emir Kocer,1,2 Marco Eckhoff,5 Gunnar Schmitz,1,2
+and J¨org Behler1,2,∗
+1Lehrstuhl f¨ur Theoretische Chemie II, Ruhr-Universit¨at Bochum, 44780 Bochum, Germany
+2Research Center Chemical Sciences and Sustainability, Research Alliance Ruhr, 44780
+Bochum, Germany
+3University of Basel, Department of Physics, Klingelbergstrasse 82, CH-4056 Basel,
+Switzerland
+4PSI Center for Scientific Computing, Theory and Data, Paul Scherrer Institute, 5232
+Villigen PSI, Switzerland
+5ETH Zurich, Department of Chemistry and Applied Biosciences, Vladimir-Prelog-Weg 2,
+8093 Zurich, Switzerland
+1.
+THEORY
+A.
+Atomic Features
+RuNNer 2.0 implements two main classes of mappings from an atom’s local chemical environment to a fixed-length
+feature vector: atom-centered symmetry functions (ACSFs) [42] and the overlap matrix (OM) [48, 49]. Both classes
+depend on a smooth cutoff function that enforces strict locality by suppressing contributions from atoms beyond a
+chosen cutoff radius rcut.
+1.
+Cutoff Functions
+All feature maps in RuNNer 2.0 are multiplied by a cutoff function fcut(rij), which smoothly decays to zero at
+the cutoff radius, fcut(rij ≥rcut) = 0. An optional inner cutoff radius f(rij ≤rinner) = 1 shifts the onset of the decay
+away from the atom, which can be useful for feature sets targeting a specific distance range and for ignoring very
+short interatomic distances that are not present in chemically meaningful geometries. When rinner = 0 (the default),
+the expressions below simplify to their standard single-parameter forms.
+a.
+Cosine cutoff.
+The cosine cutoff [42] provides a smooth, infinitely differentiable transition,
+f cos
+cut(rij) = 1
+2
+
+cos
+π(rij −rinner)
+rcut −rinner
+
++ 1
+
+,
+rinner ≤rij ≤rcut .
+(1)
+b.
+Hyperbolic tangent cutoff.
+An alternative smooth cutoff based on the hyperbolic tangent is defined as
+f tanh
+cut (rij) = tanh3
+
+1 −rij −rinner
+rcut −rinner
+
+,
+rinner ≤rij ≤rcut ,
+(2)
+which decays smoothly to zero at rcut; the cube ensures continuous first and second derivatives at the cutoff, and at the
+inner radius the function takes the value tanh3(1) ≈0.50. Because the exact tanh function cannot be auto-vectorized
+by many compilers, RuNNer 2.0 also provides an approximation to this function that can be computed efficiently,
+tanh(x) ≈x(27 + x2)
+27 + 9x2 ,
+(3)
+and enables SIMD vectorization of inner descriptor loops.
+2
+c.
+Polynomial cutoff.
+The polynomial cutoff
+f poly
+cut (rij) =
+ 
+1 −r2
+ij
+r2
+cut
+!n
+(4)
+with integer exponent n is used exclusively by the overlap matrix descriptors described in Sec. 1 A 3.
+It decays
+algebraically rather than exponentially and is differentiable up to order n at rcut.
+d.
+van der Waals cutoff.
+For van der Waals interactions, a four-region smooth step function is required that is
+flat both near r = 0 and beyond rcut [43]. The transition from zero to one begins at an inner radius rinner extending
+over a buffer region of width dinner, and the following transition from one to zero begins at rcut −dout over a region
+of width dout,
+f vdW
+cut (r) =
+
+
+
+
+
+
+
+
+
+
+
+
+
+0
+rij ≤rinner
+3t2
+inner −2t3
+inner
+rinner < rij ≤rinner + dinner
+1
+rinner + dinner < rij ≤rcut −dout
+1 −3t2
+out + 2t3
+out
+rcut −dout < rij ≤rcut
+0
+rij > rcut
+(5)
+with tinner = (rij −rinner)/dinner and tout = (rij −rcut + dout)/dout.
+2.
+Atom-Centered Symmetry Functions
+Atom-centered symmetry functions (ACSFs) [42] map the local environment of atom i onto a vector of scalars that
+are invariant under rotation, translation, and permutation of same-species neighbors [42]. Each component Gµ of the
+feature vector depends on one or more hyperparameters controlling the spatial resolution and angular sensitivity of
+the corresponding feature. RuNNer 2.0 implements five ACSF types covering radial and angular correlations. We
+follow the nomenclature in 42.
+a.
+Radial atom-centered symmetry functions.
+Type 2 ACSFs are Gaussians centered at a distance Rshift and
+broadened by a width parameter η,
+G(2)
+i,µ =
+X
+j∈Ni
+exp
+h
+−ηµ (rij −rs,µ)2i
+fcut(rij) .
+(6)
+They include contributions from all neighbors Ni. By choosing a range of (ηµ, Rshift,µ) pairs, the radial distribution
+can be simultaneously resolved at multiple scales.
+Type 1 ACSFs, a modified version of those described in 42, form a different radial basis by taking successive even
+powers of the cutoff function evaluated at rij,
+G(1)
+i,µ =
+X
+j̸=i
+[fcut(rij)]2µ−1
+.
+(7)
+The features are computed recursively as G(1)
+i,µ = P
+j̸=i
+
+G(1)
+ij,µ−1
+2 (starting from G(1)
+1
+= P
+j̸=i fcut(rij)), which makes
+the evaluation efficient while generating a set of basis functions with progressively shifting sensitivity from longer to
+shorter interatomic distances.
+b.
+Angular atom-centered symmetry functions.
+Type 3 ACSFs encode three-body distributions through the angle
+θijk centered at atom i and formed by neighbors j and k [42],
+G(3)
+i,µ = 21−ζµ X
+j,k̸=i
+j<k
+(1 + λµ cos θijk)ζµ exp
+
+−ηµ
+ r2
+ij + r2
+ik + r2
+jk
+
+fcut(rij) fcut(rik) fcut(rjk) ,
+(8)
+where λµ ∈{−1, +1} selects the parity of the angular term and ζµ > 0 sharpens the angular resolution. The prefactor
+21−ζµ normalizes the feature to approach unity at θ = 0 for λ = 1.
+3
+Type 9 ACSFs [42] simplify type 3 by dropping the rjk distance dependence,
+G(9)
+i,µ = 21−ζµ X
+j,k̸=i
+j<k
+(1 + λµ cos θijk)ζµ exp
+
+−ηµ
+ r2
+ij + r2
+ik
+
+fcut(rij) fcut(rik) .
+(9)
+Because the third distance rjk neither enters the Gaussian envelope nor the cutoff product, type-9 functions are
+computationally cheaper while still encoding angular information through cos θijk = (rij · rik)/(rij rik). Moreover, by
+omitting the third interatomic distance, more information is included as triples with large rjk are included.
+Type 8 ACSFs place explicit Gaussians in angle space rather than in cos θ space,
+G(8)
+i,µ =
+X
+j,k̸=i
+j<k
+h
+e−ηµ(θijk−θs,µ)2 + e−ηµ(θijk−360◦+θs,µ)2
++ e−ηµ(θijk+θs,µ)2 + e−ηµ(θijk−360◦−θs,µ)2i
+fcut(rij) fcut(rik) fcut(rjk) ,
+(10)
+where the four terms ensure periodicity at 0◦and 360◦and guarantee that the function is symmetric with respect to
+180°.
+For multi-component systems, each ACSF can be evaluated separately for each neighbor species, providing element-
+resolved radial and angular channels. This conventional construction causes the number of radial channels to grow
+linearly and the number of angular channels to grow approximately quadratically with the number of chemical species.
+RuNNer 2.0 therefore also provides element-embracing prefactors [46] for all ACSFs, which decouple the size of the
+feature vector from the number of chemical species in the dataset (see Sec. 1 A 4 b).
+3.
+Overlap Matrix Descriptors
+Overlap matrix descriptors [48, 49] encode the local chemical environment of atom i through the eigenvalue spectrum
+of a matrix of atomic orbital overlap integrals, providing a continuously differentiable, rotationally invariant feature
+set using a typical basis in quantum chemistry. Element information enters through the element-dependent basis
+function parameters assigned to each atom, so mixed-element environments are represented in one common matrix
+rather than through separate feature blocks depending on element combinations.
+a.
+Construction.
+For each angular momentum channel l ∈{s, p, d, . . .}, a set of Gaussian-type orbital (GTO)
+basis functions is attached to each neighbor of atom i within the cutoff sphere. The overlap matrix eSl elements are
+given by the integral of the product of two GTOs centered on atoms j and k, damped by the cutoff function,
+eSi
+jk = ⟨ϕi
+j|ϕi
+k⟩· fcut(rjk) .
+(11)
+For s-type orbitals with exponents αj and αk, the analytic overlap is
+⟨ϕs
+j|ϕs
+k⟩=
+
+π
+αj + αk
+3/2
+exp
+
+−αjαk
+αj + αk
+r2
+jk
+
+.
+(12)
+Mixed s–p and p–p overlaps introduce additional factors linear and bilinear in the displacement vector rjk, respectively,
+and are evaluated analytically. The polynomial cutoff fpoly
+cut
+with its algebraic decay is employed here because it
+vanishes smoothly along with the orbital overlap as rjk →rcut.
+b.
+Eigenvalue truncation (original OM feature).
+After diagonalizing eSlUl = UlΛl, the nfeat feature values are
+taken as the nfeat largest eigenvalues λl
+1 ≥λl
+2 ≥· · · ; all remaining eigenvalues (corresponding to atoms that have not
+entered the cutoff sphere) are padded with zero. This ensures that the feature vector length is independent of the
+number of neighbors.
+c.
+Smooth variant.
+The smooth variant maps the eigenvalue spectrum onto a fixed grid via a discrete sine
+transform, avoiding the discontinuity that occurs in the original variant when the eigenvalue count changes as atoms
+cross the cutoff boundary,
+Gl
+i,j = 1
+nλ
+nλ
+X
+m=1
+sin
+ λl
+m · j · p
+
+,
+j = 1, . . . , nfeat ,
+(13)
+4
+where p = ∆/nfeat is a grid spacing determined by the total eigenvalue range ∆and nλ is the number of eigenvalues
+retained.
+d.
+Derivatives.
+Forces and stress require the derivatives of the features with respect to atomic positions. For the
+smooth variant, differentiating Eq. 13 through the eigenvalue dependence yields
+∂Gl
+i,j
+∂xk
+= 1
+nλ
+nλ
+X
+m=1
+cos
+ λl
+m · j · p
+
+j p ∂λl
+m
+∂xk
+,
+(14)
+where xk denotes a Cartesian coordinate. The eigenvalue derivative follows from the standard identity for symmetric
+matrices,
+dλl
+m =
+ Ul
+m
+T 
+deSl
+Ul
+m ,
+(15)
+with Ul
+m being the m-th eigenvector. The differential deSl is obtained from Eq. 11 by applying the product rule,
+combining derivatives of the GTO integrals with respect to rjk and the derivative of the cutoff function.
+4.
+Feature Modifiers
+The additive terms of any ACSF can be multiplied in an element-specific way by a scalar prefactor that encodes
+additional physical information not captured by interatomic distances and angles alone.
+a.
+Spin prefactor.
+For magnetic systems, the local spin moment si of each atom is discretized to si ∈{−1, 0, +1}
+by applying a threshold whose magnitude depends on the training dataset: atoms whose magnetic moment |mi| lies
+below the threshold are treated as non-magnetic (si = 0), while all others carry si = sign(mi). For radial features
+involving a central atom i and one neighbor j, three spin channels are defined [47],
+M + = 1
+2 |sisj| |si + sj| ,
+(16)
+M −= 1
+2 |sisj| |si −sj| ,
+(17)
+M 0∗= 1 −|sisj| .
+(18)
+M + selects ferromagnetically aligned pairs, M −selects antiferromagnetically aligned pairs, and M 0∗captures all pairs
+where at least one atom is non-magnetic. For angular features involving two neighbors j and k, higher-order spin
+channels M ++, M −−, M +−, M 00∗, M 2++, M 3++, M 2−−, and M 3−−encode all spin combinations of the three-body
+cluster (i, j, k) in an analogous way.
+b.
+Element-embracing prefactor.
+Conventional ACSFs require a separate feature for each neighbor element pair
+(or triplet), causing the descriptor dimensionality to scale with the number of element combinations.
+Element-
+embracing ACSFs (eeACSFs) [46] eliminate this overhead by multiplying each pairwise contribution by an element-
+derived weight Hrad
+i,j instead of partitioning the sum over element species. For radial eeACSF type 2, RuNNer 2.0
+employs
+G(2)
+i,µ =
+1
+Hrad
+max,i
+X
+j̸=i
+Hrad
+i,j exp
+h
+−ηµ (rij −rs,µ)2i
+fcut(rij) ,
+(19)
+where Hrad
+max,i is the maximum possible value of Hrad
+i,j
+for the chosen prefactor type, keeping all contributions in the
+range [0, 1] before summation. An analogous formula applies to angular eeACSFs; see Eqs. (4) and (7)–(9) of Ref. 46.
+The weight Hrad
+i,j is chosen from the set of element descriptors derived from the periodic table [46],
+Hrad
+i,j ∈
+
+1, nj, mj, dj, ¯nj := X −nj, ¯mj := 9 −mj, ¯dj := 11 −dj
+	
+,
+(20)
+where nj is the period of atom j, mj its position in the combined s/p-block (1 for group 1 through 8 for group 18, with
+helium assigned m = 8 rather than its formal group number), dj its position in the d-block (1–10 for groups 3–12, zero
+for all other elements), and X is a user-supplied upper bound on the period (maximum period +1). The complement
+descriptors ¯nj, ¯mj, and ¯dj mirror the corresponding direct descriptors in a reversed scale, balancing the contributions
+of light and heavy elements. By the convention of Ref. 46, ¯mj = 0 for d-block elements (i.e. the complement is
+zero where the direct value mj is already zero) and ¯dj = 0 for main-group elements (where dj = 0), so that each
+complement descriptor is active only for the block it complements.
+5
+RuNNer 2.0 extends the scheme of Ref. 46 with two additional f-block weight types. The f-block position fj runs
+from 1 to 14 (lanthanides and actinides), and its complement ¯fj := 15 −fj. By the same zero convention, ¯fj = 0
+for non-f-block elements, and ¯mj = ¯dj = 0 for f-block elements. With these additions RuNNer 2.0 supports all 118
+elements.
+5.
+Feature Scaling
+Before training, each feature vector component Gi,µ is linearly mapped to a standard range of values based on the
+training set,
+eGi,µ =
+Gi,µ −¯Gµ
+Gmax
+µ
+−Gmin
+µ
+,
+(21)
+where ¯Gµ, Gmax
+µ
+, and Gmin
+µ
+are the dataset mean, maximum, and minimum of feature µ across all atoms of the relevant
+species. The scaling factors are written to a scaling.data file and reloaded unchanged during prediction.
+B.
+Neural Network Architecture
+1.
+Feed-Forward Neural Networks
+Each atomic sub-network in RuNNer 2.0 is a fully connected, feed-forward neural network with L layers. Given
+the scaled descriptor vector eGi as input, the output of layer l is
+z(l) = W (l) a(l−1) + b(l),
+(22)
+a(l) = σ(l)
+z(l)
+,
+(23)
+with weight matrix W (l) ∈Rnl×nl−1, bias vector b(l) ∈Rnl, and activation function σ(l) applied element-wise. The
+input layer sets a(0) = eGi. All nodes within one layer share the same activation function by default, but RuNNer 2.0
+also supports assigning a distinct activation per node, which is commonly used for pre-activating descriptors before
+the first hidden layer or controlling the range of individual output nodes.
+Forces are obtained analytically via the chain rule through all layers. The Jacobian ∂Ei/∂eGi is computed in a
+single backward pass, and the force contribution on atom k from atom i follows as
+F (i)
+k,α = −
+X
+µ
+∂Ei
+∂eGi,µ
+∂eGi,µ
+∂Rk,α
+,
+(24)
+where the feature derivatives ∂eGi,µ/∂Rk,α are available analytically for all implemented feature types.
+2.
+Activation Functions
+RuNNer 2.0 provides a series of activation functions.
+a.
+Hyperbolic tangent.
+σ(x) = tanh(x) is the default activation. It maps the input to (−1, 1), is smooth every-
+where, and saturates for |x| ≳2.65. The scaled hyperbolic tangent σ(x) = 1.59223 tanh(x) uses the same functional
+form but extends the output range to approximately (−1.59, 1.59). See the SI of 46 for more details.
+b.
+Softplus.
+The function σ(x) = ln(1+ex) is a smooth approximation to the rectified linear unit. It is evaluated
+in the numerically stable form
+σ(x) = ln
+
+1 + e−|x|
++ max(x, 0)
+(25)
+to avoid overflow in the exponential.
+c.
+ReLU.
+The Rectified Linear Unit (ReLU) is σ(x) = max(0, x), which is computationally cheap but has a hard
+saturation at x < 0.
+6
+d.
+Sigmoid.
+This function is defined as σ(x) = 1/(1 + e−x), evaluated in the equivalent stable form σ(x) =
+ex/(ex + 1) for x < 0.
+e.
+Square and Linear.
+The activations σ(x) = x2 and the σ(x) = x complete the set. The former is typically
+used to constrain the hardness in 4G training to positive values, while the latter is commonly used in the output layer
+to produce an unbounded scalar.
+3.
+Weight Initialization
+Suitable initial weights are important for avoiding saturated activations at the start of training. RuNNer 2.0
+supports three initialization strategies.
+a.
+Nguyen-Widrow.
+The Nguyen–Widrow method [75] distributes the weight vectors of each hidden neuron such
+that the corresponding activation functions cover the scaled input range approximately uniformly. For a layer with
+ninner inputs and nout outputs, the magnitude of each weight vector is set to β = 0.7 n1/ninner
+out
+, and the weights are
+then normalized to that length.
+b.
+Xavier.
+Xavier initialization [76] samples weights from a uniform distribution Wij ∼U(−a, a) with
+a =
+r
+6
+ninner + nout
+,
+(26)
+which preserves the variance of activations and gradients across layers in networks with linear or tanh-like activations.
+The Eckhoff variant [77] adapts this formula to account for the specific feature normalization used in HDNNPs.
+C.
+Energies, Forces, and Stress
+1.
+Atomic Energy Decomposition
+In 2G-HDNNPs, the total energy predicted by RuNNer 2.0 is the sum of atomic contributions. During training,
+possible zeroth order reference values for the atomic energies ε0, e.g. the energies of free atoms, may be subtracted
+from the target total energy for configuration n,
+˜E(n)
+tot = E(n)
+tot −
+Nn
+X
+i=1
+ε0,i .
+(27)
+The network is trained on ˜E(n)
+tot /N (n), i.e. per-atom energies, which keeps the magnitude of the loss function indepen-
+dent of system size. Predictions and references are brought to the same units by a user-specified normalization factor
+before computing the loss.
+2.
+Atomic Forces
+Atomic forces are obtained as the analytic gradient of the total energy with respect to atomic positions,
+Fj = −∂E
+∂rj
+= −
+N
+X
+i
+Nµ
+X
+µ
+∂Ei
+∂eGi,µ
+∂eGi,µ
+∂rj
+.
+(28)
+The outer sum extends over all atoms i whose descriptor depends on the position rj.
+3.
+Stress Tensor
+We define the stress tensor σ such that its elements are given by
+σµν = 1
+Ω
+∂E
+∂ϵµν
+
+ϵ=0
+,
+(29)
+7
+where Ωis the cell volume and ϵ is the strain tensor. Hence, the derivative of the energy with respect to the lattice
+vectors is
+dE
+dA = Ωσ A−T ,
+(30)
+where A−T is the inverse transpose of the matrix of lattice vectors. σ is positive when the cell is under tension and
+negative under compression, in agreement with the convention used in materials science and many ab initio codes,
+but opposite to the convention of RuNNer 1. In the interface to LAMMPS [64] the virial −Ωσ is required.
+D.
+Electrostatics
+1.
+Third-Generation HDNNPs
+In 3G-HDNNPs, each atom carries an environment-dependent partial charge qi predicted by an atomic neural
+network. The total energy separates into a short-range part and a Coulomb part,
+E = Eshort({ eGi}) + Eelec({qi}, {Ri}) .
+(31)
+Since both contributions depend on the atomic positions, and since in particular the charges are environment-
+dependent, the force on atom j contains a direct term and a charge-mediated term,
+Fj = −∂Eshort
+∂rj
+−∂Eelec
+∂rj
+
+q
+−
+X
+i
+∂Eelec
+∂qi
+∂qi
+∂rj
+,
+(32)
+where the last term propagates the gradient through the charge network via its descriptor derivatives. The constraint
+P
+i qi = qtot is enforced during prediction by projecting the predicted charges onto the constraint hyperplane.
+2.
+Fourth-Generation HDNNPs and Charge Equilibration
+In 4G-HDNNP [22], the charge distribution is determined via charge equilibration by minimizing the electrostatic
+energy with respect to the atomic charges subject to total charge conservation. Two species-specific networks predict
+the atomic electronegativity χi and the hardness Ji, respectively. The QEq electrostatic energy is given by
+EQEq =
+X
+i
+ χiqi + 1
+2Jiq2
+i
+
++ Eelec({qi}, {Ri}) ,
+(33)
+and the equilibrium charge vector q = (q1, . . . , qN) satisfies
+(A + J) q = −χ + µ 1 ,
+(34)
+where A is the Coulomb matrix with elements Aij = ∂2Eelec/∂qi∂qj, J = diag(J1, . . . , JN), and µ is a Lagrange
+multiplier enforcing P
+i qi = qtot.
+The force on atom k carries contributions from the position dependence of the Coulomb matrix A({Ri}), the
+electronegativities χi(Rk), and the hardnesses Ji(Rk).
+These are computed via the “force trick”: the Lagrange
+multipliers λ satisfying (A + J)T λ = −∂E/∂q are solved once per structure, and the total force is then assembled as
+Fk = −∂Eshort
+∂Rk
+−∂Eelec
+∂Rk
+
+q
+−λT ∂A
+∂Rk
+q −
+X
+i
+∂E
+∂qi
++ λi
+ ∂(Jiqi + χi)
+∂Rk
+.
+(35)
+This avoids the need to differentiate through the QEq linear solver, reducing the computational cost to a single
+additional system of linear equations of the same size as in Eq. 34.
+8
+3.
+Ewald Summation
+For periodic systems, the Coulomb energy of a charge distribution {qi} with Gaussian charge widths σi is evaluated
+using Ewald summation [60]. The total interaction is split into a real-space sum that converges rapidly in direct space
+and a reciprocal-space sum that converges rapidly in Fourier space,
+Eelec = Ereal + Erecip + Eself ,
+(36)
+where the splitting parameter η controls the balance between the two contributions and is chosen automatically to
+equalize the cost of the two sums at a given target precision. The real-space sum decays as erfc(ηr)/r, while the
+reciprocal-space sum is evaluated as a single Fourier transform of the charge density times a Gaussian filter factor
+exp(−G2/(4η2)). Gaussian charges with width σi are accommodated by replacing the point-charge erfc kernel with
+the corresponding Gaussian convolution, which modifies the self-energy correction Eself and the short-range real-space
+term.
+For the QEq charge equilibration, RuNNer 2.0 also computes the Coulomb influence matrix A and its derivatives
+with respect to atomic positions analytically from the same Ewald framework.
+4.
+Particle–Particle–Particle–Mesh Method
+As an alternative to the classical Ewald summation, which may become computationally demanding for large
+systems, RuNNer 2.0 implements a particle–particle–particle–mesh (PPPM) solver [78] that offloads the reciprocal-
+space contribution to a three-dimensional fast Fourier transform (FFT) on a regular grid. The charge density is
+interpolated onto the grid, the Poisson equation is solved in Fourier space, and the result is interpolated back to the
+particle positions. The splitting parameter defaults to η = 2.2 Bohr−1, or is set to the maximum Gaussian width
+maxi σi when Gaussian charges are used. The FFT grid size is chosen such that grid points per Gaussian standard
+deviation satisfies a precision criterion, and the grid dimensions are restricted to multiples of 4 for efficiency. For the
+QEq charge equilibration, a separate FFT-based Lagrange solver is used to impose the total-charge constraint directly
+in Fourier space.
+E.
+Two-Body Repulsion
+1.
+Ziegler–Biersack–Littmark Potential
+Short-range nuclear repulsion between atomic cores can be added to any HDNNP model through the Ziegler–
+Biersack–Littmark (ZBL) potential [55]. The ZBL energy for a pair of atoms i and j separated by rij is
+Eij
+ZBL = ZiZj
+rij
+Φ(x) fcut(rij) ,
+(37)
+where Zi and Zj are the atomic numbers of atoms i and j, and atomic units (e = 1, energies in Hartree, distances in
+Bohr) are used throughout. The dimensionless screening coordinate is
+x = Z0.23
+i
++ Z0.23
+j
+0.88533
+rij ,
+(38)
+where the denominator is the Lindhard screening length in Bohr. The universal screening function is a sum of four
+exponentials fitted to a large database of ion–atom scattering experiments,
+Φ(x) = 0.18175 e−3.19980 x + 0.50986 e−0.94229 x + 0.28022 e−0.40290 x + 0.02817 e−0.20162 x .
+(39)
+The four coefficients in Eq. 39 sum to unity, so Φ(0) = 1 and the potential reduces to the bare Coulomb interaction
+at the origin. Forces are obtained analytically from the derivatives of Eqs. 37–39 with respect to rij.
+9
+F.
+van der Waals Interactions
+1.
+Hirshfeld-Based Dispersion
+Van der Waals dispersion interactions extending beyond the local atomic environments are accounted for via the
+Tkatchenko–Scheffler scheme [44], which scales free-atom C6 coefficients by the environment-dependent Hirshfeld
+volume ratio [79]. Each atom a is assigned an effective volume Va predicted by a species-specific neural network, and
+the corresponding effective vdW radius and C6 coefficient are
+Reff
+a = V 1/3
+a
+Rfree
+a
+,
+(40)
+Caa
+6
+= V 2
+a Caa,free
+6
+.
+(41)
+The cross-species coefficient is obtained from the London combination rule,
+Cab
+6 =
+2 Caa,free
+6
+Cbb,free
+6
+αfree
+b
+αfree
+a
+Caa,free
+6
++ αfree
+a
+αfree
+b
+Cbb,free
+6
+· Va Vb ,
+(42)
+where αfree
+s
+are the free-atom polarizabilities. The dispersion energy for a pair (a, b) is
+Eab
+vdW = −Cab
+6 fdamp(rab) r−6
+ab fcut(rab) ,
+(43)
+where the Fermi-type damping function
+fdamp(rab) =
+1
+1 + exp
+
+−d
+
+rab
+sR Reff
+ab
+−1
+
+(44)
+with Reff
+ab = Reff
+a + Reff
+b
+suppresses the divergence at short range. The parameters d and sR control the onset and
+steepness of the damping. Forces include gradient contributions from the volume dependence of the effective radii
+and C6 coefficients; the van der Waals cutoff function f vdW
+cut
+(Sec. 1 A 1 d) is used for fcut(rab).
+G.
+Training
+1.
+Loss Functions
+RuNNer 2.0 supports three loss functions for measuring discrepancies between predicted and reference values. Let
+ˆys and ys denote the predicted and reference values for sample s, and let S be the number of samples in the current
+batch.
+The mean squared error (MSE) uses a prefactor of 1
+2 so that its gradient equals the signed residual,
+LMSE = 1
+S
+S
+X
+s=1
+1
+2(ˆys −ys)2 ,
+∂LMSE
+∂ˆys
+= ˆys −ys
+S
+.
+(45)
+The mean absolute error (MAE) penalizes residuals linearly and is more robust to outliers,
+LMAE = 1
+S
+S
+X
+s=1
+|ˆys −ys| ,
+∂LMAE
+∂ˆys
+= sign(ˆys −ys)
+S
+.
+(46)
+The root mean squared error (RMSE) penalizes outliers more strongly,
+LRMSE =
+v
+u
+u
+t 1
+S
+S
+X
+s=1
+(ˆys −ys)2 ,
+∂LRMSE
+∂ˆys
+=
+ˆys −ys
+S LRMSE
+.
+(47)
+10
+2.
+Optimization Algorithms
+a.
+Gradient Descent.
+The standard gradient descent optimizer updates parameters along the mean negative
+gradient,
+θt+1 = θt −α ¯gt ,
+(48)
+where α is the learning rate and ¯gt = n−1
+s
+Pns
+s=1 ∇Ls is the gradient averaged over ns streams (MPI tasks).
+b.
+SGD with Momentum.
+Stochastic gradient descent with momentum accumulates velocity from previous gra-
+dients to dampen oscillations and accelerate convergence along persistent descent directions,
+vt = γ vt−1 −α ¯gt ,
+(49)
+θt+1 = θt + vt ,
+(50)
+with momentum coefficient γ (default 0.9) and learning rate α (default 0.001).
+c.
+Adam.
+Adam [56] maintains exponential moving averages of the first and second moments of the gradient
+with bias correction,
+mt = β1 mt−1 + (1 −β1) ¯gt ,
+(51)
+vt = β2 vt−1 + (1 −β2) ¯g2
+t ,
+(52)
+ˆmt = mt/(1 −βt
+1) ,
+ˆvt = vt/(1 −βt
+2) ,
+(53)
+θt+1 = θt −α ˆmt ⊘
+p
+ˆvt + ε
+
+,
+(54)
+where ⊘denotes element-wise division. Default hyperparameters are β1 = 0.9, β2 = 0.999, ε = 10−8, and α = 0.001.
+d.
+Multistream Kalman Filter.
+Using the Kalman filter [57] in its multistream variant [59, 80], RuNNer 2.0
+treats neural network training as a state estimation problem. The optimizer maintains a symmetric covariance matrix
+P of shape (np × np) representing parameter uncertainty, where np corresponds to the number of parameters. During
+training, the optimizer iteratively refines the parameters θ using measurement data in the form of the loss and loss
+gradients from each stream. At the beginning of each iteration t, a scaling matrix A (t) of shape (ns × ns), where ns
+is the number of input streams, is computed as
+A (t) =
+
+η (t) I + H (t)T P (t) H (t)
+−1
+,
+(55)
+with H (t) being the Jacobian (gradients) of the loss from each stream of shape (np × ns), η (t) being measurement
+noise (or learning rate), and I being an identity matrix of shape (ns × ns). The Kalman gain K (t) of shape (np × ns)
+is obtained as
+K (t) = P (t) H (t) A (t) .
+(56)
+Using K (t) and the loss from each stream ξ (t), the parameters are updated as
+θ (t + 1) = θ (t) −K (t) · ξ (t) ,
+(57)
+and the updated covariance matrix is
+P (t + 1) = λ−1 
+P (t) −K (t) H (t)T P (t)
+
+,
+(58)
+where λ is the forgetting factor. If process noise is enabled, the covariance matrix is augmented by
+P (t) ←P (t) + q (t) I,
+(59)
+where q (t) corresponds to the noise level.
+e.
+Hyperparameter scheduling.
+Both Kalman variants schedule their hyperparameters during training. In the
+standard Kalman filter the measurement noise η grows exponentially toward a ceiling value, and an optional process
+noise term q decays exponentially—together these prevent the covariance matrix from collapsing prematurely and
+allow the filter to remain responsive to new data. In the fading-memory variant the forgetting factor λ is updated
+11
+each step according to
+λ(t + 1) = λ(t) · λ0 + (1 −λ0),
+(60)
+which drives λ toward unity, progressively reducing the weight given to old observations and keeping the covariance
+matrix from becoming singular in long training runs.
+f.
+Regularization of the scaling matrix.
+To prevent numerical instabilities when forming the scaling matrix A(t),
+RuNNer 2.0 spectrally regularizes the symmetric matrix M(t) = η(t) I + H(t)T P(t) H(t) that is inverted to obtain
+A(t) = M(t)−1. After eigendecomposition M = UDUT , each eigenvalue di is replaced by
+˜di = di + ε exp
+
+−di
+ε
+
+,
+(61)
+which leaves large eigenvalues unchanged while lifting near-zero eigenvalues to ε, keeping the inverse well-conditioned.
+Closely spaced eigenvalues that could cause degenerate eigenvector problems receive an additional small random
+perturbation.
+g.
+Model-Optimizer Mapping and Correlation Matrix Dimensionality
+In RuNNer 2.0, optimizers can be flexibly
+assigned to one or multiple models. Furthermore, optimizers can be assigned to the individual atomic neural networks
+contained in one HDNN model. As a result, users can freely choose to update all elements with a single optimizer
+(global update step) or update them one by one (element-wise update step). In case of the Kalman filter optimizer,
+this influences the size of the correlation matrix: for a global update step, the off-diagonal terms correspond to
+cross-element couplings. We generally find that this has a strongly positive influence on training convergence.
+h.
+Gradient clipping.
+To stabilize training when large parameter updates occur, RuNNer 2.0 supports two
+gradient clipping strategies.
+Value clipping replaces each component individually: gi ←clamp(gi, −c, c).
+Norm
+clipping rescales the entire gradient vector when its ℓ2 norm exceeds a threshold cnorm,
+g ←g · cnorm
+∥g∥2
+if
+∥g∥2 > cnorm ,
+(62)
+which preserves the direction of the gradient while restricting its magnitude.
+H.
+Atomic Reference Data
+Several physical models in RuNNer 2.0 require element-specific reference data. Covalent radii for all 118 elements
+are taken from the WebElements database [81], stored in Bohr. Van der Waals radii, free-atom static polarizabilities
+αfree
+s
+, and homonuclear C6 coefficients Css,free
+6
+enter the Hirshfeld dispersion model (Sec. 1 F 1) and are taken from
+Hermann et al. [82]. Pearson electronegativity and hardness values are used for initializing the respective models
+during 4G training and are taken from the 97th edition CRC Handbook of Chemistry and Physics [83]. All quantities
+are stored in atomic units internally and converted from input and for output if required.
+2.
+METHODS
+A.
+Dataset Generation and HDNNP Training
+The water dataset used for all performance benchmarks was drawn from the dataset of Thiemann et al. [84].
+We retained only the pure liquid water configurations, yielding 140 structures of 96 atoms each.
+All structures
+were recalculated at the RPBE level [85] using FHI-aims [86] (version 221103) with the intermediate numerical
+atom-centered orbital basis set. Scalar-relativistic effects were included at the atomic ZORA level. Electronic self-
+consistency was converged to 5×10−6 e Bohr−3, 10−3 eV, and 10−6 eV in the electron density, sum of eigenvalues, and
+total energy, respectively. The Brillouin zone was sampled with a k-point density of 4.0 Bohr−1 per reciprocal lattice
+vector using a Monkhorst–Pack grid. Fermi–Dirac smearing with a width of 0.01 eV was applied. The Kohn–Sham
+equations were solved with the ELPA eigensolver [87] using the LVL fast resolution-of-identity approximation and a
+Pulay mixer with a history of 12 steps and a mixing parameter of 0.2. Hirshfeld volume ratios were computed at every
+SCF step (hirshfeld always) for use as 3G training targets. The dataset was partitioned randomly into a training
+set of 126 structures and a test set of 14 structures.
+For each of the three HDNNP generations (2G, 3G, 4G), a committee of eight independently initialized models
+was trained using RuNNer 2.0 (version 2.0.0-alpha.3, Git commit e3232d79). The training protocol for each
+12
+generation was as follows. For the 2G-HDNNP, a single round of energy and force training was performed. For the
+3G-HDNNP, the charge model was first trained on reference atomic charges from the electronic structure calculations,
+followed by a second stage in which the short-range energy network was trained on the residual energies and forces
+after subtracting the electrostatic contribution. For the 4G-HDNNP, electronegativity and hardness networks were
+first trained on reference charges, followed by short-range energy and force training. All training stages used the
+multistream Kalman filter optimizer. The model at the epoch with the lowest RMSE on the test set was selected for
+benchmarking. The resulting training and test RMSEs at the optimal epoch are reported in Tables 1–3. Full training
+inputs and the dataset are available at https:/gitlab.com/runner-suite/runner2-paper-data.
+TABLE 1. Training and test RMSEs of the eight 2G-HDNNP committee members at the optimal epoch (epoch 50). Energy
+RMSEs are per-atom; force RMSEs are per force component.
+Energy RMSE (meV atom−1) Force RMSE (meV ˚A−1)
+Member
+Train
+Test
+Train
+Test
+1
+0.0252
+0.5415
+67.90
+76.16
+2
+0.0274
+0.5227
+67.51
+77.43
+3
+0.0278
+0.5544
+66.33
+75.40
+4
+0.0225
+0.5077
+65.56
+72.28
+5
+0.0253
+0.4959
+65.72
+73.24
+6
+0.0267
+0.4683
+66.09
+73.48
+7
+0.0253
+0.5772
+69.10
+75.69
+8
+0.0276
+0.5437
+69.00
+76.89
+B.
+OpenMP, MPI, and ASE Interface Benchmarks
+The OpenMP thread-scaling and MPI strong-scaling benchmarks (Fig. 5a and b) and the ASE interface committee-
+scaling benchmarks (Fig. 6) were all performed on the Otus cluster at the Paderborn Center for Parallel Computing
+(PC2) using the same committee potential described in Sec. 2 A. Each node is equipped with two AMD EPYC 9655
+processors providing 96 physical cores (192 hardware threads) at up to 4.5 GHz and 768 GiB of RAM. Nodes are
+interconnected via Nvidia NDR InfiniBand at 200 Gbps per port.
+RuNNer 2.0 (version 2.0.0-alpha.11, Git commit ef43e5f0bf) was compiled with GCC 14.3 (mpicc / mpicxx
+/ mpif90), MKL 2025.2.0, and OpenMPI 5.0.8, all loaded from the cluster module system. Compiler optimizations
+were set to -O3 with link-time optimization enabled and -march=native to exploit the AVX-512 instruction set of the
+EPYC processors. MKL was linked against the GNU threading layer (MKL THREADING LAYER=GNU) to enable consistent
+scaling of the internal FFTW routines under OpenMP. The RuNNer 2.0 compile-time flag FC NO INNER CUTOFF was
+enabled to improve descriptor evaluation performance for the benchmark cutoff settings.
+a.
+LAMMPS benchmarks (Fig. 5a and b).
+The simulation cell consisted of a single 96-atom bulk water unit
+cell replicated to 96 000 atoms using ASE [58]. All simulations used the NVT ensemble at 300 K with full particle
+propagation driven by LAMMPS [64] (development version, git commit 0c44aae4cb).
+LAMMPS was built with
+the OPT and OPENMP packages; for the pure-OpenMP scaling tests the MPI-serial build of RuNNer 2.0 was used.
+All benchmarks ran on exclusive nodes with OMP PLACES=cores and OMP PROC BIND=close; LAMMPS was launched
+with --cpu-bind=none. Per-step wall times were decomposed using RuNNer 2.0’s internal timer and cross-checked
+against the total step time reported by LAMMPS. Ten molecular dynamics steps were executed per run; the first
+three steps were discarded to eliminate startup overhead, and the remaining seven were averaged. All seven retained
+timings were required to agree to within numerical noise before a run was accepted. A single committee member was
+used for all LAMMPS benchmarks.
+b.
+ASE interface benchmarks (Fig. 6).
+The same compilation toolchain and cluster were used for the ASE inter-
+face benchmarks. The Python environment comprised ASE 3.28.0b1 [58], runnerase-core 0.11.1, and runnerase-
+prediction 0.3.0. Three system sizes were tested—96, 12 000, and 96 000 atoms—obtained by repeating the 96-atom
+water unit cell as 1 × 1 × 1, 5 × 5 × 5, and 10 × 10 × 10 supercells. A RuNNerlib calculator was initialized from the
+RuNNer 2.0 shared library (RuNNer.so) located in the working directory. Atomic velocities were assigned from a
+Maxwell–Boltzmann distribution at 300 K, and the trajectory was propagated with the velocity Verlet integrator using
+a 0.5 fs time step. Wall time was measured with Python’s time.perf counter() around a block of ten molecular
+dynamics steps, and the per-step time was obtained as the total divided by ten (no initial steps were discarded). To
+probe committee scaling, runs were repeated for each combination of system size, HDNNP generation, and committee
+13
+TABLE 2. Training and test RMSEs of the eight 3G-HDNNP committee members at the optimal epoch. (a) Charge network
+at epoch 5. (b) Short-range energy network at epoch 49. Charge RMSEs are per atom; energy and force RMSEs are as in
+Table 1.
+Charge RMSE (m|e|)
+Member
+Train
+Test
+1
+3.9214
+5.0437
+2
+3.9298
+4.9549
+3
+3.9020
+4.9902
+4
+3.8976
+4.9643
+5
+3.9368
+5.0566
+6
+3.9273
+4.9448
+7
+3.8941
+4.9650
+8
+3.9225
+4.9775
+Energy RMSE (meV atom−1)
+Member
+Train
+Test
+1
+1.0775
+0.9304
+2
+1.0419
+0.9086
+3
+1.0844
+1.1062
+4
+1.1028
+0.8745
+5
+1.0856
+0.9024
+6
+1.0737
+0.7919
+7
+1.0843
+0.8573
+8
+1.0590
+0.8561
+Force RMSE (meV ˚A−1)
+Member
+Train
+Test
+1
+93.39
+105.93
+2
+93.97
+105.71
+3
+94.07
+107.09
+4
+93.62
+106.67
+5
+93.62
+108.17
+6
+95.56
+107.31
+7
+94.99
+107.60
+8
+96.25
+106.85
+size; the committee size was varied by loading potentials comprising different numbers of the eight trained members.
+In addition to the committee scaling shown in the main text (Fig. 6), the OpenMP thread scaling and the comparison
+of electrostatic solvers through the ASE interface are shown in Fig. 1.
+C.
+Code Comparison Benchmarks
+The benchmarks comparing RuNNer 2.0 against n2p2 [30] and PANNA 2.0 [32] (Fig. 5c–e) were performed on
+the Ganymede cluster at Ruhr-Universit¨at Bochum. Each node contains two Intel Xeon Gold 6430 processors with
+32 cores each (64 cores across two sockets) at up to 3.4 GHz and 500 GiB of RAM.
+a.
+Comparison potential.
+To maximize comparability across codes, a separate 2G- and 4G-HDNNP committee
+of eight members was trained on the same water dataset (Sec. 2 A) with an adjusted descriptor set and network
+architecture. The network was enlarged to three hidden layers of 30 nodes each (compared to two hidden layers of 20
+nodes for the primary potential) to amplify the contribution of the neural network forward and backward passes in the
+overall timing. Angular symmetry functions of type 9 were used instead of type 3, because PANNA’s implementation
+omits the rjk contribution in its angular functions. The hyperparameters of the radial symmetry functions were
+adjusted slightly to match PANNA’s grid-based parameter generation scheme. No 3G-HDNNP was trained for the
+comparison benchmarks. Only the first committee member of both 2G and 4G models was used for benchmarking;
+14
+TABLE 3. Training and test RMSEs of the eight 4G-HDNNP committee members at the optimal epoch. (a) Charge network
+(electronegativity and hardness) at epoch 50. (b) Short-range energy network at epoch 27. Units are as in Table 2.
+Charge RMSE (m|e|)
+Member
+Train
+Test
+1
+4.6233
+5.3686
+2
+4.6308
+5.2545
+3
+5.0193
+5.5475
+4
+4.8361
+5.5712
+5
+4.8925
+5.5152
+6
+4.7631
+5.3102
+7
+4.7806
+5.4848
+8
+4.9763
+5.5721
+Energy RMSE (meV atom−1)
+Member
+Train
+Test
+1
+1.2824
+1.6233
+2
+1.3739
+1.9319
+3
+1.3214
+1.7160
+4
+1.2143
+1.4117
+5
+1.3080
+1.8020
+6
+1.2422
+1.6382
+7
+1.2524
+1.7528
+8
+1.2846
+1.8885
+Force RMSE (meV ˚A−1)
+Member
+Train
+Test
+1
+115.53
+113.29
+2
+125.46
+123.83
+3
+109.77
+108.65
+4
+110.82
+110.35
+5
+117.62
+116.33
+6
+107.20
+107.17
+7
+112.77
+112.27
+8
+114.38
+114.99
+several of the remaining 4G members diverged during training and were discarded. The training RMSEs of the single
+member used are summarized in Table 4.
+TABLE 4. Training and test RMSEs of the single committee member used for the code comparison benchmarks (epoch 50 for
+2G, epoch 40 for 4G charges, epoch 50 for 4G short-range). Units are as in Tables 1 and 2.
+Model
+Energy or charge RMSE Force RMSE (meV ˚A−1)
+Train
+Test
+Train
+Test
+2G (meV atom−1)
+1.4881
+1.7162
+167.82
+175.37
+4G charges (m|e|)
+5.5767
+6.1757
+—
+4G short (meV atom−1)
+0.4500
+2.1812
+252.65
+253.45
+b.
+Caveats.
+The comparison between codes is subject to several important caveats. First, PANNA’s angular
+symmetry functions use a slightly different functional form from those in RuNNer 2.0 and n2p2, which introduces
+a minor methodological non-equivalence that is favorable to PANNA’s feature evaluation performance. Second, for
+4G benchmarks PANNA predicts the atomic electronegativity, hardness, and short-range energy simultaneously with
+a single neural network that produces multiple output nodes, in contrast to the separate network instances used by
+RuNNer 2.0 and n2p2. Third, PANNA provides a GPU-enabled LAMMPS interface via Kokkos and an integration
+15
+2G
+3G
+4G
+1
+4
+16
+64
+128
+192
+1
+4
+16
+64
+128
+192
+1
+4
+16
+64
+128
+192
+Number of Threads
+NNP Generation
+0.015
+0.030
+0.045
+0.060
+Time / Step [s]
+a) Thread Scaling
+96 atoms
+2G
+3G
+4G
+1
+4
+16
+64
+128
+192
+1
+4
+16
+64
+128
+192
+1
+4
+16
+64
+128
+192
+Number of Threads
+NNP Generation
+4
+8
+12
+16
+12000 atoms
+2G
+3G
+4G
+1
+4
+16
+64
+128
+192
+1
+4
+16
+64
+128
+192
+1
+4
+16
+64
+128
+192
+Number of Threads
+NNP Generation
+40
+80
+120
+160
+96000 atoms
+Ewald
+Direct
+PW
+CG
+PW
+SQNM
+PPPM
+CG
+PPPM
+SQNM
+Electrostatic Solver
+QEq Method
+0.06
+0.12
+0.18
+0.24
+Time / Step [s]
+b) Solver Comparison
+96 atoms
+Ewald
+Direct
+PW
+CG
+PW
+SQNM
+PPPM
+CG
+PPPM
+SQNM
+Electrostatic Solver
+QEq Method
+0.8
+1.6
+2.4
+3.2
+OOM
+12000 atoms
+Ewald
+Direct
+PW
+CG
+PW
+SQNM
+PPPM
+CG
+PPPM
+SQNM
+Electrostatic Solver
+QEq Method
+8
+16
+24
+32
+OOM
+96000 atoms
+Timing Contributions
+Feature Evaluation
+Forward/Backward
+2G Forces
+Electrostatics
+QEq
+Other
+OOM
+FIG. 1. ASE-interface prediction performance through RuNNerlib, decomposed into per-routine timing contributions. Top
+row (a): OpenMP thread scaling of the per-step wall time for the three HDNNP generations. Bottom row (b): comparison
+of the available electrostatic solvers (Ewald, plane-wave and PPPM variants with conjugate-gradient or SQNM charge equili-
+bration). Columns correspond to the three system sizes (96, 12 000, and 96 000 atoms). Bars marked “OOM” indicate runs
+that exceeded the available memory.
+with JAX-MD; neither was available at the time of testing, so all comparison benchmarks used the CPU LAMMPS
+interface.
+Fourth, n2p2 and RuNNer 2.0 produce near-identical energies and forces for 2G-HDNNPs; residual
+differences for 4G-HDNNPs are attributed to minor differences in electrostatic summation order.
+c.
+Code modifications.
+Prior to compilation, targeted modifications were applied to PANNA and n2p2 to address
+correctness issues and enable optimal performance. For PANNA, a patch file resolving a runtime crash is provided
+alongside the benchmark inputs at https:/gitlab.com/runner-suite/runner2-paper-data. For n2p2, an opti-
+mized iterative QEq solver [73] was implemented; the changes have been submitted as merge request 209 to the
+upstream repository.[74] Without this fix, the n2p2 force evaluation under 4G-HDNNP exhibited cubic scaling; after
+the fix, the expected O(N 2) scaling is recovered.
+d.
+Compilation.
+All codes were compiled with the Intel oneAPI toolchain: Intel Fortran/C/C++ compilers
+2025.3, MKL 2025.3, and Intel MPI 2021.17. PANNA additionally required Eigen 3.4.0 and GSL 2.8, which were
+compiled with the same compilers. Optimization flags were set to -O3 with link-time optimization and -xCORE-AVX512
+-msse4.2 to target the AVX-512 instruction set of the Xeon Gold 6430. LAMMPS was built with the PKG INTEL
+package enabled. All benchmarks were additionally repeated with a GNU-based toolchain (GCC, OpenMPI) to verify
+that no code was placed at an unfair disadvantage by the choice of compiler; the relative performance of all three codes
+was comparable, as shown for the 2G- and 4G-HDNNP comparisons in Fig. 2. Because n2p2 and PANNA parallelize
+electrostatics exclusively via MPI, the MPI-parallel build was used for all codes in this benchmark set. Inspection of
+the source code confirmed that while PANNA achieves excellent OpenMP parallelization for 2G evaluation, neither
+PANNA nor n2p2 apply OpenMP parallelization to the 4G electrostatics; both therefore rely solely on MPI task-level
+16
+parallelism for 4G benchmarks. In contrast, RuNNer 2.0 parallelizes all QEq and electrostatics operations with
+OpenMP, which is why the 4G OpenMP-scaling results for RuNNer 2.0 are presented separately from those of the
+other codes.
+e.
+Simulation protocol.
+All code comparison benchmarks used the same system (96-atom bulk water unit cell
+replicated to the target system size) and the same simulation protocol as described in Sec. 2 B: ten NVT steps at
+300 K, first three discarded, remaining seven averaged. Throughput is reported in femtoseconds per day as recorded
+by LAMMPS. Benchmark runs were performed on exclusive nodes. RuNNer 2.0 (version 2.0.0-alpha.11, Git
+commit ef43e5f0bf), n2p2 (development version, Git commit ec1953d856), and PANNA (Git commit 132a2df662)
+were used.
+1
+1
+1
+1
+1
+1
+1
+1
+2
+4
+8
+16
+32
+64
+100
+101
+Time / Step [s]
+MPI Tasks
+OpenMP Threads
+a) 2G MPI Scaling (GNU, 96k atoms)
+n²p²
+PANNA
+RuNNer
+Lowest Time
+64
+32
+16
+8
+4
+2
+1
+1
+2
+4
+8
+16
+32
+64
+100
+101
+Time / Step [s]
+MPI Tasks
+OpenMP Threads
+b) 2G MPI/OpenMP Scaling (GNU, 96k atoms)
+n²p²
+PANNA
+RuNNer
+Lowest Time
+10−2
+10−1
+100
+101
+102
+103
+Time / Step [s]
+96 atoms
+c) 4G Scaling (GNU)
+n²p²
+PANNA
+RuNNer (Ewald/Direct)
+RuNNer (PW/CG)
+10−2
+10−1
+100
+101
+102
+103
+Time / Step [s]
+768 atoms
+1 2 4 8 163264
+2 4 8 163264
+1 2 4 8 163264
+1 2 4 8 163264
+10−2
+10−1
+100
+101
+102
+103
+Time / Step [s]
+2592 atoms
+MPI Tasks
+MPI Tasks
+OpenMP Threads OpenMP Threads
+FIG. 2. LAMMPS prediction performance of RuNNer 2.0, n2p2, and PANNA compiled with the GNU toolchain (GCC,
+OpenMPI), mirroring the Intel-toolchain results in the main text (Fig. 5c–e). Left (a, b): 2G-HDNNP pure-MPI strong
+scaling (a) and mixed MPI/OpenMP scaling at a constant total thread count (b), for 96 000 atoms. Right (c): 4G-HDNNP
+scaling for three system sizes (96, 768, and 2592 atoms); for RuNNer 2.0, both the Ewald/direct and plane-wave conjugate-
+gradient electrostatic solvers are shown.
+D.
+Training Performance Benchmarks
+Training benchmarks compare RuNNer 2.0 against RuNNer 1.3 [34, 35] (Git commit d4a0edf0d5) for 2G force
+training, 4G force training, and 4G charge training (Fig. 7), as well as 2G and 4G energy training (Fig. 3).
+a.
+Dataset.
+The full 140-structure liquid water dataset described in Sec. 2 A was used with the same train/test
+split.
+b.
+Hardware and compilation.
+Benchmarks were performed on the Ganymede cluster using the Intel oneAPI
+toolchain described in Sec. 2 C. RuNNer 1.3 was compiled with the identical toolchain (Intel Fortran/C/C++ 2025.3,
+MKL 2025.3, Intel MPI 2021.17) and the same optimization flags.
+Training was managed through runnerase-
+training 0.7.2 using the RuNNerbin calculator interface. Per-epoch wall times were recorded by RuNNer 2.0’s
+17
+100
+101
+a) 2G Energy Training
+1
+2
+4
+6
+8
+16
+Number of OpenMP Threads
+100
+101
+b) 4G Energy Training
+Strategies & Configurations
+1 chunk, RAM cache
+1 chunk, on-the-fly
+2+ chunks, on-the-fly
+2+ chunks, disk cache
+RuNNer 1.3
+Wall Time [min]
+FIG. 3. Per-epoch wall-time comparison of RuNNer 2.0 against RuNNer 1.3 for 2G and 4G energy training as a function of
+the number of OpenMP threads. Bars are grouped by memory strategy (see legend); wall times include the precomputation
+step and are averaged over three independent runs. This figure complements the force- and charge-training benchmarks of the
+main text (Fig. 7).
+internal timer, which measures individual computational stages (feature evaluation, forward and backward pass,
+optimizer step, and, for 3G/4G, electrostatics and charge equilibration). Three training runs per memory setting
+were averaged.
+c.
+Training settings.
+Since the goal of this benchmark was to provide representative timings, both codes were
+configured with RuNNer-typical default settings. We use two hidden layers of 15 nodes each and hyperbolic tangent
+activation functions. To ensure that the two codes perform numerically identical update sequences—and thus provide
+a strictly controlled timing comparison—dataset shuffling was disabled and all loss thresholds were set to zero, forcing
+every structure and force component to be processed in the same order and at every epoch. RuNNer 1.3 was initialized
+with the same Xavier–Eckhoff weight matrix as RuNNer 2.0 (Sec. 1 B 3 b), ensuring both codes begin from the same
+point in parameter space. Training ran for 100 epochs to provide robust per-epoch statistics.
+The optimizer in both codes was the per-element extended Kalman filter with separate covariance matrices for
+each element type. This is the standard configuration in RuNNer 1.3; RuNNer 2.0’s default uses a single global
+covariance matrix, but the per-element variant was selected here for direct comparability. All energies were used for
+training; atomic forces were included with a selection fraction of 10 % per epoch. The radial cutoff radius was set to
+12 Bohr for all symmetry functions.
+For 4G charge training, both the electronegativity network and the hardness network were optimized simultaneously.
+The hardness output was constrained to positive values via a squared activation function on the output node. The
+update scheme followed the RuNNer 1.3 default of one Kalman filter update per element type per structure.
+E.
+Non-Local Potential for AuMgO(*Al)
+This section describes the reference dataset and the committee-training protocol underlying the AuMgO(*Al)
+example, in which a single Au adatom on an MgO(001) surface acquires a negative charge that is compensated by
+remote subsurface Al dopants. This charge transfer over several ˚Angstr¨om is a genuinely non-local effect and thus
+serves as a stringent test of the fourth-generation (4G) electrostatics (Sec. 1 D 2) against the strictly local second-
+generation (2G) description.
+a.
+DFT reference dataset.
+All reference calculations were performed with FHI-aims [86] (version 221103) using
+the PBE exchange–correlation functional and the light species defaults. Scalar-relativistic effects were included at
+the atomic ZORA level, and all cells were treated with collinear spin polarization at overall charge neutrality. The
+Brillouin zone was sampled with a 3 × 3 × 1 Monkhorst–Pack grid, and a Gaussian occupation smearing of width
+18
+0.1 eV was applied. The electron density was mixed with a Pulay mixer (history of 10 steps, mixing parameter 0.1).
+Self-consistency was converged to 10−6 eV in the total energy, 10−3 eV in the sum of eigenvalues, 10−5 e Bohr−3 in
+the electron density, and 10−4 eV ˚A
+−1 in the forces. Hirshfeld charges were extracted for 4G training purposes.
+The reference structures were MgO(001) slabs built from the bulk lattice constant a ≈4.261 ˚A as 3 × 3 lateral
+supercells at three slab thicknesses of 3, 4, and 5 MgO layers, corresponding to 3 × 3 × 3, 3 × 3 × 4, and 3 × 3 × 5 cells.
+A vacuum region of approximately 15 ˚A separated the periodic images along the surface normal. For the doped cells,
+three Mg2+ ions in the deep subsurface layers, far from the adsorption site, were replaced by Al3+; charge neutrality
+of the cell then drives a compensating negative charge onto the Au adatom. A single Au atom was placed on top of
+the surface and sampled on a dense grid in the wedge of non-symmetry equivalent positions and as a function of the
+vertical Au–surface distance from about 1.5 to 3.5 ˚A. This includes the favorable adsorption sites atop Mg or O. For
+the doped 3 × 3 × 5 slab, a substantial fraction of the single-point calculations did not reach SCF convergence and
+are absent from the reference set; the pristine 3 × 3 × 5 slab and both thinner slabs are complete. Additionally, we
+include the six slabs without an adsorbed gold atom and a single gold atom in vacuum in the training dataset.
+b.
+HDNNP committee training.
+On this common dataset, comprising all three thicknesses, both adsorption sites,
+and pristine and doped cells, a 2G-HDNNP and a 4G-HDNNP committee were trained, each with three independently
+initialized members. As the example targets the energy landscape of the adsorption process, both committees were
+trained on energies only. Both descriptions use element-embracing atom-centered symmetry functions of radial and
+angular type (Sec. 1 A 2) built for the elements O, Mg, Al, and Au, with a cosine cutoff of 10.0 Bohr.
+The 2G-HDNNP committee employs a single short-range atomic energy network per element with three hidden
+layers of 30, 25, and 20 nodes and hyperbolic-tangent activations. Each member was trained with the Kalman-filter
+optimizer (Sec. 1 G 2 d) minimizing a mean-absolute-error loss, using a 10 % test set.
+The 4G-HDNNP committee was trained in the standard two-stage 4G protocol (Sec. 1 G). In the first stage, the
+environment-dependent electronegativity network (two hidden layers of 15 nodes each, hyperbolic-tangent activations)
+was trained together with trainable elemental hardnesses; the global atomic charges follow from charge equilibration,
+with the electrostatic energy evaluated by Ewald summation (Sec. 1 D 3) at a precision of 10−6. Element-specific fixed
+Gaussian charge widths of 4.289, 2.872, 3.477, and 3.288 Bohr were used for O, Mg, Al, and Au, respectively. This
+stage was trained for 30 epochs with the Kalman filter minimizing a mean-squared-error loss on the reference charges,
+with the optimal model selected on the test-set charge error.
+In the second stage, the short-range energy network (three hidden layers of 30, 25, and 20 nodes, hyperbolic-
+tangent activations) was trained with the Kalman filter and a mean-absolute-error loss. Electrostatic energies were
+not removed from the DFT reference before training. For both committees, committee uncertainties were obtained
+as the standard deviation across the three members.
+The two short-range energy fits (the 2G potential and the second stage of the 4G potential) were stopped manually;
+for both, the committee members at the 30th epoch were retained, as later epochs did not yield a systematic improve-
+ment of the test error. The 4G electronegativity/charge fit was taken at its final (50th) epoch. The corresponding
+committee-averaged root-mean-square errors (RMSEs), averaged over the three members, are summarized in Table 5.
+TABLE 5. Committee-averaged training and test RMSEs of the AuMgO(*Al) potentials, averaged over the three committee
+members. The short-range energy fits are reported at the 30th epoch and the 4G charge fit at its final (50th) epoch (see text).
+Fit
+Quantity
+Train Test
+2G short-range
+Energy (meV/atom) 1.69 1.78
+4G short-range
+Energy (meV/atom) 0.22 0.27
+4G electronegativity Charge (me)
+4.83 4.75
+3.
+USE OF GENERATIVE AI
+During the preparation of this work the authors used Anthropic’s Claude in order to generate analysis and visual-
+ization scripts, and to improve wording. After using this tool, the authors reviewed and edited the content as needed
+and take full responsibility for the content of the published article.
+[1] J. Behler, Perspective: Machine learning potentials for atomistic simulations, J. Chem. Phys. 145, 170901 (2016).
+19
+[2] V. L. Deringer, M. A. Caro, and G. Cs´anyi, Machine learning interatomic potentials as emerging tools for materials science,
+Adv. Mater. 31, 1902765 (2019).
+[3] O. T. Unke, S. Chmiela, H. E. Sauceda, M. Gastegger, I. Poltavsky, K. T. Sch¨utt, A. Tkatchenko, and K.-R. M¨uller,
+Machine learning force fields, Chem. Rev. 121, 10142 (2021).
+[4] P. Friederich, F. H¨ase, J. Proppe, and A. Aspuru-Guzik, Machine-learned potentials for next-generation matter simulations,
+Nat. Mater 20, 750 (2021).
+[5] J. Behler and G. Cs´anyi, Machine learning potentials for extended systems - a perspective, Eur. Phys. J. B 94, 142 (2021).
+[6] S. K¨aser, L. I. Vazquez-Salazar, M. Meuwly, and K. T¨opfer, Neural network potentials for chemistry: concepts, applications
+and prospects, Digital Discovery 2, 28 (2023).
+[7] J. Behler and M. Parrinello, Generalized neural-network representation of high-dimensional potential-energy surfaces, Phys.
+Rev. Lett. 98, 146401 (2007).
+[8] A. P. Bart´ok, M. C. Payne, R. Kondor, and G. Cs´anyi, Gaussian approximation potentials: The accuracy of quantum
+mechanics, without the electrons, Phys. Rev. Lett. 104, 136403 (2010).
+[9] H. Wang, L. Zhang, J. Han, and W. E, Deepmd-kit: A deep learning package for many-body potential energy representation
+and molecular dynamics, Comput. Phys. Commun. 228, 178 (2018).
+[10] A. V. Shapeev, Moment tensor potentials: a class of systematically improvable interatomic potentials, Multiscale Model.
+Simul. 14, 1153 (2016).
+[11] A. P. Thompson, L. P. Swiler, C. R. Trott, S. M. Foiles, and G. J. Tucker, Spectral neighbor analysis method for automated
+generation of quantum-accurate interatomic potentials, J. Comp. Phys. 285, 316 (2015).
+[12] R. Drautz, Atomic cluster expansion for accurate and transferable interatomic potentials, Phys. Rev. B 99, 014104 (2019).
+[13] E. C.-Y. Yuan, Y. Liu, J. Chen, P. Zhong, S. Raja, T. Kreiman, S. Vargas, W. Xu, M. Head-Gordon, C. Yang, S. M.
+Blau, B. Cheng, A. Krishnapriyan, and T. Head-Gordon, Foundation models for atomistic simulation of chemistry and
+materials, Nat. Rev. Chem. 10, 212 (2026).
+[14] I. Batatia, P. Benner, Y. Chiang, A. M. Elena, D. P. Kovacs, J. Riebesell, X. R. Advincula, M. Asta, W. J. Baldwin,
+N. Bernstein, A. Bhowmik, S. M. Blau, V. Carare, J. P. Darby, S. De, F. D. Pia, V. L. Deringer, R. Elijosius, Z. El-Machachi,
+E. Fako, A. C. Ferrari, A. Genreith-Schriever, J. George, R. E. A. Goodall, C. P. Grey, S. Han, W. Handley, H. H. Heenen,
+K. Hermansson, C. Holm, J. Jaafar, S. Hofmann, K. S. Jakob, H. Jung, V. Kapil, A. D. Kaplan, N. Karimitari, N. Kroupa,
+J. Kullgren, M. C. Kuner, D. Kuryla, G. Liepuoniute, J. T. Margraf, I.-B. Magdau, A. Michaelides, J. H. Moore, A. A.
+Naik, S. P. Niblett, S. W. Norwood, N. O’Neill, C. Ortner, K. A. Persson, K. Reuter, A. S. Rosen, L. L. Schaaf, C. Schran,
+E. Sivonxay, T. K. Stenczel, V. Svahn, C. Sutton, C. van der Oord, E. Varga-Umbrich, T. Vegge, M. Vondrak, Y. Wang,
+W. C. Witt, F. Zills, and G. Csanyi, A foundation model for atomistic materials chemistry, J. Chem. Phys. 163, 184110
+(2025).
+[15] B. Wood, M. Dzamba, X. Fu, M. Gao, M. Shuaibi, L. Barroso-Luque, K. Abdelmaqsoud, V. Gharakhanyan, J. Kitchin,
+D. Levine, K. Michel, A. Sriram, T. Cohen, A. Das, S. Sahoo, A. Rizvi, Z. Ulissi, and L. Zitnick, Uma: A family of
+universal models for atoms (Curran Associates, Inc., 2025) pp. 129391–129427.
+[16] K.-i. Nomura, S. Hattori, S. Ohmura, I. Kanemasu, K. Shimamura, N. Dasgupta, A. Nakano, R. K. Kalia, and P. Vashishta,
+Allegro-fm: Toward an equivariant foundation model for exascale molecular dynamics simulations, The Journal of Physical
+Chemistry Letters 16, 6637 (2025).
+[17] D. M. Anstine and O. Isayev, Machine learning interatomic potentials and long-range physics, J. Phys. Chem. A 127, 2417
+(2023).
+[18] J. Behler, Four Generations of High-Dimensional Neural Network Potentials, Chem. Rev. 121, 10037 (2021).
+[19] T. Morawietz, V. Sharma, and J. Behler, A neural network potential-energy surface for the water dimer based on
+environment-dependent atomic energies and charges, J. Chem. Phys. 136, 064103 (2012).
+[20] N. Artrith, T. Morawietz, and J. Behler, High-dimensional neural-network potentials for multicomponent systems: Appli-
+cations to zinc oxide, Phys. Rev. B 83, 153101 (2011).
+[21] S. A. Ghasemi, A. Hofstetter, S. Saha, and S. Goedecker, Interatomic potentials for ionic systems with density functional
+accuracy based on charge densities obtained by a neural network, Phys. Rev. B 92, 045131 (2015).
+[22] T. W. Ko, J. A. Finkler, S. Goedecker, and J. Behler, A fourth-generation high-dimensional neural network potential with
+accurate electrostatics including non-local charge transfer, Nat Commun 12, 398 (2021).
+[23] T. W. Ko, J. A. Finkler, S. Goedecker, and J. Behler, General-Purpose Machine Learning Potentials Capturing Nonlocal
+Charge Transfer, Acc. Chem. Res. 54, 808 (2021).
+[24] A. K. Rapp´e and I. Goddard, W. A., Charge equilibration for molecular dynamics simulations, J. Phys. Chem. 95, 3358
+(1991).
+[25] A. Khorshidi and A. A. Peterson, Amp: A modular approach to machine learning in atomistic simulations, Comp. Phys.
+Comm. 207, 310 (2016).
+[26] N. Artrith and A. Urban, An implementation of artificial neural-network potentials for atomistic materials simulations:
+Performance for TiO2, Computational Materials Science 114, 135 (2016).
+[27] J. S. Smith, O. Isayev, and A. E. Roitberg, ANI-1: an extensible neural network potential with DFT accuracy at force
+field computational cost, Chem. Sci. 8, 3192 (2017).
+[28] K. Yao, J. E. Herr, D. W. Toth, R. Mckintyre, and J. Parkhill, The tensormol-0.1 model chemistry: a neural network
+augmented with long-range physics, Chem. Sci. 9, 2261 (2018).
+[29] K. Lee, D. Yoo, W. Jeong, and S. Han, Simple-nn: An efficient package for training and executing neural-network inter-
+atomic potentials, Comp. Phys. Comm. 242, 95 (2019).
+20
+[30] A. Singraber, J. Behler, and C. Dellago, Library-based LAMMPS implementation of high-dimensional neural network
+potentials, J. Chem. Theory Comput. 15, 1827 (2019).
+[31] Y. Shao, M. Hellstr¨om, P. D. Mitev, L. Knijff, and C. Zhang, Pinn: A python library for building atomic neural networks
+of molecules and materials, J. Chem. Inf. Model. 60, 1184 (2020).
+[32] F. Pellegrini, R. Lot, Y. Shaidu, and E. K¨u¸c¨ukbenli, PANNA 2.0: Efficient neural network interatomic potentials and new
+architectures, J. Chem. Phys. 159, 084117 (2023).
+[33] T. van der Heide, J. Kullgren, P. Broqvist, V. Bacic, T. Frauenheim, and B. Aradi, Fortnet, a software package for training
+behler-parrinello neural networks, Comp. Phys. Comm. 284, 108580 (2023).
+[34] J. Behler, Constructing high-dimensional neural network potentials: A tutorial review, Int. J. Quantum Chem. 115, 1032
+(2015).
+[35] J. Behler, First Principles Neural Network Potentials for Reactive Simulations of Large Molecular and Condensed Systems,
+Angew. Chem. Int. Ed. 56, 12828 (2017).
+[36] B. Prus and J. Behler, Molecular dynamics simulations of γ-belite(010)-water interfaces with high-dimensional neural
+network potentials (2025), arXiv:2512.09702 [cond-mat.mtrl-sci].
+[37] A. Walsh, Crystal structure of MOF-5 (2005), https://github.com/WMD-group/Crystal_structures/blob/master/MOFs/
+MOF-5/MOF5.cif, accessed: 2026-06-10.
+[38] M. Eckhoff and J. Behler, From molecular fragments to the bulk: Development of a neural network potential for mof-5, J.
+Chem. Theory Comput. 15, 3793 (2019).
+[39] M. Eckhoff and J. Behler, Insights into lithium manganese oxide-water interfaces using machine learning potentials, J.
+Chem. Phys. 155, 244703 (2021).
+[40] A. M. Tokita and J. Behler, Tutorial: How to train a neural network potential, J. Chem. Phys. 159, 121501 (2023).
+[41] J. Behler, Representing potential energy surfaces by high-dimensional neural network potentials, J. Phys.: Condens. Matter
+26, 183001 (2014).
+[42] J. Behler, Atom-centered symmetry functions for constructing high-dimensional neural network potentials, J. Chem. Phys.
+134, 074106 (2011).
+[43] H. Muhli, X. Chen, A. P. Bart´ok, P. Hern´andez-Le´on, G. Cs´anyi, T. Ala-Nissila, and M. A. Caro, Machine learning force
+fields based on local parametrization of dispersion interactions: Application to the phase diagram of c60, Phys. Rev. B
+104, 054106 (2021).
+[44] A. Tkatchenko and M. Scheffler, Accurate molecular Van Der Waals interactions from ground-state electron density and
+free-atom reference data, Phys. Rev. Lett. 102, 073005 (2009).
+[45] T. W. Ko, J. A. Finkler, S. Goedecker, and J. Behler, Accurate Fourth-Generation Machine Learning Potentials by
+Electrostatic Embedding, Journal of Chemical Theory and Computation 10.1021/acs.jctc.2c01146 (2023).
+[46] M. Eckhoff and M. Reiher, Lifelong Machine Learning Potentials, Journal of Chemical Theory and Computation 19, 3509
+(2023).
+[47] M. Eckhoff and J. Behler, High-dimensional neural network potentials for magnetic systems using spin-dependent atom-
+centered symmetry functions, npj Comput. Mater. 7, 170 (2021).
+[48] A. Sadeghi, S. A. Ghasemi, B. Schaefer, S. Mohr, M. A. Lill, and S. Goedecker, Metrics for measuring distances in
+configuration spaces, J. Chem. Phys. 139, 184118 (2013).
+[49] B. Parsaeifard, D. Sankar De, A. S. Christensen, F. A. Faber, E. Kocer, S. De, J. Behler, O. Anatole von Lilienfeld, and
+S. Goedecker, An assessment of the structural resolution of various fingerprints commonly used in machine learning, Mach.
+Learn.: Sci. Technol. 2, 015018 (2021).
+[50] S. Tao and L. Zhu, Eosnet: Embedded overlap structures for graph neural networks in predicting material properties, J.
+Phys. Chem. Lett. 16, 717 (2025).
+[51] N. C. Handy and I. Schaefer, Henry F., On the evaluation of analytic energy derivatives for correlated wave functions, The
+Journal of Chemical Physics 81, 5031 (1984).
+[52] P. P. Poier, L. Lagard`ere, J.-P. Piquemal, and F. Jensen, Molecular dynamics using nonvariational polarizable force fields:
+Theory, periodic boundary conditions implementation, and application to the bond capacity model, Journal of Chemical
+Theory and Computation 15, 6213 (2019), pMID: 31557014, https://doi.org/10.1021/acs.jctc.9b00721.
+[53] K. N. Lausch, R. El Haouari, D. Trzewik, and J. Behler, Impact of the damping function in dispersion-corrected density
+functional theory on the properties of liquid water, J. Chem. Phys. 163, 034101 (2025).
+[54] S. Grimme, J. Antony, S. Ehrlich, and H. Krieg, A consistent and accurate ab initio parametrization of density functional
+dispersion correction (DFT-D) for the 94 elements H-Pu, J. Chem. Phys. 132, 154104 (2010).
+[55] J. F. Ziegler, J. P. Biersack, and U. Littmark, The Stopping and Range of Ions in Solids (Pergamon Press, New York,
+1985).
+[56] D. P. Kingma and J. L. Ba, Adam: A method for stochastic optimization, arXiv:1412.6980v9 10.48550/arXiv.1412.6980
+(2017).
+[57] T. B. Blank and S. D. Brown, Adaptive, global, extended kalman filters for training feed-forward neural networks, J.
+Chemometrics 8, 391 (1994).
+[58] A. H. Larsen, J. J. Mortensen, J. Blomqvist, I. E. Castelli, R. Christensen, M. Du lak, J. Friis, M. N. Groves, B. Hammer,
+C. Hargus, E. D. Hermes, P. C. Jennings, P. B. Jensen, J. Kermode, J. R. Kitchin, E. L. Kolsbjerg, J. Kubal, K. Kaasbjerg,
+S. Lysgaard, J. B. Maronsson, T. Maxson, T. Olsen, L. Pastewka, A. Peterson, C. Rostgaard, J. Schiøtz, O. Sch¨utt,
+M. Strange, K. S. Thygesen, T. Vegge, L. Vilhelmsen, M. Walter, Z. Zeng, and K. W. Jacobsen, The atomic simulation
+environment—a Python library for working with atoms, J. Phys.: Condens. Matter 29, 273002 (2017).
+21
+[59] A. Singraber, T. Morawietz, J. Behler, and C. Dellago, Parallel multistream training of high-dimensional neural network
+potentials, J. Chem. Theory Comput. 15, 3075 (2019).
+[60] P. P. Ewald, Die Berechnung optischer und elektrostatischer Gitterpotentiale, Ann. Phys. 369, 253 (1921).
+[61] U. Essmann, L. Perera, M. L. Berkowitz, T. Darden, H. Lee, and L. G. Pedersen, A smooth particle mesh Ewald method,
+J. Chem. Phys. 103, 8577 (1995).
+[62] M. Gubler, J. A. Finkler, M. R. Sch¨afer, J. Behler, and S. Goedecker, Accelerating fourth-generation machine learning
+potentials using quasi-linear scaling particle mesh charge equilibration, J. Chem. Theory Comput. 20, 7264 (2024).
+[63] C. Schran, K. Breziˇna, and O. Marsalek, Committee neural network potentials control generalization errors and enable
+active learning, J. Chem. Phys. 153, 104105 (2020).
+[64] S. Plimpton, Fast parallel algorithms for short-range molecular dynamics, Journal of Computational Physics 117, 1 (1995).
+[65] Moritz R. Sch¨afer, runner-interface: Generic Python interfaces to the RuNNer code. (2026).
+[66] A. Stukowski, Visualization and analysis of atomistic simulation data with OVITO-the Open Visualization Tool, MOD-
+ELLING AND SIMULATION IN MATERIALS SCIENCE AND ENGINEERING 18, 10.1088/0965-0393/18/1/015012
+(2010).
+[67] Alexander L. M. Knoll, Redouan El Haouari, and Gunnar Schmitz, runnerase-core: Shared core library for the Python
+interface to the Ruhr university Neural Network energy representation (RuNNer). (2026).
+[68] Moritz R. Sch¨afer, runnerase-prediction: Prediction calculators for the Ruhr University Neural Network energy represen-
+tation (RuNNer). (2026).
+[69] Alexander L. M. Knoll, runnerase-training: Training calculators for the Ruhr University Neural Network energy represen-
+tation (RuNNer). (2026).
+[70] Jasper Kr¨ahe, Moritz R. Sch¨afer, and Alexander L. M. Knoll, runnerase-workflows: Collection of routines for applying the
+Ruhr University Neural Network energy representation (RuNNer). (2026).
+[71] Henry Wang, runnerase-feature-calculation: Feature calculators for the Ruhr University Neural Network energy represen-
+tation (RuNNer). (2026).
+[72] Alexander L. M. Knoll, runnerase: A collection of packages for training, evaluating, and analyzing machine learning
+potentials with RuNNer, the Ruhr University Neural Network energy representation. (2026).
+[73] E. Kocer, A. Singraber, J. A. Finkler, B. Misof, T. W. Ko, C. Dellago, and J. Behler, Iterative charge equilibration for
+fourth-generation high-dimensional neural network potentials, J. Chem. Phys. 162, 124106 (2025).
+[74] A. L. M. Knoll, Improved iterative charge equilibration solver in n2p2, GitHub pull request #209 to CompPhysVienna/n2p2,
+commit 6b41f10 (2024).
+[75] D. Nguyen and B. Widrow, Improving the learning speed of 2-layer neural networks by choosing initial values of the
+adaptive weights, in 1990 IJCNN International Joint Conference on Neural Networks, Vol. 3 (IEEE, 1990) pp. 21–26.
+[76] X. Glorot and Y. Bengio, Understanding the difficulty of training deep feedforward neural networks, in Proceedings of the
+Thirteenth International Conference on Artificial Intelligence and Statistics (AISTATS), Proceedings of Machine Learning
+Research, Vol. 9 (PMLR, 2010) pp. 249–256.
+[77] M. Eckhoff, F. Sch¨onewald, M. Risch, C. A. Volkert, P. E. Bl¨ochl, and J. Behler, Closing the gap between theory and
+experiment for lithium manganese oxide spinels using a high-dimensional neural network potential, Phys. Rev. B 102,
+174102 (2020).
+[78] R. W. Hockney and J. W. Eastwood, Computer Simulation Using Particles (Adam Hilger, Bristol, 1988).
+[79] F. L. Hirshfeld, Bonded-atom fragments for describing molecular charge densities, Theor. Chim. Acta 44, 129 (1977).
+[80] G. V. Puskorius and L. A. Feldkamp, Multi-stream extended kalman filter training for static and dynamic neural networks,
+Systems, Man, and Cybernetics, 1997. Computational Cybernetics and Simulation., 1997 IEEE International Conference
+on 3, 2006 (1997).
+[81] M. J. Winter, WebElements: the periodic table on the web, https://www.webelements.com, accessed 2026.
+[82] J. Hermann, M. St¨ohr, S. G´oger, S. Chaudhuri, B. Aradi, R. J. Maurer, and A. Tkatchenko, libmbd: A general-purpose
+package for scalable quantum many-body dispersion calculations, The Journal of Chemical Physics 159, 174802 (2023).
+[83] W. M. Haynes, ed., CRC Handbook of Chemistry and Physics, 97th ed. (CRC Press/Taylor & Francis, Boca Raton, FL,
+2016) internet Version 2017.
+[84] F. L. Thiemann, C. Schran, P. Rowe, E. A. M¨uller, and A. Michaelides, Water Flow in Single-Wall Nanotubes: Oxygen
+Makes It Slip, Hydrogen Makes It Stick, ACS Nano 16, 10775 (2022).
+[85] B. Hammer, L. B. Hansen, and J. K. Nørskov, Improved adsorption energetics within density-functional theory using
+revised perdew-burke-ernzerhof functionals, Phys. Rev. B 59, 7413 (1999).
+[86] V. Blum, R. Gehrke, F. Hanke, P. Havu, V. Havu, X. Ren, K. Reuter, and M. Scheffler, Ab initio molecular simulations
+with numeric atom-centered orbitals, Comp. Phys. Comm. 180, 2175 (2009).
+[87] A. Marek, V. Blum, R. Johanni, V. Havu, B. Lang, T. Auckenthaler, A. Heinecke, H.-J. Bungartz, and H. Lederer, The
+ELPA library: scalable parallel eigenvalue solutions for electronic structure theory and computational science, Journal of
+Physics: Condensed Matter 26, 213201 (2014).

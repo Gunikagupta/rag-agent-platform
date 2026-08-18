@@ -1,0 +1,1098 @@
+DA-Fusion: Deformable Attention-based RGB-D Fusion Transformer
+for Unseen Object Instance Segmentation
+Yesol Park1∗Hye-Jung Yoon1∗Juno Kim1∗Byoung-Tak Zhang1,2,3
+Abstract— In logistics automation, precise segmentation of
+unseen objects is crucial for efficient robotic manipulation in
+cluttered environments. Tasks such as bin-picking and shelf-
+picking require robust perception to handle occlusions, varying
+object shapes, and complex spatial arrangements. Traditional
+RGB-based methods tend to over-segment objects due to
+their reliance on texture, while depth-based methods often
+under-segment by focusing primarily on geometric features.
+To address these limitations, we propose DA-Fusion, a de-
+formable attention-based RGB-D fusion Transformer designed
+for unseen object instance segmentation. DA-Fusion effectively
+combines the strengths of both RGB and depth data, en-
+hancing segmentation accuracy in cluttered and multi-layered
+object environments. We also introduce the Object Clutter Bin
+Dataset (OCBD), a benchmark dataset specifically tailored for
+evaluating bin-picking scenarios in top-down views. Extensive
+evaluations demonstrate that DA-Fusion outperforms state-
+of-the-art methods across diverse environments, making it
+particularly suited for real-world logistics tasks.
+I. INTRODUCTION
+Accurately segmenting unseen objects is critical for en-
+abling robots to perform tasks like bin-picking, shelf-picking,
+and warehouse sorting in logistics. These operations often
+occur in cluttered, dynamic environments where objects may
+be occluded, stacked, or vary in shape and texture. The
+ability to reliably identify and manipulate unseen objects in
+such conditions is essential for efficient logistics but remains
+challenging for current robotic systems.
+Traditional segmentation methods typically rely on either
+RGB or depth data, each of which presents its own limita-
+tions. RGB-based methods are prone to over-segmentation
+due to texture sensitivity, especially in environments with
+complex visual details. In contrast, depth-based methods tend
+to under-segment by emphasizing geometric features, partic-
+ularly when objects have similar shapes or are placed closely
+together. Combining these two modalities to take advantage
+of their complementary strengths is a key challenge in object
+segmentation [1], [2].
+To address this challenge, we propose DA-Fusion, a novel
+deformable attention-based RGB-D fusion Transformer de-
+signed for unseen object instance segmentation (UOIS). DA-
+Fusion employs a deformable attention mechanism [3] to
+This work was partly supported by the IITP (RS-2021-II212068-
+AIHub/10%, RS-2021-II211343-GSAI/15%, RS-2022-II220951-LBA/15%,
+RS-2022-II220953-PICA/20%),
+NRF
+(RS-2024-00353991-SPARC/20%,
+RS-2023-00274280-HEI/10%), and KEIT (RS-2024-00423940/10%) grant
+funded by the Korean government.
+*Authors have equal contributions
+1Interdisciplinary Program in AI, Seoul National University
+2Artificial Intelligence Institute, Seoul National University
+3Department of Computer Science, Seoul National University
+Fig. 1.
+Unseen Object Segmentation results on [4]. RGB-based
+segmentation tends to over-segment (top left), while depth-based under-
+segments (bottom right). Our fusion strategy improves accuracy (top right).
+Note that GT (bottom left) is auto-labeled [4].
+dynamically fuse RGB and depth data at multiple levels
+within the model. This approach enables more precise and
+fine-grained integration of texture and geometric informa-
+tion, significantly enhancing segmentation accuracy in the
+complex environments typical of logistics operations.
+As illustrated in Fig. 1, DA-Fusion provides significant
+improvements in segmentation performance over using RGB
+or depth data alone. By dynamically fusing these modalities
+using deformable attention, DA-Fusion aligns more closely
+with the Ground Truth (GT), particularly in environments
+where objects display varied textures and geometries.
+Additionally, we introduce the Object Clutter Bin Dataset
+(OCBD), a new real-world dataset designed to evaluate seg-
+mentation performance in challenging bin-picking scenarios.
+Unlike previous datasets [5]–[8], which are mainly composed
+of simple, single-type objects with uniform colors and are
+often created in simulated environments, OCBD captures
+real-world complexity, including complex and diverse objects
+with varied colors, multi-layered object arrangements, and
+noisy RGB-D data, making it a valuable benchmark for real-
+world applications.
+DA-Fusion sets a new state-of-the-art in UOIS across
+tabletop [9], indoor [4], and bin environments, showcasing its
+effectiveness and versatility in a diverse range of settings. It
+excels in front-view scenarios, such as tabletop and shelf-
+picking tasks, as well as in top-down views commonly
+used in bin-picking operations, further demonstrating its
+adaptability to various robotic applications.
+Our key contributions are summarized as follows:
+arXiv:2607.17754v1  [cs.CV]  20 Jul 2026
+• We propose DA-Fusion, a deformable attention-based
+Transformer that fuses RGB and depth for improved
+UOIS accuracy.
+• We introduce OCBD, a benchmark with top-down views
+of cluttered, multi-layered objects for real-world bin-
+picking evaluation.
+• We validate DA-Fusion on three benchmarks—tabletop,
+indoor, and bin—achieving state-of-the-art performance.
+II. RELATED WORKS
+A. Unseen Object Instance Segmentation (UOIS)
+Unseen Object Instance Segmentation (UOIS) is crucial
+for robotic systems in diverse environments such as tables,
+shelves, and bins [10]–[13]. UOIS segments objects without
+prior knowledge of their classes or appearances, enabling
+robots to handle previously unseen objects in dynamic set-
+tings.
+Earlier UOIS methods extended Mask R-CNN [14] to
+generalize beyond trained categories but struggled with small
+objects and densely packed scenes [15]–[17]. Transformer-
+based architectures like Mask2Former [18], [19] improved
+this by better handling complex object layouts through multi-
+scale feature extraction.
+Some recent UOIS methods incorporated second-stage
+refinement techniques [20], [21] to improve accuracy, but
+this added computational complexity, especially in cluttered
+scenes. Despite these improvements, reliable segmentation of
+unseen objects remains challenging, particularly in scenarios
+with overlapping or ambiguous boundaries.
+Our approach builds on the Mask Transformer [19], en-
+hancing its ability to handle complex layouts and boundaries,
+making it suitable for challenging, real-world applications.
+B. RGB-D Fusion
+RGB-D fusion is an essential technique for improving
+segmentation by combining the complementary strengths of
+RGB and depth data. RGB images provide detailed color
+and texture information, while depth contributes spatial and
+geometric insights. Traditional RGB-D fusion approaches are
+typically divided into early, intermediate, and late fusion
+strategies.
+Early fusion combines RGB and depth data at the input
+stage, allowing for joint feature extraction, but often fails to
+fully exploit the distinct advantages of each modality [22].
+Intermediate fusion merges RGB and depth information at
+various stages within the network, enabling better interaction
+between low-level and high-level features, but increases
+computational complexity [23]. Late fusion processes RGB
+and depth streams separately and merges them only at the
+final output. While this method retains modality-specific
+characteristics, it lacks rich cross-modal interactions, which
+can limit performance in complex environments [24].
+Attention mechanisms have been introduced in multi-
+modal fusion tasks to improve how models integrate RGB
+and depth data, allowing them to dynamically focus on the
+most important regions across modalities. While traditional
+Vision Transformers (ViTs) [25] primarily use self-attention
+within a single modality, cross-attention has been employed
+in tasks involving long-range dependencies between different
+modalities, particularly in RGB-D fusion and other multi-
+modal scenarios [23], [26]. However, attention mechanisms
+can be computationally expensive, especially in cluttered
+environments like logistics scenarios.
+Deformable
+attention,
+introduced
+in
+Deformable
+DETR [3], addresses these limitations by focusing on
+a small set of key sampling points, reducing computational
+costs while allowing the model to focus on spatially
+important regions. This mechanism proves particularly
+effective in cluttered or occluded environments, where
+it captures finer-grained details and object parts that are
+difficult to discern, enhancing the model’s ability to segment
+small or partially hidden objects.
+In our work, DA-Fusion, we fuse the complementary
+strengths of RGB and depth data using deformable atten-
+tion. By dynamically focusing on key spatial regions in
+both modalities, deformable attention allows the model to
+better capture the rich texture and color from RGB and the
+spatial and structural insights from depth. This results in
+more precise fusion, enhancing segmentation accuracy for
+both large objects and smaller, occluded parts, particularly
+in cluttered environments, while maintaining computational
+efficiency.
+III. METHOD
+We propose DA-Fusion, a novel framework for RGB-D
+fusion aimed at unseen object instance segmentation. Our
+approach utilizes deformable attention mechanisms to refine
+and fuse features from RGB and depth, capturing comple-
+mentary information across layers in the encoder. DA-Fusion
+enables robust and discriminative feature representations by
+effectively capturing both local and global interactions.
+A. Notation Overview
+Let Irgb ∈RH×W×3 and Id ∈RH×W×3 represent the input
+RGB and depth images, with Id in HHA format [27]. Feature
+maps from the 4-layer backbone are denoted as frgb and fd
+with dimensions H ×W ×C, where C varies by layer. For
+stage i ∈{1..4}, f i
+rgb, f i
+d ∈RHi×Wi×Ci and we denote fused
+features as fi accordingly.
+The Deformable Self-Attention (DS) module refines these
+features into f ′
+rgb and f ′
+d, which are processed by the De-
+formable Cross-Attention (DC) module to fuse information
+across modalities. The fused features at each layer are
+denoted as fi for i ∈{1,2,3,4}, which are passed into the
+decoder to produce the final masks M.
+B. Framework Overview
+Fig. 2 shows the DA-Fusion framework, where two paral-
+lel branches extract features from Irgb and Id. The backbone
+is a 4-layer Swin Transformer [28] that processes features
+through the DS and DC modules, which fuse RGB and depth
+information. Outputs from all four layers, f1, f2, f3, f4, are
+concatenated and decoded by the pixel decoder of Mask
+Transformer [19], with the final mask M generated by the
+transformer decoder.
+Fig. 2.
+Overview of the DA-Fusion Architecture. Two parallel branches extract features from RGB and depth inputs, which are fused at multiple layers
+using deformable attention. The fused features are processed by the Mask Transformer decoder [19] to generate segmentation masks.
+C. Deformable Self-Attention (DS)
+In Deformable Self-Attention (DS), the feature maps frgb
+and fd are refined through attention mechanisms that dynam-
+ically adjust the sampling points based on learned offsets.
+Specifically, the refined features, f ′
+rgb and f ′
+d, are generated
+by applying deformable attention to adapt the key and value
+embeddings at deformed positions.
+The reference points Rrgb and Rd are generated from a
+uniform grid over the feature maps, and the offsets ∆p are
+learned through an offset network. All reference points R and
+offsets ∆p are in normalized coordinates [0,1]2 per stage, and
+we clamp R+∆p to [0,1]2 before sampling:
+∆p = θoffset(Q)
+(1)
+where Q is the query projected from the input feature map:
+Q = fWQ
+(2)
+The deformed points are then computed as Drgb = Rrgb +
+∆prgb and Dd = Rd +∆pd.
+At these deformed points, key and value embeddings are
+sampled using the sampling function φ:
+˜K = ˜fWK,
+˜V = ˜fWV
+(3)
+where ˜f = φ(f; p + ∆p) represents the features sampled at
+the deformed points. The sampling function φ is bilinear
+interpolation, allowing for differentiability:
+φ (z;(px, py)) = ∑
+(rx,ry)
+g(px,rx)g(py,ry)z[ry,rx,:]
+(4)
+where g(a,b) = max(0,1 −|a −b|). This interpolation en-
+sures that the deformed points smoothly sample from the
+feature map.
+The attention scores are computed using the deformed key
+embeddings:
+e(m)
+i,k = Q(m)
+i
+· ˜K(m)⊤
+k
+√dh
+(5)
+where i indexes query positions, k∈{1,...,K} indexes the K
+sampled keys per head, m is the head index, and dh = d/M.
+We use K sampling locations per head, i.e., ∆p ∈RN×M×K×2.
+The model uses M attention heads, where each head performs
+independent attention computations in parallel. The final
+output of an attention head is formulated as:
+z(m) = Softmaxk
+
+e(m) +φ( ˆB;R)
+
+˜V (m)
+(6)
+where ˆB represents the relative position bias and φ( ˆB;R)
+interpolates the relative position bias table. The outputs of
+all attention heads are concatenated and projected:
+f ′ = Concat
+
+z(1),...,z(M)
+Wo
+(7)
+where Wo is the output projection matrix, used to combine
+the results from all attention heads into a single output
+representation. This process results in the refined feature
+maps f ′
+rgb and f ′
+d.
+D. Deformable Cross-Attention (DC)
+In Deformable Cross-Attention (DC), the model performs
+cross-modal attention between the features from RGB and
+depth, using the outputs from the DS module. The inputs to
+the DC module are the refined features f ′
+rgb and f ′
+d, which
+are used to generate cross-attended fused features for RGB
+and depth.
+For each modality, the query vectors Q′
+rgb and Q′
+d are
+obtained from the output of the DS module:
+Q′
+rgb = f ′
+rgbWQ′
+rgb,
+Q′
+d = f ′
+dWQ′
+d
+(8)
+Next, using an offset network, each query modality pre-
+dicts offsets that are applied to the reference points of the
+other modality, allowing us to sample the corresponding key
+and value embeddings from f ′
+rgb or f ′
+d:
+∆prgb→d = θoffset(Q′
+rgb),
+˜f ′
+d = φ(f ′
+d;R′
+d +∆prgb→d)
+(9)
+∆pd→rgb = θoffset(Q′
+d),
+˜f ′
+rgb = φ(f ′
+rgb;R′
+rgb +∆pd→rgb) (10)
+From these deformed features, we obtain the key and value
+embeddings for each modality:
+˜K′
+rgb = ˜f ′
+rgbWK′
+rgb,
+˜V ′
+rgb = ˜f ′
+rgbWV ′
+rgb
+(11)
+˜K′
+d = ˜f ′
+dWK′
+d,
+˜V ′
+d = ˜f ′
+dWV ′
+d
+(12)
+Since this is cross-attention, the query from one modality
+is used to attend to the keys and values from the other
+modality. Specifically, the RGB query Q′
+rgb attends to the
+depth keys and values ˜K′
+d and ˜V ′
+d, while the depth query Q′
+d
+attends to the RGB keys and values ˜K′
+rgb and ˜V ′
+rgb.
+For RGB querying depth and depth querying RGB, the
+attention scores and output are computed as:
+z′(m)
+rgb = Softmax
+
+Q′(m)
+rgb ˜K′(m)⊤
+d
+/
+p
+dh +φ( ˆ
+B′
+rgb;R′
+rgb)
+
+˜V ′(m)
+d
+(13)
+z′(m)
+d
+= Softmax
+
+Q′(m)
+d
+˜K′(m)⊤
+rgb
+/
+p
+dh +φ( ˆB′
+d;R′
+d)
+
+˜V ′(m)
+rgb
+(14)
+The outputs from both attention processes, which are the
+results from the multi-head attention heads, are concatenated
+to form the final fused feature for the i-th layer. This fused
+feature fi, combining information from both RGB and depth,
+is passed to the next stage of the model. Here, i denotes
+the layer index of the backbone, ensuring that features from
+each layer are effectively fused to capture complementary
+information from both modalities.
+Fig. 3.
+OCBD Dataset Examples. Example images from OCBD with
+their segmentation GTs, illustrating the dataset’s diversity and complexity.
+E. Hierarchical Mask Transformer Decoder
+The fused features from all layers (f1, f2, f3, f4) are passed
+to the Mask Transformer decoder [19], which includes a pixel
+decoder, Transformer decoder, and mask prediction module.
+The pixel decoder refines the multi-scale features, while the
+Transformer decoder predicts mask embeddings. In our class-
+agnostic approach, the mask prediction module produces a
+set of mask logits ˆM ∈[0,1]Q×H×W, where each corresponds
+to a query’s foreground probability map. Binary masks M ∈
+{0,1}Q×H×W are obtained by thresholding these logits after
+upsampling and refinement in the pixel decoder.
+IV. OBJECT CLUTTER BIN DATASET (OCBD)
+Existing UOIS benchmarks [4], [9] primarily focus on
+front-view scenarios with stacked or overlapping objects,
+which are insufficient for evaluating logistics tasks like bin-
+picking, where objects may be randomly piled in multiple
+layers from a top-down view. These conditions present
+challenges for segmentation models, requiring them to handle
+cluttered scenes with diverse shapes, orientations, and oc-
+clusions. Earlier bin-picking datasets [5], [6] predominantly
+feature industrial parts—repetitive, texture-less objects—and
+are often simulated [7], [8], lacking the noise and variability
+of real-world scenarios.
+To address these limitations, we introduce the Object
+Clutter Bin Dataset (OCBD), reflecting real-world bin envi-
+ronments. OCBD consists of 1000 top-down RGB-D images
+(640×480) captured with an Azure Kinect DK. All ground
+truth segmentation labels were human-annotated for high-
+quality instance masks even in challenging cluttered scenes.
+The dataset features 30 YCB objects [31] and 25 HOPE
+household items [32], offering diversity in shape, size, and
+texture, and includes various bins with different backgrounds
+and lighting to enhance realism.
+With 13,147 object instances and an average of 13.2
+objects per image, OCBD offers a challenging benchmark.
+Objects often overlap or block one another, contrasting with
+datasets like OSD [9] and OCID [4], where fewer objects
+appear per scene (7.5 and 3.3, respectively) in more orga-
+nized setups. By focusing on realistic cluttered bin-picking
+scenarios, OCBD provides a critical resource for developing
+and evaluating segmentation models in real-world robotic
+manipulation.
+TABLE I
+UOIS EVALUATION RESULTS ON OCID [4] AND OSD [9].
+Method
+Input
+OCID (2390 images) [4]
+OSD (111 images) [9]
+Overlap
+Boundary
+%75
+Overlap
+Boundary
+%75
+P
+R
+F
+P
+R
+F
+P
+R
+F
+P
+R
+F
+UCN [20]
+RGB
+54.8
+76.0
+59.4
+34.5
+45.0
+36.5
+48.0
+57.2
+73.8
+63.3
+34.7
+50.0
+39.1
+52.5
+UCN+ [20]
+RGB
+59.1
+74.0
+61.1
+40.8
+55.0
+43.8
+58.2
+59.1
+71.7
+63.8
+34.3
+53.3
+39.5
+52.6
+UOAIS† [17]
+RGB
+66.5
+83.1
+67.9
+62.1
+70.2
+62.3
+73.1
+84.2
+83.7
+83.8
+72.2
+72.8
+72.1
+76.7
+Mask2Former [19]
+RGB
+67.2
+73.1
+67.1
+55.9
+58.1
+54.5
+54.3
+60.6
+60.2
+59.5
+48.2
+41.7
+43.3
+32.4
+MSMFormer [21]
+RGB
+70.2
+84.4
+70.5
+64.5
+74.9
+64.9
+75.3
+59.3
+82.0
+67.9
+42.9
+72.0
+52.4
+72.4
+MSMFormer+ [21]
+RGB
+73.9
+67.1
+66.3
+64.6
+52.9
+54.8
+52.8
+63.9
+63.7
+62.7
+51.6
+45.3
+47.0
+41.1
+SAM (ViT-H)† [29]
+RGB
+8.5
+64.9
+14.0
+11.1
+69.5
+18.3
+45.3
+9.9
+60.8
+16.3
+15.3
+64.3
+24.4
+41.2
+Ours*
+RGB
+80.4
+92.6
+89.1
+87.1
+88.9
+87.3
+92.6
+91.5
+90.7
+91.1
+88.8
+88.1
+88.4
+88.6
+UCN [20]
+Depth
+83.1
+90.7
+86.4
+77.7
+74.3
+75.6
+75.4
+78.7
+83.8
+81.0
+52.6
+50.0
+50.9
+72.1
+UCN+ [20]
+Depth
+88.7
+92.2
+90.1
+83.6
+84.2
+83.3
+85.3
+83.5
+86.0
+84.5
+57.2
+56.8
+56.5
+80.6
+UOAIS† [17]
+Depth
+89.9
+90.9
+89.8
+86.7
+84.1
+84.7
+87.1
+84.9
+86.4
+85.5
+68.2
+66.2
+66.9
+80.8
+Mask2Former [19]
+Depth
+82.4
+79.0
+77.4
+78.2
+69.1
+70.4
+66.3
+79.8
+81.7
+80.4
+68.4
+79.0
+72.2
+77.0
+Ours*
+Depth
+89.0
+90.3
+89.6
+88.7
+83.6
+86.1
+83.5
+87.9
+86.3
+87.1
+73.1
+67.5
+70.2
+82.9
+UCN [20]
+RGB-D
+86.0
+92.3
+88.5
+80.4
+78.3
+78.8
+82.2
+84.3
+88.3
+86.2
+67.5
+67.5
+67.1
+79.3
+UCN+ [20]
+RGB-D
+91.6
+92.5
+91.6
+86.5
+87.1
+86.1
+89.3
+87.4
+87.4
+87.4
+69.1
+70.8
+69.4
+83.2
+UOAIS† [17]
+RGB-D
+70.7
+86.7
+71.9
+68.2
+78.5
+68.8
+78.7
+85.3
+85.4
+85.2
+72.7
+74.3
+73.1
+79.1
+Mask2Former [19]
+RGB-D
+78.6
+82.8
+79.5
+69.3
+76.2
+71.1
+69.3
+75.6
+79.2
+77.3
+54.1
+64.0
+58.0
+65.2
+MSMFormer [21]
+RGB-D
+85.3
+85.4
+85.2
+72.7
+74.3
+73.1
+79.1
+70.7
+86.7
+71.9
+68.2
+78.5
+68.8
+78.7
+MSMFormer+ [21]
+RGB-D
+92.5
+91.0
+91.5
+89.4
+85.9
+87.3
+86.0
+87.1
+86.1
+86.4
+69.0
+68.6
+68.4
+80.4
+Ours (DS)
+RGB-D
+92.8
+92.3
+91.8
+91.3
+89.4
+89.7
+92.7
+93.0
+92.1
+92.5
+91.2
+85.4
+88.2
+92.8
+Ours (DS+DC)
+RGB-D
+93.2
+92.6
+92.1
+91.8
+89.8
+90.0
+92.9
+93.5
+92.4
+92.9
+91.7
+84.6
+88.0
+92.9
++ : The method using second-stage network (Zoom-in refinement).
+† : The model that incorporate a foreground segmentation model [30] in OSD.
+* : The model after passing input through the DS module without fusion.
+V. EXPERIMENTS
+A. Implementation Details
+Dataset and Preprocessing. We train the model on the
+UOAIS-SIM dataset [17], which contains 50,000 photore-
+alistic RGB-D images across diverse logistics scenarios,
+including both tabletop and bin environments. The depth
+input is converted into HHA format [27], where the three
+channels represent disparity, height above ground, and the
+angle between the local surface normal and the gravity direc-
+tion. During training, we apply standard data augmentation
+techniques such as random cropping, horizontal flipping, and
+scaling to increase the diversity of training samples.
+Training Setup. We train the model for 20 epochs using
+the AdamW optimizer [33] with a learning rate of 1e−4 and a
+batch size of 2. A cosine learning rate scheduler with warm-
+up is employed to improve convergence. All experiments
+are conducted on an NVIDIA A100 GPU, with a memory
+allocation of 40GB.
+Loss Functions. We utilize the loss function used in
+Mask2Former [19], adapted for UOIS. The mask loss com-
+bines binary cross-entropy and dice loss [34], expressed as
+Lmask = λceLce + λdiceLdice, where both λce and λdice are
+set to 5.0. The final loss is computed as the sum of the
+mask loss and a classification loss that distinguishes between
+foreground (object) and background (non-object): Lfinal =
+Lmask + λclsLcls, where λcls is 2.0 for predictions matching
+a foreground object and 0.1 for predictions classified as
+background.
+TABLE II
+UOIS EVALUATION RESULTS ON OCBD WITH RGB-D INPUT.
+Method
+OCBD (1000 images)
+Overlap
+Boundary
+%75
+P
+R
+F
+P
+R
+F
+UCN+ [20]
+76.7
+73.2
+70.7
+50.7
+51.9
+46.7
+61.3
+UOAIS [17]
+68.3
+77.9
+69.9
+55.7
+57.3
+54.9
+58.2
+MSMFormer+ [21]
+86.6
+34.9
+42.5
+66.2
+23.4
+28.6
+26.5
+Ours (DS)
+91.3
+90.1
+90.4
+89.4
+86.2
+87.3
+85.8
+Ours (DS+DC)
+92.5
+90.4
+91.3
+90.8
+87.3
+88.7
+87.1
+B. Experimental Setup
+Datasets. We evaluated DA-Fusion on the UOIS task
+using three distinct benchmarks: OSD [9] (111 images),
+OCID [4] (2,390 images), and OCBD (1,000 images), our
+newly introduced dataset designed to reflect real-world bin-
+picking tasks with cluttered, multi-layered object arrange-
+ments from a top-down view. These datasets cover a range
+of logistics scenarios, from complex tabletop settings to
+cluttered bin-picking operations in warehouses.
+Evaluation Metrics. Object segmentation performance is
+evaluated using Overlap and Boundary Precision (P), Recall
+(R), and F-measure (F). These are calculated as P =
+TP
+TP+FP,
+R =
+TP
+TP+FN , and F = 2PR
+P+R, where TP, FP, and FN denote
+true positives, false positives, and false negatives. We also
+report the percentage of segmented objects with an Over-
+lap F-measure ≥75% to evaluate performance in cluttered
+environments.
+Fig. 4.
+Qualitative Evaluation. Comparison of instance segmentation results across OSD (top row), OCID (middle row), and OCBD (bottom row)
+datasets. From left to right: UCN, UOAIS, MSMFormer, our DA-Fusion method, and GT. DA-Fusion demonstrates superior segmentation of accumulated
+objects in OSD, better object delineation in feature-rich backgrounds in OCID, and more accurate detection of occluded objects in lower layers in OCBD,
+as evidenced by the closer resemblance to GT.
+C. Quantitative Results
+As shown in Table I, our RGB-D fusion method
+achieved the highest overall scores on the OCID and OSD
+datasets, significantly outperforming previous state-of-the-
+art approaches. Prior methods typically relied on two-stage
+clustering models [20], [21] to refine segmentation masks in
+cluttered scenes, whereas our approach maintained superior
+accuracy without additional computational overhead.
+The results on the OCBD dataset, shown in Table II,
+further demonstrate the effectiveness of DA-Fusion in com-
+plex bin-picking scenarios. Compared to the same set of
+methods, our model consistently outperforms across both
+tabletop and bin-picking tasks, showing robust performance
+when handling unseen objects in cluttered, dynamic environ-
+ments—crucial for real-world logistics applications.
+D. Qualitative Results
+Fig. 4 presents qualitative comparisons, where DA-Fusion
+consistently demonstrates superior segmentation in complex
+scenes with diverse object shapes and occlusions, whereas
+other methods struggle in such environments. Specifically,
+in the OSD dataset, other methods tend to fail at sepa-
+rating accumulated objects, while our method accurately
+distinguishes individual items. For the OCID dataset, which
+contains backgrounds with rich features, our method sig-
+nificantly outperforms alternatives in properly delineating
+objects. Finally, in the OCBD dataset representing cluttered
+bin scenarios, our approach effectively segments objects even
+in lower layers, where other methods like UOAIS either miss
+objects entirely or produce incomplete segmentations.
+Fig. 5.
+Examples from Real-Robot Experiments. Shelf picking (left
+column) and bin picking (right column) tasks with corresponding segmen-
+tation results demonstrating effectiveness of DA-Fusion in diverse real-world
+manipulation environments.
+E. Real-robot Experiments
+We validated the effectiveness of DA-Fusion through real-
+robot experiments focused on two logistics tasks: shelf-
+picking from a front-view setup and bin-picking from a top-
+down view. Fig. 5 shows these experiments, demonstrating
+how the model adapts to different real-world conditions. In
+the shelf-picking task, we used a UR5e robotic arm equipped
+with a two-finger gripper and a RealSense D435 camera
+mounted above the gripper for RGB-D data capture. For bin-
+picking, we used an Azure Kinect DK camera positioned
+overhead. The accurate segmentation of unseen objects im-
+proved the success rate of robotic manipulation across both
+tasks. These results highlight the method’s robustness in
+handling cluttered and dynamic environments, showing its
+potential for improving automation in logistics operations.
+VI. CONCLUSION
+We introduce DA-Fusion, a deformable attention-based
+RGB-D fusion model for unseen object instance segmen-
+tation in logistics tasks like shelf (front-view) and bin pick-
+ing (top-down view). Our approach significantly improves
+segmentation accuracy in challenging environments. Addi-
+tionally, we present OCBD, a new benchmark for realistic
+bin-picking scenarios. Experimental results, including real-
+robot tests, demonstrate DA-Fusion’s superior performance
+and adaptability across various logistics applications.
+REFERENCES
+[1] W. Wang and U. Neumann, “Depth-aware cnn for rgb-d segmenta-
+tion,” in Proceedings of the European conference on computer vision
+(ECCV), pp. 135–150, 2018.
+[2] C. Wang, C. Wang, W. Li, and H. Wang, “A brief survey on rgb-
+d semantic segmentation using deep learning,” Displays, vol. 70,
+p. 102080, 2021.
+[3] X. Zhu, W. Su, L. Lu, B. Li, X. Wang, and J. Dai, “Deformable
+detr: Deformable transformers for end-to-end object detection,” arXiv
+preprint arXiv:2010.04159, 2020.
+[4] M. Suchi, T. Patten, D. Fischinger, and M. Vincze, “Easylabel: A
+semi-automatic pixel-wise object annotation tool for creating robotic
+rgb-d datasets,” in 2019 International Conference on Robotics and
+Automation (ICRA), pp. 6678–6684, IEEE, 2019.
+[5] Y. Xu, S. Arai, D. Liu, F. Lin, and K. Kosuge, “Fpcc: Fast point cloud
+clustering-based instance segmentation for industrial bin-picking,”
+Neurocomputing, vol. 494, pp. 255–268, 2022.
+[6] Y. Xu, S. Arai, F. Tokuda, and K. Kosuge, “A convolutional neural net-
+work for point cloud instance segmentation in cluttered scene trained
+by synthetic data without color,” IEEE Access, vol. 8, pp. 70262–
+70269, 2020.
+[7] Y. Chen, E. Z. Zeng, M. Gilles, and A. Wong, “Metagraspnet v0: A
+large-scale benchmark dataset for vision-driven robotic grasping via
+physics-based metaverse synthesis,” arXiv preprint arXiv:2112.14663,
+2021.
+[8] M. Gilles, Y. Chen, T. R. Winter, E. Z. Zeng, and A. Wong,
+“Metagraspnet: A large-scale benchmark dataset for scene-aware am-
+bidextrous bin picking via physics-based metaverse synthesis,” in
+2022 IEEE 18th International Conference on Automation Science and
+Engineering (CASE), pp. 220–227, IEEE, 2022.
+[9] A. Richtsfeld, T. M¨orwald, J. Prankl, M. Zillich, and M. Vincze,
+“Segmentation of unknown objects in indoor environments,” in 2012
+IEEE/RSJ International Conference on Intelligent Robots and Systems,
+pp. 4791–4796, IEEE, 2012.
+[10] H. Zhang, P. Long, D. Zhou, Z. Qian, Z. Wang, W. Wan, D. Manocha,
+C. Park, T. Hu, C. Cao, et al., “Dorapicker: An autonomous picking
+system for general objects,” in 2016 IEEE International Conference
+on Automation Science and Engineering (CASE), pp. 721–726, IEEE,
+2016.
+[11] A. Causo, Z.-H. Chong, R. Luxman, Y. Y. Kok, Z. Yi, W.-C. Pang,
+R. Meixuan, Y. S. Teoh, W. Jing, H. S. Tju, et al., “A robust robot
+design for item picking,” in 2018 IEEE international conference on
+robotics and automation (ICRA), pp. 7421–7426, IEEE, 2018.
+[12] H.-J. Yoon, J. Kim, Y. Park, J.-K. Lee, and B.-T. Zhang, “Seg2grasp:
+A robust modular suction grasping in bin picking,” in 2024 IEEE/RSJ
+International Conference on Intelligent Robots and Systems (IROS),
+pp. 2921–2927, IEEE, 2024.
+[13] X. Li, R. Cao, Y. Feng, K. Chen, B. Yang, C.-W. Fu, Y. Li,
+Q. Dou, Y.-H. Liu, and P.-A. Heng, “A sim-to-real object recognition
+and localization framework for industrial robotic bin picking,” IEEE
+Robotics and Automation Letters, vol. 7, no. 2, pp. 3961–3968, 2022.
+[14] K. He, G. Gkioxari, P. Doll´ar, and R. Girshick, “Mask r-cnn,” in
+Proceedings of the IEEE international conference on computer vision,
+pp. 2961–2969, 2017.
+[15] C. Xie, Y. Xiang, A. Mousavian, and D. Fox, “The best of both
+modes: Separately leveraging rgb and depth for unseen object instance
+segmentation,” in Conference on robot learning, pp. 1369–1378,
+PMLR, 2020.
+[16] C. Xie, Y. Xiang, A. Mousavian, and D. Fox, “Unseen object in-
+stance segmentation for robotic environments,” IEEE Transactions on
+Robotics, vol. 37, no. 5, pp. 1343–1359, 2021.
+[17] S. Back, J. Lee, T. Kim, S. Noh, R. Kang, S. Bak, and K. Lee, “Unseen
+object amodal instance segmentation via hierarchical occlusion mod-
+eling,” in 2022 International Conference on Robotics and Automation
+(ICRA), pp. 5085–5092, IEEE, 2022.
+[18] B. Cheng, A. G. Schwing, and A. Kirillov, “Per-pixel classification is
+not all you need for semantic segmentation,” in NeurIPS, 2021.
+[19] B. Cheng, I. Misra, A. G. Schwing, A. Kirillov, and R. Girdhar,
+“Masked-attention mask transformer for universal image segmenta-
+tion,” in Proceedings of the IEEE/CVF conference on computer vision
+and pattern recognition, pp. 1290–1299, 2022.
+[20] Y. Xiang, C. Xie, A. Mousavian, and D. Fox, “Learning rgb-d feature
+embeddings for unseen object instance segmentation,” in Conference
+on Robot Learning, pp. 461–470, PMLR, 2021.
+[21] Y. Lu, Y. Chen, N. Ruozzi, and Y. Xiang, “Mean shift mask
+transformer for unseen object instance segmentation,” arXiv preprint
+arXiv:2211.11679, 2022.
+[22] Y. Sun, W. Zuo, P. Yun, H. Wang, and M. Liu, “Fuseseg: Semantic
+segmentation of urban scenes based on rgb and thermal data fusion,”
+IEEE Transactions on Automation Science and Engineering, vol. 18,
+no. 3, pp. 1000–1011, 2020.
+[23] J. Zhang, H. Liu, K. Yang, X. Hu, R. Liu, and R. Stiefelhagen, “Cmx:
+Cross-modal fusion for rgb-x semantic segmentation with transform-
+ers,” IEEE Transactions on intelligent transportation systems, vol. 24,
+no. 12, pp. 14679–14694, 2023.
+[24] G. Tziafas and H. Kasaei, “Early or late fusion matters: Efficient rgb-
+d fusion in vision transformers for 3d object recognition,” in 2023
+IEEE/RSJ International Conference on Intelligent Robots and Systems
+(IROS), pp. 9558–9565, IEEE, 2023.
+[25] A. Dosovitskiy, “An image is worth 16x16 words: Transformers for
+image recognition at scale,” arXiv preprint arXiv:2010.11929, 2020.
+[26] Q. Zhao, Y. Wan, J. Xu, and L. Fang, “Cross-modal attention fusion
+network for rgb-d semantic segmentation,” Neurocomputing, vol. 548,
+p. 126389, 2023.
+[27] S. Gupta, R. Girshick, P. Arbel´aez, and J. Malik, “Learning rich
+features from rgb-d images for object detection and segmentation,”
+in Computer Vision–ECCV 2014: 13th European Conference, Zurich,
+Switzerland, September 6-12, 2014, Proceedings, Part VII 13, pp. 345–
+360, Springer, 2014.
+[28] Z. Liu, Y. Lin, Y. Cao, H. Hu, Y. Wei, Z. Zhang, S. Lin, and
+B. Guo, “Swin transformer: Hierarchical vision transformer using
+shifted windows,” in Proceedings of the IEEE/CVF international
+conference on computer vision, pp. 10012–10022, 2021.
+[29] A. Kirillov, E. Mintun, N. Ravi, H. Mao, C. Rolland, L. Gustafson,
+T. Xiao, S. Whitehead, A. C. Berg, W.-Y. Lo, et al., “Segment
+anything,” in Proceedings of the IEEE/CVF International Conference
+on Computer Vision, pp. 4015–4026, 2023.
+[30] T. Wu, S. Tang, R. Zhang, J. Cao, and Y. Zhang, “Cgnet: A light-
+weight context guided network for semantic segmentation,” IEEE
+Transactions on Image Processing, vol. 30, pp. 1169–1179, 2020.
+[31] B. Calli, A. Singh, J. Bruce, A. Walsman, K. Konolige, S. Srini-
+vasa, P. Abbeel, and A. M. Dollar, “Yale-cmu-berkeley dataset for
+robotic manipulation research,” The International Journal of Robotics
+Research, vol. 36, no. 3, pp. 261–268, 2017.
+[32] S. Tyree, J. Tremblay, T. To, J. Cheng, T. Mosier, J. Smith,
+and S. Birchfield, “6-dof pose estimation of household objects for
+robotic manipulation: An accessible dataset and benchmark,” in 2022
+IEEE/RSJ International Conference on Intelligent Robots and Systems
+(IROS), pp. 13081–13088, IEEE, 2022.
+[33] I. Loshchilov and F. Hutter, “Decoupled weight decay regularization,”
+arXiv preprint arXiv:1711.05101, 2017.
+[34] F. Milletari, N. Navab, and S.-A. Ahmadi, “V-net: Fully convolutional
+neural networks for volumetric medical image segmentation,” in 2016
+fourth international conference on 3D vision (3DV), pp. 565–571, Ieee,
+2016.

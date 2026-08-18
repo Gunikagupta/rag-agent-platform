@@ -1,0 +1,1039 @@
+Real-Time Flight Test Maneuver Selection with
+Monte Carlo Tree Search
+Nicholas E. Bostock*‡, Helen Pruitt-Kennett*†‡, Marc R. Schlichting*, and Mykel J. Kochenderfer*
+*Department of Aeronautics and Astronautics, Stanford University, Stanford, CA, 94305
+†Email: helenpk@stanford.edu
+‡Equal contribution
+Abstract—Flight test is shifting toward a data-centric approach
+in which data contribute to model refinement, reducing reliance
+on pre-scripted test points. An open problem is how to sequence
+maneuvers within a sortie to maximize uncertainty reduction un-
+der resource limits. We present a real-time planning framework
+that combines a Gaussian Process (GP) belief model with Monte
+Carlo Tree Search (MCTS) to select pilot-actionable maneuvers
+under fuel constraints. Candidate maneuvers are scored using
+weighted integrated variance reduction (wIVR), and shallow
+lookahead is performed with a propagated per-evaluation-point
+variance state to account for downstream coverage redundancy
+and transition cost. The planner is evaluated in a closed, human-
+in-the-loop X-Plane simulation against greedy wIVR selection
+and a fixed test-card baseline. Sortie-summary statistics show
+significant directional differences, with MCTS-wIVR achieving
+higher uncertainty reduction per unit fuel over both baselines.
+The results indicate that posterior-aware adaptive planning is a
+promising approach to increase efficiency of flight tests.
+Index Terms—flight test, Monte Carlo tree search, Gaussian
+process, active learning, uncertainty quantification, aerodynamic
+modeling
+I. INTRODUCTION
+Experimental flight test is a resource-intensive process cen-
+tral to every aircraft certification program. Despite advances
+in computational modeling and data analysis, test execution
+remains largely unchanged since the mid-20th century. Pilots
+are asked to hit discrete test points within narrow tolerances,
+and data collected outside those databands are discarded.
+Harp et al. [1] address this inefficiency through a data-
+centric architecture that replaces rigid test points with continu-
+ous, as-flown model refinement (Fig. 1). They use a Gaussian
+process (GP) with a physics-informed mean function to model
+aerodynamic quantities directly from arbitrary flight data,
+eliminating databands while providing principled uncertainty
+quantification. This “Pointless” approach has been validated
+on the T-38C, recovering short-period dynamics to within the
+internal consistency of sixty years of historical data from a
+single sortie of low-frequency rollercoaster maneuvers.
+While this architecture transforms what is done with flight
+data, it leaves open the question of how the data should be
+collected. Even with databands eliminated, a sortie remains
+finite: fuel burns, time passes, and the flight envelope imposes
+hard limits. A pilot who revisits well-characterized conditions
+wastes resources, while one who chases peak uncertainty
+without regard for transition costs may exhaust the sortie
+before resolving operationally critical regions. Currently, pilots
+and flight test engineers address this sequencing problem
+through pre-flight planning and in-flight judgment, with no
+principled, real-time guidance on which maneuver to fly next.
+Traditional flight test
+fixed test points, rigid tolerances
+Mach
+hi
+med
+lo
+low
+mid
+high
+angle of attack
+✓
+✓
+✓
+✓
+only 16% of maneuvers are usable.
+avg. 6 repeats per test point.
+planned test point
+rejected
+✓
+accepted
+Optimized approach
+arbitrary trajectories, all data used
+Mach
+hi
+med
+lo
+low
+mid
+high
+angle of attack
+all data contributes to the GP
+aerodynamic model
+trajectory
+data point
+Fig. 1.
+Traditional flight testing uses discrete test points and rejects off-
+nominal data, whereas the optimized approach uses all data collected along
+arbitrary trajectories.
+Naive uncertainty-driven sampling strategies are insufficient
+in this setting because flight testing is fundamentally con-
+strained and path-dependent. Maneuvers must satisfy aircraft
+arXiv:2607.18089v1  [eess.SY]  20 Jul 2026
+dynamics, envelope limits, and fuel constraints, and the value
+of a candidate maneuver depends not only on its immediate
+information gain but also on the sequence of states required
+to reach and recover from it. Greedy policies that chase peak
+uncertainty can incur prohibitive transition costs, exhausting
+the sortie before critical regions are explored. Prior work on
+adaptive sampling and informative path planning addresses
+only part of this tension. Sampling-based motion planners such
+as RRT and Informed RRT primarily seek feasible or cost-
+improving trajectories in large state spaces, while informative
+path planning methods are typically developed for active
+mapping or sensing under uncertainty and travel budgets [2]–
+[6]. As a result, these methods do not fully capture the
+coupled effects of vehicle feasibility, resource expenditure, and
+sequential information gain that define the flight test problem.
+This paper introduces an online flight test planning frame-
+work that closes this gap. We integrate an existing GP belief
+model
+[1], [7] with Monte Carlo Tree Search (MCTS) [8]
+to produce real-time, pilot-actionable maneuver recommenda-
+tions throughout the sortie, making the following contribu-
+tions:
+1) We formulate maneuver selection as a belief-state prob-
+lem and approximate it as a belief-state Markov decision
+process (MDP) [8] during planning. We do this by
+holding the underlying GP posterior and hyperparam-
+eters fixed within the search tree, while propagating an
+approximate per-evaluation-point variance state through
+tree depth.
+2) We parameterize candidate actions as porpoising ma-
+neuvers and define a reward function that combines
+posterior uncertainty reduction with explicit penalties for
+fuel consumption.
+3) We enable multi-step lookahead that captures resource
+coupling—such as fuel consumption and Mach transition
+cost—across consecutive maneuvers, while also incor-
+porating approximate progressive uncertainty reduction
+that penalizes redundant exploration of the evaluation
+envelope.
+4) We introduce a weighted integrated variance reduction
+(wIVR) acquisition function that scores candidate ma-
+neuvers by their expected posterior variance reduction
+over a fixed evaluation grid.
+Section III describes the MCTS planning algorithm, the
+wIVR acquisition function, and the reward structure. Section
+IV details the closed, human-in-the-loop X-Plane simulation
+environment and the Cm GP model used for evaluation. Sec-
+tion V presents results comparing MCTS-wIVR against greedy
+wIVR and a fixed test-card baseline, showing that shallow
+lookahead improves fuel normalized cumulative uncertainty
+reduction over greedy selection and the non-adaptive baseline.
+II. BACKGROUND AND RELATED WORK
+Traditional flight tests operate under a model-test-validate
+cycle in which data serve to spot-check pre-existing model pre-
+dictions at discrete, precisely specified conditions [7]. Central
+to this paradigm is the test card: a fixed, predetermined se-
+quence of discrete flight conditions specified by Mach number,
+altitude, and maneuver profile, determined by engineers prior
+to flight based on program requirements, envelope coverage
+targets, and historical precedent. Because the sequencing is
+decided entirely offline, the test card cannot adapt to what the
+data reveal about where uncertainty actually remains high, and
+sorties must be repeated when conditions are missed or data
+are deemed unusable.
+Prior work inverted this relationship by making data the
+primary product of test [1], [7]. Their architecture uses
+Gaussian Process Regression (GPR) with a physics-informed
+mean function derived from the Morelli generic aerodynamic
+model [9]. An intentionally incorrect A-7E prior is refined
+using T-38C flight data, and the resulting GP hypersurface
+is differentiated with respect to state and control variables
+to obtain stability derivatives and short-period parameters as
+continuous functions of flight condition. The short-period
+mode describes the dominant longitudinal pitch response to
+control inputs, with natural frequency and damping ratio
+determined by aircraft geometry, mass properties, and stability
+derivatives (e.g., Mα and MQ, the pitch moment sensitivities
+to angle of attack and pitch rate, respectively) [10]. This
+approach demonstrates accurate short-period predictions from
+low-frequency maneuvers that lack the spectral content tradi-
+tionally required by system identification methods, and it does
+so while correcting for control model mismatch between the
+A-7E and T-38C, validating the data assimilation process.
+GPs define a distribution over functions parameterized by
+a mean function and a covariance kernel, yielding posterior
+predictive means and variances at arbitrary query points [11],
+[12]. Although the GP architecture provides a principled
+mechanism for building aerodynamic models from arbitrary
+flight data, it does not prescribe which data to collect. A GP
+belief model trained on as-flown data provides calibrated confi-
+dence estimates across the flight envelope, enabling principled
+identification of high uncertainty regions where additional data
+would be most informative. Shown in this work, this enables
+active learning strategies in which future data collection is
+guided by epistemic uncertainty rather than being passively
+recorded. In particular, the posterior covariance of the GP
+provides a principled measure of epistemic uncertainty, which
+can be used to evaluate the expected information gain of
+candidate maneuvers.
+A. Monte Carlo Tree Search for Sequential Decision-Making
+MCTS is a simulation-based planning algorithm for sequen-
+tial decision-making in large or continuous action spaces [8],
+[13]. The algorithm constructs an asymmetric search tree by
+iterating four phases: selection, expansion, simulation (roll-
+out), and backpropagation. Node selection uses the Upper
+Confidence Bound for Trees (UCT) criterion, which balances
+exploitation of high-value actions against exploration of less-
+visited branches [13]. Because MCTS operates on a generative
+forward model rather than an explicit value function, it is well
+suited for problems where belief dynamics are approximated
+rather than computed exactly [8].
+MCTS has been applied to robotic path planning [2], adap-
+tive experiment design [14], and trajectory optimization with
+obstacle avoidance [15]. The multi-step lookahead capability
+of MCTS is particularly valuable when the optimal sequence
+of decisions differs from the sequence produced by repeatedly
+taking the locally greedy action, which is especially conse-
+quential in resource-constrained settings where early high-
+cost actions can preclude later high-value ones. Within the
+aerospace domain, MCTS has been applied to falsification of
+longitudinal hybrid flight control laws [16] and real-time plan-
+ning for continuous dynamical systems including spacecraft
+and ground vehicles using receding-horizon tree search [17].
+B. Active Learning and Belief-Space Planning
+Active
+learning
+formalizes
+the
+adaptive
+selection
+of
+query points to reduce model uncertainty, typically through
+information-theoretic criteria such as entropy reduction or
+mutual information [18], [19]. Standard greedy active learning
+selects the single point of maximum uncertainty at each step,
+ignoring transition costs and the effect of current choices
+on future opportunities. This myopia is particularly costly
+in flight test, where transitioning between flight conditions
+consumes fuel, and where the order in which conditions are
+sampled affects what remains feasible later in the sortie. A
+fixed test card avoids this myopia through pre-flight planning,
+but cannot respond to what the data reveal in real time. Greedy
+active learning responds to the data but ignores the multi-step
+consequences of each choice. The framework presented here
+aims to address both limitations simultaneously.
+In contrast with pointwise formulations, this work evaluates
+the expected information gain of entire maneuver trajectories
+rather than individual query points. Each candidate maneuver
+is assessed by its aggregate effect on posterior uncertainty
+across the evaluation envelope, which accounts for the struc-
+tured information content of continuous trajectories that point-
+wise strategies cannot capture.
+Belief-space planning addresses the myopia of greedy
+strategies by explicitly modeling the evolution of the posterior
+belief over a planning horizon [20], [21]. MCTS is a natural
+solver for this formulation: it does not require an analytic ex-
+pression for the value function and can accommodate the non-
+stationary belief dynamics that result from Bayesian updating.
+The combination of GP belief models with MCTS-based
+planning has been explored for underwater terrain map-
+ping [22] and planetary surface exploration using GP-based
+informative path planning [5]. Active learning methods have
+also been applied to the identification of nonlinear dynamical
+systems, demonstrating that adaptive input design can achieve
+substantially greater sample efficiency than passive excitation.
+The presented work differs from prior GP-based informative
+planning approaches by evaluating information gain over pa-
+rameterized flight-test maneuvers, incorporating operational
+constraints such as fuel consumption and Mach repositioning
+cost, and applying MCTS to select sequences of maneuvers
+under these constraints in real time.
+III. APPROACH
+We fit a GP model which learns the mapping from flight
+condition x to an aerodynamic quantity f(x). The GP poste-
+rior at a query point x′ is given by [11]
+µ(x′) = m(x′)+K(x′, X)
+
+K(X, X) + σ2
+nI
+−1 (y−m(X)),
+(1)
+σ2(x′) = K(x′, x′)−K(x′, X)
+
+K(X, X) + σ2
+nI
+−1 K(X, x′).
+(2)
+Here, X denotes the training data, y are the observed values,
+m(·) is the prior mean function, K(·, ·) is the covariance
+kernel, and σ2
+n is the observation noise variance. Rather than
+using a zero-mean prior, we incorporate a physics-informed
+mean function, encoding known structure and improving data
+efficiency [1].
+We apply a standard MCTS objective approximation that
+maximizes cumulative discounted reward over a sequence
+of actions. Action selection during tree expansion balances
+exploitation of high-value actions and exploration of uncertain
+regions via the UCB1 rule. The resulting objective is
+a∗= arg max
+a∈A E
+" H
+X
+t=0
+γtR(st, at)
+#
+,
+(3)
+where γ is the discount factor and H is the horizon. Action
+selection follows the UCB1 exploration rule
+a∗= arg max
+a
+(
+Q(s, a) + c
+s
+ln N(s)
+N(s, a)
+)
+,
+(4)
+where Q(s, a) is the estimated action value, N(s) is the total
+visit count for state s, N(s, a) is the visit count for the state-
+action pair, and c =
+√
+2 is the exploration constant [8].
+A. Monte Carlo Tree Search Planner
+The underlying problem is naturally partially observable
+because the true function is unknown and is inferred from
+noisy flight data through a GP posterior. We approximate
+this problem as a belief-state MDP during search by hold-
+ing the underlying GP posterior and hyperparameters fixed
+within the MCTS tree, while propagating an approximate per-
+evaluation-point variance state through tree depth. Under this
+approximation, multi-step lookahead captures coupling in fuel
+consumption, Mach repositioning, and approximate progres-
+sive uncertainty reduction, with diminishing returns enforced
+when consecutive maneuvers cover overlapping regions of the
+evaluation envelope.
+The one-step reward for executing action a from belief-state
+s is
+R(s, a) = Jacq(s, a)
+˜Jacq(b)
+−λfuelJfuel(s, a) −λtransJtrans(s, a),
+(5)
+where Jacq is the acquisition score of the maneuver under
+the current GP posterior, normalized by ˜Jacq, the median
+acquisition value over all candidate actions; Jfuel is the nor-
+malized maneuver fuel cost; and Jtrans is the normalized
+Mach repositioning cost relative to the current Mach number.
+The weights λfuel and λtrans control the trade-off between
+information gain and resource usage.
+Within the tree search, the underlying GP posterior and
+hyperparameters are held fixed across all tree nodes. Rather
+than re-conditioning the GP at every node, the planner precom-
+putes a per-evaluation-point variance-reduction vector ∆σ2
+a ∈
+RNeval for each candidate action at the root via hypothetical
+conditioning on the action’s visited states. A variance state σ2
+s
+is then propagated through tree depth: when action a is applied
+at state s, the in-tree acquisition value is evaluated against the
+node’s current variance state,
+Jacq(s, a) =
+Neval
+X
+i=1
+wi min
+ ∆σ2
+a,i, σ2
+s,i
+
+,
+(6)
+and the child state carries the reduced variance σ2
+s′,i
+=
+max(σ2
+s,i −∆σ2
+a,i, 0). The min(·) clamp enforces that an
+action cannot reduce variance below what the node already
+holds, which produces undesirable behavior in-tree: actions
+covering regions that earlier tree steps have already reduced
+score lower than they would at the root. This design captures
+approximate progressive uncertainty reduction across the plan-
+ning horizon at O(Neval) per tree node, without the O(n3) cost
+that full GP re-conditioning would incur. The normalized fuel
+cost is
+Jfuel(s, a) = fbase(a) + ftrans(a)
+frem(s)
+,
+(7)
+where frem is the remaining fuel at belief-state s while fbase
+and ftrans estimate fuel consumed during action a. The base
+fuel cost is computed by integrating instantaneous fuel flow
+over the maneuver duration,
+fbase(a) = ˙mfuel tmaneuver,
+(8)
+where the fuel flow rate ˙mfuel is obtained from a log-linear
+least-squares fit to baseline maneuver data (see Appendix B).
+We use a proxy for fuel cost associated with transitioning
+between airspeeds. It is modeled as
+ftrans(a) = max(∆U0, 0) kaccel ˙mfuel
++ |min(∆U0, 0)| kdecel ˙mfuel,
+(9)
+where kaccel and kdecel are acceleration and deceleration fuel-
+per-knot ratios, respectively.
+The Mach repositioning cost is
+Jtrans(s, a) = |M(a) −Mcur(b)|
+Mmax −Mmin
+,
+(10)
+where Mcur is the current belief-state’s Mach number, and
+Mmax and Mmin are the flight envelope maximum and mini-
+mum Mach numbers. These terms discourage excessively long
+or energetically costly trajectories within the MCTS planning
+horizon.
+Normalizing Jacq by ˜Jacq renders the information term
+scale-invariant so that the resource-penalty weights λfuel =
+Fig. 2. Sortie execution in simulator using X-Plane 12 and F-16C.
+0.02 and λtrans = 0.005 retain consistent interpretation across
+planning iterations as the absolute magnitude of achievable
+variance reduction changes with accumulated data. Because
+acquisition values are recomputed against a variance state that
+is propagated through tree depth, the multi-step lookahead
+captures both resource-coupling effects—fuel consumption
+and Mach repositioning—and information gain, penalizing
+action sequences that visit redundant regions of the evaluation
+envelope.
+IV. EXPERIMENTAL SETUP
+We assess the effectiveness of the proposed framework
+using the X-Plane 12 simulation environment. X-Plane is
+widely used for research and training, and was used here to
+evaluate the maneuver selection planner in a dynamic setting.
+This section details the experimental conditions we used to
+refine a moment coefficient GP model, including the simulated
+sortie execution, the operational loop, the specific GP model,
+and the MCTS planner.
+A. Sortie Execution
+The aerodynamic GP model focused exclusively on the
+pitch moment coefficient; accordingly, the action space was
+restricted to maneuvers that excite only longitudinal states.
+Each maneuver consisted of a single porpoise, in which the
+pilot smoothly increased and decreased the load factor to the
+prescribed maximum and minimum G-force while maintaining
+airspeed. All maneuvers were book-ended with 1.5 seconds of
+steady, wings-level flight and started at 15,000 ft. The samples
+were flown on X-Plane 12 using the F-16C and the data was
+measured at 5 Hz, shown in Fig. 2. A single CFI pilot flew
+each sortie.
+All sorties in the experiment were initialized from a fixed,
+shared set of three baseline maneuvers common to all policies
+and runs, and they were used to fit the initial GP across the
+subsonic regime. These porpoises had G-profiles with gpeak,
+TABLE I
+FIXED TEST-CARD ACTION SET
+Action
+M
+˙g↑
+˙g↓
+gpeak
+gmin
+a1
+0.6
+0.5
+−0.5
+2.0
+−0.5
+a2
+0.9
+0.5
+−0.5
+2.0
+−0.5
+a3
+1.0
+0.5
+−0.5
+2.0
+−0.5
+a4
+0.7
+1.5
+−1.5
+3.0
+−0.5
+a5
+0.9
+1.5
+−1.5
+3.0
+−0.5
+a6
+1.0
+1.5
+−1.5
+3.0
+−0.5
+a7
+0.5
+1.5
+−1.5
+4.0
+−0.5
+gmin, ˙g↑, and ˙g↓of 2.0 g, −1.0 g, 0.5 g/s, and −0.5 g/s,
+respectively, and Mach numbers of 0.5, 0.7, and 0.9. Following
+this shared initialization, actions were sequentially selected to
+minimize model uncertainty.
+The performance of the proposed approach was compared
+against two baseline policies: greedy wIVR and a fixed test-
+card. Eight sorties were flown per policy, each consisting of ten
+maneuvers—three baseline initialization maneuvers plus seven
+planner selected follow-up maneuvers. The fixed test-card’s
+deterministic schedule yields identical command sequences
+across runs; variation between Fixed sorties therefore reflects
+only X-Plane dynamics and pilot execution noise. Table I
+details the seven fixed test-card maneuvers, designed to pro-
+gressively increase structural loading through the sortie.
+B. Pilot Interface and Operational Loop
+The system is implemented as a web application connected
+to the simulator via UDP. The planner is executed offboard
+in simulation and provides maneuver recommendations to the
+pilot via a ground-based interface; no onboard flight-critical
+computation is assumed. The pilot and test director interact
+through a single-page interface that progresses through two
+phases.
+Baseline phase: Three fixed maneuvers are flown first,
+consisting of a 2g pull at Mach 0.5, 0.7, and 0.9, to establish
+the initial GP posterior. For each maneuver, the interface
+presents a maneuver card specifying the commanded param-
+eters (Mach, pull rate, peak load factor, unload rate, and
+minimum load), along with a synthesized normal load factor
+profile with limit overlays. The pilot initiates and terminates
+recording before and after executing each maneuver. Once all
+baseline maneuvers are completed, the operator triggers GP
+hyperparameter optimization on the backend.
+Adaptive test-point loop: After initialization, the system
+enters a closed-loop process repeated for each test point:
+• Plan. The backend executes the selected planner (MCTS,
+Greedy, or Fixed). For MCTS, a progress indicator dis-
+plays completed simulations relative to the computational
+budget.
+• Present. The interface displays a recommended maneu-
+ver card with commanded parameters and corresponding
+load factor profile (Fig. 3).
+• Fly and record. The pilot executes the maneuver while
+the system streams simulator data at 5 Hz, including
+angle of attack, Mach number, body rates, control inputs,
+normal load factor, and fuel flow.
+• Update. The recorded data are processed to update the
+GP posterior. A debrief visualization is presented, com-
+paring commanded and flown profiles with tracking error
+feedback.
+• Repeat. The planner re-evaluates using the updated pos-
+terior, and the loop continues until termination criteria
+are met.
+Fig. 3. User interface screenshot illustrating a Target vs As-Flown G-profile.
+The maneuver parameterization fully specifies a flyable
+trajectory, which is precomputed into a state sequence prior
+to execution. This ensures that the pilot receives concrete,
+operationally meaningful instructions rather than abstract op-
+timization outputs.
+C. GP Model: Cm(x)
+We represented flight conditions with an eight-dimensional
+state vector
+x =
+M
+ρ
+¯q
+P
+Q
+R
+α
+δe
+⊤,
+(11)
+where M is Mach number, ρ air density, ¯q dynamic pressure,
+P, Q, R body-axis angular rates, α angle of attack, and δe
+stabilator deflection. We followed the GP framework outlined
+in Section III and used an existing mean function [7]. The
+physics-informed Morelli mean function [9] was used to
+incorporate known aerodynamic structure:
+m(x) = θ29 + θ30α + θ31˜q + θ32δe
++ θ33˜qα + θ34˜qα2 + θ35δeα2
++ θ36˜qα3 + θ37δeα3 + θ38α4,
+(12)
+where ˜q = q¯c/(2U0) is the nondimensional pitch rate for
+q, ¯c is the mean aerodynamic chord, U0 is the free stream
+velocity, and {θi} are the A-7E coefficients. This mean func-
+tion encodes nonlinear aerodynamic couplings, leaving the
+GP to model residuals due to configuration differences and
+unmodeled effects.
+We used the Mat´ern ν = 5/2 covariance kernel function with
+automatic relevance determination (ARD):
+k(x, x′) = σ2
+
+1 +
+√
+5 r + 5
+3r2
+
+exp(−
+√
+5 r)
+(13)
+where
+r =
+v
+u
+u
+t
+8
+X
+i=1
+xi −x′
+i
+ℓi
+2
+.
+(14)
+We scaled all inputs to [0, 1] using min-max normalization.
+The Nelder–Mead algorithm [23] optimizes the length scales
+ℓi, while the observation noise variance is held fixed at
+σ2
+n = 10−4 to decouple noise estimation from length-scale
+optimization.
+D. MCTS Planner
+Each action a ∈A defines a porpoising maneuver parame-
+terized by
+a = [M, ˙g↑, ˙g↓, gpeak, gmin] ,
+(15)
+where M denotes the target Mach number, ˙g↑and ˙g↓represent
+the pull-up and push-over load factor rates (g/s), respectively,
+and gpeak and gmin define the maximum and minimum load
+factors (g). Every action additionally carries a simulated
+maneuver trajectory in the GP input space, represented as a
+sequence of visited flight states, along with a base fuel cost
+and a transition cost.
+MCTS rollouts proceeded to a fixed depth of d = 2 with
+a discount factor of γ = 0.95, and leaf nodes at the depth
+horizon return a terminal value of zero. Each planning call
+executed m = 5|A| = 680 simulations before selecting the
+root action with highest estimated action value. Within the cost
+structures, Mmax and Mmin were 1.8 and 0.4 while kaccel and
+kdecel were 0.66 and 0.49, respectively.
+TABLE II
+MANEUVER PARAMETER SPACE
+Parameter
+Discrete set
+M
+{0.5, 0.6, . . . , 1.0}
+gpeak
+{2, 3, 4} g
+gmin
+{−0.5, −1.0} g
+˙g↑
+{0.5, 1.5} g/s
+˙g↓
+{−0.5, −1.5} g/s
+The action space consists of 144 distinct Mach, maxi-
+mum/minimum load factor, and pull-up/push-over rate action
+combinations (6 × 3 × 2 × 2 × 2). Of the 144 actions, 8
+were pruned since 0.5 M was not maintainable at gpeak = 4,
+leaving 136 candidate actions. Table II summarizes the ma-
+neuver parameter space and Fig. 3 illustrates a user interface
+highlighting a plotted maneuver target and as-flown g-profile.
+Each action specifies a load factor profile G(t) and a Mach
+number. Within the tree search, the set of visited flight states
+along each candidate maneuver is used to evaluate the wIVR
+acquisition through hypothetical GP conditioning.
+To maintain computational tractability, several simplifying
+assumptions are introduced to reduce the dimensionality of
+the problem. Density altitude was held constant, and roll and
+yaw rates were assumed to be zero. Under a standard-day
+atmosphere with fixed density altitude, dynamic pressure is a
+deterministic function of Mach number alone. The stabilator
+trim required for steady, wings-level flight was then computed
+as a function of dynamic pressure for each candidate condition.
+Under these assumptions, the action space was reduced to
+the variables {M, Q, α}. With Mach number specified by the
+action and held constant during the maneuver, the pitch rate
+and angle of attack are deduced from the prescribed G-force
+profile as shown in Fig. 3.
+The pitch rate is approximated as
+Q(t) = (G(t) −1) g
+M(t)a∞
+,
+(16)
+where a∞is the freestream speed of sound and g is gravi-
+tational acceleration. This relation follows from the approx-
+imation an ≈V Q for small-angle, coordinated flight, with
+(G −1)g representing the maneuver-induced normal acceler-
+ation an. Angle of attack is then obtained from subsonic lift
+models [10]. For subsonic conditions (M < 1),
+α(t) = CL(G(t)) −CL0
+a0
+√
+1 −M 2
+,
+(17)
+where
+CL0
+is
+the
+zero-angle-of-attack
+lift
+coefficient,
+CL(G(t)) denotes the lift coefficient at G(t) and a0 is an
+empirical regression coefficient obtained from the baseline
+aerodynamic fit in the subsonic regime. Data from the three
+subsonic baseline maneuvers, introduced in Section IV-A,
+inform these coefficients through inversion of a least-squares
+lift model, as described in Appendix A.
+The evaluation grid was discretized as a structured Cartesian
+lattice over three dimensions: Mach, angle of attack, and
+pitch rate. Specifically, Mach was sampled from 0.5 to 1.0
+in 0.1 increments (6 points), α from −12◦to +12◦in 2◦
+steps (13 points), and Q from −10◦/s to +10◦/s in 5◦/s
+steps (5 points), giving 6 × 13 × 5 = 390 evaluation states.
+For each Mach slice, dynamic pressure was computed from
+the reference density and sound speed, the stabilator trim
+was set from that dynamic pressure, and the remaining state
+channels (P and R) were fixed at zero, producing each 8-state
+grid vector. These evaluation points approximate the variance
+reduction across the GP model within the tree search.
+V. RESULTS
+This section evaluates whether adaptive maneuver selection
+reduces GP posterior uncertainty more effectively than myopic
+and a non-adaptive baseline under a fixed sortie budget. The
+primary outcomes are sortie-level uncertainty reduction, fuel-
+normalized efficiency, and final posterior uncertainty after the
+allocated maneuver sequence.
+All policies begin from a common initialization of three
+baseline maneuvers and then select up to seven additional ma-
+neuvers. Three policies are compared: MCTS-wIVR (n = 8),
+Greedy-wIVR (n = 8), and a Fixed test-card (n = 8). The
+MCTS-versus-Greedy comparison isolates the effect of looka-
+head under a shared wIVR acquisition rule. Greedy selects
+maneuvers from one-step acquisition values, whereas MCTS
+evaluates multi-step sequences (d = 2) with the resource-
+aware objective and propagated variance state (Section III),
+explicitly accounting for downstream fuel and transition costs.
+TABLE III
+SORTIE UNCERTAINTY REDUCTION AND FUEL CONSUMPTION WITH
+STANDARD DEVIATIONS
+Method
+∆Utot
+∆U/fuel (×10−4)
+Fuel (lb)
+MCTS-wIVR
+0.342 ± 0.026
+4.54 ± 0.09
+753 ± 64
+Greedy-wIVR 0.317 ± 0.025
+3.41 ± 0.17
+929 ± 76
+Fixed
+0.358 ± 0.051
+2.15 ± 0.31
+1667 ± 55
+Table III summarizes sortie-level uncertainty reduction and
+fuel usage over eight runs per policy. In this sample, the Fixed
+baseline achieves the highest mean total uncertainty reduction
+(∆Utot), while both adaptive policies use substantially less
+fuel and therefore attain higher fuel-normalized reduction
+than Fixed. Specifically, MCTS-wIVR yields the largest mean
+∆U/fuel among the three methods.
+One-sided Welch tests using the means and standard de-
+viations in Table III (with n = 8 per policy) show statis-
+tically significant directional effects at α = 0.05 for fuel-
+normalized reduction, where MCTS-wIVR exceeds Greedy-
+wIVR and Fixed, and Greedy-wIVR exceeds Fixed. For total
+uncertainty reduction, Fixed exceeds both adaptive policies,
+and MCTS-wIVR significantly outperforms Greedy-wIVR (p =
+0.034).
+Fig. 4 shows the mean cumulative uncertainty reduc-
+tion normalized by consumed fuel over the sortie. Adap-
+tive methods exhibit a monotonic decrease across the seven
+post-initialization maneuvers while Fixed generally decreases.
+MCTS-wIVR and Greedy-wIVR remain close in early maneu-
+vers, but MCTS-wIVR more efficiently reduces uncertainty on
+a fuel cost basis.
+In the current experimental setup, each policy aimed to
+reduce the most uncertainty for a fixed number of test points.
+In reality, test-points are flown until mission resources, in the
+form of time or fuel, are exhausted. Thus, while the Fixed test-
+card policy exhibited a greater uncertainty reduction, the more
+relevant metric is the fuel normalized uncertainty reduction,
+where both adaptive policies significantly outperform the Fixed
+baseline.
+Overall, the results indicate a trade between absolute uncer-
+tainty reduction and fuel efficiency in the test-point constrained
+experiment: Fixed tends to achieve higher total reduction,
+while adaptive strategies achieve significantly higher uncer-
+tainty reduction per unit fuel. Within adaptive methods, MCTS
+significantly outperforms Greedy for both total uncertainty
+reduction and fuel efficiency.
+VI. CONCLUSION AND FUTURE WORK
+We introduced a GP serving as a belief-state and reduced
+predictive uncertainty for a discretized set of flight conditions
+accounting for resource costs in the planner objective function.
+This study shows that posterior-aware adaptive maneuver
+selection improves fuel-normalized data efficiency in GP-
+based aerodynamic modeling under a fixed sortie budget while
+a fixed test-card can still deliver larger absolute uncertainty
+reduction for the same number of maneuvers. Sortie-summary
+statistics show statistically significant directional differences
+between adaptive policies and fixed test-cards in uncertainty
+reduction per unit fuel, suggesting that shallow lookahead
+primarily improves efficiency rather than absolute reduction.
+Among adaptive policies, MCTS-wIVR is significantly more
+fuel efficient and yields greater uncertainty reduction than
+Greedy-wIVR.
+1
+2
+3
+4
+5
+6
+7
+Testpoint number
+0.0002
+0.0004
+0.0006
+0.0008
+0.0010
+Cumulative U / cumulative fuel (lbs
+1)
+shading = ±1 std
+Information gained per unit fuel across the sortie
+MCTS-wIVR
+Greedy-wIVR
+Fixed
+Fig. 4. Cumulative uncertainty reduction Pk
+i=1 ∆Ui versus maneuver index.
+Shaded bands denote ±1 standard deviation across trials.
+Future work will focus on the following:
+• Relaxing the discrete maneuver assumption by embed-
+ding the planner in a continuous optimization frame-
+work that generates control time histories targeting high-
+uncertainty regions, enabling joint optimization of trajec-
+tory feasibility and information gain.
+• Improving scalability, as GP updates become intractable
+with increasing data and dimensionality, by leveraging
+sparse GP methods and approximate planning strategies
+to reduce computational cost while preserving decision
+quality.
+• Enhancing robustness to model misspecification through
+adaptive kernels, non-stationary models, or ensembles,
+along with improved uncertainty calibration to ensure
+reliable performance.
+• Deepening multi-step lookahead to determine further
+improvement above and beyond that of the shallow looka-
+head studied here.
+REFERENCES
+[1] D. Isaiah Harp, J. Ott, D. M. Asmar, J. Alora, and M. J. Kochenderfer,
+“Physics-informed Gaussian processes for efficient envelope expansion,”
+Journal of Aerospace Information Systems, 2025, articles in Advance.
+[2] S. Karaman and E. Frazzoli, “Sampling-based algorithms for optimal
+motion planning,” International Journal of Robotics Research, vol. 30,
+no. 7, pp. 846–894, 2011.
+[3] J. D. Gammell, S. S. Srinivasa, and T. D. Barfoot, “Informed rrt*:
+Optimal sampling-based path planning focused via direct sampling of an
+admissible ellipsoidal heuristic,” in IEEE/RSJ International Conference
+on Intelligent Robots and Systems (IROS). IEEE, 2014, pp. 2997–3004.
+[4] M. Popovi´c, T. Vidal-Calleja, J. J. Chung, J. Nieto, and R. Siegwart,
+“Informative path planning for active field mapping under localization
+uncertainty,” in Proc. IEEE Int. Conf. Robotics and Automation (ICRA),
+2020, pp. 10 751–10 757.
+[5] A. Akemoto and F. Zhu, “Informative path planning to explore and map
+unknown planetary surfaces with gaussian processes,” 2025. [Online].
+Available: https://arxiv.org/abs/2503.16613
+[6] J. Ott, M. J. Kochenderfer, and S. Boyd, “Approximate sequential
+optimization for informative path planning,” Robotics and Autonomous
+Systems, vol. 182, p. 104814, 2024.
+[7] D. I. Harp, J. Ott, J. Alora, and D. Asmar, “A data-based architecture
+for
+flight
+test
+without
+test
+points,”
+2025.
+[Online].
+Available:
+https://arxiv.org/abs/2506.02315
+[8] M. J. Kochenderfer, T. A. Wheeler, and K. H. Wray, Algorithms for
+Decision Making.
+MIT Press, 2022.
+[9] J. A. Grauer and E. A. Morelli, “Generic global aerodynamic model for
+aircraft,” Journal of Aircraft, vol. 52, no. 1, pp. 13–20, 2015.
+[10] W. F. Phillips, Mechanics of Flight, 2nd ed. Hoboken, NJ: Wiley, 2009.
+[11] C. E. Rasmussen and C. K. I. Williams, Gaussian Processes for Machine
+Learning.
+MIT Press, 2006.
+[12] M. J. Kochenderfer and T. A. Wheeler, Algorithms for Optimization.
+MIT Press, 2019.
+[13] C. B. Browne, E. Powley, D. Whitehouse, S. M. Lucas, P. I. Cowling,
+P. Rohlfshagen, S. Tavener, D. Perez, S. Samothrakis, and S. Colton,
+“A survey of monte carlo tree search methods,” IEEE Transactions on
+Computational Intelligence and AI in Games, vol. 4, no. 1, pp. 1–43,
+2012.
+[14] J. Vanlier, C. A. Tiemann, P. A. J. Hilbers, and N. A. W. van Riel,
+“A Bayesian approach to targeted experiment design,” Bioinformatics,
+vol. 28, no. 8, pp. 1136–1142, 2012.
+[15] D. J. Webb and J. van den Berg, “Kinodynamic RRT*: Asymptotically
+optimal motion planning for robots with linear dynamics,” in IEEE
+International Conference on Robotics and Automation (ICRA), 2013,
+pp. 5054–5061.
+[16] R. Delmas, T. Loquen, J. Boada-Bauxell, and M. Carton, “An evaluation
+of Monte-Carlo tree search for property falsification on hybrid flight
+control laws,” in Numerical Software Verification (NSV), ser. Lecture
+Notes in Computer Science, vol. 11652.
+Springer, 2019, pp. 45–59.
+[17] B. Rivi`ere, J. Lathrop, and S.-J. Chung, “Monte Carlo tree search
+with spectral expansion for planning with dynamical systems,” Science
+Robotics, vol. 9, no. 97, p. eado1010, 2024.
+[18] B. Settles, “Active learning literature survey,” Computer Sciences Tech-
+nical Report 1648, University of Wisconsin–Madison, 2009.
+[19] L. Paninski, “Asymptotic theory of information-theoretic experimental
+design,” Neural Computation, vol. 17, no. 7, pp. 1480–1507, 2005.
+[20] D. Silver and J. Veness, “Monte-Carlo planning in large POMDPs,”
+Advances in Neural Information Processing Systems, vol. 23, 2010.
+[21] S. Ross, J. Pineau, S. Paquet, and B. Chaib-draa, “Online planning
+algorithms for POMDPs,” Journal of Artificial Intelligence Research,
+vol. 32, pp. 663–704, 2008.
+[22] S. Zhang, R. Cui, W. Yan, and Y. Li, “Informative path planning for
+auv-based underwater terrain exploration with a POMDP,” in China
+Automation Congress (CAC).
+IEEE, 2021, pp. 4756–4761.
+[23] J. A. Nelder and R. Mead, “A simplex method for function minimiza-
+tion,” The Computer Journal, vol. 7, no. 4, pp. 308–313, 1965.
+APPENDIX
+A. Lift Model
+This section summarizes the construction of the aerody-
+namic quantities and least-squares lift model used to infer
+angle of attack and related state variables from X-Plane test
+data. While the action space is capped at M = 1.0, the
+supersonic form is retained for completeness.
+The lift coefficient is then computed directly from the force
+balance using flight data,
+CL(t) = m G(t) g
+1
+2ρV (t)2S ,
+(18)
+where m is the aircraft mass, ρ is air density, V (t) is true
+airspeed at time t, and S is the wing reference area.
+Angle of attack is obtained by inverting a parametric least-
+squares lift model of the form
+CL(α, M) = CL0 + a0
+α
+√
+1 −M 2 + b0
+α
+√
+M 2 −1
+,
+(19)
+where CL0 is the zero-lift coefficient, a0 is the subsonic lift-
+curve slope parameter, and b0 is the supersonic lift-curve slope
+parameter. Solving this expression for α yields the regime-
+dependent inversion
+α(t) =
+CL(t) −CL0
+a0
+p
+1 −M(t)2 ,
+M < 1,
+(20)
+and
+α(t) =
+CL(t) −CL0
+b0
+p
+M(t)2 −1
+,
+M > 1.
+(21)
+The parameters {CL0, a0, b0} are estimated using ordinary
+least squares by minimizing the squared error between mea-
+sured and modeled lift coefficients,
+min
+CL0,a0,b0
+N
+X
+i=1
+ Cdata
+L
+(i) −CL(αi, Mi)
+2 .
+(22)
+To avoid the singularity at M = 1, a smooth blending
+function is introduced,
+w(M) = 1
+2
+
+1 + tanh
+M −Mt
+∆M
+
+,
+(23)
+with Mt = 1.0 and transition width ∆M = 0.08. The final
+blended lift model is therefore written as
+CL(α, M) = CL0 + (1 −w(M)) a0
+α
+√
+1 −M 2
++ w(M) b0
+α
+√
+M 2 −1
+.
+(24)
+B. Fuel Flow Model
+The fuel flow model is formulated as a log-linear regression
+in order to enforce positivity of the prediction and improve
+numerical conditioning across wide operating regimes. Specif-
+ically, the logarithm of the measured fuel flow rate is modeled
+as an affine function of Mach number and scaled altitude,
+ln( ˙m) = β1 + β2M + β3ˆh,
+(25)
+where M is the Mach number and ˆh = h/10,000 is altitude
+expressed in units of 10,000 ft to improve numerical condi-
+tioning.
+The parameter vector β = [β1, β2, β3]T is obtained using
+ordinary least squares on the log-transformed data,
+β = X\ ln( ˙m),
+(26)
+where X denotes the design matrix constructed from the
+regression features [1, M, ˆh].
+The resulting fuel flow prediction is recovered by exponen-
+tiating the linear model,
+˙mfuel = exp
+
+β1 + β2M + β3ˆh
+
+,
+(27)
+which guarantees ˙mfuel > 0 for all operating conditions.
+During action evaluation, the maneuver fuel cost is com-
+puted by integrating the instantaneous fuel flow over the
+maneuver duration.

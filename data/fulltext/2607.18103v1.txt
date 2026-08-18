@@ -1,0 +1,1738 @@
+An Implicit Time-Domain Harmonic Balance Method
+for Radio-Frequency Capacitively Coupled Plasma
+Simulations
+Yuze ZHUa, Yufeng WEIa, Yue ZHANGa, Kun XUa,b,c,∗
+aDepartment of Mathematics, Hong Kong University of Science and Technology, Clear
+Water Bay, Kowloon, Hong Kong, China
+bDepartment of Mechanical and Aerospace Engineering, Hong Kong University of
+Science and Technology, Clear Water Bay, Kowloon, Hong Kong, China
+cShenzhen Research Institute, Hong Kong University of Science and
+Technology, Shenzhen, China
+Abstract
+Fast and accurate ﬂuid simulation of radio-frequency capacitively coupled
+plasmas (RF CCPs) is of great importance for the iterative design and param-
+eter optimization of modern plasma reactors. This study presents the ﬁrst
+successful extension of the time-domain harmonic balance (HB) method to
+a fully coupled drift-diﬀusion-Poisson system with complete electron-energy
+transport for RF plasma simulations. To resolve the severe numerical stiﬀness
+arising from highly nonlinear energy-dependent kinetics and dense phase-
+coupling, a highly eﬃcient spatiotemporal operator-splitting strategy is em-
+ployed. By sequentially executing a spatial implicit relaxation and a cell-local
+temporal inversion, this strategy entirely avoids the memory-intensive assem-
+bly of global Jacobians while preserving robust numerical stability. The pro-
+posed method is rigorously validated against a standard parallel-plate argon
+CCP benchmark. Evaluated across all discrete temporal collocation points,
+the HB solution demonstrates that retaining eight harmonics (NH = 8) per-
+fectly resolves both the quasi-steady bulk plasma and the highly nonlinear
+transient sheath dynamics, yielding macroscopic relative errors strictly below
+0.3% compared to conventional dual-time stepping (DTS) solutions. Beyond
+its high physical ﬁdelity, the time-domain HB method completely bypasses
+the prohibitive physical transients required by conventional time-marching
+∗Corresponding author. Email: makxu@ust.hk
+arXiv:2607.18103v1  [physics.plasm-ph]  20 Jul 2026
+methods. Evaluated on a purely sequential single-core execution, the HB
+method delivers a greater than 10-fold speedup over fully converged DTS
+baselines and remains over 5 times faster than the coarsest time-marching
+conﬁgurations. These results establish the time-domain HB framework as
+a physically rigorous, memory-eﬃcient, and highly accelerated paradigm for
+practical RF plasma simulations.
+Keywords:
+Harmonic balance, Capacitively coupled plasma, Fluid
+simulation, Operator splitting, Electron-energy transport, Radio-frequency
+discharge
+1. Introduction
+Radio-frequency capacitively coupled plasmas (RF CCPs) are widely used
+in plasma-assisted etching, deposition, surface activation, and semiconductor
+manufacturing [1, 2, 3, 4]. Their practical importance has motivated decades
+of work on kinetic [5, 6], hybrid [7, 8], and ﬂuid plasma simulation [9, 10].
+Among these approaches, ﬂuid models remain attractive for reactor-scale
+calculations because they reduce the kinetic degrees of freedom to a compar-
+atively small set of moments, thereby providing the computational eﬃciency
+required for routine iterative design and optimization.
+While the plasma
+dynamics are driven by periodic excitations with ﬁxed frequencies, the nu-
+merical integration must simultaneously capture complex multiphysics and
+chemical processes, such as electron drift and diﬀusion, dielectric relaxation,
+sheath formation, volumetric reaction kinetics, and electron-energy trans-
+port. Consequently, conventional time-marching calculations remain com-
+putationally demanding: the time step is tightly restricted by the smallest
+relevant physical or numerical scales, and the computation must be advanced
+over many RF cycles until the initial transient decays [11, 12].
+The immense computational cost of reaching the periodic steady state
+has motivated various acceleration strategies [13, 14, 15]. Fully implicit and
+semi-implicit drift-diﬀusion-Poisson solvers can signiﬁcantly relax the severe
+restrictions imposed by dielectric-relaxation and explicit transport stability
+limits. However, taking large time steps yields strongly coupled nonlinear
+algebraic systems, whose poorly conditioned Jacobians demand carefully de-
+signed scaling, linearization, and preconditioning techniques. Alternatively,
+high-order ﬁnite-volume or ﬁnite-element spatial discretizations can achieve
+a target accuracy with signiﬁcantly fewer spatial degrees of freedom [16].
+2
+More recently, reduced-order and machine-learning models have been de-
+ployed to accelerate repeated parameter queries; yet, because these data-
+driven approaches rely on high-ﬁdelity time-domain simulations for training,
+they inherently inherit the prohibitive upfront cost of generating the database
+[17]. Another classical approach to bypass the transient phase is the Newton-
+Raphson cycle-acceleration method, which formulates a root-ﬁnding problem
+for the periodic state by integrating sensitivity equations over a full RF cy-
+cle [18]. While this scheme dramatically reduces the number of simulated
+cycles for species with slow response times, such as metastables, evaluating
+the full-cycle Jacobian is generally too memory- and CPU-intensive to apply
+to all degrees of freedom in multidimensional ﬂuid models. Despite these
+remarkable advancements, completely eliminating the computational waste
+of time-marching through a long transient phase remains a critical problem
+to be solved.
+The harmonic balance (HB) method directly overcomes this computa-
+tional barrier by rigorously solving for the periodic state [19, 20, 21]. By
+expanding a periodic variable as a truncated Fourier seriesor equivalently,
+sampling it at a ﬁnite set of time-domain collocation pointsthe physical time
+derivative is exactly mapped to a dense time-spectral operator that couples
+all temporal phases. This spectral transformation essentially converts the
+unsteady governing equations into an inherently quasi-steady system of cou-
+pled spatial equations, which can then be eﬃciently driven to convergence
+using pseudo-time relaxation or Newton-type algorithms.
+While HB and
+its time-spectral variants have achieved mature success in structural dynam-
+ics [22], turbomachinery aeroelasticity [23], and periodic ﬂuid ﬂows [24], their
+extension to RF plasma simulation is exceptionally promising. Not only is
+the discharge driven by a strictly prescribed external frequency, but both
+experimental diagnostics and baseline numerical responses of RF CCPs nat-
+urally exhibit strongly discrete harmonic components, making them an ideal
+physical system for frequency-domain or time-spectral resolution.
+A recent study demonstrated the potential of HB for accelerating low-
+temperature plasma simulations by applying a high-dimensional HB formu-
+lation to a one-dimensional argon discharge [25]. While achieving substantial
+reductions in CPU time for density-only drift-diﬀusion-Poisson calculations,
+that benchmark work also brought to light the characteristic HB challenges of
+harmonic truncation and aliasing. However, to maintain numerical tractabil-
+ity, the plasma model in that study relied on the local-ﬁeld approximation
+(LFA), wherein the electron energy equation is omitted and transport and
+3
+ionization coeﬃcients are assumed to be determined instantaneously by the
+local electric ﬁeld. However, for realistic RF discharges, a physically rigorous
+description requires the local-mean-energy approximation (LMEA) to couple
+electron energy dynamics. Numerically, this coupling drastically escalates
+the stiﬀness and non-linearity of the system due to the introduction of en-
+ergy transport, Joule heating, and strongly temperature-dependent reaction
+rates.
+To address these limitations, this work develops a generalized time-domain
+HB framework for ﬂuid simulations of RF CCPs based on the drift-diﬀusion
+approximation.
+The governing equations comprise species continuity and
+electron energy equations, tightly coupled with a phase-resolved Poisson
+equation. By employing a truncated Fourier expansion and evaluating the
+macroscopic variables at discrete temporal collocation points, the physical
+time derivatives are strictly transformed into time-spectral source terms.
+This spectral mapping inherently couples the transient states across all tem-
+poral collocation points, converting the original unsteady problem into a
+quasi-steady system and eﬀectively bypassing the prohibitive computational
+overhead of conventional time-marching methods.
+Solving this pseudo-spectral system, however, presents a signiﬁcant com-
+putational challenge. The primary bottleneck stems from the numerical stiﬀ-
+ness introduced by the dense phase-coupling nature of the time spectral oper-
+ator. An explicit treatment of these source terms inevitably ampliﬁes errors
+and triggers severe instabilities at large pseudo-time steps. To ensure robust
+numerical stability, we propose an implicit pseudo-time marching strategy
+based on a spatiotemporal operator-splitting strategy. In this approach, the
+spatial transport and volumetric reaction terms are advanced via a local im-
+plicit relaxation method independently at each temporal collocation point,
+while the stiﬀtime spectral source term is treated implicitly through a cell-
+local dense matrix inversion. Concurrently, a semi-implicit correction is in-
+tegrated into the phase-wise Poisson solver to overcome the strict dielectric
+relaxation limit. By restricting all implicit inversion operations strictly to the
+cell level, this decoupled approach entirely avoids the assembly of a massive
+global Jacobian matrix. This ensures high memory eﬃciency while signiﬁ-
+cantly widening the stability margins against strong nonlinearity and stiﬀ-
+ness. To rigorously assess the overall performance of the proposed framework,
+comprehensive benchmark evaluations are conducted against fully converged
+time-marching solutions.
+The remainder of this paper is organized as follows. Section 2 details
+4
+the numerical methodology, including the physical governing equations, the
+time-domain HB formulation, and the proposed implicit pseudo-time relax-
+ation method. Section 3 presents a rigorous spatiotemporal validation of the
+HB solver, followed by a systematic assessment of its harmonic convergence
+and computational acceleration for representative RF CCP conﬁgurations.
+Finally, Section 4 draws the main conclusions of this work.
+2. Mathematical and Numerical Formulation
+2.1. Governing Equations and Nondimensionalization
+The radio-frequency capacitively coupled plasma (RF CCP) is modeled
+based on a macroscopic continuum ﬂuid framework. Given that the char-
+acteristic length scales of the reactor are signiﬁcantly smaller than the elec-
+tromagnetic wavelength of the RF drive, inductive eﬀects can be negligible.
+Consequently, the self-consistent electric ﬁeld E = −∇ϕ is rigorously de-
+scribed by the electrostatic approximation, where the potential ϕ is governed
+by Poisson’s equation:
+−∇· (ϵ0∇ϕ) = e (ni −ne) ,
+(1)
+where ne and ni denote the electron and positive ion number densities, e is
+the elementary charge, and ϵ0 is the vacuum permittivity.
+To resolve the fundamental discharge kinetics, the transport model tracks
+the spatiotemporal evolution of electrons, positive ions, and neutral metastable
+atoms (denoted by the subscript ∗). Under the highly collisional regime typi-
+cal of such discharges, the macroscopic species ﬂuxes are adequately captured
+by the drift-diﬀusion approximation. The corresponding continuity equations
+are formulated as:
+∂ne
+∂t + ∇· Γe = Se,
+(2)
+∂ni
+∂t + ∇· Γi = Si,
+(3)
+∂n∗
+∂t + ∇· Γ∗= S∗.
+(4)
+The transport ﬂuxes Γ incorporate both electromigration driven by the
+macroscopic electric ﬁeld and concentration-gradient-driven diﬀusion. Be-
+cause the metastable species are electrically neutral, their transport reduces
+to pure diﬀusion. The respective ﬂuxes are explicitly given by:
+Γe = −µeneE −De∇ne,
+(5)
+5
+Γi = µiniE −Di∇ni,
+(6)
+Γ∗= −D∗∇n∗,
+(7)
+where µ and D represent the mobilities and diﬀusion coeﬃcients of the re-
+spective species.
+The volumetric source terms (Se, Si, and S∗) represent the net production
+and depletion rates dictated by gas-phase chemical kinetics. For the charged
+species, the primary generation mechanisms include direct electron-impact
+ionization from the background ground state, stepwise ionization of metasta-
+bles, and metastable pooling. Assuming singly charged ions, the electron and
+ion sources are strictly equivalent (Se = Si) and can be expanded as:
+Se = kionNgne + ksin∗ne + kmpn2
+∗,
+(8)
+where Ng is the number density of background neutral gas, and kion, ksi, and
+kmp are the rate coeﬃcients for direct ionization, stepwise ionization, and
+metastable pooling, respectively.
+To accurately capture the non-local and non-equilibrium electron dynam-
+ics, the electron energy density εe = 3
+2nekBTe (with Te denoting the electron
+temperature in K) is governed by a conservative transport equation:
+∂εe
+∂t + ∇· Γε = Je · E −
+X
+j
+∆EjSj.
+(9)
+Within the drift-diﬀusion framework, the electron energy ﬂux Γε is mod-
+eled assuming standard electron-enthalpy closure:
+Γε = −5
+3µeεeE −5
+3De∇εe.
+(10)
+On the right-hand side of Eq. (9), the term Je · E accounts for the local
+Joule heating, where Je = −eΓe is the electron current density. The summa-
+tion term encompasses the aggregate inelastic collisional energy losses. For
+each j-th collision channel, Sj represents its volumetric reaction rate, and
+∆Ej dictates the speciﬁc threshold energy loss.
+Because the rate coeﬃcients for electron-impact reactions are acutely sen-
+sitive to the electron energy, they are typically parameterized as functions of
+the local mean electron energy. In the present macroscopic formulation, this
+mean energy is deﬁned directly from the transported state variables as:
+¯εe = εe
+ne
+= 3
+2kBTe.
+(11)
+6
+To alleviate the severe numerical stiﬀness caused by the vast multi-scale
+disparities in physical quantities, the governing system is rigorously nondi-
+mensionalized. Deﬁning Lref, nref, Te,ref, and Φref as the chosen reference
+length, number density, electron temperature, and electrostatic potential, re-
+spectively, the reference electron thermal speed and characteristic timescale
+are derived as:
+vref =
+8kBTe,ref
+πme
+1/2
+,
+(12)
+tref = Lref
+vref
+,
+(13)
+where kB is the Boltzmann constant and me is the electron mass. The refer-
+ence electron energy density is correspondingly scaled by:
+εref = 3
+2nrefkBTe,ref.
+(14)
+All subsequent secondary variablesincluding transport coeﬃcients, reac-
+tion rate coeﬃcients, and vacuum permittivityare scaled consistently against
+these primary reference values. This systematic scaling ensures that the di-
+mensionless governing equations maintain the exact mathematical structure
+of their dimensional counterparts; thus, the dimensionless forms are omitted
+here for brevity.
+2.2. Time-Domain Harmonic Balance Formulation
+The RF-periodic solution is assumed to reach a quasi-steady state with
+the fundamental period
+T = 2π
+ω .
+(15)
+For a scalar periodic variable Q(x, t), the representation based on a trun-
+cated Fourier series with NH harmonics is
+Q(x, t) ≈
+NH
+X
+k=−NH
+bQk(x)eikωt,
+(16)
+where bQk represents the complex Fourier coeﬃcients satisfying the conjugate
+symmetry bQ−k = bQ∗
+k. The number of temporal collocation points is chosen
+to satisfy the Nyquist criterion:
+NT = 2NH + 1,
+(17)
+7
+with the temporal collocation points uniformly distributed over one funda-
+mental period:
+tm = mT
+NT
+,
+m = 0, 1, . . . , NT −1.
+(18)
+By assembling the ﬂow variables at these collocation points into time-
+domain vectors, e.g., Q = [Q|t0, . . . , Q|t2NH]T, the discrete Fourier trans-
+form (DFT) provides a direct mapping between the solution values at the
+discrete sub-time levels and their corresponding frequency-domain Fourier
+coeﬃcients:
+bQ = D Q.
+(19)
+The discrete Fourier transform (DFT) matrix D and its inverse D−1 gov-
+ern this transformation. Speciﬁcally, the inverse DFT matrix D−1 is explic-
+itly deﬁned using the complex exponential basis functions evaluated at the
+collocation points as follows:
+D−1 =
+
+
+1
+eiωt0
+ei2ωt0
+. . .
+e−iωt0
+1
+eiωt1
+ei2ωt1
+. . .
+e−iωt1
+...
+...
+...
+...
+...
+1
+eiωtNT −1
+ei2ωtNT −1
+. . .
+e−iωtNT −1
+
+.
+(20)
+Consequently, the diﬀerentiation in physical time can be exactly repre-
+sented at the discrete temporal collocation points by a matrix multiplication:
+∂Q
+∂t = D−1KbQ = D−1KD Q = EQ,
+(21)
+where matrix K is deﬁned as
+K = iω diag(0, 1, . . . , NH, −NH, . . . , −1).
+(22)
+Although Eq. (21) is mathematically derived using a complex Fourier
+basis, the resulting operator E analytically maps real discrete-time vectors
+to real temporal derivatives. For an odd number of collocation points NT, this
+operator can be written explicitly as a real, dense, skew-symmetric matrix:
+(E)mℓ=
+
+
+
+ω
+2 (−1)m−ℓcsc
+π(m −ℓ)
+NT
+
+,
+m̸ = ℓ,
+0,
+m = ℓ.
+(23)
+8
+The strict skew-symmetry of E intrinsically reﬂects the non-dissipative
+character of the time spectral operator within the retained harmonic sub-
+space.
+Any harmonic truncation errors and nonlinear aliasing eﬀects are
+systematically controlled by increasing NH, which will be assessed in the
+numerical results.
+By applying the time spectral operator deﬁned in Eq. (21) to the con-
+tinuous governing equations, the continuous time derivatives are replaced by
+discrete couplings across all phases. Let n∗
+e, n∗
+i , n∗
+∗, and ε∗
+e denote the HB
+phase vectors of the transported variables at a ﬁxed spatial location. For
+a speciﬁc temporal collocation point tm, the HB form of the plasma ﬂuid
+system is written as:
+NT −1
+X
+ℓ=0
+(E)mℓne,ℓ+ ∇· Γe,m = Se,m,
+(24a)
+NT −1
+X
+ℓ=0
+(E)mℓni,ℓ+ ∇· Γi,m = Si,m,
+(24b)
+NT −1
+X
+ℓ=0
+(E)mℓn∗,ℓ+ ∇· Γ∗,m = S∗,m,
+(24c)
+NT −1
+X
+ℓ=0
+(E)mℓεe,ℓ+ ∇· Γε,m = PJ,m −
+X
+j
+∆EjSj,m.
+(24d)
+Crucially, all strongly nonlinear transport coeﬃcients, volumetric reaction
+rates (e.g., Se,m, S∗,m), Joule heating terms (PJ,m), and boundary ﬂuxes are
+evaluated directly at the temporal collocation point tm. This decoupling is
+the central advantage of the time-domain HB implementation. By evaluating
+the highly non-linear plasma kinetics and physical constraints strictly locally
+in each temporal collocation point, the method completely avoids frequency-
+domain convolutions, while the periodic time evolution remains globally and
+rigorously governed by the dense time spectral operator E.
+Furthermore, because Poisson’s equation contains no explicit physical
+time derivative, it eﬀectively acts as an elliptic constraint evaluated inde-
+pendently at each temporal collocation point:
+∇· (ϵ0∇ϕm) = −e(ni,m −ne,m),
+m = 0, 1, . . . , NT −1.
+(25)
+The corresponding time-varying boundary conditions are evaluated at
+9
+these temporal collocation points, ensuring that the electrostatic constraints
+are perfectly synchronized with the HB temporal collocation.
+2.3. Finite-Volume Spatial Discretization
+To numerically resolve the RF-periodic discharge dynamics, the governing
+equations in the HB form must be discretized spatially. The computational
+domain is discretized by non-overlapping cell-centered control volumes. Inte-
+grating the governing system over a control volume Ωi with volume Vi yields
+the discrete nonlinear HB residual for cell i at a speciﬁc temporal collocation
+point tm (denoted by the index m):
+Gi,m = −
+X
+f∈∂Ωi
+AfFf,m + ViSi,m −Vi
+NT −1
+X
+ℓ=0
+EmℓQi,ℓ= 0,
+(26)
+where Af represents the face area, and Emℓdenotes the components of the
+dense NT × NT time spectral operator E.
+At a given collocation point m, the conservative variable vector Qi,m
+and the corresponding volumetric source vector Si,m for cell i are compactly
+grouped as:
+Qi,m =
+
+ne,i,m
+ni,i,m
+n∗,i,m
+εe,i,m
+T ,
+(27)
+Si,m =
+Se,i,m
+Si,i,m
+S∗,i,m
+PJ,i,m −P
+j ∆EjSj,i,m
+T .
+(28)
+in which the volumetric electrostatic work is evaluated in a face-consistent
+discrete form:
+PJ,i,mVi ≈−ϕi,m
+X
+f∈∂Ωi
+AfJe,f,m,
+(29)
+where Je,f,m = −e(Γe,f,m · nf) is the local electron-current contribution pass-
+ing through face f.
+As shown in Eq. 26, the total residual Gi,m is inherently composed of
+a purely physical residual and a time spectral source term. The physical
+spatial-chemical residual, denoted as Rphys
+i,m , is deﬁned as:
+Rphys
+i,m = −
+X
+f∈∂Ωi
+AfFf,m + ViSi,m,
+(30)
+which encapsulates the ﬂux and reactive source evaluations at the temporal
+collocation point tm. Conversely, the remaining term Vi
+P
+ℓEmℓQi,ℓrepre-
+sents the time spectral source term introduced by the time-domain HB. It
+10
+mathematically couples the local state at the current temporal collocation
+point to the states at all other temporal collocation points, thereby driving
+the transient evolution toward a dynamic steady state.
+A fundamental advantage of this time-domain HB framework is that the
+physical residual Rphys
+i,m is evaluated entirely independently at each temporal
+collocation point.
+Because the spatial non-linear ﬂuxes Ff,m and chemi-
+cal sources are temporally dependent, the formulation strictly follows the
+identical reconstruction and evaluation procedures used in time-marching
+solvers. By using only the macroscopic variables at tm, the method com-
+pletely avoids the complex frequency convolutions typically encountered in
+frequency-domain methods.
+At convergence, the algebraic residual system Gi,m = 0 is strictly satis-
+ﬁed for every spatial cell across all temporal collocation points, yielding the
+spectrally accurate RF-periodic steady state.
+2.4. Implicit Spatio-Temporal Decoupling and Block Relaxation
+To eﬃciently drive the discrete residual system to convergence, an implicit
+pseudo-time integration method is introduced by deﬁning a pseudo-time pa-
+rameter τ. Let s denote the pseudo-time iteration index, and then deﬁne the
+increment as
+∆Q = Qs+1 −Qs.
+(31)
+If a standard implicit backward Euler linearization were applied directly
+to Eq. (26), the corrections of all NT collocation points within a cell would be
+monolithically coupled by the time spectral operator E. To mathematically
+represent this monolithic system at cell i, we temporarily concatenate the
+conservative variables, physical spatial-chemical residual and total residuals
+across all temporal collocation points into augmented vectors:
+Qi =
+
+Qi,0
+. . .
+Qi,NT −1
+T ,
+(32)
+Rphys
+i
+=
+h
+Rphys
+i,0
+. . .
+Rphys
+i,NT −1
+iT
+.
+(33)
+Gi =
+
+Gi,0
+. . .
+Gi,NT −1
+T .
+(34)
+The unfactored implicit linear system for cell i then reads:
+"
+Vi
+∆τ I + Vi(E ⊗Iq) −∂Rphys
+i
+∂Qi
+#
+∆Qi−
+X
+j∈N(i)
+∂Rphys
+i
+∂Qj
+∆Qj = Gi(Qs, ϕs), (35)
+11
+where N(i) is the set of neighboring spatial cells, Iq is the Nq × Nq identity
+matrix corresponding to the Nq conservative variables and ⊗denotes the
+Kronecker product.
+To avoid the steep computational expense associated with inverting the
+fully coupled local augmented block, a spatio-temporal approximate factor-
+ization (AF) is introduced. By deﬁning the local spatial-chemical Jacobian
+at a speciﬁc temporal collocation point m as
+Aii,m = −1
+Vi
+∂Rphys
+i,m
+∂Qi,m
+,
+(36)
+which inherently encapsulates both the exact spatial ﬂux derivatives and the
+stiﬀchemical source Jacobians and utilizing the multi-time block form
+Aii = diag(Aii,0, . . . , Aii,NT −1),
+(37)
+the local implicit coeﬃcient matrix can be algebraically expanded as:
+I + ∆τ(E ⊗Iq) + ∆τAii =
+ I + ∆τ(E ⊗Iq)
+ I + ∆τAii
+
+−(∆τ)2(E ⊗Iq)Aii.
+(38)
+Because the last term on the right-hand side of the above equation is of
+second order in pseudo-time, it introduces minimal factorization error during
+the iterative relaxation. More importantly, since it operates directly on the
+state increment ∆Qi, this term strictly vanishes as the system converges to-
+ward the exact RF-periodic steady state. Therefore, it can be safely neglected
+without compromising the ﬁnal converged solution, successfully decoupling
+the local implicit coeﬃcient matrix into a product of distinct temporal and
+spatial structures:
+I + ∆τ(E ⊗Iq) + ∆τAii ≈
+ I + ∆τ(E ⊗Iq)
+ I + ∆τAii
+
+.
+(39)
+Through this approximate factorization, the monolithic system can be
+decomposed into two sequential and decoupled relaxation stages executed at
+each pseudo-time step, as schematically illustrated in Fig. 1.
+Stage 1: Spatial Block-Implicit Relaxation. The ﬁrst stage evaluates the spa-
+tial operator to solve the spatial and chemical coupling, yielding an interme-
+diate state correction ∆Q∗:
+ I + ∆τAii
+
+∆Q∗
+i −∆τ
+Vi
+X
+j∈N(i)
+∂Rphys
+i
+∂Qj
+∆Q∗
+j = ∆τ
+Vi
+Gs
+i.
+(40)
+12
+Figure 1: Schematic illustration of the spatio-temporal decoupling strategy in the time-
+domain harmonic balance solver.
+Crucially, because the spatial-chemical Jacobian Aii involves no temporal
+cross-coupling, all temporal collocation points are completely decoupled in
+this stage. This allows the local spatial system to be solved independently
+for each temporal collocation point m via a relaxation sweep. For cell i at a
+speciﬁc collocation point m, the local update equations during the forward
+and backward spatial sweeps are reduced to:
+Di,m∆Q∗∗
+i,m = ∆τ
+Vi
+Gs
+i,m −∆τ
+Vi
+X
+j<i
+Lij,m∆Q∗∗
+j,m,
+(41)
+Di,m∆Q∗
+i,m = Di,m∆Q∗∗
+i,m −∆τ
+Vi
+X
+j>i
+Uij,m∆Q∗
+j,m,
+(42)
+where L and U are the exact spatial lower and upper neighbor Jacobian
+matrices.
+To avoid the high computational and storage costs of assembling exact
+spatial ﬂux Jacobians while maintaining strong diagonal dominance, the ex-
+act local operator Aii,m is robustly approximated. The resulting local diago-
+nal preconditioning block Di,m is constructed as a compact Nq × Nq matrix:
+Di,m = Iq+∆τ diag(λe,i,m, λi,i,m, λ∗,i,m, λε,i,m)−∆τJchem,i,m+Ddamp,i,m. (43)
+13
+The transport spectral radii λs,i,m are conservatively evaluated over all
+boundary faces f ∈∂Ωi based on local drift-diﬀusion velocities:
+λs,i,m ≈
+X
+f∈∂Ωi
+Af
+Vi
+1
+2µs|Ef,m| + cD
+Dq
+|∆rf|
+
+,
+(q = e, i, ∗),
+(44a)
+λε,i,m ≈
+X
+f∈∂Ωi
+Af
+Vi
+5
+6µe|Ef,m| + 5
+3cD
+De
+|∆rf|
+
+,
+(44b)
+where cD is a numerical diﬀusion scaling constant, and |∆rf| is the char-
+acteristic distance between neighboring cell centers. Concurrently, to elimi-
+nate severe numerical noise and oscillatory derivatives during the relaxation
+sweeps, the highly sensitive reaction rate coeﬃcients (e.g., kion, kexc) are kept
+frozen as local constants during the analytical diﬀerentiation of the source
+vector. For the speciﬁc multi-moment plasma system, the symbolic structure
+of this frozen-rate chemistry Jacobian block is formulated as:
+Jchem,i,m = ∂Si,m
+∂Qi,m
+
+frozen k
+=
+
+
+∂Se
+∂ne
+∂Se
+∂ni
+∂Se
+∂n∗
+∂Se
+∂εe
+∂Si
+∂ne
+∂Si
+∂ni
+∂Si
+∂n∗
+∂Si
+∂εe
+∂S∗
+∂ne
+∂S∗
+∂ni
+∂S∗
+∂n∗
+∂S∗
+∂εe
+∂Sε
+∂ne
+∂Sε
+∂ni
+∂Sε
+∂n∗
+∂Sε
+∂εe
+
+
+i,m,frozen k
+,
+(45)
+where the partial derivatives of the source vector with respect to conserva-
+tive variables are analytically evaluated. Under this frozen-rate assumption,
+representative non-zero Jacobian entries for the electron volumetric source
+and energy sink terms elegantly simplify to:
+∂Se,i,m
+∂ne,i,m
+≈kionNg + ksin∗,i,m,
+(46a)
+∂Sε,i,m
+∂ne,i,m
+≈−
+X
+j
+∆Ej
+ ∂Sj,i,m
+∂ne,i,m
+
+frozen k
+
+.
+(46b)
+The remaining non-zero elements in Jchem,i,m are derived in an identical
+analytical manner. To enforce diagonal dominance and guarantee numeri-
+cal stability under extreme chemical transients, a diagonal damping matrix
+Ddamp,i,m is explicitly added, whose entries are proportional to the absolute
+row sums of Jchem,i,m.
+14
+Stage 2: Variable-Decoupled Temporal Relaxation. Once the spatial interme-
+diate correction ∆Q∗
+i is obtained, the second stage accounts for the dense
+temporal coupling by solving the remaining temporal factor within each in-
+dependent control volume:
+ I + ∆τ(E ⊗Iq)
+
+∆Qi = ∆Q∗
+i .
+(47)
+A pivotal computational attribute of this step is that the time spectral
+operator E acts exclusively across the temporal collocation points and intro-
+duces no cross-coupling between diﬀerent ﬂuid variables. Consequently, this
+multi-variable temporal block system can be segregated into Nq independent
+scalar systems. For each distinct ﬂuid variable q ∈{ne, ni, n∗, εe}, the time
+spectral coupling is resolved by a localized dense matrix inversion:
+(INT + ∆τE) ∆Qi,q = ∆Q∗
+i,q,
+(48)
+where INT is the NT ×NT identity matrix. This variable-by-variable segrega-
+tion drops the local temporal inversion cost from a monolithic O((NqNT)3)
+down to Nq × O(N 3
+T). Finally, the local physical state is advanced using a
+dynamic relaxation limiter to guarantee strictly positive species densities and
+energies:
+Qs+1
+i
+= Qs
+i + α∆Qi,
+(49)
+where α ∈(0, 1] is a speciﬁed damping factor to prevent non-physical solu-
+tions.
+2.5. Temporally Decoupled Semi-Implicit Poisson Update
+Solving Poisson’s equation decoupled from the charged-particle transport
+often imposes a severe dielectric-relaxation pseudo-time step limit, leading
+to weak electrostatic coupling and numerical instability. To alleviate this
+issue and ensure robust convergence within the time-domain HB framework,
+we employ a semi-implicit correction, following the approaches established in
+[7, 26, 27]. This method anticipates the fast electron number density response
+to potential variations over the pseudo-time step ∆τi.
+To construct this semi-implicit operator, the implicit treatment is exclu-
+sively applied to the electron drift term during the prediction step. Concur-
+rently, the electron diﬀusion is evaluated explicitly, and the chemical reaction
+source terms are neglected. Let s denote the pseudo-time iteration step. By
+evaluating the mobility and electron density at the known iteration step s,
+15
+the implicit drift ﬂux at a speciﬁc temporal collocation point m is approxi-
+mated as
+Γs+1
+e,m ≈−µens
+e,mEs+1
+m
+= µens
+e,m∇ϕs+1
+m .
+(50)
+Substituting this predicted ﬂux into the electron continuity equation and
+subsequently into Poisson’s equation yields the augmented semi-implicit con-
+tinuous operator:
+−∇·
+ ϵ0∇ϕs+1
+m
+
+−∇·
+ eµens
+e,m∆τi∇ϕs+1
+m
+
+= e(ns
+i,m −ns
+e,m) + Ds
+e,m,
+(51)
+where Ds
+e,m = −e∆τi∇·
+ De∇ns
+e,m
+
+represents the explicit electron diﬀusion
+contribution.
+A unique property of the electrostatic Poisson’s equation in the HB for-
+mulation is the inherent absence of a physical time derivative. Consequently,
+the time spectral operator E does not couple the electric potential across
+diﬀerent temporal collocation points. The Poisson system is naturally block-
+diagonal, allowing the elliptic equation to be solved completely independently
+at each temporal collocation point m.
+Integrating Eq. (51) over a control volume Ωi yields the discrete, decou-
+pled ﬁnite-volume update for cell i at a speciﬁc temporal collocation point
+m:
+X
+f∈∂Ωi
+ϵeﬀ,f,m
+Af
+|∆rf|
+ ϕs+1
+i,m −ϕs+1
+nb,m
+
+= e(ns
+i,i,m −ns
+e,i,m)Vi −e∆τiDe
+X
+f∈∂Ωi
+Af(∇ne)s
+f,m · nf,
+(52)
+where subscript nb denotes the adjacent neighbor cell (or boundary face)
+sharing face f, and |∆rf| is the characteristic distance. To maintain accuracy
+on distorted elements, the face-normal potential gradients in Eq. (52) are
+further corrected by incorporating non-orthogonal cross-diﬀusion terms.
+Through this formulation, the original Laplacian operator is mathemati-
+cally augmented by an eﬀective face permittivity:
+ϵeﬀ,f,m = ϵ0 + eµens
+e,f,m∆τi.
+(53)
+In the algorithmic workﬂow, the electric potential is not advanced simul-
+taneously with the ﬂuid variables. Instead, this decoupled Poisson system is
+16
+solved immediately after the macroscopic variables are updated via the spa-
+tial and temporal relaxation processes (Stages 1 and 2). Once the new po-
+tential ϕs+1
+m
+is obtained independently across all temporal collocation points,
+the local electric ﬁeld is strictly recomputed before evaluating the transport
+ﬂuxes for the next pseudo-time step.
+2.6. Boundary Conditions
+To complete the physical model and close the semi-discrete ﬁnite-volume
+system, physically consistent boundary conditions must be speciﬁed at the
+solid electrodes. In the present formulation, the electrostatic potential is im-
+posed via Dirichlet boundary conditions, while the transport equations for
+charged particles and electron energy are closed through wall-ﬂux boundary
+conditions. All boundary states are evaluated independently at each tempo-
+ral collocation point m.
+For the present RF capacitively coupled discharge, the powered electrode
+is driven by a prescribed sinusoidal voltage. At a speciﬁc temporal collocation
+point tm, the boundary potential is given by:
+ϕp,m = VRF sin (2πfRFtm + φ0) ,
+(54)
+where VRF is the peak voltage amplitude, fRF is the driving frequency, and
+φ0 is the phase shift. The grounded electrode is ﬁxed at a constant reference
+potential
+ϕg,m = 0.
+(55)
+Driven predominantly by the strong sheath electric ﬁeld, ions are accel-
+erated toward the wall. The theoretical drift-driven ion ﬂux at the boundary
+is given by:
+Γi,m · nw = µini,mEm · nw,
+(56)
+where nw is the outward unit normal vector pointing from the plasma domain
+to the wall. In the actual numerical implementation, to prevent unphysical
+inward ion drift during highly transient iterative steps, a pure upwind con-
+dition is enforced by limiting this ﬂux to non-negative values, i.e.,
+Γi,m · nw = max(Γi,m · nw, 0).
+(57)
+For the electron and electron energy ﬂuxes, the physical treatment at the
+wall depends heavily on the thermal assumptions. In this work, two distinct
+sets of ﬂux boundary conditions are implemented within the time-spectral
+framework to accommodate diﬀerent benchmarking requirements:
+17
+1. Prescribed Wall Temperature. The ﬁrst set assumes an energy-independent
+electron ﬂux, typically associated with a prescribed constant electron tem-
+perature at the wall [18]. The macroscopic electron loss is modeled using a
+constant surface recombination velocity:
+Γe,m · nw = ksne,m −γ(Γi,m · nw),
+(58)
+where ks is the eﬀective electron surface recombination coeﬃcient (assuming
+a unity sticking coeﬃcient) and γ is the secondary electron emission (SEE)
+coeﬃcient. Because the ﬂux does not depend on the local energy, the electron
+energy equation must be closed by explicitly specifying a Dirichlet boundary
+condition based on the prescribed wall temperature Te,w:
+εe,w,m = 3
+2ne,mkBTe,w.
+(59)
+2. Zero-Gradient Temperature Extrapolation. The second set introduces elec-
+tron energy dependence derived from kinetic theory, assuming the electron
+temperature at the boundary is extrapolated from the adjacent interior cell
+(i.e., a zero-gradient condition for Te) [28]. The macroscopic electron loss
+rate is governed by the thermal ﬂux of a half-Maxwellian distribution:
+Γe,m · nw = 1
+4ne,m
+8kBTe,m
+πme
+1/2
+−γ(Γi,m · nw),
+(60)
+where Te,m is the locally extrapolated electron temperature, and me is the
+electron mass. Consistent with this particle ﬂux, the transported electrons
+carry their respective mean thermal energies to the wall. The corresponding
+electron energy boundary ﬂux is robustly evaluated as:
+Γε,m · nw = 5
+3 ¯εe,m
+"
+1
+4ne,m
+8kBTe,m
+πme
+1/2
+−γ(Γi,m · nw)
+#
+.
+(61)
+3. Numerical Setups and Results
+To comprehensively evaluate the solution accuracy and computational
+eﬃciency of the proposed time-domain HB method, a representative RF-
+CCP benchmark is investigated. The computed macroscopic ﬂuid solutions
+are systematically compared against both a well-established reference solu-
+tion and the time-marching results performed within the same uniﬁed ﬁnite-
+volume framework.
+18
+3.1. Physical Model and Numerical Conﬁguration
+The proposed time-domain HB method is evaluated using a standard
+one-dimensional, parallel-plate RF CCP benchmark. A schematic diagram
+of the discharge conﬁguration is illustrated in Fig. 2. The plasma reactor
+is bounded by a powered RF electrode on the left and a grounded elec-
+trode on the right, ﬁlled with neutral argon gas. As depicted, the discharge
+gap is macroscopically characterized by a central quasi-neutral bulk plasma
+region enclosed by two oscillating space-charge sheaths adjacent to the elec-
+trodes. Because the transverse dimensions of the electrodes are assumed to
+be inﬁnitely large compared to the gap distance, radial edge eﬀects can be
+safely neglected. Consequently, the plasma distribution can be treated as
+one-dimensional along the axial direction.
+Figure 2: Schematic diagram of the one-dimensional RF CCP discharge conﬁguration.
+The geometric parameters and macroscopic operating conditions are sum-
+marized in Table 1. The one-dimensional computational domain is discretized
+Table 1: Geometric parameters and operating conditions for the argon CCP benchmark.
+Parameter
+Symbol
+Unit
+Value
+Interelectrode distance
+L
+m
+0.0254
+Background gas pressure
+p
+Torr
+1
+Gas temperature
+Tg
+K
+300
+Neutral gas density
+Ng
+m−3
+3.22 × 1022
+RF frequency
+f
+MHz
+13.56
+RF voltage amplitude
+V0
+V
+100
+19
+using a nonuniform symmetric mesh comprising Np = 91 nodes, yielding 90
+cells. To adequately resolve the steep spatial gradients within the sheath
+regions, the node coordinates xi are densely clustered near both electrodes.
+Following the reference benchmark [18], the grid distribution is mathemati-
+cally deﬁned as:
+xi = Lx
+2
+
+i −1
+(Np −1)/2
+2
+,
+i = 1, . . . , Np −1
+2
++ 1,
+xNp−i+1 = Lx −xi,
+i = 1, . . . , Np −1
+2
++ 1.
+(62)
+At the physical boundaries, a sinusoidal driving voltage is applied to the
+left powered electrode. For each discrete temporal collocation point m, the
+boundary potential is explicitly given by:
+ϕp,m = V0 sin(2πftm),
+(63)
+and the right grounded electrode remains ﬁxed at ϕg,m = 0. For the charged
+particle transport, the wall electron temperature is explicitly prescribed to
+evaluate the surface ﬂuxes. The drift-diﬀusion transport of electrons and ions
+is governed by their respective mobilities and diﬀusivities, which are assumed
+to be inversely proportional to the neutral gas number density Ng.
+The
+relevant transport coeﬃcients, surface boundary parameters, and reaction
+thresholds are listed in Table 2.
+Table 2: Transport coeﬃcients, surface boundary parameters, and reaction threshold en-
+ergies.
+Parameter
+Symbol
+Unit
+Value
+Electron diﬀusivity product
+NgDe
+m−1 s−1
+3.86 × 1024
+Electron mobility product
+Ngµe
+V−1 m−1 s−1
+9.66 × 1023
+Ion diﬀusivity product
+NgDi
+m−1 s−1
+2.07 × 1020
+Ion mobility product
+Ngµi
+V−1 m−1 s−1
+4.65 × 1021
+Wall electron temperature
+Te,w
+eV
+0.5
+Secondary emission coeﬃcient
+γ
+−
+0.01
+Surface recombination velocity
+ks
+m/s
+1.19 × 105
+Ionization threshold energy
+∆εion
+eV
+15.7
+Excitation threshold energy
+∆εexc
+eV
+11.56
+20
+Within the HB framework, the reaction rates are evaluated discretely and
+independently at each temporal collocation point m. Therefore, the reaction
+rates are expressed as:
+Rion,m = Ngne,mkion(¯εe,m),
+(64)
+Rexc,m = Ngne,mkexc(¯εe,m).
+(65)
+In these expressions, the local mean electron energy density at temporal
+collocation point m is explicitly deﬁned as:
+¯εe,m = εe,m
+ne,me.
+(66)
+Utilizing this local mean energy, the corresponding rate coeﬃcients kion
+and kexc are logarithmically interpolated from the exact tabular data estab-
+lished in the reference benchmark [18].
+In the present study, two primary electron-impact reactions are consid-
+ered. Consequently, direct ionization acts as the sole particle source:
+Se,m = Si,m = Rion,m,
+(67)
+while both reactions contribute to the inelastic electron energy loss. The
+total energy sink at each temporal collocation point is formulated as:
+Sε,m = −∆εionRion,m −∆εexcRexc,m,
+(68)
+where the threshold energies ∆εion and ∆εexc have been explicitly listed in
+Table 2.
+3.2. Establishment of the Time-Marching Reference Solution
+Before the dual-time stepping solution is employed as the reference for
+assessing the HB results, the convergence of the pseudo-time iterations must
+ﬁrst be examined.
+Although the physical time step in the dual-time for-
+mulation is not restricted by the stability condition of equation system, an
+insuﬃciently converged inner solution introduces an additional iterative er-
+ror into the physical-time update. The inﬂuence of the pseudo-CFL number
+and the required number of inner iterations is therefore evaluated at a rep-
+resentative physical time step ∆t = T/100. To assess the convergence of
+the inner iterations, the normalized backward diﬀerentiation formula (BDF)
+residual, denoted as ρs, is monitored. This metric represents the L2-norm of
+21
+the complete residual vector—encompassing the electron number continuity,
+ion number continuity, and electron energy equations at the s-th pseudo-
+time iteration—normalized by its initial value at the start of the physical
+time step.
+Figure 3 shows that the convergence rate is strongly dependent on the
+pseudo-CFL number when a relatively small value is used.
+Figure 3: Convergence of the normalized full BDF residual at a representative physical
+time step for diﬀerent pseudo-CFL numbers. The physical time step is ∆t = T/100.
+When the pseudo-CFL number is set to 100, the residual decreases slowly
+and fails to reach an asymptotic level even after 500 inner iterations. By
+raising this value to 500 and 1000, the initial reduction of the residual is
+substantially accelerated. Further increasing the pseudo-CFL number to the
+range of 5000–20000 yields a rapid drop of roughly 1.5 orders of magnitude
+within the ﬁrst few iterations. After this initial sharp decrease, the solution
+enters a slower relaxation stage.
+For pseudo-CFL numbers of 5000 and above, the convergence histories
+become virtually identical once the initial transient passes. In these cases,
+22
+the residual settles at a plateau around log10(ρs) ≃−2.7. The solver typi-
+cally reaches this plateau within 250 to 300 inner iterations, and continuing
+the process up to 500 iterations yields no improvement. Although the robust
+implicit formulation allows for a signiﬁcantly higher stability limit, this con-
+sistent asymptotic behavior clearly demonstrates that pushing the pseudo-
+CFL number beyond 10000 oﬀers no meaningful advantage for the current
+conﬁguration. Guided by these ﬁndings, a pseudo-CFL number of 10000 and
+a maximum limit of 300 inner iterations per physical time step are selected.
+These parameters are adopted for the subsequent time-step veriﬁcation and
+for the construction of the time-marching reference solution.
+With the pseudo-time parameters established, a physical-time-step re-
+ﬁnement study is conducted to quantify the temporal discretization error.
+This step is essential to construct a suﬃciently resolved time-marching base-
+line for evaluating the proposed time-domain HB method. Using the ﬁxed
+pseudo-time conﬁguration determined above, the temporal resolution is sys-
+tematically reﬁned by increasing the number of physical time steps per RF
+cycle as T/∆t = 50, 100, 200, and 400.
+Because the inner convergence
+is strictly controlled, the discrepancies among these test cases stem almost
+entirely from the physical-time integration, which is governed by the second-
+order backward diﬀerentiation formula.
+Table 3 presents the spatially averaged electron number density, ion num-
+ber density, and electron energy density sampled at the beginning of the con-
+verged RF cycle. To quantitatively assess the temporal discretization error,
+the calculation with the ﬁnest resolution (T/∆t = 400) is adopted as the ref-
+erence. The relative diﬀerences for each macroscopic quantity are evaluated
+as:
+Erel(q) =
+⟨q⟩∆t −⟨q⟩T/400
+
+⟨q⟩T/400
+
+× 100%.
+(69)
+All three spatially averaged quantities converge monotonically as the
+physical time step is reﬁned. Relative to the T/∆t = 400 benchmark, the dif-
+ferences obtained with the coarsest resolution (T/∆t = 50) are approximately
+0.46–0.48%. These deviations rapidly decrease to approximately 0.11% for
+T/∆t = 100 and to less than 0.024% for T/∆t = 200. This uniform re-
+duction in error across all three variables conﬁrms that reﬁning the time
+step smoothly and evenly improves the overall physical accuracy. To rigor-
+ously verify whether this consistent error reduction aligns with the theoret-
+ical expectations of the applied numerical approach, the observed temporal
+23
+Table 3: Physical-time-step reﬁnement based on the spatially averaged plasma quantities
+at t/T = 0 of the converged RF period.
+Relative diﬀerences are calculated using the
+T/∆t = 400 solution as the reference.
+T/∆t
+⟨ne⟩
+Ene
+⟨ni⟩
+Eni
+⟨εe⟩
+Eεe
+(1015 m−3)
+(%)
+(1015 m−3)
+(%)
+(10−3 J · m−3)
+(%)
+50
+3.19145604
+0.4798
+3.31838498
+0.4634
+2.94977979
+0.4624
+100
+3.17987346
+0.1151
+3.30673529
+0.1107
+2.93957294
+0.1148
+200
+3.17696652
+0.0236
+3.30382591
+0.0226
+2.93689536
+0.0236
+400
+3.17621689
+–
+3.30307807
+–
+2.93620186
+–
+convergence order, p, is evaluated using three successively reﬁned solutions:
+p = log2
+ |⟨q⟩N −⟨q⟩2N|
+|⟨q⟩2N −⟨q⟩4N|
+
+,
+(70)
+where N = T/∆t represents the temporal resolution per RF cycle. Evaluated
+with the coarser triplet (N = 50, 100, and 200), the observed orders for ne, ni,
+and εe are calculated as 1.994, 2.002, and 1.931, respectively. When utilizing
+the ﬁner triplet (N = 100, 200, and 400), these estimates become 1.955,
+1.960, and 1.949. All computed values exhibit excellent agreement with the
+theoretical second-order accuracy of the used temporal discretization.
+To oﬀer a visual assessment of the time-step reﬁnement, Fig. 4 compares
+the spatial distributions of the electron number density sampled at the be-
+ginning of the converged RF cycle. All four solutions yield nearly identical
+sheath-edge locations near the electrodes. As highlighted by the inset, the
+remaining temporal discretization error is conﬁned primarily to the bulk-
+density plateau. The coarsest resolution (T/∆t = 50) slightly overpredicts
+the bulk density, whereas the proﬁles for T/∆t = 100, 200, and 400 pro-
+gressively converge. Notably, the T/∆t = 200 and 400 curves are almost
+indistinguishable across the entire discharge gap, perfectly aligning with the
+negligible relative diﬀerence (under 0.024%) reported in Table 3. Moreover,
+relaxing the resolution from 400 to 200 steps per cycle cuts the dominant
+time-marching cost roughly in half, assuming the same number of inner iter-
+ations.
+Accordingly, the conﬁguration utilizing T/∆t = 200, a pseudo-CFL num-
+ber of 10000, and ninner = 300 is selected as the reference DTS baseline.
+This setup will be used to evaluate both the accuracy and the computational
+24
+Figure 4: Electron number density distributions at the beginning of the converged RF
+period for diﬀerent physical-time-step resolutions.
+eﬃciency of the proposed time-domain HB method.
+3.3. A Priori Spectral Analysis and Harmonic Truncation
+Before performing the HB calculations, an a priori spectral analysis is
+conducted to determine the optimal number of harmonics required to accu-
+rately resolve the RF CCP dynamics. This preliminary analysis relies on
+the high-ﬁdelity transient signals extracted directly from the reference DTS
+baseline established in the preceding section.
+To capture the spatiotemporal evolution of the discharge, three represen-
+tative spatial locations are monitored: the near-left electrode (NLE), the bulk
+region (BR), and the near-right electrode (NRE). The temporal variations of
+the electron number density and the electric potential over consecutive RF
+cycles are illustrated in Fig. 5 and Fig. 6, respectively.
+The time-domain signals reveal that the ne waveforms at both the NLE
+and NRE exhibit distinct periodic oscillations. Because these proﬁles devi-
+25
+Figure 5:
+Time-domain signals of elec-
+tron number density at diﬀerent monitor-
+ing points.
+Figure 6: Time-domain signals of electric
+potential at diﬀerent monitoring points.
+ate signiﬁcantly from pure sinusoids, they naturally encompass higher-order
+harmonic components. Although they experience a phase shift in the time
+domain, their frequency-domain amplitude spectra remain identical. In con-
+trast, the electron density in the BR stays nearly constant; its signal is domi-
+nated almost entirely by the time-averaged component, leaving the harmonic
+amplitudes virtually at zero. Similarly, because the NRE is strictly grounded
+(ϕ = 0), its electric potential inherently carries zero harmonic content. Con-
+sequently, the subsequent Fast Fourier Transform (FFT) analysis focuses
+selectively on the NLE for ne, and on both the NLE and BR for ϕ.
+The resulting spectral amplitude distributions, normalized by their re-
+spective time-averaged values, are presented in Figs. 7–9. The electric poten-
+tial is composed primarily of low-order harmonics. Speciﬁcally, the NLE po-
+tential is almost exclusively dominated by the fundamental frequency (NH =
+1). The BR potential, however, is inﬂuenced by the nonlinear response of
+the bulk plasma, necessitating the inclusion of both the ﬁrst and second har-
+monics (NH = 2).
+Conversely, driven by the intense dynamics of sheath
+depletion and expansion, the electron number density at the NLE exhibits a
+much broader spectral distribution. The FFT spectrum of ne demonstrates
+that the normalized amplitudes decay progressively across the ﬁrst ﬁve har-
+monics, diminishing to negligible levels from the sixth harmonic onward.
+26
+Figure 7: Normalized FFT spectrum of potential at NLE.
+Figure 8: Normalized FFT spectrum of potential at BR.
+To quantitatively verify this frequency truncation, inverse FFT recon-
+structions are performed using the selected dominant harmonics (Figs. 10
+and 11). As expected, truncating at NH = 1 for the NLE potential and
+NH = 2 for the BR potential demonstrates excellent agreement with the
+original time-accurate curves. For the electron number density at the NLE,
+a reconstruction utilizing the ﬁrst ﬁve harmonics (NH = 5) successfully cap-
+tures the overall shape and magnitude of the original signal. However, due
+to the steep temporal gradients within the sheath, localized spurious oscil-
+lations remain visible near the density minima. Increasing the number of
+harmonics to NH = 6 eﬀectively suppresses these spurious oscillations, yield-
+ing a smooth and faithful reconstruction. Guided by this a priori spectral
+analysis, the subsequent implicit time-domain HB computations are system-
+atically evaluated across four harmonic truncation levels: NH = 6, 8, 10, and
+12.
+3.4. Harmonic Convergence and Accuracy Assessment
+To evaluate the numerical performance of the proposed method, the im-
+plicit HB computations are performed across four selected harmonic trunca-
+27
+Figure 9: Normalized FFT spectrum of electron number density at NLE.
+Figure 10: Truncated reconstruction of po-
+tential using dominant harmonics.
+Figure 11:
+Truncated reconstruction of
+NLE electron number density using NH =
+5.
+tion levels (NH = 6, 8, 10, and 12). Preliminary computations revealed that
+employing lower harmonic counts, such as NH = 4 or 5, inevitably leads to
+numerical divergence. This instability is primarily triggered by unresolved
+nonlinear aliasing and spurious numerical oscillations within the highly de-
+pleted sheath regions, which quickly destabilize the tightly coupled governing
+equation system. Therefore, NH = 6 establishes the minimum threshold for
+a stable numerical integration. In the time-domain HB formulation, these
+selected harmonic counts correspond to resolving the plasma dynamics at
+NT = 2NH + 1 discrete temporal collocation points (i.e., NT = 13, 17, 21,
+and 25, respectively) per RF cycle.
+Beneﬁting from the robust implicit relaxation approach, the pseudo-time
+28
+marching circumvents strict stability restrictions, permitting the use of an
+aggressive pseudo-CFL number of 10000 (consistent with the previously es-
+tablished baseline).
+Figure 12 illustrates the convergence histories of the
+spatially averaged electron number density at the beginning of the RF cycle
+as a function of the physical wall-clock time.
+Figure 12: Convergence histories of the spatially averaged electron number density at the
+beginning of the RF cycle for diﬀerent harmonic truncation levels.
+As depicted, the macroscopic plasma state rapidly converges to a sta-
+ble periodic solution. Regardless of the harmonic count, all cases reach an
+identical converged value of approximately 3.179 × 1015 m−3. This rigorous
+consistency corroborates the preceding spectral analysis, conﬁrming that re-
+taining only the primary harmonics is suﬃcient to yield an accurate spatially
+averaged solution.
+To further assess the solution accuracy, the reconstructed proﬁles of the
+electric potential, electron number density, electron energy density, and elec-
+tron temperature sampled at the beginning of the RF cycle are compared in
+Fig. 13.
+As shown in Figs. 13a–13c, the spatial proﬁles of the electric potential,
+electron number density, and electron energy density exhibit excellent agree-
+29
+(a) Electric potential (ϕ)
+(b) Electron density (ne)
+(c) Electron energy density (εe)
+(d) Electron temperature (Te)
+Figure 13: Spatial distributions of macroscopic plasma properties at the beginning of the
+RF cycle, reconstructed using NH = 6, 8, 10, and 12.
+ment across all tested harmonic counts. This consistent behavior demon-
+strates that the primary transport mechanisms and the overall discharge
+structure are well captured, even with the lowest selected harmonic count
+(NH = 6).
+However, a minor deviation is visible in the electron temperature proﬁle
+for NH = 6 within the near-wall sheath regions (Fig. 13d). Because Te is a de-
+30
+rived property computed from the ratio of energy density to particle number
+density, its calculation is inherently sensitive to minor numerical perturba-
+tions in these highly depleted zones. Although the underlying conservative
+variables (ne and εe) remain robust and largely unaﬀected, a slightly higher
+harmonic count is preferred to guarantee smooth and artifact-free derived
+properties.
+This requirement for higher accuracy must be carefully weighed against
+the increased computational cost. Since increasing the harmonic count en-
+larges the coupled HB system, the computational cost grows accordingly.
+To provide a fair timing assessment, these tests were executed on a single
+core of an Intel Core Ultra 9 285H processor. The NH = 6 case achieves
+full convergence in approximately 600 s, whereas the highest-resolution case
+(NH = 12) doubles this duration to roughly 1200 s. To eliminate the minor
+temperature deviations without incurring the severe computational penalty
+of higher-order truncations, NH = 8 is selected. This conﬁguration strikes
+an optimal balance between accuracy and eﬃciency, serving as the veriﬁed
+baseline for the subsequent spatiotemporal analyses.
+3.5. Spatiotemporal Validation of the Time-Domain Harmonic Balance Method
+To rigorously validate the proposed time-domain HB method, the spa-
+tiotemporal evolutions of the charged particle densities are compared against
+both the conventional DTS solutions and the widely recognized benchmark
+data of Lymberopoulos and Economou [18]. To ensure a strict and fair com-
+parison, the DTS results utilized here are generated using the rigorously ver-
+iﬁed baseline conﬁguration established in the preceding section (T/∆t = 200
+and ninner = 300). Figure 14 illustrates the spatial distributions of the elec-
+tron and ion number densities sampled at four equidistant phases of the RF
+cycle: t/T = 0, 0.25, 0.50, and 0.75.
+As shown in Fig. 14, the time-domain HB method captures the dynamic
+expansion and contraction of the sheath regions with high ﬁdelity, demon-
+strating excellent agreement with both the time-domain DTS solutions and
+the benchmark data. In the bulk plasma region, the peak particle number
+densities computed by the DTS baseline and the proposed HB method ex-
+hibit perfect mutual consistency. Both approaches align closely with the 1993
+reference, yielding a minor relative deviation of within 2%.
+This successful validation against the reference data [18] conﬁrms the
+physical conﬁguration and the overall macroscopic discharge structure. Any
+31
+(a) Electron density (ne)
+(b) Ion density (ni)
+Figure 14: Comparison of spatial distributions of (a) electron number density and (b) ion
+number density at diﬀerent phases of the RF cycle among the 1993 reference data, the
+DTS method, and the proposed time-domain HB method (NH = 8).
+minor remaining discrepancies can be reasonably attributed to external fac-
+tors, such as diﬀerences in the spatial discretization schemes, the interpola-
+tion of tabulated reaction rates, and temporal integration details absent from
+the original study. Crucially, these external sources of discrepancy must be
+clearly distinguished from the internal consistency of the proposed meth-
+ods; both the HB and DTS solvers employ an identical computational mesh,
+ﬁnite-volume method, chemistry model, and boundary conditions.
+However, demonstrating agreement at four isolated phases is insuﬃcient
+to conﬁrm whether the complete periodic response is accurately reproduced.
+To address this, the spatiotemporal evolutions computed by the time-domain
+HB and DTS methods are compared comprehensively throughout the entire
+RF cycle in Fig. 15. The ﬁlled contours represent the fully converged DTS
+baseline (utilizing T/∆t = 200), while the overlaid white isolines denote the
+HB solution reconstructed using NH = 8. To ensure a direct and rigorous
+evaluation, identical contour levels are applied to both solutions.
+The spatiotemporal evolution of the electron number density (Fig. 15a)
+reveals a relatively stationary, high-density bulk plasma bounded by period-
+ically modulated sheaths. The dynamic displacement of the sheath edges is
+32
+(a) Electron number density, ne.
+(b) Electron energy density, εe.
+(c) Electron temperature, Te.
+(d) Electric potential, ϕ.
+Figure 15: Spatiotemporal comparison between the DTS reference solution and the HB
+solution over one RF period. Filled contours represent the DTS solution with T/∆t = 200,
+while the white isolines represent the reconstructed HB solution with NH = 8. The spatial
+and temporal coordinates are normalized as ξ = x/L and t/T, respectively.
+33
+clearly reﬂected in the pronounced curvature of the near-electrode contours.
+Across the entire RF cycle, the HB isolines perfectly track the underlying
+DTS reference, even within zones of steep spatiotemporal gradients, con-
+ﬁrming that the truncated harmonic set resolves both the quasi-steady bulk
+and the highly nonlinear transient sheath dynamics.
+Broadly correlated with ne, the electron energy density (Fig. 15b) nonethe-
+less exhibits a more pronounced temporal asymmetry. This distinction arises
+from the complex interplay among ﬁeld-driven heating, energy transport, and
+collisional losses. The proposed solver faithfully reproduces the high-energy
+bulk and the periodic contour deformations near the electrodes, demonstrat-
+ing that the HB formulation’s high ﬁdelity naturally extends to the full
+electron-energy balance.
+By contrast, the electron temperature (Fig. 15c) displays distinct char-
+acteristics stemming directly from its nature as a derived ratio (Te ∝εe/ne).
+While the bulk plasma maintains a narrow temperature band, localized heat-
+ing maxima alternately emerge near the electrodes during intense sheath
+excitation. The HB method accurately captures the location, phase, and ex-
+tent of these heating zones. However, as anticipated, the localized deviations
+between the two solutions are slightly magniﬁed in the strongly depleted
+sheaths, where minute numerical diﬀerences in the conservative variables are
+ampliﬁed by the division operation. Consequently, the near-wall Te proﬁles
+inherently warrant a more cautious interpretation than the directly inte-
+grated ﬁelds.
+Finally, the electric potential (Fig. 15d) is strongly modulated by the ap-
+plied RF voltage, featuring smooth bulk variations but dynamically emerg-
+ing steep gradients as the voltage drop alternately redistributes between the
+sheaths. The excellent alignment between the overlaid isolines and the refer-
+ence contours conﬁrms that the proposed formulation accurately captures the
+phase and amplitude of this electrostatic response. Accurately resolving ϕ is
+of paramount importance; as it governs the drift ﬂuxes and heating terms,
+the potential acts as the primary driver coupling the macroscopic plasma
+state across all discrete temporal collocation points.
+To complement the visual comparisons with a rigorous quantitative as-
+sessment, the volume-weighted spatiotemporal relative L2 error is deﬁned
+34
+as:
+E2(q) =
+
+
+Ns−1
+X
+m=0
+Nc
+X
+i=1
+Vi
+ qHB
+i,m −qDTS
+i,m
+2
+Ns−1
+X
+m=0
+Nc
+X
+i=1
+Vi
+ qDTS
+i,m
+2
+
+
+1/2
+,
+(71)
+where Ns = 200 represents the number of distinct temporal phase samples per
+RF cycle. The normalized mean absolute error (EMA) is deﬁned analogously
+as:
+EMA(q) =
+Ns−1
+X
+m=0
+Nc
+X
+i=1
+Vi
+qHB
+i,m −qDTS
+i,m
+
+Ns−1
+X
+m=0
+Nc
+X
+i=1
+Vi
+qDTS
+i,m
+
+.
+(72)
+Additionally, the maximum pointwise relative error across the entire spa-
+tiotemporal domain is evaluated and denoted as E∞(q).
+Table 4: Quantitative spatiotemporal error metrics of the HB solution (NH = 8) evaluated
+against the fully converged DTS baseline (T/∆t = 200).
+Variable
+E2 (%)
+EMA (%)
+E∞(%)
+ne
+0.258
+0.222
+0.392
+εe
+0.236
+0.208
+0.371
+Te
+1.180
+0.334
+6.385
+ϕ
+0.167
+0.175
+0.227
+As summarized in Table 4, the relative L2 and mean absolute errors for
+the directly integrated variables (ne, εe, and ϕ) are remarkably small, all
+remaining strictly below 0.3%. While the maximum pointwise error (E∞)
+for the electron temperature reaches approximately 6.4%, this extreme devi-
+ation is strictly conﬁned to the near-wall cells. As previously discussed, this
+localized peak error is simply a mathematical consequence of dividing two
+extremely small quantities (εe and ne) to calculate Te. It does not mean the
+underlying electron-energy calculation itself is inaccurate. Taken together,
+the isolated phase-resolved proﬁles, the complete spatiotemporal distribu-
+tions, and these comprehensive error metrics conclusively demonstrate that
+35
+retaining NH = 8 harmonics is perfectly suﬃcient to accurately reproduce
+the rigorous periodic DTS solution for the present RF discharge.
+3.6. Computational Eﬃciency Analyses
+Unlike conventional physical-time integration, the HB formulation in-
+herently bypasses physical time-step errors, introducing instead harmonic-
+truncation and nonlinear-aliasing errors. As evidenced by the preceding spa-
+tiotemporal validation, these spectral errors remain negligible for NH = 8.
+Crucially, this high spectral accuracy is achieved while entirely circumvent-
+ing the exhaustive physical transients required to reach a time-asymptotic
+periodic state.
+Beyond physical ﬁdelity, another advantage of the proposed time-domain
+HB method lies in its exceptional computational eﬃciency. Figure 16 com-
+pares the convergence histories of the spatially averaged electron density
+against the physical wall-clock time for both the DTS and HB methods.
+Figure 16: Convergence histories of the spatially averaged electron density: a wall-clock
+time comparison between the time-domain DTS method and the proposed HB method.
+36
+The traditional DTS approach dictates resolving the macroscopic evolu-
+tion over hundreds to thousands of RF cycles before periodic steady-state
+conditions are met.
+As depicted, the computational expense of the DTS
+method scales almost linearly with the temporal resolution: achieving full
+convergence requires approximately 4344 s, 8643 s, and 17793 s for T/∆t =
+100, 200, and 400, respectively.
+In stark contrast, the time-domain HB
+method directly targets the coupled steady-state solution across all temporal
+collocation points via pseudo-time relaxation.
+Executed on a single core of the aforementioned processor, the NH = 8
+HB conﬁguration reaches deep convergence in merely 842.5 s. When eval-
+uated against the rigorously veriﬁed DTS baseline (T/∆t = 200), the HB
+approach delivers an impressive order-of-magnitude acceleration with a 10.26-
+fold speedup. Even when compared to the coarsest DTS setup (T/∆t = 100),
+the HB method remains 5.16 times faster. Such a dramatic reduction in com-
+putational overhead is achieved on a purely sequential architecture without
+compromising physical accuracy. This unequivocally highlights the superior
+algorithmic eﬃciency and practical utility of the proposed HB framework for
+RF CCP simulations.
+4. Conclusion
+In this study, a time-domain harmonic balance (HB) framework was de-
+veloped to accelerate the ﬂuid simulation of RF CCPs. This work repre-
+sents the ﬁrst successful extension of the time-domain HB method to a fully
+coupled drift-diﬀusion-Poisson system incorporating the complete electron-
+energy balance. To overcome the severe numerical stiﬀness introduced by
+this complex energy coupling and the dense time-spectral operator, a robust
+implicit pseudo-time relaxation method was proposed based on a spatiotem-
+poral operator-splitting strategy. By strictly conﬁning the dense temporal
+matrix inversion to the local cell level and incorporating a temporally decou-
+pled semi-implicit Poisson update, the solver eﬀectively decoupled the highly
+nonlinear governing system. This approach avoided the assembly of massive
+global Jacobian matrices while ensuring strong numerical stability against
+both chemical stiﬀness and the strict dielectric relaxation limit.
+The proposed framework was rigorously validated against a standard one-
+dimensional argon CCP benchmark. Spectral analysis and convergence tests
+demonstrated that retaining eight harmonics (NH = 8) is perfectly suﬃcient
+to resolve the periodic RF discharge. Evaluated across all discrete tempo-
+37
+ral collocation points, the HB solution exhibited excellent agreement with
+the conventional DTS reference, successfully capturing the quasi-steady bulk
+plasma and the highly nonlinear transient sheath dynamics. The high ﬁdelity
+of the proposed formulation naturally extended from the charged-particle
+continuity equations to the full electron-energy balance, with macroscopic
+relative errors remaining strictly below 0.3%.
+Beyond physical accuracy, the time-domain HB method demonstrated
+exceptional computational eﬃciency.
+By directly solving for the coupled
+steady-state variables and completely bypassing the exhaustive physical tran-
+sients, the proposed solver achieved a greater than 10-fold acceleration com-
+pared to the fully converged DTS baseline, and remained over 5 times faster
+even when compared to the coarsest time-marching setup. Crucially, this
+dramatic reduction in computational overhead was realized using a purely
+sequential single-core execution. In summary, this work conﬁrms that the
+time-domain HB framework provides a high-ﬁdelity, memory-eﬃcient, and
+computationally superior alternative to conventional time-marching meth-
+ods, showing tremendous potential for the routine parameter optimization
+and iterative design of RF plasma reactors.
+Acknowledgments
+The current research is supported by National Science Foundation of
+China (92371107) and Hong Kong research grant council (16208324).
+References
+[1] M. A. Lieberman, A. J. Lichtenberg, Principles of plasma discharges and
+materials processing, MRS Bulletin 30 (12) (1994) 899–901.
+[2] F. F. Chen, J. P. Chang, Lecture notes on principles of plasma process-
+ing, Springer Science & Business Media, 2003.
+[3] P. Chabert, N. Braithwaite, Physics of radio-frequency plasmas, Cam-
+bridge University Press, 2011.
+[4] G. S. Oehrlein, S. Hamaguchi, Foundations of low-temperature plasma
+enhanced materials synthesis and etching, Plasma Sources Science and
+Technology 27 (2) (2018) 023001.
+38
+[5] C. K. Birdsall, Particle-in-cell charged-particle simulations, plus monte
+carlo collisions with neutral atoms, pic-mcc, IEEE Transactions on
+plasma science 19 (2) (1991) 65–85.
+[6] M. Surendra, D. B. Graves, Particle simulations of radio-frequency glow
+discharges, IEEE transactions on plasma science 19 (2) (1991) 144–157.
+[7] M. J. Kushner, Hybrid modelling of low temperature plasmas for fun-
+damental investigations and equipment design, Journal of Physics D:
+Applied Physics 42 (19) (2009) 194013.
+[8] A. P. Matthews, Current advance method and cyclic leapfrog for 2d mul-
+tispecies hybrid plasma simulations, Journal of Computational Physics
+112 (1) (1994) 102–116.
+[9] G. Misium, A. Lichtenberg, M. Lieberman, Macroscopic modeling of
+radio-frequency plasma discharges, Journal of Vacuum Science & Tech-
+nology A: Vacuum, Surfaces, and Films 7 (3) (1989) 1007–1013.
+[10] J.-P. Boeuf, Numerical model of rf glow discharges, Physical review A
+36 (6) (1987) 2782.
+[11] V. A. Godyak, N. Sternberg, Dynamic model of the electrode sheaths
+in symmetrically driven rf discharges, Physical Review A 42 (4) (1990)
+2299.
+[12] S. Sharma, Investigation of ion and electron kinetic phenomena in ca-
+pacitively coupled radio-frequency plasma sheaths: A simulation study,
+Ph.D. thesis (2013).
+[13] G. J. M. Hagelaar, Modeling of microdischarges for display technology
+(2000).
+[14] R. R. Arslanbekov, V. I. Kolobov, Implicit and coupled ﬂuid plasma
+solver with adaptive cartesian mesh and its applications to non-
+equilibrium gas discharges, Plasma Sources Science and Technology
+30 (4) (2021) 045013.
+[15] A. D. Gomez, N. Deak, F. Bisetti, Jacobian-free newton–krylov method
+for the simulation of non-thermal plasma discharges with high-order
+time integration and physics-based preconditioning, Journal of Compu-
+tational Physics 480 (2023) 112007.
+39
+[16] M. Davoudabadi, J. S. Shrimpton, F. Mashayek, On accuracy and
+performance of high-order ﬁnite volume methods in local mean en-
+ergy model of non-thermal plasmas, Journal of Computational Physics
+228 (7) (2009) 2468–2479.
+[17] J. Trieschmann, L. Vialetto, T. Gergs, Machine learning for advanc-
+ing low-temperature plasma modeling and simulation, Journal of Mi-
+cro/Nanopatterning, Materials, and Metrology 22 (4) (2023) 041504–
+041504.
+[18] D. P. Lymberopoulos, D. J. Economou, Fluid simulations of glow dis-
+charges: Eﬀect of metastable atoms in argon, Journal of applied physics
+73 (8) (1993) 3668–3679.
+[19] K. C. Hall, J. P. Thomas, W. S. Clark, Computation of unsteady nonlin-
+ear ﬂows in cascades using a harmonic balance technique, AIAA journal
+40 (5) (2002) 879–886.
+[20] K. C. Hall, K. Ekici, J. P. Thomas, E. H. Dowell, Harmonic balance
+methods applied to computational ﬂuid dynamics problems, Interna-
+tional Journal of Computational Fluid Dynamics 27 (2) (2013) 52–67.
+[21] Z. Yan, H. Dai, Q. Wang, S. N. Atluri, Harmonic balancemethods: a
+review and recent developments (2023).
+[22] A. LaBryer, P. Attar, Modeling the nonlinear structural dynamics of a
+plunging membrane airfoil using a high dimensional harmonic balance
+approach, in: 50th AIAA/ASME/ASCE/AHS/ASC Structures, Struc-
+tural Dynamics, and Materials Conference 17th AIAA/ASME/AHS
+Adaptive Structures Conference 11th AIAA No, 2009, p. 2474.
+[23] H. Wu, M. Yang, D. Wang, X. Huang, Eﬃcient forced response mini-
+mization using a full-viscosity discrete adjoint harmonic balance method,
+AIAA Journal 62 (10) (2024) 3644–3661.
+[24] A. Gopinath, A. Jameson, Time spectral method for periodic unsteady
+computations over two-and three-dimensional bodies, in: 43rd AIAA
+aerospace sciences meeting and exhibit, 2005, p. 1220.
+40
+[25] D. B. Zulevic, S. Gautam, S. Sriraman, A. Venkattraman, Accelerat-
+ing low-temperature plasma simulations using the harmonic balance
+method, Journal of Computational Physics (2026) 115027.
+[26] J.-Z. Li, M.-L. Zhao, Y.-R. Zhang, F. Gao, Y.-N. Wang, Fast simu-
+lation strategy for capacitively-coupled plasmas based on ﬂuid model,
+Computer Physics Communications 307 (2025) 109392.
+[27] P. L. Ventzek, T. J. Sommerer, R. J. Hoekstra, M. J. Kushner, Two-
+dimensional hybrid model of inductively coupled plasma sources for etch-
+ing, Applied physics letters 63 (5) (1993) 605–607.
+[28] Y. Sakiyama, D. B. Graves, Corona-glow transition in the atmospheric
+pressure rf-excited plasma needle, Journal of Physics D: Applied Physics
+39 (16) (2006) 3644–3652.
+41

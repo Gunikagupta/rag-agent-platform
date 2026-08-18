@@ -1,0 +1,1210 @@
+Towards Reliable Zero-Shot Crowd Forecasting:
+Evaluating Time Series Foundation Models for
+Special Event Pedestrian Forecasting
+Ziteng Li1, Yanan Xin1, Tina Comes2,3, Serge Hoogendoorn1
+Abstract— Managing massive crowds during infrequent special
+events requires reliable real-time pedestrian-flow forecasting
+to ensure public safety and operational efficiency. However,
+supervised forecasting methods face limitations in these contexts
+due to scarce historical data, heterogeneous data distributions,
+and short in-event observation windows. To effectively support
+operational decision-making, forecasts should provide not only
+accurate point estimates but also informative predictive uncer-
+tainty. Probabilistic uncertainty quantification plays a critical role
+in this aspect, particularly capturing sudden volatility and tail
+risks. This paper investigates pretrained time series foundation
+models as a lightweight approach for zero-shot probabilistic
+forecasting without extensive local retraining. Using decision-
+oriented metrics tailored to short events, we conduct a compre-
+hensive assessment of two time series foundation models on crowd
+forecasting, with the SAIL2025 event as a use case. We then distill
+practical insights for crowd managers, specifying when zero-shot
+forecasts remain operationally reliable.
+I. INTRODUCTION
+Amsterdam hosts the SAIL maritime festival every five
+years. 2025 marked the 50th year celebration of SAIL as
+well as the 750th anniversary of Amsterdam. This 5-day
+maritime event is the largest in the world, drawing roughly
+2.5 million people to the center of Amsterdam. Managing
+such large crowds in a busy city center requires real time
+insights and reliable forecasts of pedestrian flows to support
+proactive infrastructure adjustments, staffing and routing de-
+cisions, and emergency evacuation planning [1], [2]. In this
+decision setting, reliable forecasts demand probabilistic uncer-
+tainty quantification calibrated for coverage and informative
+about dispersion [3] besides accurate point predictions [4]. In
+addition, reliable forecasts require robustness to incomplete
+observations, disturbances, and distributional shifts [5].
+While crowd forecasting has moved from simulation-based
+approaches to supervised data-driven models trained on local
+historical data [6], this paradigm encounters a technical limi-
+tation in the context of infrequent events such as SAIL2025.
+Modern supervised algorithms, such as those utilizing recur-
+rent architectures or spatio-temporal graph neural networks,
+learn temporal dependencies and spatio-temporal structure
+1Delft University of Technology (TU Delft), Department of Transport &
+Planning, Delft, The Netherlands.
+2Delft University of Technology (TU Delft), Technology, Policy and
+Management, Delft, The Netherlands.
+3German Aerospace Center (DLR), Institute for the Protection of Terrestrial
+Infrastructures, Sankt Augustin, Germany.
+Corresponding author: Ziteng Li. Email: Z.Li-27@tudelft.nl.
+from extensive historical sequences [7]. However, the SAIL
+event was not held in 2020 due to the COVID-19 pandemic,
+which means historical event data is effectively unavailable
+for supervised training in a consistent way. Moreover, the
+observation window available for this study is only five days,
+which limits the ability of conventional supervised models to
+learn stable periodic structure and to generalize under rolling
+multi-step forecasting.
+In recent years, advances in large language models and
+foundation models have led to pretrained time series foun-
+dation models. Unlike task-specific supervised models that
+rely on substantial local historical data, foundation models are
+pretrained on large and heterogeneous time series corpora and
+support direct deployment on new series in a zero-shot setting
+[8], [9]. This property is attractive for short-term special-
+event operations, where time-consuming model development
+and data-intensive retraining are impractical [10]. In addition,
+recent foundation models can produce probabilistic forecasts,
+for example predictive quantiles such as the 10th, 50th, and
+90th percentiles [9]. This output matches operational needs,
+since many decisions depend on plausible ranges and risk-
+aware planning rather than a single point estimate [11].
+In this paper, we propose a systematic evaluation of time
+series foundation models for rolling multi-step pedestrian flow
+forecasting, applied to the SAIL2025 event, with a focus
+on operationally reliable predictions for crowd-management
+decision support. Our main contributions are:
+• Decision-oriented reliability evaluation metrics for
+short events: We design a set of operational reliabil-
+ity evaluation metrics for rolling multi-step probabilistic
+forecasting in short-duration special events, combining
+uncertainty estimates with temporal stability and fore-
+casting accuracy. These metrics enable quantitative model
+comparison and reliability assessment for crowd man-
+agers.
+• Systematic zero-shot assessment of foundation models:
+We conduct a systematic zero-shot evaluation of pre-
+trained time series foundation models in the proposed
+setting, comparing their performance across lead times,
+different data distributions, and missing data case.
+II. RELATED WORK
+Deep learning has become the dominant method in
+time series forecasting. Recurrent neural networks such as
+arXiv:2607.17758v1  [cs.LG]  20 Jul 2026
+DeepAR [12], residual architectures like N-BEATS [13], and
+transformer-based models [14] have demonstrated strong per-
+formance across diverse forecasting tasks. However, these
+methods generally require task-specific training and sufficient
+historical data [15], which limits their applicability in data
+sparsity situations.
+Recently, pretrained time series foundation models have
+attracted growing interest. After pretraining, the model can
+be directly applied to unseen datasets in a zero-shot setting
+or adapted with limited fine-tuning. Representative examples
+include TimesFM [8] and Chronos [9].
+Several deep learning methods also focus on estimating un-
+certainty within time-series forecasting. Quantile-based fore-
+casting models estimate upper and lower quantiles to con-
+struct prediction intervals, rather than reporting only point
+forecasts [16]. Recent studies propose prediction for time
+series to obtain prediction intervals with stated coverage under
+temporal change and non-stationarity [17], [18]. Time-series
+foundation models follow the same probabilistic perspective:
+Chronos provides pretrained probabilistic forecasting, while
+TimesFM 2.5 supports quantile-based outputs for uncertainty
+estimation.
+III. EXPERIMENTS
+A. Data
+The crowd count data used in this study were collected from
+11 pedestrian flow count sensors deployed by the Amsterdam
+municipality as part of Amsterdam’s Crowd Monitoring Sys-
+tem. The sensors were installed along pedestrian walkways to
+monitor the main pedestrian traffic flow. Each sensor indepen-
+dently monitors two opposite directions (180 degrees apart),
+which results in 22 independent time series. For the SAIL
+event, this pattern typically follows a daily cycle: pedestrian
+volumes increase in the morning, remain high from daytime
+to early evening, and then gradually decline late at night. Each
+record contains a sensor identifier, direction, a timestamp, and
+a pedestrian count. The counts are aggregated into contiguous
+90-second intervals for each sensor–direction pair. To ensure
+data integrity, negative counts are clipped to zero and missing
+values are imputed with zero. Missing observations are treated
+as potential data quality artifacts, and their impact is analyzed
+in the missing data sensitivity case study.
+This section introduces two state-of-the-art pretrained time
+series foundation models evaluated in this study, TimesFM and
+Chronos-2.
+a) TimesFM [8]: TimesFM is a time series founda-
+tion model developed by Google for zero-shot forecasting.
+TimesFM uses a decoder-only Transformer and a patch-based
+representation that groups consecutive values into segments,
+which improves efficiency and supports long-context model-
+ing. Pretraining uses a large corpus of real-world time series
+at web scale, and the training data also includes synthetic time
+series. This study uses TimesFM 2.5 with a 200M-parameter
+configuration for multi-step forecasting.
+b) Chronos-2 [9]: Chronos, developed by Amazon, is a
+family of pretrained forecasting models that frames time series
+forecasting as a language modeling problem. Chronos uses a
+Transformer architecture based on T5 [19], which is a series
+of large language models developed by Google AI introduced
+in 2019. The method converts real-valued time series into
+discrete tokens through scaling and quantization, and the
+model forecasts by predicting future tokens. Pretraining uses
+a large collection of publicly available time series datasets,
+and it adds synthetic series generated from Gaussian processes
+to improve generalization. In this paper, we use Chronos-2,
+which extends Chronos with updated training and improved
+forecasting capability across broader task settings.
+B. Experimental Design
+This study conducts multi-step pedestrian flow count fore-
+casting with a one-hour forecast horizon, a 90-second sampling
+interval, and a rolling prediction with a stride of one time step.
+The lead time index t ranges from 1 to 40, where t = 40
+corresponds to one hour ahead. The index i denotes a target
+timestamp, and the realized flow count at lead time t is yi,t.
+The probabilistic forecast models output a lower bound
+ˆℓi,t and an upper bound ˆui,t for target i at lead time t. We
+select the 10th and 90th percentile predictions as bounds, so
+[ˆℓi,t, ˆui,t] forms a central 80% prediction interval. We evaluate
+interval coverage of the realized observation across instances
+and lead times. The 10th–90th percentile interval is commonly
+used for uncertainty visualization and assessment in time-
+series foundation model forecasting [20], as well as in analyses
+of traffic and public-transit ridership during special events to
+characterize variability and reliability [21], [22].
+We also compare the models with different input lengths
+(i.e., context windows) using two strategies: fixed context and
+increasing context. The fixed strategy uses the most recent
+960 ground-truth values (24h) to predict the next 40 steps.
+The increasing strategy appends each newly observed ground-
+truth value, increasing the input length over days. Neither
+model truncates the input because its maximum allowable
+context length exceeds the five-day length. Since Chronos-2
+supports multivariate forecasting, we also evaluate Chronos-2
+variants with additional time features (date and hour) as input
+covariates under both fixed and increasing strategies.
+All experiments were run on an HP laptop equipped with
+an Intel Core i7-1355U CPU (13th Gen) with 12 logical
+cores (x86 64), and 16 GB RAM. No GPU acceleration was
+used. In terms of computational feasibility, all models required
+less than 0.5 seconds to generate a single 40-step prediction,
+substantially below the 90-second data update frequency.
+C. Evaluation Metrics
+We design a set of metrics to evaluate the operational
+reliability of model outputs with regard to the uncertainty
+estimates. In this paper, reliability covers three aspects: (i)
+predictive accuracy, (ii) temporal stability, and (iii) the quality
+of predictive uncertainty. These metrics provide crowd man-
+agers with quantitative indicators to compare models and to
+assess the reliability of forecasts.
+Adopting the Prediction-Interval Coverage Probability
+(PICP) metric [23], we extend the coverage indicator ci to ci,t
+for multi-step forecasting, indicating whether the prediction
+interval covers the ground-truth yi,t.
+ci,t =
+(
+1,
+if ˆℓi,t ≤yi,t ≤ˆui,t,
+0,
+otherwise,
+t ∈{1, . . . , 40}.
+(1)
+All metrics below are defined based on this indicator.
+1) Predictive Accuracy Metrics:
+a) Full-Horizon Coverage (FHC): Full-Horizon Cover-
+age evaluates the reliability of an entire multi-step forecast
+trajectory. A forecast round is considered reliable only if the
+predicted interval covers the ground truth at all lead 40 time
+steps. Formally,
+FHC = 1
+N
+N
+X
+i=1
+40
+Y
+t=1
+ci,t,
+(2)
+where N denotes the total number of target forecasts. The
+product Q40
+t=1 ci,t equals 1 if and only if all 40 step predictions
+fall within the interval; otherwise, it equals 0. Therefore, FHC
+measures the proportion of forecasts in which the 40-step
+prediction intervals fully contain ground truth values.
+b) Nearest-Horizon Coverage (NHC):
+In contrast to
+FHC, Nearest-Horizon Coverage focuses only on one-step-
+ahead (t = 1) forecast reliability.
+NHC = 1
+N
+N
+X
+i=1
+ci,1.
+(3)
+NHC reports the proportion of forecast instances for which
+the interval covers the ground truth at the nearest forecasting
+step, regardless of whether misses occur at later time steps.
+2) Temporal Stability Metrics: The temporal stability met-
+rics quantify how far into the future a model can produce
+stable and reliable forecasts. In this study, we define Stable
+Lead Time, which is quantified as the length of the forecasting
+horizon, beginning at t = 1, over which the groud-truth remain
+within the interval. Let Li denote the length, formally,
+Li = max {k ∈{0, . . . , 40} | hi,t = 1, ∀t ∈{1, . . . , k}} .
+(4)
+If hi,1 = 0, Li = 0. The Stable Lead Time over all target
+timesteps i is computed as
+SLT = 1
+N
+N
+X
+i=1
+Li.
+(5)
+3) Predictive Uncertainty:
+a) Normalized
+Mean
+Prediction
+Interval
+Width
+(NMPIW): We utilize NMPIW [23] to quantify how wide the
+prediction intervals are on average. Intuitively, a wider interval
+reflects greater uncertainty and lower precision. To ensure
+comparability across sensors and locations, we normalize the
+average prediction interval width by the historical min - max
+range of observations for the corresponding sensor/location:
+NMPIW = 1
+N
+N
+X
+i=1
+ 
+1
+40
+P40
+t=1
+ ˆui,t −ˆℓi,t
+
+max(Yhist) −min(Yhist)
+!
+,
+(6)
+where Yhist denotes the historical pedestrian flow count ob-
+servations for corresponding tested sensor.
+b) Scaled Winkler Score (SWS): To provide a unified
+assessment that complements the reliability, stability, and
+uncertainty metrics, we employ the Scaled Winkler Score
+(SWS) [24] as an overall measure of probabilistic forecast
+quality. SWS is an interval scoring rule that balances two
+desirable properties of interval forecasts: reliable coverage of
+the ground truth and sharpness (i.e., avoiding unnecessarily
+wide intervals).
+For a target coverage level of (1−α)×100% (with α = 0.2
+corresponding to the 10th - 90th percentile interval), the step-
+wise Winkler score Si,t at lead step t is defined as:
+Si,t =
+
+
+
+
+
+
+
+
+
+
+
+ˆui,t −ˆℓi,t,
+if ˆℓi,t ≤yi,t ≤ˆui,t,
+(ˆui,t −ˆℓi,t) + 2
+α (ˆℓi,t −yi,t),
+if yi,t < ˆℓi,t,
+(ˆui,t −ˆℓi,t) + 2
+α (yi,t −ˆui,t),
+if yi,t > ˆui,t.
+(7)
+If the interval covers the ground truth, the score reduces
+to the interval width; valid intervals with lower predictive
+uncertainty have lower scores. If coverage fails, the score adds
+an extra penalty scaled by the coefficient 2/α (e.g., 2/α = 10
+for an 80% interval with α = 0.2). The penalty increases
+linearly with the distance between yi,t and the nearest interval
+bound, which penalizes overconfident intervals that miss the
+target by a large margin.
+We normalize the time-averaged Winkler score by the his-
+torical min - max range of the corresponding sensor/location
+to ensure fair comparison across sensors with heterogeneous
+pedestrian flow scales. The Scaled Winkler Score is computed
+as:
+SWS = 1
+N
+N
+X
+i=1
+ 
+1
+40
+P40
+t=1 Si,t
+max(Yhist) −min(Yhist)
+!
+,
+(8)
+A lower SWS indicates superior probabilistic forecast qual-
+ity, reflecting a favorable balance between narrow prediction
+intervals and reliable coverage.
+IV. RESULTS
+Table I reports model performance during the core oper-
+ational hours (08:00 - 22:00) for all test days. Chronos-2
+(Increasing + TimeFeature) ranks best on nearly all sensors
+in FHC, NHC, and SLT. More specifically, the results show
+that zero-shot foundation models provide stable prediction
+intervals under 90-second updates: across almost all sensors,
+SLT reaches about 20 steps ahead (30 minutes), and Chronos-
+2 (Increasing + TimeFeature) reaches about 27 to 30 steps
+ahead (40 to 45 minutes). Operational short-term forecasting
+in Intelligent Transportation Systems is commonly evaluated
+at 15-30 minute horizons [25] [26]. For crowd management,
+TABLE I
+CORE OPERATIONAL HOURS 08:00-22:00. FORMAT: FHC / NHC / SLT. METRICS ARE RANKED INDIVIDUALLY (BOLD: 1ST, UNDERLINE: 2ND, SLT IS
+CEILED).
+Sensor ID
+FHC/NHC/SLT
+TimesFM
+(Fixed)
+TimesFM
+(Increasing)
+Chronos-2
+(Fixed)
+Chronos-2
+(Increasing)
+Chronos-2
+(Fixed
++ TimeFeature)
+Chronos-2
+(Increasing
++ TimeFeature)
+GASA-01-A1 135
+0.558 / 0.777 / 25
+0.547 / 0.776 / 25
+0.505 / 0.748 / 24
+0.529 / 0.738 / 24
+0.557 / 0.796 / 26
+0.575 / 0.794 / 27
+GASA-01-A1 315
+0.556 / 0.776 / 26
+0.543 / 0.775 / 25
+0.482 / 0.755 / 23
+0.534 / 0.754 / 24
+0.545 / 0.802 / 27
+0.583 / 0.804 / 28
+GASA-01-A2 135
+0.575 / 0.767 / 26
+0.560 / 0.761 / 26
+0.542 / 0.752 / 25
+0.606 / 0.782 / 27
+0.572 / 0.800 / 27
+0.638 / 0.808 / 28
+GASA-01-A2 315
+0.564 / 0.784 / 26
+0.565 / 0.787 / 26
+0.530 / 0.757 / 25
+0.571 / 0.768 / 26
+0.550 / 0.799 / 27
+0.619 / 0.817 / 28
+GASA-01-B 135
+0.632 / 0.779 / 29
+0.625 / 0.778 / 28
+0.592 / 0.754 / 26
+0.624 / 0.765 / 27
+0.595 / 0.778 / 27
+0.649 / 0.782 / 29
+GASA-01-B 315
+0.583 / 0.788 / 27
+0.575 / 0.786 / 27
+0.562 / 0.766 / 26
+0.596 / 0.786 / 27
+0.575 / 0.808 / 28
+0.628 / 0.802 / 29
+GASA-01-C 135
+0.622 / 0.763 / 26
+0.619 / 0.758 / 26
+0.604 / 0.763 / 26
+0.635 / 0.768 / 27
+0.629 / 0.774 / 27
+0.650 / 0.779 / 28
+GASA-01-C 315
+0.617 / 0.765 / 27
+0.612 / 0.753 / 27
+0.574 / 0.723 / 25
+0.625 / 0.756 / 27
+0.587 / 0.758 / 26
+0.634 / 0.765 / 28
+GASA-02-01 135
+0.549 / 0.791 / 26
+0.539 / 0.787 / 26
+0.485 / 0.762 / 24
+0.520 / 0.773 / 25
+0.544 / 0.798 / 26
+0.571 / 0.799 / 27
+GASA-02-01 315
+0.564 / 0.817 / 27
+0.546 / 0.814 / 27
+0.428 / 0.778 / 23
+0.451 / 0.764 / 24
+0.475 / 0.815 / 25
+0.541 / 0.827 / 27
+GASA-02-02 135
+0.496 / 0.785 / 25
+0.502 / 0.788 / 25
+0.483 / 0.775 / 24
+0.499 / 0.787 / 25
+0.487 / 0.808 / 25
+0.559 / 0.823 / 27
+GASA-02-02 315
+0.564 / 0.779 / 26
+0.558 / 0.775 / 26
+0.466 / 0.745 / 23
+0.450 / 0.738 / 22
+0.500 / 0.767 / 24
+0.501 / 0.789 / 24
+GASA-03 105
+0.507 / 0.788 / 25
+0.508 / 0.790 / 25
+0.484 / 0.779 / 24
+0.523 / 0.779 / 25
+0.497 / 0.801 / 25
+0.559 / 0.814 / 27
+GASA-03 285
+0.532 / 0.820 / 26
+0.524 / 0.821 / 26
+0.417 / 0.760 / 22
+0.498 / 0.770 / 24
+0.463 / 0.796 / 24
+0.580 / 0.806 / 27
+GASA-04 135
+0.555 / 0.760 / 26
+0.567 / 0.763 / 26
+0.555 / 0.781 / 26
+0.602 / 0.791 / 27
+0.586 / 0.812 / 27
+0.628 / 0.813 / 28
+GASA-04 315
+0.585 / 0.745 / 26
+0.586 / 0.746 / 26
+0.593 / 0.762 / 27
+0.640 / 0.763 / 28
+0.638 / 0.796 / 28
+0.682 / 0.791 / 29
+GASA-05-O 135
+0.618 / 0.768 / 27
+0.603 / 0.768 / 27
+0.571 / 0.741 / 26
+0.620 / 0.763 / 27
+0.596 / 0.770 / 27
+0.628 / 0.778 / 27
+GASA-05-O 315
+0.614 / 0.764 / 27
+0.609 / 0.765 / 27
+0.626 / 0.782 / 28
+0.651 / 0.788 / 28
+0.639 / 0.796 / 28
+0.670 / 0.797 / 29
+GASA-05-W 135
+0.627 / 0.772 / 28
+0.621 / 0.772 / 27
+0.629 / 0.778 / 28
+0.671 / 0.788 / 29
+0.646 / 0.806 / 29
+0.685 / 0.808 / 30
+GASA-05-W 315
+0.598 / 0.772 / 27
+0.594 / 0.768 / 27
+0.586 / 0.744 / 26
+0.637 / 0.760 / 28
+0.597 / 0.764 / 27
+0.661 / 0.785 / 29
+GASA-06-B 275
+0.486 / 0.812 / 25
+0.505 / 0.815 / 26
+0.267 / 0.709 / 15
+0.330 / 0.787 / 19
+0.494 / 0.775 / 23
+0.479 / 0.796 / 22
+GASA-06-B 95
+0.303 / 0.838 / 20
+0.324 / 0.841 / 21
+0.254 / 0.670 / 14
+0.292 / 0.789 / 17
+0.450 / 0.796 / 22
+0.394 / 0.811 / 20
+Fig. 1.
+Best-performing model per sensor and time of day, defined by the
+minimum Scaled Winkler Score. Each cell indicates the best model for the
+corresponding sensor and hour pair.
+a lead time of 30 minutes provide crowd managers with a
+favorable window to implement appropriate response measures
+in many scenarios [27] [28].
+In addition, across most sensors, Chronos-2 model with in-
+creasing input context and additional temporal features outper-
+forms the ones without. This pattern suggests that prolonged
+input length and additional covariates improve probabilistic
+forecasting in this setting. In contrast, TimesFM shows limited
+or no gains from the increasing context window.
+Although Chronos2-based models lead overall, TimesFM
+(Increasing) performs best on GASA-06-B 275 and ranks first
+across all three metrics. This sensor has low pedestrian flow
+counts and limited variability over the 5-day period, with a
+clear peak only on the final day. The night-time experiments
+(22:00 - 08:00) across all sensors also show similar results:
+TimesFM is more reliable in low-flow periods; due to page
+limitations, these results are not shown here.
+Table II reports the NMPIW comparison during the core
+operational hours (08:00 - 22:00). Smaller NMPIW corre-
+sponds to tighter intervals and higher confidence. Without time
+covariates, the increasing input models show lower NMPIW
+values than the fixed input models on many sensors. This
+suggests that additional context can reduce interval width in
+this rolling forecasting setup. Meanwhile, we observe clear
+sensor-dependent differences in NMPIW: low-variability sen-
+sors (eg. GASA-05-W 135) tend to show tighter intervals,
+while high-variability sensors (eg. GASA-01-A2 135) with
+more frequent sharp surges exhibit wider intervals. In addition,
+for Chronos2, the TimeFeature variants show larger NMPIW
+on several sensors compared with their counterparts without
+time covariates. This pattern indicates higher uncertainty or
+TABLE II
+NORMALIZED MEAN PREDICTION INTERVAL WIDTH (NMPIW) ANALYSIS: CORE OPERATIONAL HOURS 08:00 - 22:00. BOLD: BEST, UNDERLINE:
+SECOND BEST. FIXED: FIXED CONTEXT WINDOW, INCREASING: INCREASING CONTEXT WINDOW.
+Sensor ID
+TimesFM
+(Fixed)
+TimesFM
+(Increasing)
+Chronos-2
+(Fixed)
+Chronos-2
+(Increasing)
+Chronos-2
+(Fixed
++ TimeFeature)
+Chronos-2
+(Increasing
++ TimeFeature)
+GASA-01-A1 135
+0.166
+0.166
+0.170
+0.172
+0.172
+0.178
+GASA-01-A1 315
+0.255
+0.254
+0.260
+0.260
+0.263
+0.270
+GASA-01-A2 135
+0.294
+0.291
+0.283
+0.282
+0.292
+0.298
+GASA-01-A2 315
+0.211
+0.210
+0.205
+0.201
+0.206
+0.213
+GASA-01-B 135
+0.177
+0.175
+0.184
+0.189
+0.183
+0.190
+GASA-01-B 315
+0.159
+0.157
+0.154
+0.150
+0.154
+0.161
+GASA-01-C 135
+0.234
+0.233
+0.258
+0.258
+0.256
+0.261
+GASA-01-C 315
+0.169
+0.164
+0.181
+0.178
+0.179
+0.185
+GASA-02-01 135
+0.109
+0.107
+0.116
+0.114
+0.118
+0.121
+GASA-02-01 315
+0.197
+0.195
+0.179
+0.169
+0.180
+0.188
+GASA-02-02 135
+0.259
+0.257
+0.236
+0.233
+0.238
+0.250
+GASA-02-02 315
+0.104
+0.103
+0.121
+0.121
+0.123
+0.132
+GASA-03 105
+0.283
+0.284
+0.244
+0.252
+0.261
+0.274
+GASA-03 285
+0.224
+0.221
+0.187
+0.184
+0.195
+0.202
+GASA-04 135
+0.245
+0.249
+0.225
+0.220
+0.237
+0.232
+GASA-04 315
+0.218
+0.217
+0.208
+0.194
+0.215
+0.210
+GASA-05-O 135
+0.137
+0.136
+0.129
+0.134
+0.133
+0.137
+GASA-05-O 315
+0.132
+0.131
+0.131
+0.133
+0.130
+0.135
+GASA-05-W 135
+0.100
+0.099
+0.101
+0.102
+0.099
+0.105
+GASA-05-W 315
+0.113
+0.113
+0.115
+0.119
+0.117
+0.122
+GASA-06-B 95
+0.077
+0.078
+0.157
+0.149
+0.156
+0.144
+GASA-06-B 275
+0.117
+0.117
+0.182
+0.176
+0.186
+0.179
+lower confidence after adding time covariates, a plausible ex-
+planation is that time features help low-variability sensors with
+stable patterns, reducing uncertainty and predictive interval.
+For high-variability sensors with strong fluctuations and more
+complex data distributions, simple time covariates are less
+informative and can add extra noise, so the model becomes less
+confident and outputs tighter intervals to maintain coverage.
+Fig. 1 reports, for each sensor and hour, the model with the
+lowest Scaled Winkler Score (SWS). Chronos-2-based models
+appear most frequently as the best choice across sensors, with
+Chronos-2 (Increasing + TimeFeature) ranking the best overall.
+Specifically, we observe a time-of-day pattern with the sensor
+in the figure. In the early-morning low-flow hours (around
+04:00 - 06:00), TimesFM appears more frequently as the SWS-
+best model for several sensors, while during daytime and core
+operational hours, the best choices are dominated by Chronos-
+2. In addition, Chronos-2 (Increasing + TimeFeature) typically
+gets the best SWS performance at night and in the early
+morning (19:00–04:00), when the within-day pattern is more
+regular.
+A. Case Study
+To supplement the overall results, we conducted three
+individual sensor case studies to examine the operational reli-
+ability under different data distributions. Case I examines the
+performance of the model under sustained high-level and rapid
+changes in pedestrian flow. Case II focuses on sudden surges
+and pattern shifts. Case III assesses the model’s sensitivity
+to corrupted or missing data, and examines the robustness of
+uncertainty estimation.
+Fig. 2.
+The ground-truth pedestrian flow counts recorded by GASA-01-
+A2 135 over the four-day prediction period.
+1) Case I: High Volatility and Rapid Fluctuations: As
+shown in Fig. 2, in this case (Sensor ID: GASA-01-A2 135),
+the pedestrian flow reaches relatively high levels and shows
+high volatility, with rapid fluctuations over short intervals.
+Based on Table III, Chronos-based models show stronger
+overall performance in this high-volatility case. The Increasing
+setting improves Chronos over the Fixed setting on both days.
+In addition, the Increasing + TimeFeature setting provides
+only marginal improvements in NHC and SLT for Chronos
+on both days. These results indicate limited gains from time
+covariates for this case definition, even though they increase
+coverage-related metrics. Moreover, TimesFM is less compet-
+itive compare to Chronos-2 in this high-volatility case. One
+possible explanation is that Chronos-2 benefits more from
+longer history due to its modeling formulation. Chronos-2
+TABLE III
+CASE STUDY PERFORMANCE COMPARISON (CORE HOURS 08:00 -
+22:00). METRICS: NHC, SLT, NMPIW, SWS. EACH CELL SHOWS
+2025-08-23 (TOP) AND 2025-08-24 (BOTTOM). BOLD: 1ST, UNDERLINE:
+2ND (TIES ARE MARKED).
+Model
+NHC SLT NMPIW SWS
+TimesFM (Fixed)
+0.764
+0.775
+26
+26
+0.682
+0.503
+1.029
+0.791
+TimesFM (Increasing)
+0.759
+0.769
+25
+26
+0.671
+0.503
+1.030
+0.779
+Chronos (Fixed)
+0.745
+0.733
+23
+25
+0.636
+0.497
+1.006
+0.745
+Chronos (Increasing)
+0.784
+0.775
+27
+27
+0.632
+0.517
+0.945
+0.696
+Chronos (Fixed + TimeFeature)
+0.802
+0.773
+26
+26
+0.663
+0.510
+0.998
+0.742
+Chronos (Increasing + TimeFeature) 0.819
+0.786
+28
+28
+0.666
+0.536
+0.949
+0.698
+performs generative modeling on discretized series, and its
+training objective encourages the use of extended context to
+constrain the conditional distribution of future values. As a
+result, information in a long history (e.g., recurring patterns,
+amplitude ranges, and volatility scales) is easier to integrate
+into regime inference. In contrast, TimesFM relies on patch-
+based representations that emphasize local shape matching.
+Under a short event window and strong non-stationarity,
+additional history may translate less directly into stable gains
+and can introduce extra noise.
+2) Case II: Sudden Spike and Pattern Shift: Fig. 3 shows
+a clear pattern shift for sensor GASA-05-O 135: the first
+three days follow a low and relatively stable daily pattern with
+moderate peaks (approximately 38 - 42), while the final day
+(2025-08-24) exhibits a sudden peak around 14:00 - 16:00,
+reaching a maximum of 148.
+Fig. 3.
+The ground-truth pedestrian flow counts recorded by GASA-05-
+O 135 over the four-day prediction period
+Table IV reports the SLT and NHC results for all models at
+the sudden peak window. Chronos (Increasing + TimeFeature)
+achieves the best performance on both metrics, and Chronos
+(Increasing) ranks second, which indicates that Chronos ben-
+efits from longer context and further improves when time
+covariate are available in this case. A potential explanation
+for the lower performance of TimesFM in the sudden spike
+window relates to representation bias under distribution shift.
+Patch-based Transformers compress the input into local patch
+tokens to capture short-term shapes efficiently [29], but recent
+Fig. 4.
+The ground-truth pedestrian flow counts recorded by GASA-02-
+02 135 over the four-day prediction period
+work shows that over-reliance on patching can hurt gener-
+alization when local structure changes abruptly [30], and this
+sensitivity increases under patch-level distribution shift, where
+patterns drift across segments [31].
+TABLE IV
+RESPONSE ANALYSIS DURING THE SURGE WINDOW (14:00 - 16:00) ON
+2025-08-24. SLT REFLECTS HOW MANY STEPS IN ADVANCE THE MODEL
+RELIABLY PREDICTS THE TARGET VALUE, WHILE NHC INDICATES
+ONE-STEP-AHEAD RELIABILITY.
+Model
+SLT
+NHC
+TimesFM (Fixed)
+14
+0.625
+TimesFM (Increasing)
+12
+0.600
+Chronos (Fixed)
+13
+0.700
+Chronos (Increasing)
+16
+0.725
+Chronos (Fixed + TimeFeature)
+15
+0.662
+Chronos (Increasing + TimeFeature)
+17
+0.738
+3) Case III: Robustness to Missing Data: In this case (Sen-
+sor ID: GASA-02-02 135), we analyze model performance
+when approximately 30% of the historical data during 2025-
+08-23 11:30 - 13:30 is missing (represented as zeros), as shown
+in Fig. 4.
+Fig. 5.
+Case III: Uncertainty on Data Missing (2025-08-23)
+As shown in Fig. 5, the missing data segment induces
+distinct uncertainty dynamics across models. Chronos-2 (In-
+creasing) responds to missing data by significantly widening
+its prediction intervals (higher NMPIW) at the onset of the
+missing data, effectively communicating its uncertainty to the
+Fig. 6.
+CPU inference runtime scaling with input context length. Dashed
+horizontal lines indicate fixed-context inference using 960 historical observa-
+tions, while solid curves indicate increasing-context inference where the input
+context grows from 960 to 4799 observations. All models forecast 40 future
+steps.
+operator. This “fail-safe” behavior is preferable in safety-
+critical applications compared to models that produce nar-
+rower, over-confident, but erroneous predictions.
+B. Operational Memory Footprint
+To evaluate operational memory footprint, we measure pro-
+cess Resident Set Size (RSS) across three phases: model setup,
+warm-up inference and rolling inference. All reported RSS
+metrics are averaged over 22 directional sensor time series.
+Model setup refers to loading the foundation model for CPU
+inference. Warm-up inference denotes the first forecasting
+call after setup and is measured separately from subsequent
+rolling inference, following common inference benchmarking
+practice [32]. We define startup peak RSS as the maximum
+RSS increase observed during model setup, before the first
+forecasting. Warm-up peak RSS is measured separately as the
+maximum RSS increase during the first forecasting call after
+setup. Rolling peak RSS is measured after warm-up over the
+full rolling forecasting period.
+The results show that TimesFM reaches the highest startup
+memory peak, approximately 887 MB, whereas Chronos-2
+remains within approximately 444–478 MB across all settings.
+This is consistent with the larger checkpoint size of TimesFM,
+with a checkpoint size of 925 MB compared with 478 MB for
+Chronos-2. However, the comparison also shows that runtime
+RSS behavior is not determined by checkpoint size alone.
+Chronos-2 shows a much larger warm-up peak RSS, indicating
+that substantial additional memory is allocated during the first
+inference call. After warm-up, all settings remain stable during
+rolling inference, with rolling peak RSS staying below 52 MB.
+From an operational perspective, all measured startup peak
+RSS values remain below 1 GB on the CPU-only experimental
+platform. These results suggest that, once the setup and warm-
+up phases are completed, the memory footprint remains stable
+during rolling inference under the evaluated setting.
+Fig. 7.
+Relationship between normalized RMSE and Scaled Winkler Score
+across all evaluated model settings and 22 directional sensor time series. Each
+point represents one model setting evaluated on one time series.
+C. Computational Feasibility
+Computational feasibility is essential for real-time crowd-
+management deployment. Fig. 6 reports the CPU inference
+runtime of the evaluated foundation models under all input
+strategies. The sensor data are updated every 90 seconds,
+while the inference runtime of all evaluated foundation models
+remains below one second across the tested context range,
+which indicates that the models can generate forecasts fast
+enough without GPU acceleration. Meanwhile, the models
+show different runtime scaling patterns. Chronos-2 runtime
+increases more clearly as the input context grows, especially
+when TimeFeature covariates are included. This indicates that
+longer histories and additional temporal covariates introduce
+extra computational overhead for Chronos-2. In contrast,
+TimesFM has a higher inference runtime, but its runtime curve
+under the increasing strategy grows only slightly and remains
+close to that of the fixed strategy. This pattern is consistent
+with the patching design of TimesFM, where contiguous time
+steps are first grouped into input patches and then converted
+into tokens for the stacked Transformer layers; the effective
+token sequence grows more slowly than the raw number of
+observations.
+D. Accuracy Consistency of Scaled Winkler Score
+The main evaluation in this study focuses on interval-based
+reliability and probabilistic forecast quality. However, these
+metrics primarily characterize uncertainty representation, and
+are not intended to serve as direct point-accuracy measures.
+Therefore, we additionally examine whether SWS, as an
+interval-based probabilistic metric, remains consistent with
+conventional point-error behavior. We compare SWS with
+normalized RMSE, computed using the median forecast (50th
+percentile), which is commonly used as the point forecast
+when quantile predictions are available. We then compare
+normalized RMSE with SWS across all evaluated model
+settings and 22 directional sensor time series. Each point
+in Fig. 7 represents one aggregated evaluation result. More
+TABLE V
+MODEL CHECKPOINT SIZE AND CPU RESIDENT SET SIZE MEMORY FOOTPRINT DURING MODEL STARTUP, WARM-UP INFERENCE, AND ROLLING
+INFERENCE.
+Model setting
+Checkpoint size
+Startup peak RSS
+Warm-up peak RSS
+Rolling peak RSS
+(MB)
+(MB)
+(MB)
+(MB)
+TimesFM (Fixed)
+925
+886.96
+94.07
+48.24
+TimesFM (Increasing)
+925
+886.96
+94.07
+35.95
+Chronos-2 (Fixed)
+478
+443.80
+431.27
+0.31
+Chronos-2 (Increasing)
+478
+475.60
+462.11
+51.25
+Chronos-2 (Fixed + TimeFeature)
+478
+474.14
+461.32
+5.30
+Chronos-2 (Increasing + TimeFeature)
+478
+477.81
+464.88
+44.88
+specifically, one point corresponds to one model setting on
+one directional sensor time series.
+Fig. 7 shows a strong positive linear relationship between
+normalized RMSE and SWS, with R2
+= 0.984. Model
+settings with larger point-error also tend to obtain worse SWS
+scores. This result shows that SWS is able to provide an
+accuracy-consistent measure of probabilistic forecast quality.
+Meanwhile, SWS contains information beyond RMSE because
+it also accounts for interval width and penalties for uncovered
+observations. Therefore, SWS can be used as a compact
+reliability-oriented metric, while more detailed evaluation can
+be obtained by combining it with coverage metrics, stable lead
+time, and interval-width measures such as NMPIW.
+V. DISCUSSION AND CONCLUSION
+In this paper, the experimental results analyse the reliability
+of time-series foundation models for pedestrian-flow forecast-
+ing during special events. Using the SAIL2025 event, we show
+that these models can provide reliable multi-step probabilistic
+forecasts with a lead time of around 30 minutes, which
+is adequate for crowd management Among the evaluated
+variants, Chronos-2 performs better than TimesFM in most
+cases, making Chronos-2 the better choice for deployment in
+this special event setting. Longer context windows lead to a
+clear and consistent improvement for Chronos-2. In contrast,
+adding simple time features (date/hour) as the covariate brings
+only limited improvements.
+The paper also provide decision-oriented reliability evalu-
+ation metrics, which could help crowd managers select the
+most suitable models, including coverage, stable lead time,
+and predictive uncertainty. In future work, we plan to add
+more data to the forecasting, such as other sensor data and
+public data sources (e.g., weather and event information), and
+test whether more contextual data can further improve the
+performance.
+ACKNOWLEDGMENTS
+This work was supported by the AI-COMPASS project,
+funded by the Dutch Research Council (NWO) under grant
+number KICH1.VE04.22.007.
+REFERENCES
+[1] T. Comes, “Ai for crisis decisions,” Ethics and Information Technology,
+vol. 26, no. 1, p. 12, 2024.
+[2] Y. Yuan, W. Daamen, D. Duives, and S. Hoogendoorn, “Comparison
+of three algorithms for real-time pedestrian state estimation-supporting
+a monitoring dashboard for large-scale events,” in 2016 IEEE 19th
+International Conference on Intelligent Transportation Systems (ITSC).
+IEEE, 2016, pp. 2601–2606.
+[3] T. Gneiting and A. E. Raftery, “Strictly proper scoring rules, prediction,
+and estimation,” Journal of the American statistical Association, vol.
+102, no. 477, pp. 359–378, 2007.
+[4] T. Gneiting and M. Katzfuss, “Probabilistic forecasting,” Annual Review
+of Statistics and Its Application, vol. 1, no. 1, pp. 125–151, 2014.
+[5] T. Yoon, Y. Park, E. K. Ryu, and Y. Wang, “Robust probabilistic time
+series forecasting,” in International Conference on Artificial Intelligence
+and Statistics.
+PMLR, 2022, pp. 1336–1358.
+[6] Y. Lv, Y. Duan, W. Kang, Z. Li, and F.-Y. Wang, “Traffic flow prediction
+with big data: A deep learning approach,” Ieee transactions on intelligent
+transportation systems, vol. 16, no. 2, pp. 865–873, 2014.
+[7] X. Wen, P. Krishnakumari, and S. Hoogendoorn, “Dynamic spatial-
+temporal graph convolutional neural networks approach for active mode
+traffic prediction,” IEEE Transactions on Intelligent Transportation
+Systems, 2025.
+[8] A. Das, W. Kong, R. Sen, and Y. Zhou, “A decoder-only foundation
+model for time-series forecasting,” in Forty-first international conference
+on machine learning, 2024.
+[9] A. F. Ansari, O. Shchur, J. K¨uken, A. Auer, B. Han, P. Mercado, S. S.
+Rangapuram, H. Shen, L. Stella, X. Zhang et al., “Chronos-2: From
+univariate to universal forecasting,” arXiv preprint arXiv:2510.15821,
+2025.
+[10] Z. Liu, J. Ding, and G. Zheng, “Frequency enhanced pre-training for
+cross-city few-shot traffic forecasting,” in Joint European Conference on
+Machine Learning and Knowledge Discovery in Databases.
+Springer,
+2024, pp. 35–52.
+[11] F. Boersma, D. Allen, T. Comes, I. Stanciugelu, and T. Terpstra,
+“Communicating disaster risk,” in Science for disaster risk management
+2017: Knowing better and losing less.
+Publications Office of the
+European Union/EC Joint Research Centre, 2017, pp. 388–440.
+[12] D. Salinas, V. Flunkert, J. Gasthaus, and T. Januschowski, “Deepar:
+Probabilistic forecasting with autoregressive recurrent networks,” Inter-
+national journal of forecasting, vol. 36, no. 3, pp. 1181–1191, 2020.
+[13] B. N. Oreshkin, D. Carpov, N. Chapados, and Y. Bengio, “N-beats:
+Neural basis expansion analysis for interpretable time series forecasting,”
+arXiv preprint arXiv:1905.10437, 2019.
+[14] A. Zeng, M. Chen, L. Zhang, and Q. Xu, “Are transformers effective
+for time series forecasting?” in Proceedings of the AAAI conference on
+artificial intelligence, vol. 37, no. 9, 2023, pp. 11 121–11 128.
+[15] W. Li and K. E. Law, “Deep learning models for time series forecasting:
+A review,” IEEE Access, vol. 12, pp. 92 306–92 327, 2024.
+[16] Y. Shao, W. Li, K. Xia, K. Lin, M. Lin, and S. Lu, “Quantileformer:
+Probabilistic time series forecasting with a pattern-mixture decomposed
+vae transformer,” in Proceedings of the Thirty-Fourth International Joint
+Conference on Artificial Intelligence, 2025, pp. 6147–6155.
+[17] S. H. Sun and R. Yu, “Conformal prediction for time-series forecasting
+with change points,” in The Thirty-ninth Annual Conference on Neural
+Information Processing Systems.
+[18] R. Li and A. Rodr´ıguez, “Neural conformal control for time series
+forecasting,” in Proceedings of the AAAI Conference on Artificial
+Intelligence, vol. 39, no. 17, 2025, pp. 18 439–18 447.
+[19] C. Raffel, N. Shazeer, A. Roberts, K. Lee, S. Narang, M. Matena,
+Y. Zhou, W. Li, and P. J. Liu, “Exploring the limits of transfer learning
+with a unified text-to-text transformer,” Journal of machine learning
+research, vol. 21, no. 140, pp. 1–67, 2020.
+[20] N. Gruver, M. Finzi, S. Qiu, and A. G. Wilson, “Large language models
+are zero-shot time series forecasters,” Advances in neural information
+processing systems, vol. 36, pp. 19 622–19 635, 2023.
+[21] M. Yildirimoglu and N. Geroliminis, “Experienced travel time prediction
+for congested freeways,” Transportation Research Part B: Methodolog-
+ical, vol. 53, pp. 45–63, 2013.
+[22] T. Santanam, A. J. Trasatti, P. Van Hentenryck, and H. Zhang, “Public
+transit for special events: Ridership prediction and train scheduling,”
+IEEE Transactions on Intelligent Transportation Systems, vol. 25, no. 8,
+pp. 8387–8403, 2024.
+[23] A. Khosravi, S. Nahavandi, D. Creighton, and A. F. Atiya, “Compre-
+hensive review of neural network-based prediction intervals and new
+advances,” IEEE Transactions on neural networks, vol. 22, no. 9, pp.
+1341–1356, 2011.
+[24] R. L. Winkler, “A decision-theoretic approach to interval estimation,”
+Journal of the American Statistical Association, vol. 67, no. 337, pp.
+187–191, 1972.
+[25] B. A. Muhammed, A. R. Hurson, S. S. Sarvestani, and L. Gamage,
+“A gat-bilstma model for weather-aware prediction of traffic speed,” in
+2024 IEEE 27th International Conference on Intelligent Transportation
+Systems (ITSC).
+IEEE, 2024, pp. 2117–2124.
+[26] K. Saleh, A.-S. Mihaita, and Y. Ou, “Metro ridership forecasting
+using inter-station-aware transformer networks,” in 2023 IEEE 26th
+International Conference on Intelligent Transportation Systems (ITSC).
+IEEE, 2023, pp. 1215–1220.
+[27] H. Li, Y. Wang, X. Xu, L. Qin, and H. Zhang, “Short-term passenger
+flow prediction under passenger flow control using a dynamic radial
+basis function network,” Applied Soft Computing, vol. 83, p. 105620,
+2019.
+[28] X. Liu, A. Dabiri, J. Xun, and B. De Schutter, “Bi-level model predictive
+control for metro networks: Integration of timetables, passenger flows,
+and train speed profiles,” Transportation Research Part E: Logistics and
+Transportation Review, vol. 180, p. 103339, 2023.
+[29] Y. Nie, N. H. Nguyen, P. Sinthong, and J. Kalagnanam, “A time series
+is worth 64 words: Long-term forecasting with transformers,” arXiv
+preprint arXiv:2211.14730, 2022.
+[30] D. Luo and X. Wang, “Deformabletst: Transformer for time series
+forecasting without over-reliance on patching,” Advances in Neural
+Information Processing Systems, vol. 37, pp. 88 003–88 044, 2024.
+[31] Y. Sun, Z. Xie, E. Eldele, D. Chen, Q. Hu, and M. Wu, “Learning
+pattern-specific experts for time series forecasting under patch-level
+distribution shift,” arXiv preprint arXiv:2410.09836, 2024.
+[32] V. J. Reddi, C. Cheng, D. Kanter, P. Mattson, G. Schmuelling, C.-J.
+Wu, B. Anderson, M. Breughe, M. Charlebois, W. Chou et al., “Mlperf
+inference benchmark,” in 2020 ACM/IEEE 47th Annual International
+Symposium on Computer Architecture (ISCA).
+IEEE, 2020, pp. 446–
+459.

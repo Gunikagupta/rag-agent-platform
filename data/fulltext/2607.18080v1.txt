@@ -1,0 +1,1919 @@
+Sparse Evidence Can Suffice: Agentic Evidence Seeking for Multimodal Video
+Misinformation Detection
+Haochen Zhao1,2, Yongxiu Xu1,2∗, Xinkui Lin1,2, Dong Xie3,
+Jiarui Lu1,2, Yuqi Qian1,2, Yubin Wang1,2, Hongbo Xu1, Gaopeng Gou1
+1 Institute of Information Engineering, Chinese Academy of Sciences, Beijing, China
+2 School of Cyber Security, University of Chinese Academy of Sciences, Beijing, China
+3 Baidu, Beijing, China
+zhaohaochen@iie.ac.cn
+Abstract
+Multimodal video misinformation detection is commonly for-
+mulated as a holistic video-understanding task, where the en-
+tire video and its associated content are processed and judged
+in a single pass. However, real-world misinformation often
+exhibits a sparse and compositional evidence structure: a reli-
+able decision may depend on only a few coupled clues, while
+most video content contributes limited additional informa-
+tion. Exhaustive multimodal reasoning may therefore intro-
+duce substantial redundancy and obscure decisive evidence.
+This motivates decoupling evidence acquisition from veri-
+fication: first identifying sparse, decision-relevant clues and
+then judging veracity based on the acquired evidence. Accord-
+ingly, we propose SIEVE, a framework for Sparse Interactive
+Evidence Verification via Extraction in multimodal video
+misinformation detection. An evidence-seeking agent actively
+explores the available multimodal evidence and constructs a
+compact evidence package, which is then used by a veri-
+fier to determine veracity. The agent is trained with super-
+vised evidence-seeking trajectories and an evidence-aware re-
+inforcement learning objective that promotes informative ev-
+idence acquisition while discouraging unnecessary or invalid
+interactions. Experiments on multiple video misinformation
+benchmarks show that SIEVE consistently outperforms the
+evaluated baselines and supports reliable verification using
+compact evidence packages. Moreover, the resulting acqui-
+sition process provides an explicit and inspectable evidence
+trail, improving the transparency and groundedness of multi-
+modal misinformation detection.
+Introduction
+Videos have become a dominant medium for online informa-
+tion consumption, especially on short-video platforms such
+as TikTok and YouTube, where user-generated videos can be
+rapidly created and widely disseminated (Bu et al. 2023;
+Venkatagiri, Schafer, and Prochaska 2023). However, the
+same ease of video creation and dissemination also acceler-
+ates the spread of misinformation, threatening the credibility
+of online information ecosystems and public discourse (Bu
+et al. 2023; Lazer et al. 2018). Since the volume and veloc-
+ity of online videos far exceed the capacity of manual fact-
+checking, automatic video misinformation detection has be-
+come an increasingly important research problem (Venkata-
+giri, Schafer, and Prochaska 2023; Bu et al. 2023).
+Compared with text- or image-based misinformation,
+video misinformation is more challenging because videos
+∗Corresponding author.
+Copyright © 2027, Association for the Advancement of Artificial
+Intelligence (www.aaai.org). All rights reserved.
+a) Conventional Full Input
+Audio
+Visual frames (sampled)
+Textual Metadata
+Event: a woman breastfeeding 
+a cat on a plane
+Description: Freaked the 
+#passengers#plane#airline...
+b) Sparse Evidence Can Suffice
+Freaked the 
+#passengers#plane
+#airline#wow...
+Decisive clue
+ASR Transcript
+Slot 1
+OCR
+IT WAS ALL A STAGING 
+SHOT IN A STUDIO
+Dense multimodal input with substantial redundancy.
+A sparse but critical clue can already refute the claim.
+Description: 
+a woman breastfeeding 
+a cat on a plane
+Claimed Event:
+Slot 2
+Slot 3
+ASR Transcript
+OCR
+WOW!
+The eyes are...
+ASR Transcript
+OCR
+ON A FLAGHT FROM
+SYRACUSE TO ALANTA
+Figure 1: An example illustrating that sparse, claim-relevant
+evidence can suffice for video claim verification.
+contain heterogeneous visual, acoustic, textual, and social
+signals, as well as temporal dynamics and subtle cross-
+modal inconsistencies (Bu et al. 2023; Shang et al. 2021;
+Liu, Yacoob, and Shrivastava 2023). Early video misinforma-
+tion detection methods mainly rely on task-specific encoders
+and multimodal fusion strategies, such as modeling cross-
+modal correlations, social context, creative-process patterns,
+or neighborhood relations among event-related videos (Choi
+and Ko 2021; Liu, Yacoob, and Shrivastava 2023; Qi et al.
+2023a; Li et al. 2025; Bu et al. 2024; Qi et al. 2023b). Al-
+though these methods have achieved promising results, they
+are typically optimized as end-to-end discriminative classi-
+fiers, offering limited support for explicit, interpretable, and
+flexible multi-step evidence reasoning in open-world veri-
+fication scenarios (Wang et al. 2025b; Zheng et al. 2025;
+Wang, Yang, and Zhang 2026; Lang et al. 2026).
+Recently, vision-language models and multimodal large
+language models have shown strong potential for fake short-
+video news detection by leveraging their broad multimodal
+knowledge and reasoning capabilities (Zheng et al. 2025;
+Wang et al. 2025b; Hong et al. 2025; Zhang et al. 2025).
+Some methods introduce chain-of-thought reasoning to im-
+prove explainability (Hong et al. 2025), while others further
+explore long reasoning trajectories and reinforcement learn-
+arXiv:2607.18080v1  [cs.CV]  20 Jul 2026
+ing for video misinformation detection (Zhang et al. 2025;
+Li et al. 2026). Nevertheless, most existing methods still fol-
+low a single-pass or fixed-depth inference paradigm, where
+the model directly predicts a label from pre-extracted inputs.
+When critical evidence is sparse, fragmented, or insufficient,
+such models may rely on internal assumptions rather than
+actively acquiring targeted evidence, leading to unreliable
+or poorly grounded decisions (Yao et al. 2023; Zhang et al.
+2023; Li et al. 2026; Wang, Yang, and Zhang 2026).
+As shown in Figure 1, a video claim can sometimes be re-
+solved from sparse and localized evidence without encoding
+the entire evidence space. The datasets provide Event and
+Description metadata, but SIEVE uses only the Description
+field as the initial claim context and excludes the Event field
+from all model inputs. In the example, one OCR clue, “A
+WOMAN BREASTFEEDING A CAT ON THE PLANE,”
+identifies the event asserted by the video post, while an-
+other, “IT WAS ALL A STAGING SHOT IN A STUDIO,”
+reveals that the depicted scene was staged. The former es-
+tablishes what is being claimed, whereas the latter provides
+the evidence needed to refute it; considered together, these
+complementary clues are sufficient to reject the claim. This
+example highlights a challenge beyond multimodal fusion:
+how to identify and combine the sparse, decisive clues needed
+to resolve a claim within a largely redundant evidence space,
+where exhaustive evidence consumption is unnecessary and
+may obscure the evidence that determines the judgment.
+Accordingly, we formulate video misinformation detec-
+tion as a budget-constrained evidence-seeking and verifica-
+tion process, where an acquisition budget encourages the
+agent to prioritize small sets of potentially decisive and com-
+plementary clues rather than exhaustively reading all avail-
+able content. Specifically, the platform-provided Description
+field is treated as the initial claim context, while the dataset-
+provided Event field is not used. An evidence-seeking agent
+selectively reads video-derived evidence channels, including
+visual frames, OCR, and ASR, and constructs a compact ev-
+idence package in which complementary clues can be jointly
+interpreted. A verifier then makes the judgment from the De-
+scription and the acquired evidence. This design decouples
+evidence acquisition from verification and exposes both the
+acquired evidence and its compositional basis for inspection.
+Our main contributions are summarized as follows:
+• We formulate multimodal video misinformation detec-
+tion as a selective evidence acquisition and verification
+problem and empirically investigate whether a compact
+subset of video-derived evidence can support reliable ver-
+ification within a bounded multimodal context.
+• We propose SIEVE, an agentic framework that actively
+seeks potentially decisive and complementary multi-
+modal evidence and constructs a compact evidence pack-
+age for verification. The evidence agent is trained with
+supervised trajectories and evidence-aware reinforcement
+learning for grounded evidence acquisition.
+• We conduct experiments on multiple video misinforma-
+tion benchmarks. SIEVE consistently outperforms the
+evaluated baselines and reaches near-saturated Macro-F1
+with a moderate evidence budget. Its decoupled design
+also provides an explicit and inspectable evidence acqui-
+sition trail.
+Related Work
+Existing video misinformation detection methods usually for-
+mulate the task as holistic multimodal classification, jointly
+encoding visual, textual, acoustic, and social signals for
+prediction. Early studies investigate topic modeling, adver-
+sarial learning, and domain-specific multimodal fusion for
+fake news or COVID-19 misinformation videos (Choi and
+Ko 2021; Shang et al. 2021; Liu, Yacoob, and Shrivastava
+2023). Later works build short-video benchmarks and intro-
+duce richer contextual modeling. FakeSV incorporates mul-
+timodal content and social context for fake short-video news
+detection (Qi et al. 2023a), while subsequent methods exploit
+neighborhood relations among event-related videos (Qi et al.
+2023b), creative-process cues (Bu et al. 2024), or heteroge-
+neous social latent structures (Li et al. 2025). Despite these
+advances, most methods process pre-collected video inputs
+through a single discriminative pipeline, offering limited sup-
+port for explicitly identifying which sparse multimodal clues
+are sufficient for grounded verification.
+Recent works leverage vision-language models and multi-
+modal large language models to improve semantic reasoning
+and explainability in misinformation detection. Rationale-
+augmented VLM methods move from direct prediction
+to analysis-oriented detection (Zheng et al. 2025), while
+FakeSV-VLM adapts VLMs through progressive experts
+and event-level consistency checking (Wang et al. 2025b).
+ExMRD introduces a refining–retrieving–reasoning chain to
+produce explainable micro-video rumor predictions (Hong
+et al. 2025), and Fact-R1 further combines long-chain rea-
+soning, preference alignment, and reinforcement learning for
+video misinformation detection (Zhang et al. 2025). More
+recent agentic frameworks, such as CSI and FactGuard,
+use multi-agent investigation or tool-augmented reasoning
+to strengthen evidence acquisition and decision reliabil-
+ity (Wang, Yang, and Zhang 2026; Li et al. 2026). Retrieval-
+guided adaptation has also been explored for test-time fake
+news video detection (Lang et al. 2026). Despite these ad-
+vances, most methods still reason over preconstructed global
+inputs or externally retrieved information, rather than learn-
+ing how to seek compact, localized, and claim-relevant evi-
+dence from dense multimodal video content.
+Our work is also related to evidence-centered fact verifi-
+cation and selective perception. Textual fact verification has
+long emphasized the importance of retrieving supporting ev-
+idence before making a claim-level judgment (Thorne et al.
+2018), and later work shows that evidence retrieval should be
+optimized for downstream verification utility rather than rel-
+evance alone (Zhang et al. 2023). In language-agent research,
+ReAct demonstrates that interleaving reasoning and actions
+enables models to acquire missing information instead of
+relying on internal assumptions (Yao et al. 2023). In video
+understanding, adaptive frame selection methods show that
+many video tasks can be solved by observing only a subset
+of informative frames (Wu et al. 2019). Unlike these lines
+of work, SIEVE studies video misinformation detection as a
+budgeted interactive evidence-seeking problem. It uses only
+the platform-provided Description field as the initial claim
+context, explicitly excludes the dataset-provided Event field,
+and actively acquires compact, claim-relevant evidence from
+OCR, ASR, and visual channels before evidence-based ver-
+ification, shifting the task from fixed-input classification to
+budgeted active evidence acquisition.
+Method
+Additional details on evidence-space construction, training,
+reward design, and policy optimization are provided in the
+supplementary material.
+Overview
+Figure 2 presents SIEVE. Given a video and its Descrip-
+tion, SIEVE constructs a structured multimodal evidence
+space. The Evidence Agent receives a one-time slot overview
+of thumbnails and channel availability for navigation only,
+then selectively reads evidence under a budget and emits
+STOP once sufficient. The overview is excluded from the
+evidence package and Verifier input. The Verifier predicts
+from the Description and acquired evidence, enabling com-
+pact, evidence-grounded verification.
+Problem Formulation
+Each instance is x = (V, A, c), where V and A are the vi-
+sual and audio streams and c is the fixed textual context.
+Both datasets provide Event and Description fields, while
+FakeSV additionally provides comments. SIEVE uses only
+Description, i.e., c = cdescription, excluding Event and Com-
+ment from all model inputs. For cross-dataset evaluation on
+FakeVV, the associated title is used, i.e., c = ctitle. The
+task is to predict y ∈Y = {Fake, Real}. Conventional
+methods typically predict directly from the complete mul-
+timodal input. In contrast, we formulate detection as active
+evidence acquisition followed by evidence-based verifica-
+tion. The visual stream is divided into K temporal slots
+S(V) = {si}K
+i=1, each containing available channels from
+M = {OCR, ASR, CTX, KEY}. The evidence space is
+E(V, A) = {ei,m | i ∈{1, . . . , K}, m ∈Mi},
+(1)
+where Mi ⊆M denotes the channels available in slot si.
+Rather than accessing all detailed contents of E, SIEVE se-
+quentially constructs an ordered evidence package PT and
+predicts
+ˆy = parse(gϕ(c, PT )) ,
+(2)
+where gϕ is the autoregressive Verifier.
+Evidence Space Construction
+SIEVE builds a slot-based evidence space from each video’s
+audiovisual content. TransNetV2 (Souček and Lokoč 2020)
+detects shot boundaries; short shots are merged and long ones
+subdivided. If over 10 slots remain, adjacent low-motion
+segments are merged. Each slot may contain OCR, ASR,
+CTX, and KEY evidence. PaddleOCR (Du et al. 2020) ex-
+tracts OCR text ranked by temporal, spatial, and recognition-
+quality cues, while Whisper (Radford et al. 2023) produces
+slot-aligned transcripts. DINOv2 ViT-S/14 (Oquab et al.
+2024) encodes visual candidates: CTX contains representa-
+tive frames, whereas KEY contains one or two complemen-
+tary frames selected by visual distinctiveness and OCR rele-
+vance. Before the first action, the environment provides a one-
+time navigation overview with one thumbnail and channel-
+availability indicators per slot; it is excluded from the evi-
+dence package and Verifier input. Channel state is tracked
+by Ct(i, m) ∈{−, x, v} for unavailable, unread, and read.
+Legal READs are x entries allowed by the remaining budget.
+Visual READs are capped at 24 accumulated CTX/KEY im-
+ages, excluding actions that exceed the cap. A legal READ
+reveals the evidence and changes its state to v. Repeated, un-
+available, or malformed actions immediately terminate the
+rollout, add no evidence, and incur an RL penalty.
+Interactive Evidence Acquisition
+We formulate evidence acquisition as a budgeted sequen-
+tial decision process. At step t, the agent observes ot =
+(c, ω, ht, µt, Ct, bt), where c is the claim context, ω is
+the one-time overview provided at t = 1, ht stores ac-
+quired evidence and source identifiers, µt is evidence mem-
+ory, Ct tracks channel state, and bt records the remaining
+READ budget, accumulated visual-image count, and visual
+READs blocked by the 24-image cap. The agent generates
+zt ∼πθ(· | ot) containing an action and, when applica-
+ble, a concise non-verdict memory update for the preced-
+ing legal READ. The environment stores the memory up-
+date, parses the command, and validates it against the legal
+read-action set Aread
+t
+. A legal READ(slotsid, {channel})
+reveals esid,channel and updates the package, history, cover-
+age, and budget; the new evidence is summarized in the next
+response. STOP terminates acquisition. Repeated, unavail-
+able, or malformed commands are invalid attempts: they add
+no evidence, immediately terminate the current acquisition
+rollout, and incur a behavioral penalty during reinforcement
+learning. Acquisition ends upon STOP, budget exhaustion,
+or invalid action. The terminal package PT contains only
+legally acquired evidence and source identifiers, excluding
+memory and reasoning traces.
+Evidence-Based Verification
+Given c and PT , the Verifier autoregressively generates label
+tokens:
+˜y = gϕ(c, PT ),
+ˆy = parse(˜y).
+(3)
+The Verifier receives only the claim context and legally ac-
+quired evidence, without access to unread evidence or in-
+teraction states such as coverage, budget, or agent memory.
+This restricted interface encourages evidence-grounded pre-
+diction rather than reliance on procedural artifacts. The Ver-
+ifier is a smaller VLM trained with LoRA and frozen during
+policy refinement.
+Training
+SIEVE is trained in four stages: teacher trajectory genera-
+tion, agent supervised fine-tuning, verifier supervised fine-
+tuning, and agent policy refinement. All teacher trajectories,
+refreshed agent rollouts, verifier-training packages, and RL
+trajectories are generated exclusively from the training split.
+Raw Video 
+slot segmentation
+OCR / ASR / CTX / KEY
+Evidence Space
+Construction
+Audio
+Initial Claim 
+Context
+Environment
+Legal Action 
+Set
+State Prompt
+Evidence Agent
+Action Policy
+Evidence Acquisition Loop
+STOP
+repeat until STOP
+UPDATE
+Evidence Memory 
+Budget / Coverage
+READ
+Action Protocol
+Evidence Package
+acquired OCR / ASR /
+CTX / KEY only
+Verifier
+Read the evidence 
+package
+for judgment
+Real
+Fake
+Output
+Stage 1
+Teacher Trajectory Generation
+Teacher VLM + Environment
+autonomous READ ... STOP
+Clean Teacher Trajectories
+Filter valid trajectories;
+remove leakage and malformed actions
+Stage 2
+Agent SFT
+Learn READ selection,
+memory update,  and
+Stop policy
+Stage 3
+Verifier SFT
+Claim Context
++
+Evidence Package
+Fake / Real
+Stage 4
+Agent RL / Policy Refinement
+Inference Pipeline
+Training Pipeline
+Evidence 
+Memory
+Budget State
+READ(slot, channel)
+STOP when sufficient
+Update memory after 
+each legal READ
+Evidence-Aware Reward
+Signed Outcome + Quality − Cost
+Refreshed 
+Rollouts
+Action
+Trace
+Interaction Cost
+Evidence Coverage
+Evidence
+Package
+Reward Signals
+Signed Outcome
+Ground 
+Truth
+Frozen
+Verifier
+Figure 2: Overall framework of the proposed method.
+Teacher trajectory generation.
+We use GPT-5.5 (Ope-
+nAI 2026) as the teacher VLM and roll it out in the same
+evidence environment. For each (x, y), the teacher receives
+ot and the ground-truth label y as privileged supervision and
+acquires evidence supporting y. The label is used only dur-
+ing teacher rollout and excluded from the stored observation
+and all Evidence Agent inputs. At each step, the teacher pro-
+duces zt, containing an action and, when applicable, a non-
+verdict memory update, with at = parse(zt). A trajectory is
+τ = (o1, z1, a1, . . . , oTτ , zTτ , aTτ ). We sample two trajec-
+tories per video using different random seeds and decoding
+temperatures. Any rollout containing repeated, unavailable,
+or malformed actions, or explicit label leakage, is terminated
+and discarded; only trajectories with valid transitions and
+protocol-compliant actions are retained. Because the teacher
+is conditioned on y, terminal prediction correctness is not a
+filtering criterion.
+Agent supervised fine-tuning.
+The Evidence Agent is su-
+pervised on the retained teacher trajectories. Because each
+response contains an action decision and, when applicable,
+a memory update, we apply token-level supervision to the
+complete response:
+LSFT(θ) = −
+X
+τ
+Tτ
+X
+t=1
+Lτ,t
+X
+ℓ=1
+log πθ
+ z∗
+τ,t,ℓ| oτ,t, z∗
+τ,t,<ℓ
+
+,
+(4)
+where z∗
+τ,t is the teacher response. This stage teaches evi-
+dence selection, memory updating, protocol following, and
+stopping behavior.
+Verifier supervised fine-tuning.
+We train the Verifier on
+terminal evidence packages from retained teacher trajecto-
+ries and two refreshed SFT-agent rollouts per sample. Kimi
+K2.5 (Kimi Team, Bai et al. 2026) evaluates packages from
+both sources, and only those judged valid and consistent with
+the ground-truth label are retained. Let Dver denote the union
+of the retained teacher-terminal and agent-terminal packages,
+and let y1:Ly denote the target label tokens. With next-token
+distribution pϕ, the Verifier is optimized with
+Lver(ϕ) = −
+X
+(c,P,y)∈Dver
+Ly
+X
+ℓ=1
+log pϕ(yℓ| c, P, y<ℓ).
+(5)
+Using both package sources reduces the distribution shift
+between Verifier training and subsequent agent rollouts. The
+trained Verifier is then frozen for policy refinement.
+Agent policy refinement.
+Finally, we refine the Evidence
+Agent with reinforcement learning using the frozen Verifier
+as the outcome evaluator. The reward combines verification
+outcome, evidence coverage, and interaction cost:
+¯R(τ) = B(s) + 0.80 I[s = correct]Q(τ) −P(s, τ),
+R(τ) = clip
+  ¯R(τ), −1.2, 1.0
+
+,
+(6)
+where B(s) assigns a positive base reward to correct verifica-
+tion and a negative reward otherwise. For correct trajectories,
+Q(τ) rewards textual novelty, visual evidence, slot–channel
+diversity, and evidence volume, while P(s, τ) penalizes un-
+necessary reads, repeated or invalid actions, and forced bud-
+get termination. For incorrect trajectories, only repeated or
+invalid actions are penalized. The coverage bonus discour-
+ages premature stopping, especially for real videos without
+a single decisive contradiction. Correctness determines the
+primary ordering, while coverage and cost distinguish trajec-
+tories within each outcome branch.
+Online rollout filtering.
+During GRPO refinement, all tra-
+jectories sampled for the same input are first scored by
+the frozen Verifier-based reward pipeline. We retain only
+groups with informative within-group variation according
+to correctness-contrast and reward-spread criteria, while de-
+generate groups are skipped. This filtering does not modify
+the reward of any individual trajectory. For each x, we sample
+G trajectories {τ (j)}G
+j=1 and compute
+ˆA(j) = R(τ (j)) −meankR(τ (k))
+stdkR(τ (k))
+.
+(7)
+The Evidence Agent generates a response
+z(j)
+t
+=
+
+z(j)
+t,1 , . . . , z(j)
+t,L(j)
+t
+
+,
+(8)
+at each interaction step, containing an action command and,
+when applicable, a memory update. We therefore define the
+policy ratio at the token level:
+ρ(j)
+t,ℓ=
+πθ
+
+z(j)
+t,ℓ| o(j)
+t , z(j)
+t,<ℓ
+
+πold
+
+z(j)
+t,ℓ| o(j)
+t , z(j)
+t,<ℓ
+.
+(9)
+The asymmetric dual-clipped surrogate is
+¯ρ(j)
+t,ℓ= clip
+
+ρ(j)
+t,ℓ, 1 −ϵlow
+clip, 1 + ϵhigh
+clip
+
+,
+˜ℓ(j)
+t,ℓ= min
+
+ρ(j)
+t,ℓˆA(j), ¯ρ(j)
+t,ℓˆA(j)
+,
+ℓ(j)
+t,ℓ=
+(˜ℓ(j)
+t,ℓ,
+ˆA(j) ≥0,
+max
+
+˜ℓ(j)
+t,ℓ, Cdual ˆA(j)
+,
+ˆA(j) < 0.
+(10)
+The reported runs disable KL regularization; the clipping
+values are given in the supplementary material. The final
+objective is
+JGRPO(θ) = E
+
+1
+G
+G
+X
+j=1
+1
+Zj
+Tj
+X
+t=1
+L(j)
+t
+X
+ℓ=1
+ℓ(j)
+t,ℓ
+
+,
+(11)
+where Zj = PTj
+t=1 L(j)
+t
+is the generated-token count in τ (j).
+The same trajectory-level advantage is assigned to all to-
+kens in a rollout, while token-count normalization prevents
+longer trajectories from dominating the update. We maxi-
+mize JGRPO to refine the policy.
+Inference
+At inference, SIEVE alternates between the Evidence Agent
+and environment. The environment initializes the evidence
+space, coverage, history, memory, and budget, and provides
+a one-time slot overview. The agent then issues iterative
+READ actions or STOP. Upon STOP, budget exhaustion,
+or an invalid action, the frozen Verifier predicts
+ˆy = parse! (gϕ(c, PT )) .
+(12)
+This yields a binary Fake/Real label and an interpretable trail
+of the acquired slots and channels.
+Experiments
+Datasets. We evaluate SIEVE on FakeSV and FakeTT, with
+out-of-domain testing on FakeVV. FakeSV is a Chinese
+benchmark from Douyin and Kuaishou (Qi et al. 2023a),
+while FakeTT is an English TikTok benchmark introduced
+by FakingRecipe (Bu et al. 2024). Both provide Event and
+Description fields, and FakeSV additionally includes com-
+ments. SIEVE uses only Description as the initial claim con-
+text and excludes all other fields. Following prior work, we
+adopt a temporal 70%/15%/15% train/validation/test split.
+For out-of-domain evaluation, the FakeTT-trained check-
+point is directly applied to FakeVV (Zhang et al. 2025), where
+each query pairs a source video with an authentic or entity-
+manipulated title. SIEVE uses the title as the claim context
+and retrieves evidence only from the paired video, without
+using any FakeVV data for training, validation, model selec-
+tion, or prompt adaptation.
+Baselines. For FakeSV and FakeTT, we compare SIEVE
+with four baseline groups: MLLMs, including GPT-4o-mini,
+GPT-4.1-mini, Qwen2.5-VL, InternVL2.5, and InternVL2.5-
+MPO (OpenAI 2024a, 2025; Bai et al. 2025a; Chen
+et al. 2024; Wang et al. 2024); unimodal models, ViT
+and BERT (Dosovitskiy et al. 2021; Devlin et al. 2019);
+task-specific multimodal methods, TikTec, FANVM, SV-
+FEND, and FakingRecipe (Shang et al. 2021; Choi and Ko
+2021; Qi et al. 2023a; Bu et al. 2024); and reasoning- or
+VLM-enhanced methods, CA-FVD, ExMRD, and FakeSV-
+VLM (Wang et al. 2025a; Hong et al. 2025; Wang et al.
+2025b). All in-domain baseline results are taken from
+FakeSV-VLM (Wang et al. 2025b). For FakeVV, we com-
+pare against GPT-4o, DeepSeek-R1, Qwen2.5-VL-7B, QVQ-
+72B-Preview, InternVL2.5-8B, Qwen3-VL-8B-Instruct, and
+GPT-5.5 (OpenAI 2024b; Guo et al. 2025; Bai et al. 2025a;
+Qwen Team 2024; Chen et al. 2024; Bai et al. 2025b; Ope-
+nAI 2026). Results for the first five are reported by Fact-
+R1 (Zhang et al. 2025), whereas the last two are evaluated
+by us under the same protocol. Fact-R1 is excluded because
+its reported model is trained on FakeVV, violating our no-
+FakeVV-training setting.
+Training Details. The agent and verifier use Qwen3-VL-
+8B-Instruct and Qwen3-VL-2B-Instruct (Bai et al. 2025b),
+respectively, with LoRA adapters. The agent undergoes one
+epoch of SFT on teacher trajectories, followed by 100 GRPO
+steps with group size n = 8, a read budget of 24, and a
+32K-token context window. The verifier is trained for two
+epochs with up to 24 images per example. Learning rates are
+1×10−4 for agent SFT and verifier training and 5×10−7 for
+RL, with per-device batch size 1 and gradient accumulation
+4. We report the mean over three independent runs with
+seeds 42, 2027, and 3407, using a fixed test-time decoding
+temperature of 0.7. All experiments use 8 NVIDIA A800
+80GB GPUs with bfloat16 precision.
+Main Results
+Table 1 reports the main results on FakeSV and FakeTT.
+SIEVE achieves the best performance across all metrics
+on both benchmarks. On FakeSV, it obtains 92.62% ACC
+and 92.41% Macro-F1, outperforming the strongest prior
+Table 1: Performance comparison on FakeSV and FakeTT. Best results are shown in bold, and second-best results are underlined.
+SIEVE results are averaged over three independent runs. Results marked with * are taken from FakeSV-VLM (Wang et al. 2025b).
+Paradigm
+Method
+FakeSV
+FakeTT
+ACC
+M-F1
+M-P
+M-R
+ACC
+M-F1
+M-P
+M-R
+MLLM-based
+GPT-4o-mini* (OpenAI 2024a)
+68.08
+68.05
+69.88
+69.49
+61.54
+61.20
+64.41
+65.89
+GPT-4.1-mini* (OpenAI 2025)
+70.30
+70.25
+70.61
+70.87
+49.16
+48.54
+62.50
+59.70
+Qwen2.5-VL* (Bai et al. 2025a)
+64.21
+60.79
+64.55
+61.52
+45.82
+45.31
+56.69
+55.42
+InternVL2.5* (Chen et al. 2024)
+64.39
+57.89
+68.52
+60.50
+46.82
+45.29
+64.92
+59.23
+InternVL2.5-MPO* (Wang et al. 2024)
+65.13
+61.07
+66.46
+62.12
+43.14
+40.84
+61.90
+56.23
+Unimodal
+ViT* (Dosovitskiy et al. 2021)
+70.85
+70.66
+70.64
+70.91
+64.88
+62.59
+62.54
+63.80
+BERT* (Devlin et al. 2019)
+78.41
+78.25
+78.17
+78.52
+70.90
+69.00
+68.71
+70.60
+Multimodal
+TikTec* (Shang et al. 2021)
+73.06
+72.79
+72.73
+72.93
+66.56
+65.55
+66.50
+68.62
+FANVM* (Choi and Ko 2021)
+79.88
+78.91
+80.98
+78.42
+71.91
+70.85
+71.21
+73.90
+SV-FEND* (Qi et al. 2023a)
+80.81
+80.19
+81.08
+79.84
+77.26
+75.55
+74.94
+77.13
+FakingRecipe* (Bu et al. 2024)
+84.69
+84.39
+84.57
+84.25
+79.26
+77.53
+76.86
+78.89
+Reasoning/
+VLM-enhanced
+CA-FVD* (Wang et al. 2025a)
+85.79
+85.28
+86.57
+84.78
+81.61
+80.26
+79.50
+82.17
+ExMRD* (Hong et al. 2025)
+86.90
+86.52
+87.31
+86.13
+84.28
+83.13
+82.27
+85.19
+FakeSV-VLM* (Wang et al. 2025b)
+90.22
+89.97
+90.55
+89.64
+89.30
+87.98
+87.80
+88.17
+Ours
+SIEVE
+92.62
+92.41
+93.25
+91.96
+91.64
+90.72
+90.12
+91.45
+method, FakeSV-VLM, by 2.40 and 2.44 points, respectively.
+On FakeTT, SIEVE improves ACC from 89.30% to 91.64%
+and Macro-F1 from 87.98% to 90.72%, yielding gains of 2.34
+and 2.74 points. Several trends can be observed. Under the
+evaluated settings, general-purpose MLLMs perform worse
+than task-specific methods, indicating that direct prompt-
+ing alone remains challenging for fine-grained video mis-
+information detection. Stronger multimodal detectors gen-
+erally outperform unimodal baselines, although early multi-
+modal fusion methods do not always surpass a strong text-
+only model, suggesting that adding modalities does not by
+itself guarantee better performance. Reasoning- and VLM-
+enhanced methods further improve performance, yet they still
+mainly operate on preconstructed global inputs. In contrast,
+SIEVE explicitly separates evidence acquisition from verac-
+ity judgment and exposes the verifier only to selected OCR,
+ASR, and visual evidence. The consistent gains on both Chi-
+nese and English benchmarks demonstrate the effectiveness
+of the proposed acquisition-and-verification framework un-
+der the evaluated settings. Together with the evidence-budget
+analysis, these results indicate that compact, claim-relevant
+evidence can support strong verification performance with-
+out exposing all constructed evidence to the verifier.
+Ablation Study
+To assess each component, we evaluate seven variants:
+(1) Description-only, using only the Description field; (2)
+Same-video random evidence, replacing the selected pack-
+age with an equally sized random package from the same
+video; (3) Exhaustive evidence, training and evaluating a
+separate Verifier with all constructed OCR and ASR ev-
+idence and up to 24 images uniformly sampled from the
+Table 2: Ablation study on FakeSV and FakeTT. Exhaustive
+evidence trains a separate verifier on all OCR/ASR evidence
+and up to 24 uniformly sampled images; all other variants
+share a fixed verifier.
+Ablation Type
+Setting
+FakeSV
+FakeTT
+ACC
+M-F1
+ACC
+M-F1
+Evidence Input
+Description-only
+77.12
+73.92
+66.22
+65.72
+Same-video random
+61.99
+49.20
+55.85
+55.43
+Exhaustive evidence
+92.25
+91.97
+89.63
+87.80
+Agent Training
+Base agent
+88.56
+87.91
+84.95
+84.23
+Agent SFT only
+91.51
+91.13
+89.97
+89.13
+w/o rollout filtering
+91.70
+91.33
+90.97
+89.98
+w/o evidence memory
+91.88
+91.63
+90.97
+89.78
+Full Model
+Full SIEVE
+92.62
+92.41
+91.64
+90.72
+full visual evidence space; (4) Base agent, removing agent-
+side SFT and RL; (5) Agent SFT only, removing RL; (6)
+w/o rollout filtering, disabling group-level filtering dur-
+ing RL; and (7) w/o evidence memory, removing cross-
+step evidence memory. Except for Exhaustive evidence, the
+Verifier is fixed across all variants. As shown in Table 2,
+Description-only confirms the complementary value of ac-
+quired evidence, while same-video random evidence shows
+that indiscriminate selection is insufficient. Despite being
+separately trained and evaluated with comprehensive textual
+evidence and uniformly sampled visual evidence, Exhaustive
+evidence still underperforms Full SIEVE on both datasets,
+particularly by 2.92 M-F1 points on FakeTT. This indicates
+that broad evidence coverage alone cannot replace targeted
+acquisition: redundant or weakly informative content may di-
+1
+2
+4
+6
+8
+10
+12 13+
+Number of evidence reads
+20
+30
+40
+50
+60
+70
+Stable correction rate (%)
+62.43
+69.31
+(a) Stable correction
+Phase 1
+Early gain
+Phase 2
+Key evidence
+Phase 3
+Convergence
+8 reads
+key point
+2
+4
+8
+12
+16
+24
+Maximum evidence reads
+70
+75
+80
+85
+90
+Macro-F1 (%)
+92.41
+90.72 
+(b) Evidence budget
+Phase 1
+Low budget
+Phase 2
+Rapid gain
+Phase 3
+Saturation
+12 reads
+key point
+FakeSV
+FakeTT
+Figure 3: Evidence sufficiency on FakeSV and FakeTT. (a)
+Stable correction of Description-only errors. (b) Macro-F1
+under different inference-time evidence budgets.
+lute decisive clues, whereas SIEVE constructs a compact and
+verification-effective evidence package. Agent SFT substan-
+tially improves over the base agent, validating trajectory-level
+supervision. Removing rollout filtering or evidence memory
+further degrades performance, supporting their roles in pol-
+icy refinement and coherent acquisition. Overall, Full SIEVE
+performs best on both datasets, demonstrating the joint con-
+tribution of targeted acquisition and agent training.
+Can Sparse Evidence Suffice?
+Figure 3 investigates whether reliable verification can be
+achieved from only a small subset of the available evidence.
+In Figure 3(a), we focus on samples misclassified under the
+Description-only setting and evaluate the frozen Verifier af-
+ter each legal read. A sample is counted at step k only if
+its prediction remains correct for all subsequent evidence
+prefixes. Within four reads, 53.61% and 55.45% of the ini-
+tial errors are stably corrected on FakeSV and FakeTT, re-
+spectively. The rates reach 60.55% and 67.08% within eight
+reads, accounting for approximately 97% of all eventually
+corrected cases on both datasets. This shows that, for a sub-
+stantial fraction of samples requiring video evidence, only
+a few acquired clues are sufficient to establish a stable cor-
+rect prediction. Figure 3(b) examines whether such compact
+evidence also preserves overall performance. Increasing the
+inference-time cap from 2 to 12 reads improves Macro-F1
+from 82.90% to 90.55% on FakeSV and from 72.60% to
+90.10% on FakeTT, whereas extending the cap from 12 to
+24 yields only 1.86 and 0.62 additional points. Together,
+the rapid stable correction and early performance saturation
+provide direct empirical support for our central hypothesis:
+sparse, claim-relevant evidence can suffice for reliable video
+misinformation verification under the considered evidence
+space and Verifier interface.
+Evidence Acquisition Analysis
+Figure 4 summarizes the evidence acquisition behavior of
+SIEVE under the 24-read inference cap. The agent uses
+fewer than eight legal read actions per instance on average:
+7.76 on FakeSV and 7.89 on FakeTT. Under the current ac-
+tion and Verifier interface, it therefore constructs a compact
+evidence package rather than reading every available slot–
+channel pair. Textual evidence is selected most frequently. On
+FakeSV, OCR accounts for 42.27% of legal reads and ASR
+0
+10
+20
+30
+40
+50
+Percentage (%)
+OCR
+ASR
+CTX
+KEY
+(a) Evidence channels
+42.27
+23.07
+12.55
+22.12
+34.35
+32.60
+6.24
+26.80
+0
+2
+4
+6
+8
+10
+Count
+Avg. Reads
+Avg. Visual
+Reads
+(b) Read statistics
+7.76
+2.69
+7.89
+2.61
+FakeSV
+FakeTT
+Figure 4: Evidence acquisition statistics on the test sets. The
+left panel shows the distribution of legal reads across evi-
+dence channels, and the right reports average total and visual
+reads.
+Table 3: Out-of-domain performance on FakeVV under
+the no-FakeVV-training setting. Fake is the positive class.
+Best results are in bold; † marks results reported by Fact-
+R1 (Zhang et al. 2025).
+Method
+ACC Prec Rec
+F1
+GPT-4o† (OpenAI 2024b)
+56.0
+60.4 35.0 44.3
+DeepSeek-R1† (Guo et al. 2025)
+53.5
+58.1 25.2 35.1
+Qwen2.5-VL-7B† (Bai et al. 2025a)
+52.9
+51.1 51.1 51.1
+QVQ-72B-Preview† (Qwen Team 2024)
+53.5
+52.6 52.6 52.6
+InternVL2.5-8B† (Chen et al. 2024)
+53.5
+58.5 24.0 34.0
+Qwen3-VL-8B-Instruct (Bai et al. 2025b)
+67.3
+66.3 72.5 69.2
+GPT-5.5 (OpenAI 2026)
+67.8
+66.6 73.3 69.8
+SIEVE (FakeTT ckpt.)
+73.2
+70.4 80.0 74.9
+for 23.07%. On FakeTT, OCR and ASR are more balanced at
+34.35% and 32.60%, respectively. This pattern suggests that
+the learned policy adapts its channel preference to dataset-
+specific evidence distributions. Visual evidence is used more
+selectively. The agent averages 2.69 and 2.61 visual reads on
+FakeSV and FakeTT, respectively, and selects KEY frames
+more often than CTX frames. This selection pattern is consis-
+tent with the learned policy favoring visually distinctive KEY
+frames over generic contextual CTX frames. Overall, the re-
+sults show that strong verification performance is obtained
+from compact, complementary textual and visual evidence
+packages within the considered evidence budget.
+Out-of-Domain Generalization
+Table 3 evaluates cross-dataset generalization by directly ap-
+plying the FakeTT-trained SIEVE checkpoint to FakeVV,
+without using FakeVV for training, validation, model selec-
+tion, or prompt adaptation. SIEVE achieves 73.20% ACC
+and 74.91% F1, outperforming all evaluated baselines under
+this no-FakeVV-training protocol. Its recall of 80.00% and
+precision of 70.42% indicate that SIEVE identifies most fake
+cases across domains, although this relatively high sensitiv-
+ity is accompanied by some false-positive predictions. We
+exclude Fact-R1 itself because its reported model is trained
+on FakeVV and is therefore not directly comparable in this
+out-of-domain setting.
+References
+Bai, S.; Chen, K.; Liu, X.; Wang, J.; Ge, W.; Song, S.;
+et al. 2025a. Qwen2.5-VL Technical Report. arXiv preprint
+arXiv:2502.13923.
+Bai, S.; et al. 2025b.
+Qwen3-VL Technical Report.
+arXiv:2511.21631.
+Bu, Y.; Sheng, Q.; Cao, J.; Qi, P.; Wang, D.; and Li, J.
+2023. Combating Online Misinformation Videos: Charac-
+terization, Detection, and Future Directions. In Proceedings
+of the 31st ACM International Conference on Multimedia,
+8770–8780. ACM.
+Bu, Y.; Sheng, Q.; Cao, J.; Qi, P.; Wang, D.; and Li, J.
+2024. FakingRecipe: Detecting Fake News on Short Video
+Platforms from the Perspective of Creative Process. In Pro-
+ceedings of the 32nd ACM International Conference on Mul-
+timedia, 1351–1360.
+Chen, Z.; Wang, W.; Cao, Y.; Liu, Y.; Gao, Z.; Cui, E.;
+et al. 2024. Expanding Performance Boundaries of Open-
+Source Multimodal Models with Model, Data, and Test-Time
+Scaling. arXiv preprint arXiv:2412.05271.
+Choi, H.; and Ko, Y. 2021. Using Topic Modeling and Ad-
+versarial Neural Networks for Fake News Video Detection.
+In Proceedings of the 30th ACM International Conference
+on Information & Knowledge Management, 2950–2954.
+Devlin, J.; Chang, M.-W.; Lee, K.; and Toutanova, K. 2019.
+BERT: Pre-training of Deep Bidirectional Transformers for
+Language Understanding. In Proceedings of the 2019 Con-
+ference of the North American Chapter of the Association for
+Computational Linguistics: Human Language Technologies,
+4171–4186.
+Dosovitskiy, A.; Beyer, L.; Kolesnikov, A.; Weissenborn,
+D.; Zhai, X.; Unterthiner, T.; Dehghani, M.; Minderer, M.;
+Heigold, G.; Gelly, S.; Uszkoreit, J.; and Houlsby, N. 2021.
+An Image is Worth 16x16 Words: Transformers for Image
+Recognition at Scale. In International Conference on Learn-
+ing Representations.
+Du, Y.; Li, C.; Guo, R.; Yin, X.; Liu, W.; Zhou, J.; Bai, Y.;
+Yu, Z.; Yang, Y.; Dang, Q.; and Wang, H. 2020. PP-OCR:
+A Practical Ultra Lightweight OCR System. arXiv preprint
+arXiv:2009.09941.
+Guo, D.; Yang, D.; Zhang, H.; Song, J.; Wang, P.; Zhu, Q.;
+Xu, R.; Zhang, R.; Ma, S.; Bi, X.; Zhang, X.; Yu, X.; Wu, Y.;
+et al. 2025. DeepSeek-R1 Incentivizes Reasoning in LLMs
+through Reinforcement Learning. Nature, 645(8081): 633–
+638.
+Hong, R.; Lang, J.; Xu, J.; Cheng, Z.; Zhong, T.; and Zhou,
+F. 2025. Following Clues, Approaching the Truth: Explain-
+able Micro-Video Rumor Detection via Chain-of-Thought
+Reasoning. In Proceedings of the ACM on Web Conference
+2025, 4684–4698.
+Kimi Team; Bai, T.; et al. 2026. Kimi K2.5: Visual Agentic
+Intelligence. arXiv preprint arXiv:2602.02276.
+Lang, J.; Hong, R.; Zhong, T.; Wang, Y.; and Zhou, F. 2026.
+Nip Rumors in the Bud: Retrieval-Guided Topic-Level Adap-
+tation for Test-Time Fake News Video Detection. In Proceed-
+ings of the 32nd ACM SIGKDD Conference on Knowledge
+Discovery and Data Mining, 600–611.
+Lazer, D. M. J.; Baum, M. A.; Benkler, Y.; Berinsky, A. J.;
+Greenhill, K. M.; Menczer, F.; Metzger, M. J.; Nyhan, B.;
+Pennycook, G.; Rothschild, D.; Schudson, M.; Sloman, S. A.;
+Sunstein, C. R.; Thorson, E. A.; Watts, D. J.; and Zittrain,
+J. L. 2018. The science of fake news. Science, 359(6380):
+1094–1096.
+Li, M.; Zhang, Y.; Xu, H.; Li, X.; Gao, C.; and Wang, Z.
+2025. Learning Complex Heterogeneous Multimodal Fake
+News via Social Latent Network Inference. In Proceedings
+of the AAAI Conference on Artificial Intelligence, volume 39,
+433–441.
+Li, Z.; Yu, H.; Jiang, H.; Sheng, Q.; Xu, Y.; Bi, B.; Li, Y.;
+Yuan, Z.; Cai, Y.; and Wang, Z. 2026. FactGuard: Agentic
+Video Misinformation Detection via Reinforcement Learn-
+ing. arXiv:2602.22963.
+Liu, F.; Yacoob, Y.; and Shrivastava, A. 2023. COVID-VTS:
+Fact Extraction and Verification on Short Video Platforms. In
+Proceedings of the 17th Conference of the European Chapter
+of the Association for Computational Linguistics, 178–188.
+OpenAI. 2024a. GPT-4o mini: advancing cost-efficient intel-
+ligence.
+https://openai.com/index/gpt-4o-mini-advancing-
+cost-efficient-intelligence/. Official release post, accessed
+2026-07-05.
+OpenAI. 2024b. GPT-4o System Card. arXiv:2410.21276.
+OpenAI. 2025. Introducing GPT-4.1 in the API. https://
+openai.com/index/gpt-4-1/. Official release post, accessed
+2026-07-05.
+OpenAI. 2026. Introducing GPT-5.5. https://openai.com/
+index/introducing-gpt-5-5/. Accessed: 2026-07-09.
+Oquab, M.; Darcet, T.; Moutakanni, T.; Vo, H.; Szafraniec,
+M.; Khalidov, V.; Fernandez, P.; Haziza, D.; Massa, F.; El-
+Nouby, A.; Assran, M.; Ballas, N.; Galuba, W.; Howes, R.;
+Huang, P.-Y.; Li, S.-W.; Misra, I.; Rabbat, M.; Sharma, V.;
+Synnaeve, G.; Xu, H.; Jégou, H.; Mairal, J.; Labatut, P.;
+Joulin, A.; and Bojanowski, P. 2024. DINOv2: Learning
+Robust Visual Features without Supervision. Transactions
+on Machine Learning Research.
+Qi, P.; Bu, Y.; Cao, J.; Ji, W.; Shui, R.; Xiao, J.; Wang, D.;
+and Chua, T.-S. 2023a. FakeSV: A Multimodal Benchmark
+with Rich Social Context for Fake News Detection on Short
+Video Platforms. In Proceedings of the AAAI Conference on
+Artificial Intelligence, volume 37, 14444–14452.
+Qi, P.; Zhao, Y.; Shen, Y.; Ji, W.; Cao, J.; and Chua, T.-S.
+2023b. Two Heads Are Better Than One: Improving Fake
+News Video Detection by Correlating with Neighbors. In
+Findings of the Association for Computational Linguistics:
+ACL 2023, 11947–11959.
+Qwen Team. 2024. QVQ: To See the World with Wisdom.
+Accessed: 2026-07-13.
+Radford, A.; Kim, J. W.; Xu, T.; Brockman, G.; McLeavey,
+C.; and Sutskever, I. 2023.
+Robust Speech Recognition
+via Large-Scale Weak Supervision. In Proceedings of the
+40th International Conference on Machine Learning, vol-
+ume 202 of Proceedings of Machine Learning Research,
+28492–28518. PMLR.
+Shang, L.; Kou, Z.; Zhang, Y.; and Wang, D. 2021. A Multi-
+modal Misinformation Detector for COVID-19 Short Videos
+on TikTok. In 2021 IEEE International Conference on Big
+Data, 899–908.
+Souček, T.; and Lokoč, J. 2020. TransNet V2: An Effective
+Deep Network Architecture for Fast Shot Transition Detec-
+tion. arXiv preprint arXiv:2008.04838.
+Thorne, J.; Vlachos, A.; Christodoulopoulos, C.; and Mittal,
+A. 2018. FEVER: A Large-scale Dataset for Fact Extrac-
+tion and VERification. In Proceedings of the 2018 Confer-
+ence of the North American Chapter of the Association for
+Computational Linguistics: Human Language Technologies,
+809–819.
+Venkatagiri, S.; Schafer, J. S.; and Prochaska, S. 2023. The
+Challenges of Studying Misinformation on Video-Sharing
+Platforms During Crises and Mass-Convergence Events.
+arXiv:2303.14309.
+Wang, J.; Liu, J.; Zhang, N.; and Wang, Y. 2025a.
+Consistency-Aware Fake Videos Detection on Short Video
+Platforms. In Advanced Intelligent Computing Technology
+and Applications, volume 15859 of Lecture Notes in Com-
+puter Science, 200–210. Springer, Singapore. ICIC 2025.
+Wang, J.; Wang, Y.; Cheng, L.; and Zhong, Z. 2025b.
+FakeSV-VLM: Taming VLM for Detecting Fake Short-
+Video News via Progressive Mixture-of-Experts Adapter. In
+Findings of the Association for Computational Linguistics:
+EMNLP 2025, 4782–4798.
+Wang, W.; Chen, Z.; Wang, W.; Cao, Y.; Liu, Y.; Gao, Z.;
+Zhu, J.; Zhu, X.; Lu, L.; Qiao, Y.; and Dai, J. 2024. Enhanc-
+ing the Reasoning Ability of Multimodal Large Language
+Models via Mixed Preference Optimization. arXiv preprint
+arXiv:2411.10442.
+Wang, Y.; Yang, Y.; and Zhang, H. 2026. CSI: An Investiga-
+tive Multi-Agent Framework for Explainable Short Video
+Fake News Detection. In Findings of the Association for
+Computational Linguistics: ACL 2026, 25508–25528.
+Wu, Z.; Xiong, C.; Ma, C.-Y.; Socher, R.; and Davis, L. S.
+2019. AdaFrame: Adaptive Frame Selection for Fast Video
+Recognition. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition (CVPR).
+Yao, S.; Zhao, J.; Yu, D.; Du, N.; Shafran, I.; Narasimhan,
+K.; and Cao, Y. 2023. ReAct: Synergizing Reasoning and
+Acting in Language Models. In The Eleventh International
+Conference on Learning Representations.
+Zhang, F.; Li, D.; Zhang, Q.; Chen, J.; Liu, G.; Lin, J.; Yan,
+J.; Liu, J.; and Zha, Z.-J. 2025. Fact-R1: Towards Explain-
+able Video Misinformation Detection with Deep Reasoning.
+In Advances in Neural Information Processing Systems, vol-
+ume 38.
+Zhang, H.; Zhang, R.; Guo, J.; de Rijke, M.; Fan, Y.; and
+Cheng, X. 2023. From Relevance to Utility: Evidence Re-
+trieval with Feedback for Fact Verification. In Findings of the
+Association for Computational Linguistics: EMNLP 2023,
+6373–6384.
+Zheng, X.; Zeng, Z.; Wang, H.; Bai, Y.; Liu, Y.; and Luo, M.
+2025. From Predictions to Analyses: Rationale-Augmented
+Fake News Detection with Large Vision-Language Models.
+In Proceedings of the ACM on Web Conference 2025, 5364–
+5375.
+Table 4: Dataset statistics used in our experiments. FakeSV
+and FakeTT are chronologically split into training, validation,
+and test sets with an approximately 70%/15%/15% ratio.
+FakeVV contains 102,000 video–text pairs in its official split;
+only its balanced test set of 2,000 query samples, associated
+with 997 unique source videos, is used for out-of-domain
+evaluation. F/R denotes the numbers of fake and real samples,
+respectively.
+Dataset
+Total
+Overall F/R
+Train
+Val.
+Test
+Test F/R
+FakeSV
+3,624
+1,810/1,814
+2,536
+546
+542
+304/238
+FakeTT
+1,991
+1,172/819
+1,393
+299
+299
+200/99
+FakeVV
+102,000
+51,000/51,000
+100,000
+–
+2,000
+1,000/1,000
+Dataset Splits and Statistics
+Table 4 summarizes the datasets used in our experiments.
+FakeSV and FakeTT are chronologically partitioned into
+training, validation, and test sets, while FakeVV is used only
+for out-of-domain evaluation with its balanced official test
+set. The class distributions of fake and real samples are also
+reported for completeness.
+Evidence Space Construction: Implementation
+Details
+Shot detection and slot refinement.
+Shot boundaries
+are detected with TransNetV2 (Souček and Lokoč 2020).
+Duration-based refinement then proceeds in two passes. First,
+shots shorter than 0.8 s are merged into the temporally shorter
+of their two neighbors. Second, shots longer than 6 s are
+subdivided using motion-equalized splitting based on frame
+differences, with uniform-duration splitting used when mo-
+tion estimates are unavailable. Depending on duration, a long
+shot is divided into two segments up to 12 s, three segments
+up to 18 s, and four segments beyond 18 s.
+If the number of refined slots still exceeds Nmax = 10,
+we iteratively merge the adjacent pair with the lowest motion
+density, defined as the combined frame-difference motion
+divided by the combined duration. This preferentially merges
+low-information static segments while preserving short but
+dynamic slots. When per-frame motion cannot be computed,
+the shortest adjacent pair is merged instead.
+OCR channel.
+On-screen text is extracted with Pad-
+dleOCR (Du et al. 2020) at 2 FPS, using a minimum box
+duration of 0.5 s and a minimum area ratio of 1.5%. Dedu-
+plicated OCR items within each slot are ranked by
+imp = 0.25 ˆd + 0.30ˆa + 0.20c + 0.15ˆs + 0.10ˆℓ,
+where ˆd = min(d/5 s, 1), ˆa = min(a/0.1, 1), c is the mean
+OCR confidence, ˆs is the temporal-stability score of the text
+box across consecutive detections, and ˆℓ= min(ℓ/20, 1) for
+character length ℓ. The OCR channel exposes the dedupli-
+cated text items in descending importance order.
+ASR channel.
+Full-video transcripts are produced by
+Whisper large-v3 (Radford et al. 2023) with word-level
+timestamps. Each transcript segment is matched to a slot
+using a 1-s context-extended window [tstart −1, tend + 1].
+A segment is designated primary when its midpoint lies
+within [tstart, tend] and boundary when it overlaps only the
+extended window. The ASR channel exposes only the con-
+catenated primary text, assigning each segment to exactly
+one slot; boundary context is retained as metadata but is not
+shown to the agent.
+Visual channels: CTX and KEY.
+Candidate frames are
+encoded with DINOv2 ViT-S/14 (Oquab et al. 2024) using
+the 384-dimensional, ℓ2-normalized CLS token, such that co-
+sine similarity reduces to a dot product. CTX contains three
+representative frames: the slot is divided into three equal-
+duration bins, and one frame per bin is selected by jointly
+considering sharpness, measured by Laplacian variance, and
+dissimilarity to previously selected CTX frames.
+KEY contains up to two complementary frames:
+• key_diff is the candidate with the lowest maximum
+cosine similarity to the three CTX frames, with sharpness
+used as a tie-breaker. If all candidates have similarity
+above 0.97, the least-similar candidate is retained as a
+fallback.
+• key_ocr is the sharpest frame within the temporal win-
+dow of the OCR item with the highest imp score.
+If key_diff and key_ocr coincide, or if one is unavail-
+able, KEY contains a single frame.
+Coverage matrix and legal actions.
+The coverage matrix
+Ct ∈{−, x, v}|S|×|M| is initialized to x for non-empty chan-
+nels and −otherwise; v denotes a read channel. Let nimg
+t
+be
+the number of accumulated CTX/KEY images and κi,m the
+images returned by a READ, with κi,m = 0 for OCR and
+ASR. With Bimg = 24, the legal read set is
+Aread
+t
+=
+n
+READ(slotsid, {channel})
+
+Ct(sid,channel)=x, bread
+t
+>0,
+nimg
+t
++κsid,channel≤Bimg
+o
+.
+The visual READs excluded by this constraint are explicitly
+listed in <budget_state> for the agent. Each legal READ
+consumes one unit of the overall read budget and changes its
+coverage status from x to v. Repeated, unavailable, or mal-
+formed actions immediately terminate the current acquisition
+rollout, are excluded from the evidence package, and receive
+the behavioral penalty used during reinforcement learning.
+Training and Optimization Details
+Reward Design Details
+The trajectory reward combines verification outcome, evi-
+dence coverage, and interaction cost. Let s(τ) denote the
+terminal status of trajectory τ. As introduced in the main
+text, the reward is
+¯R(τ) = B(s) + 0.80 I[s = correct]Q(τ) −P(s, τ),
+R(τ) = clip
+  ¯R(τ), −1.2, 1.0
+
+.
+(13)
+Verification outcome.
+The base reward depends on the
+terminal verification outcome:
+B(s) =
+
+
+
+
+
+
+
+0.20,
+s = correct,
+−1.00,
+s = incorrect,
+−1.00,
+s = no valid evidence,
+−1.00,
+s = malformed.
+(14)
+Here, no valid evidence denotes termination without any
+legally acquired evidence, while malformed denotes a termi-
+nal Verifier output that cannot be parsed into a valid binary
+prediction.
+Evidence coverage.
+For a correct trajectory, the evidence-
+coverage score is
+Q(τ) = 0.45qtext + 0.25qvis + 0.20qdiv + 0.10qvol,
+qtext = clip
+nnovel
+180 , 0, 1
+
+,
+qvis = clip
+
+max
+nv
+2 , nimg
+4
+
+, 0, 1
+
+,
+qdiv = clip
+
+0.5nslot
+2
++ 0.5nch
+2 , 0, 1
+
+,
+qvol = clip
+nr
+3 , 0, 1
+
+.
+(15)
+Here, nnovel is the number of OCR or ASR characters not
+already present in the initial claim context; nv and nimg
+denote the numbers of visual reads and acquired images; nslot
+and nch denote the numbers of distinct slots and evidence
+channels covered; and nr is the number of valid reads. The
+coverage bonus is applied only to correct trajectories and
+discourages premature stopping.
+Interaction penalties.
+We define the efficiency, behav-
+ioral, and forced-termination penalties as
+Peff = min (0.15, 0.01nr + 0.005nv) ,
+Pbeh = min (0.30, 0.15ninv) + min (0.20, 0.08nrep) ,
+Pstop = 0.03 I[forced termination at budget exhaustion],
+(16)
+where ninv counts unavailable or malformed actions, exclud-
+ing repeated reads, while nrep counts repeated read attempts.
+The two action categories are mutually exclusive.
+The branch-dependent penalty is
+P(s, τ) =
+
+
+
+
+
+
+
+Peff + Pbeh + Pstop,
+s = correct,
+Pbeh,
+s = incorrect,
+min(0.30, 0.15ninv),
+s = no valid evidence,
+0,
+s = malformed.
+(17)
+This design makes terminal correctness the primary re-
+ward signal. Correct trajectories receive additional credit for
+acquiring complementary textual and visual evidence, while
+excessive reads, repeated actions, invalid actions, and budget-
+exhausted termination are discouraged. All final rewards are
+clipped to [−1.2, 1.0] for stable policy optimization.
+GRPO Optimization Details
+For completeness, we provide the sampled-token KL esti-
+mator supported by the GRPO implementation. Let u(j)
+t,ℓ=
+(o(j)
+t , z(j)
+t,<ℓ). We define
+∆(j)
+t,ℓ= log πθ
+
+z(j)
+t,ℓ| u(j)
+t,ℓ
+
+−log πref
+
+z(j)
+t,ℓ| u(j)
+t,ℓ
+
+,
+bD(j,t,ℓ)
+KL
+= exp
+
+−∆(j)
+t,ℓ
+
++ ∆(j)
+t,ℓ−1.
+(18)
+Here, πref is the fixed reference policy. In our formal runs the
+KL penalty is disabled (β = 0, i.e. disable_kl=true,
+kl_coef=0.0); we retain the estimator above for com-
+pleteness since it is the framework’s default mechanism and
+may be enabled in future ablations.
+The policy-ratio clipping range follows the asymmetric
+PPO/DAPO convention:
+ϵlow
+clip = 0.20,
+ϵhigh
+clip = 0.30,
+Cdual = 3.0,
+(19)
+where Cdual is the dual-clip constant applied when the advan-
+tage is strongly negative. The advantage estimator is GRPO
+(group-relative, no value network): for a group of n = 8 roll-
+outs sharing a prompt, ˆA(j) = (R(j) −mean(R))/std(R).
+Online rollout filtering.
+Before computing advantages, we
+discard low-information groups using a hybrid criterion oper-
+ating on three per-rollout reward-manager outputs: the over-
+all reward R(j), the binary correctness a(j) ∈{0, 1}, and
+the evidence-quality score q(j) = Q(τ (j)) (as defined in
+Eq. 15). For a group g of rollouts sharing a prompt, define
+the correctness-contrast indicator
+mixed(g) = I
+
+max
+j
+a(j) > 0
+
+∧I
+
+min
+j
+a(j) ≤0
+
+,
+(20)
+i.e. whether the group contains both correct and incorrect
+trajectories, and the reward-spread indicator
+spread(g) = I
+
+max
+j
+R(j) −min
+j
+R(j) ≥ρrange
+
+∨I
+h
+stdj
+
+R(j)
+≥ρstd
+i
+,
+(21)
+i.e. whether the group’s overall-reward values are sufficiently
+dispersed, with ρrange = 0.04 and ρstd = 0.015. Writing
+j⋆= arg maxj R(j) for the top-scoring rollout in the group,
+define the all-correct admissibility indicator
+good(g) = I
+
+min
+j
+a(j) > 0
+
+∧spread(g)
+∧I
+h
+q(j⋆) ≥τevi
+i
+∧I
+
+max
+j
+R(j) > 0.01
+
+∧I
+
+min
+j
+R(j) < 0.99
+
+,
+(22)
+with evidence floor τevi = 0.40. A group is kept iff
+keep(g) = mixed(g) ∨good(g).
+(23)
+That is, groups with a correctness contrast are always kept
+regardless of reward dispersion; all-correct groups are kept
+only if their top-scoring trajectory has adequate evidence
+support and the group is not reward-degenerate; all-incorrect
+groups are always discarded, so that an unresolved or wrong-
+verifier outcome is never learned as a relative improvement
+over another wrong outcome.
+Teacher decoding.
+Teacher trajectories for SFT super-
+vision are sampled at two fixed decoding temperatures,
+T ∈{0.2, 0.7}, with one trajectory generated per (video,
+temperature) pair; the two temperature pools are merged and
+deduplicated before SFT data construction.
+LoRA configuration.
+Both the Agent and the Verifier use
+LoRA with rank r = 32, scaling α = 64, and dropout 0.05
+during both the SFT and RL stages. The RL stage is initialized
+from the SFT adapter and retains a dropout value of 0.05.
+LoRA is applied to q_proj, k_proj, v_proj, o_proj,
+gate_proj, up_proj, and down_proj. The RL actor’s
+LoRA adapter is initialized from the Agent SFT checkpoint
+specified by init_lora_path, while the Verifier’s LoRA
+adapter remains frozen throughout RL.
+Optimizer.
+The RL actor is optimized with AdamW, learn-
+ing rate 5 × 10−7, weight decay 10−2, and no warmup
+(lr_warmup_ratio=0.0). Agent/Verifier SFT instead
+uses learning rate 10−4 with a cosine schedule and a 3%
+linear warmup. Rollout uses temperature 1.0, top-p 1.0,
+group size n = 8 during training, and temperature 0.7/top-p
+0.9/n = 1 for validation.
+Reward Ablation Study
+Table 5 examines how different reward components affect
+verification performance and evidence-acquisition efficiency.
+Using only the terminal outcome provides limited gains over
+SFT, indicating that correctness supervision alone is insuffi-
+cient to learn an effective evidence-seeking policy. Removing
+the coverage reward reduces the average number of reads to
+6.94 on FakeSV and 7.03 on FakeTT, but consistently de-
+grades ACC and Macro-F1. It also lowers Real-class recall
+relative to the full reward, suggesting that coverage guid-
+ance helps prevent premature stopping when no single de-
+cisive contradiction is available. In contrast, removing inter-
+action penalties substantially increases the average number
+of reads to 10.84 and 11.21, while still underperforming the
+full model. This shows that unrestricted evidence acquisition
+introduces redundant or less informative observations rather
+than reliably improving verification. The complete reward
+achieves the best ACC and Macro-F1 on both datasets with
+fewer than eight reads on average. Although some ablations
+obtain higher Real-class recall on FakeTT, their lower bal-
+anced metrics indicate a class-specific trade-off rather than
+superior overall verification. Overall, the coverage reward
+and interaction penalties play complementary roles: the for-
+mer encourages sufficient evidence acquisition, whereas the
+latter discourages unnecessary exploration, jointly producing
+a more accurate and efficient policy.
+Prompts
+The Teacher prompt consists of a system prompt and a user
+prompt, shown in Figures 5 and 6, respectively. The system
+prompt provides the ground-truth label as privileged guid-
+ance for evidence acquisition and stopping. Specifically, for
+Fake claims, the Teacher is encouraged to stop once decisive
+falsifying evidence is found, whereas for Real claims, it is
+Table 5: Reward-component ablation on FakeSV and FakeTT.
+R-Rec denotes recall for the Real class.
+Dataset
+Setting
+ACC ↑
+M-F1 ↑
+R-Rec. ↑
+Avg. Reads ↓
+FakeSV
+SFT only
+91.51
+91.13
+80.67
+8.34
+Outcome only
+91.51
+91.19
+82.35
+8.62
+w/o coverage
+91.88
+91.60
+83.61
+6.94
+w/o penalties
+92.25
+92.01
+85.29
+10.84
+Full
+92.62
+92.41
+86.55
+7.76
+FakeTT
+SFT only
+89.97
+89.13
+93.94
+8.51
+Outcome only
+90.30
+89.43
+92.93
+8.78
+w/o coverage
+90.64
+89.63
+89.90
+7.03
+w/o penalties
+91.30
+90.37
+90.91
+11.21
+Full
+91.64
+90.72
+90.91
+7.89
+encouraged to gather broader supporting evidence. The user
+prompt specifies the claim and the interaction format.
+The Agent uses the same user prompt as the Teacher but
+a different system prompt that removes only ground-truth
+label information and label-dependent stopping guidance;
+all action-legality and budget rules remain unchanged. It
+must therefore determine its search strategy and stopping
+point solely from the claim and the evidence acquired during
+interaction. Finally, the Verifier predicts the claim label based
+on the claim and the collected evidence, using the prompt
+shown in Figure 7.
+Teacher Trajectory Generation System Prompt
+You are an evidence-collection agent for video rumor verification. Your job is to decide either WHICH (slot, 
+channel) to READ next, or to STOP when the collected evidence is ready for a separate Verifier model to 
+judge whether the depicted event is real or fake. You do NOT output a verdict.
+# Inputs you receive
+- `<description>`: the user-posted caption/title at upload time.
+- `<overview>` (turn 1 only): per-slot thumbnails with channel availability flags `[OCR+ ASR+ CTX+ 
+KEY+]` ('+' = has content, '-' = empty).
+- `<read_history>` + `<slot_memory>` + `<coverage>` (turn 2+).
+  `<coverage>` records channel availability and read status.
+- `<budget_state>` reports the remaining overall READ budget, the accumulated
+  number of CTX/KEY images, and any visual READs blocked by the 24-image cap.
+  A READ is legal only if its `<coverage>` entry is `x`, the remaining READ
+  budget is positive, and, for CTX/KEY, it is not listed as blocked in
+  `<budget_state>`. `<budget_state>` overrides `<coverage>` for visual READs.
+# The four channels
+- OCR : on-screen text recognised in this slot's frames.
+- ASR : speech transcript covering this slot's time range.
+- CTX : ~3 context frames spanning the slot's start→end (use to understand the SCENE and how it changes 
+through the slot).
+- KEY : 1–2 key frames — `key_diff` is the visually most-distinct frame in the slot, `key_ocr`  is the 
+sharpest frame within the temporal span of the highest-ranked OCR item.Use KEY to inspect close-ups, 
+watermarks, captions, lower-thirds, and other rumor-relevant details that CTX would smooth over.
+# Your output, every turn (strict — one action per turn)
+1. After a successful READ, write a short factual note about the
+   (slot, channel) of the READ in the PREVIOUS turn:
+       <memory_update>slot_id=N: ≤25 words paraphrasing what the channel literally 
+showed</memory_update>
+   Rules for memory_update:
+   - The slot_id MUST match the slot of your most recent successful READ.
+   - DO NOT write conclusions about truth, in any phrasing or language. State only what the channel literally 
+shows or says. Never state or imply whether the overall event/claim is real, fake, a rumor, or debunked — 
+that judgment belongs to the Verifier, made only after you STOP.
+   - Skipping memory_update is allowed only on the first assistant turn.
+2. exactly ONE action:
+       <action>READ(slot_id=N, channel=OCR|ASR|CTX|KEY)</action>
+   or:
+       <action>STOP</action>
+   Legal (slot, channel) pairs this turn:
+   - Turn 1: any (slot_id, channel) where <overview> shows channel+.
+   - Turn 2+: any (slot_id, channel) where <coverage> shows chnx
+     (has content, not yet read). chnv = already read, chn- = no content.
+   Use STOP when evidence already collected is enough to hand off to the Verifier. STOP must not include 
+"Fake", "Real", "true", "false", or any explanation.
+# Hard constraints (output discarded if violated)
+- No <answer>, <verdict>, <rationale>, <think>, or any other tag.
+- No prose outside of <memory_update> and <action>.
+- No truth/verdict words anywhere.
+# Visual evidence (CTX / KEY channels)
+After a successful CTX or KEY READ, the new frames are attached as images at the END of the 
+immediately preceding user message. Previously READ frames also remain visible inline in earlier user 
+messages. When your most recent READ was CTX or KEY, your <memory_update> MUST describe what 
+you literally see — concrete objects, on-screen text, watermarks, scene layout, people, etc. NEVER write 
+"unavailable" / "not visible" / "cannot see".
+# Reading <slot_memory>
+<slot_memory> accumulates your past notes, grouped per slot and channel, e.g.:
+    Slot 2:  OCR: ()  ASR: ()  CTX: ()  KEY: ()
+Use it to decide which (slot, channel) is still worth opening next.
+{IF GT == Fake} internal hint: this clip is suspected fake. Search for a concrete falsifier: explicit debunk 
+text, time/place contradiction, source mismatch, recycled/staged visual evidence, or authoritative refutation. 
+Once such falsifying evidence is found, output STOP; do not keep reading just to satisfy a fixed number of 
+steps. If no falsifier has surfaced, keep READing high-value evidence. Do NOT output any verdict — the 
+verifier judges later.
+{IF GT == Real} internal hint: this clip is suspected real. Explore evidence until additional READs are 
+unlikely to change the verifier's judgment: the main event is consistently supported across the useful 
+available text/audio/visual evidence, and the remaining unread cells look redundant or low-value rather than 
+likely counter-evidence. Do not STOP merely because a fixed step count or fixed slot count was reached. Do 
+NOT output any verdict — the verifier judges later.
+Figure 5: System prompt for Teacher trajectory generation.
+Teacher Trajectory Generation User Prompt
+<description>the content of description</description>
+<overview>{overview}</overview> (only shown in first turn)
+<slot_memory>
+Slot {sid}:
+  {channel}: {the description of the evidence}
+  ...
+</slot_memory>
+<read_history>
+step_{n}: READ(slot_{sid}, {channel}) -> "{textual content}"
+step_{n}: READ(slot_{sid}, {channel}) -> frames {frame_ids} 
+attached as images in user turns (describe what you literally see in 
+<memory_update>; NEVER write 'unavailable')
+...
+</read_history>
+<coverage>
+slot_{sid}: OCR{v/x/-} ASR{v/x/-} CTX{v/x/-} KEY{v/x/-}
+...
+</coverage>
+<budget_state>{budget_state}</budget_state>
+Figure 6: User prompt for Teacher trajectory generation.
+Verifier prompt
+You are a rumor-verification truth judge. You are given 
+the posted CONTENT (caption text accompanying a video) 
+and the RAW evidence items already collected from that 
+video: OCR text, ASR text, CTX context frames, and 
+KEY close-up frames as images.
+The evidence-acquisition process has ended. Your only 
+task is to judge the claim from the provided evidence:
+- Fake: the evidence supports that the claim is false or 
+misleading.
+- Real: the evidence supports that the claim is true.
+Judge only from the posted CONTENT and the provided 
+OCR text, ASR text, and attached images. Do not infer 
+from video id, collection progress, trajectory progress, 
+unread evidence, or how many items were collected.
+Respond with exactly one word: Fake or Real.
+Do not output any other text.
+Figure 7: Verifier prompt.

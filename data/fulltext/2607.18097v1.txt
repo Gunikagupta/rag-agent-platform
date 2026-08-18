@@ -1,0 +1,1774 @@
+SuperPass: Fast-Tracking Blocking Threads
+to Mitigate Priority Inversion on Mobile Devices
+Lei Li
+City University of Hong Kong
+Hong Kong, China
+Yu Liang
+Inria Paris
+Paris, France
+Riwei Pan
+City University of Hong Kong
+Hong Kong, China
+Youcheng Sun
+MBZUAI
+Abu Dhabi, United Arab Emirates
+Nan Guan
+City University of Hong Kong
+Hong Kong, China
+Tei-Wei Kuo
+Delta Electronics & National Taiwan
+University
+Taipei, Taiwan
+Chun Jason Xue
+MBZUAI
+Abu Dhabi, United Arab Emirates
+Abstract
+Priority inversion occurs when a high-priority thread is de-
+layed by a lower-priority one. Although well studied in real-
+time systems, its impact in general-purpose OSes (e.g., An-
+droid) remains underexplored. On Android, we find that
+priority inversions happen frequently and can delay latency-
+critical threads, degrading user experience. For example, the
+foreground app’s UI thread is frequently blocked by low-
+priority threads, with blocking durations of up to 210 ms,
+enough to cause dropped frames. Existing solutions designed
+for real-time systems fail to eliminate long priority-inversion
+blockings on latency-critical threads and may introduce high
+overhead on Android.
+To solve this problem, we uncover two insights on An-
+droid: 1) long blockings are mainly due to the accumulated
+CPU waiting time of low-priority blocking threads rather
+than their critical-section latency; and 2) although latency-
+critical threads can be blocked by many concurrent readers,
+tracking a limited number of them is sufficient to achieve
+good responsiveness with low overhead in most cases. Guided
+by these insights, we propose SuperPass, a lightweight ker-
+nel mechanism that mitigates priority inversion by fast-track
+scheduling of low-priority threads blocking latency-critical
+threads. It introduces a scheduler fast track that grants imme-
+diate CPU access to threads blocking latency-critical threads,
+and employs a lock-level detector that effectively identifies
+most such blocking threads.
+We evaluate SuperPass on a Google Pixel 8 smartphone.
+Taking UI thread as a case study, SuperPass decreases the
+99.9th-percentile blocking duration by 72.0% and blocking
+count by 47.7% on average compared to the default sched-
+uler, and reduces janky frames by 29.2% with a system-wide
+CPU overhead of only 0.74%. SuperPass also outperforms
+existing approaches including priority inheritance, real-time
+UI promotion, and Proxy Execution.
+1
+Introduction
+The priority inversion problem occurs when a higher-priority
+thread is blocked by a lower-priority thread for a potentially
+unbounded period [15, 34, 35, 39, 41]. This issue typically
+arises when using synchronization primitives such as mu-
+texes, seqlocks, and semaphores. It is a critical and intolerable
+problem in real-time systems because these systems must
+meet specific deadlines [20, 42]. However, the prevalence and
+severity of priority inversion problems in general-purpose
+OSes such as Android remain largely unknown.
+Priority inversion is prevalent and severe on Android.
+To fill this gap, we first quantify priority inversions on mul-
+tiple Android smartphones. Our measurements show that
+the priority inversion problem on latency-critical threads
+occurs commonly. As the number and complexity of applica-
+tions continue to grow, the problem becomes more severe.
+This indicates that mitigating priority inversion in general-
+purpose OSes (e.g., Android) is necessary and urgent. In
+this paper, we use the foreground app’s UI thread as a case
+study of latency-critical threads. Its prolonged latency, miss-
+ing the frame-rending deadline, could induce user-visible
+frame drops and negatively affect user experience [4, 5].
+Figure 1 shows that priority inversions on UI thread occur
+frequently and can last up to 210 ms. On a 120 Hz display, a
+210 ms blocking interval corresponds to at least 20% frame
+loss within one second. The problem also appears in other
+latency-critical threads (e.g., input dispatch, sensor process-
+ing, camera pipeline control, and XR/AR tracking) because
+these threads can also be blocked by low-priority threads.
+Existing solutions are ineffective on Android. Exist-
+ing solutions for priority inversion in real-time systems in-
+clude priority ceiling protocol (PCP) and priority inheritance
+(PI) [16, 21, 22, 26, 40, 41, 44]. PCP requires prior knowl-
+edge of all tasks and their priorities, which is impractical for
+dynamic Android workloads. PI temporarily boosts a lock
+holder’s priority to that of the blocked thread. However, we
+1
+arXiv:2607.18097v1  [cs.OS]  20 Jul 2026
+46
+25
+15
+14
+14
+52
+22
+7
+5
+23
+66
+11
+10
+6
+6
+43
+27
+18
+9
+10
+9
+14
+13
+4
+5
+19
+37
+7
+8
+6
+5
+0
+10
+20
+30
+40
+50
+60
+Tail Blocking 
+Duration (ms)
+P99.99 Blocking Duration (ms)
+P99.9 Blocking Duration (ms)
+210
+(a) The 99.9th and 99.99th percentile blocking durations caused
+by priority-inversion on UI thread.
+392
+300
+166
+120
+79
+128
+54
+34
+34
+41
+43
+39
+70
+42
+07
+2
+00
+1
+34
+14
+13
+37
+8
+11
+2
+2
+9
+8
+6
+6
+2
+6
+0
+100
+200
+300
+400
+Number of Priority 
+Inversion Blockings
+Number of Priority Inversion Blockings ( > 100 μs)
+Number of Priority Inversion Blockings ( > 1 ms)
+906
+702
+(b) The number of priority-inversion blockings exceeding 100 µs
+and 1 ms on UI thread (one-minute testing intervals).
+Figure 1. Priority inversion blockings on latency-critical
+threads (foreground UI thread as a case study). Priority in-
+versions can last long enough to cause frame drops.
+find that existing real-time solutions fail to eliminate long
+priority-inversion blockings on latency-critical threads and
+can incur high overhead on Android for two reasons. First,
+Android’s scheduler does not guarantee immediate CPU ac-
+cess after raising priority, so a boosted blocking thread may
+still wait behind other runnable threads. Second, PI is typi-
+cally applied to exclusive locks with a single holder, whereas
+latency-critical threads on Android are often blocked by
+multiple concurrent holders, making such boosting both in-
+effective and costly.
+Solving priority inversion on Android is non-trivial.
+Two challenges must be overcome. Accelerating blocking
+threads effectively: priority boosting alone is insufficient, and
+directly manipulating the scheduler’s ordering key risks in-
+terfering with real-time threads and starving unrelated work
+on resource-constrained mobile devices. Identifying block-
+ing threads efficiently: a single priority inversion can span
+multiple locks and threads through nested dependencies,
+and Android’s diverse lock types and vendor-specific call
+paths make per-lock instrumentation impractical. Moreover,
+a latency-critical thread may be blocked by up to 24 con-
+current readers, making full dependency tracking online
+prohibitively expensive on mobile devices.
+Key insights. We uncover two insights that help navigate
+these challenges. Insight 1: runnable delays dominate priority-
+inversion blockings. Long blockings are mainly due to accu-
+mulated CPU waiting time of low-priority blocking threads
+in the scheduler runqueue rather than their critical-section
+latency–at P99.9, the gap between runnable delay and critical-
+section latency reaches 1000X. This explains why PI-based
+solutions are ineffective, as raising a thread’s priority has
+limited impact on vruntime, the thread may still need to
+remain in the runqueue for a substantial amount of time.
+Insight 2: tracking a limited number of readers is sufficient.
+Although latency-critical threads can be blocked by many
+concurrent readers, tracking a limited number of them is
+sufficient to achieve good responsiveness with low overhead
+in most cases, since 98% of inversions involve fewer than 8
+concurrent readers in practice.
+SuperPass. Guided by these insights, we propose Super-
+Pass, a lightweight kernel mechanism that mitigates priority
+inversion by fast-track scheduling of low-priority threads
+blocking latency-critical threads. SuperPass comprises two
+co-designed components: a scheduler fast track and a lock-
+level detector. The fast track grants immediate CPU access to
+blocking threads by manipulating the scheduler’s ordering
+key, bypassing normal scheduling competition without inter-
+fering with real-time classes, and uses lightweight safeguards
+that bound the scope and duration of acceleration to limit
+impact on fairness. The lock-level detector efficiently iden-
+tifies most blocking threads without reconstructing full de-
+pendency graphs, covering both exclusive and shared locks,
+alongside an offline lock-identification module that elim-
+inates per-lock instrumentation by recording lightweight
+sleep fingerprints at a single scheduler hook point.
+Results. We evaluate SuperPass on a Google Pixel 8 smart-
+phone using a variety of commonly-used applications. Tak-
+ing the UI thread as a case study, the results show that Su-
+perPass decreases the 99.9th-percentile blocking duration
+by 72.0% and blocking count by 47.7% on average compared
+to the default scheduler, and reduces janky frames by 29.2%
+with a system-wide CPU overhead of only 0.74%. SuperPass
+also outperforms existing approaches, including priority in-
+heritance, real-time UI promotion, and Proxy Execution.
+Contributions. The contributions of this paper are as fol-
+lows:
+• We evaluate the prevalence and impact of long priority-
+inversion blockings on latency-critical threads on
+Android smartphones (§ 2);
+• We identify why existing solutions fail on general-
+purpose OSes (§ 2), and uncover two insights to en-
+able an efficient solution (§ 3);
+• We propose SuperPass, a low-overhead mechanism
+that efficiently identifies low-priority threads that
+blocks latency-critical threads and accelerates their
+execution through a novel fast-track scheduling strat-
+egy (§ 4);
+• We implement and evaluate SuperPass on a Google
+Pixel 8 (Linux 5.15, Android 14) and observe signif-
+icant reductions in blocking duration and dropped
+2
+frames in UI-thread instantiation compared to state-
+of-the-art solutions (§ 6).
+2
+Background and Motivation
+To study priority inversion on Android, we use the fore-
+ground UI thread as a representative latency-critical thread.
+It initiates frame production (input callbacks, layout, and
+draw command recording) under a per-frame deadline set
+by the display refresh rate (e.g., 8.3 ms at 120 Hz). Blocking
+on this thread can miss the deadline and cause janky frames
+(dropped or delayed frames with visible stutter) [4, 5].
+2.1
+Prevalence and Impact of Priority Inversions on
+Android
+We take the foreground UI thread as a case study to inves-
+tigate the prevalence and impact of priority inversion on
+Android. We evaluate the UI threads of 16 popular applica-
+tions on a Google Pixel 8. In each evaluation, we interact
+with one foreground app for one-minute interval, while 12
+apps run concurrently in the background. We repeat this pro-
+cess ten times per app and automate the interactions using
+adb shell input commands.
+Figure 1 shows that priority inversions occur frequently
+on UI threads across popular apps. Figure 1a presents the
+99.9th/99.99th percentile blocking durations with tail laten-
+cies up to ∼210 ms; Figure 1b shows that each app experi-
+ences priority inversions, with many exhibiting long tails
+well beyond the 8.3 ms frame budget at 120 Hz, implying
+dropped frames (Google Pixel 8 supports refresh rates up to
+120 Hz [2]). For example, Alipay reaches P99.99 ≈210 ms with
+∼906 inversions exceeding 100 µs and 207 inversion block-
+ings exceeding 1 ms per minute. Across apps, > 100 µs events
+occur in dozens to hundreds per run, and > 1 ms events often
+exceed 30. Overall, priority inversions are common and long
+enough to cause frame janks.
+Janky frames directly degrade user-perceived UI smooth-
+ness and responsiveness. We quantify how UI-thread priority
+inversions translate into janky frames under the same setup
+as Figure 1. For each one-minute run, we measure (i) the
+number of priority-inversion blockings on UI threads with
+blocking times exceeding 100 µs, and (ii) the number of janky
+frames that overlap with these blocking intervals (i.e., janky
+frames directly extended by priority inversions on UI thread
+). We run each app ten times and randomly show 6 runs per
+app for clarity. Figure 2 shows a clear relationship between
+them: runs with more UI-thread priority inversions tend to
+exhibit more janky frames, consistent across apps despite
+varying per-app correlation. Across runs, the correlation is
+strong (Pearson 𝑟= 0.79, Spearman 𝜌= 0.84).
+2.2
+Limitations of Existing Solutions
+Existing Solutions for Priority Inversions. In real-time
+systems, there are two types of classic existing solutions
+0
+200
+400
+600
+800
+1000
+Number of UI priority inversion blockings (>100 µs) per run
+0
+100
+200
+300
+Number of janky frames per run
+Alipay
+Taobao
+TikTok
+X
+Facebook
+Ctrip
+Instagram
+Amazon
+inShorts
+LinkedIn
+Threads
+Firefox
+Shein
+Weee
+Booking
+WaPost
+Least-squares fit
+95% bootstrap CI
+Figure 2. Priority inversions correlate with janky frames.
+Each point is one run. Points with the same marker and color
+correspond to the same app. The solid line is a least-squares
+fit with a 95% bootstrap confidence interval (shaded). Across
+runs, the correlation is strong (Pearson 𝑟= 0.79, Spearman
+𝜌= 0.84).
+for priority inversion: priority inheritance (PI) and priority
+ceiling protocol (PCP) [22, 26, 41]. PI temporarily raises a
+low-priority lock holder to the blocked thread’s priority until
+release, and to propagate this boost transitively across chains
+of blocking threads. PCP assigns each lock a ceiling equal to
+the highest priority of any task that may use it; a task that ac-
+quires the lock runs at this ceiling until release. PCP requires
+prior knowledge of all potential lock users and their prior-
+ities, which is impractical in dynamic Android workloads.
+Therefore, our evaluation focuses on PI. We optimize PI for
+the Linux read/write semaphore (rwsem), boosting only the
+priority of the writer holding the lock (writer holder).
+We also evaluate an intuitive baseline that treats the UI
+thread as a real-time thread (RT-UI). Android divides threads
+into two classes: real-time threads (priority 0–99) and nor-
+mal threads (priority 100–139). Real-time threads are sched-
+uled by the real-time scheduler, while normal threads are
+scheduled by CFS [18, 36]. Unlike real-time schedulers that
+always select the highest-priority task, CPU scheduler on
+Android (i.e., CFS) schedules threads based on virtual run-
+time (vruntime) rather than only priority to balance priority
+and fairness. RT-UI moves the UI thread from the normal
+(CFS) class into the real-time class, allowing it to preempt
+normal threads whenever it is runnable.
+All experiments in this section follow the same setup and
+procedure described in § 2.1. We first present experimental
+results that expose the limitations of PI and RT-UI, and then
+explain the two root causes of the limitations on Android.
+Limitations and Penalties of Existing Solutions. Figure 3
+shows P99.9 blocking duration of priority inversions on UI
+threads across 16 apps (for brevity, we show only P99.9 here;
+full results appear in § 6). The results show that although
+PI can reduce the P99.9 blocking duration by an average of
+15.6% across 16 apps, it leaves P99.9 blocking durations on
+some apps over 8.3 ms, causing janky frames. PI is ineffective
+on Android for two reasons. First, raising the priority of the
+low-priority blocking threads did not make UI thread to run
+3
+on CPU instantly. Second, to reduce overhead, PI is usually
+used for exclusive locks to raise the priority of one lock
+holder. However, latency-critical threads on Android are
+usually blocked by shared locks with multiple lock holders.
+Figure 3. P99.9 blocking duration of priority inversions on
+UI threads across 16 apps under Baseline, PI, and RT-UI. The
+red horizontal line at 8.3 ms marks the per-frame budget at
+120 Hz. A block duration exceeding this latency will miss the
+120 Hz deadline and result in a dropped frame (i.e., jank).
+While RT-UI benefits some apps, it degrades others. RT-
+UI promotes the UI thread to the real-time class, but it does
+not accelerate the low-priority blocking threads of UI thread,
+so the UI thread can remain blocked. It can even extend
+the priority-inversion blocking duration because it increases
+real-time scheduling pressure, which leaves less CPU time
+for CFS-scheduled blocking threads of UI thread to run and
+release the lock. Thus, existing approaches fail to consistently
+eliminate long priority-inversion blockings on UI threads.
+To show existing solutions’ impact on low-priority threads
+that do not block the UI thread (i.e., non-blocking threads),
+we measure the P99.9 CPU waiting time (i.e., time to be
+scheduled on the CPU) of non-blocking threads over each
+one-minute run. Figure 4 shows that PI increases this delay
+by 8.8%–88.1% (mean 32.6%) versus Baseline, while RT-UI
+increases it by 0.6%–28.4% (mean 13.7%). This means that
+both PI and RT-UI increase the waiting time of non-blocking
+threads for CPU access. PI raises the priority of low-priority
+threads whenever a priority inversion is detected. As a re-
+sult, many low-priority threads with raised priority compete
+for CPU time, which increases CPU waiting time of non-
+blocking threads. For RT-UI, promoting the UI thread to the
+real-time class allows it preempt normal threads more often,
+leaving less CPU time for normal-class non-blocking threads.
+0
+100
+200
+300
+400
+500
+600
+700
+ 
+ 
+ 
+P99.9 CPU Waiting Time of
+Non-Blocking
+ 
+Threads (ms)
+Baseline
+PI
+RT-UI
+Figure 4. P99.9 CPU waiting time for non-blocking low-
+priority threads across 16 apps under Baseline, PI, and RT-UI.
+In summary, existing approaches fail to consistently elim-
+inate long priority-inversion blockings on UI threads and
+may increase the CPU waiting time of non-blocking threads,
+thereby impacting fairness.
+3
+Insights and Analysis
+In this section, we first breakdown the long priority-inversion
+blocking duration of latency-critical threads to pinpoint
+the dominant contributor. We then analyze the shared lock,
+which is commonly used on Android to understand the dif-
+ficulty of tracking concurrent reader holders online. Based
+on this analysis, we uncover two insights that directly guide
+the design of SuperPass.
+3.1
+Accumulated Runnable Delays Dominate
+Priority Inversion Blockings
+To solve priority inversion problems, we break down the
+blocking duration of latency-critical threads to identify the
+dominant components.
+Blocking Breakdown. Figure 5(a) illustrates a represen-
+tative priority-inversion blocking breakdown involving a
+contended reader-writer lock (rwsem). At time 𝑇0, a latency-
+critical thread (top row) requests the lock and begins waiting.
+The lock is held by a set of low-priority reader holders and
+may also be delayed by queued waiters (e.g., a writer). The
+latency-critical thread can acquire the lock only after all cur-
+rent reader holders release it and any queued waiters ahead
+of it have completed and released the lock, at T1. For each
+blocking thread on the critical dependency chain, the time
+to reach lock release consists of (i) its on-CPU execution
+(running), (ii) time spent sleeping (e.g., waiting for I/O or
+another lock), and (iii) runnable delay after wakeups. We
+call a thread’s waiting time in CPU scheduler runqueue a
+runnable delay: the time from when a thread is enqueued on
+the runqueue to when it first runs on a CPU core. Figure 5(a)
+shows concurrent readers running on different CPU cores,
+so the latency-critical thread waits for the slowest reader. In
+the worst case, if multiple readers are serialized on one core,
+their delays can accumulate and further extend the blocking
+duration.
+Quantifying runnable-delay accumulation and critical-
+section latency. Profiling 16 popular apps under a realistic
+load (one foreground app with 12 background apps for one
+minute), we quantify both runnable delays and the lock-
+holding critical-section latency, and show how runnable
+delays accumulate along the critical path. First, a single
+runnable delay often reaches the millisecond scale, frequently
+exceeds 50 ms, and has P99.9 up to 183 ms (Figure 6). In con-
+trast, the corresponding critical-section latencies are typi-
+cally in the microsecond-to-millisecond range, with P99.9
+up to 171 µs, yielding up to a 1000× gap (Figure 6). At P90
+the gap is around 100×.
+4
+Sleeping
+Sleeping
+Runnable
+Runnable
+Get Lock
+Release Lock
+Latency-critical Thread
+Low-prio Reader 1
+Low-prio Reader 2
+Low-prio Reader N
+Time
+Running
+Running
+Latency-critical Thread
+Low-prio Reader 1
+Low-prio Reader 2
+Time
+T0
+T1
+Reduced
+Blocking Duration
+(a) Default Priority
+T0
+T1
+-inversion Blocking Breakdown
+ 
+ 
+ 
+ 
+ 
+(b) Priority-inversion Blocking Breakdown
+ 
+with SuperPass
+Low-prio Reader N
+Figure 5. Priority-inversion blocking breakdown. SuperPass
+reduces the runnable delay of low-priority reader holders,
+and thus shortens the priority-inversion blocking duration
+of the latency-critical thread.
+Figure 6. Critical-section latency vs. runnable delay across
+16 apps. The x-axis uses a logarithmic scale to cover latencies
+from nanoseconds to seconds. The bold curves are calculated
+from all results merged across the 16 apps, while the light
+curves show the per-trace results for individual app. At P99.9,
+runnable delay is 1000× of critical-section latency.
+Second, one blocking thread can incur multiple runnable
+delays within one priority inversion because it may repeat-
+edly sleep (e.g., waiting for I/O or another lock) and wake be-
+fore releasing the lock; each wakeup re-enqueues the thread
+and may incur a runnable delay. We observe that 13.2% of
+blocking threads have such repeated sleep-wake behavior
+(see supplementary file), amplifying the accumulation of
+runnable delay. Third, one priority inversion often involves
+multiple blocking threads (e.g., multiple concurrent reader
+lock holders and queued lock waiters), further compounding
+runnable delays on the latency-critical threads’ critical path
+(Figures 7). Based on these results, we uncover a new insight.
+Insight 1: Runnable delays of blocking threads induced
+by general-purpose OSes’ (e.g., Android) schedulers domi-
+nate the priority inversion blocking duration of latency-
+critical threads.
+This insight helps explain why priority inheritance (PI)-
+based solutions are ineffective on Android. They raise the
+priority of a low-priority thread but do not guarantee to de-
+crease its runnable delays. PI assumes priority-driven sched-
+uling, where elevating priority instantly translate into CPU
+access, but Android’s CFS schedules threads by vruntime for
+fairness. Thus, even after PI raises a blocking thread’s prior-
+ity, it may still wait behind other runnable threads, resulting
+in long blocking durations for latency-critical threads.
+3.2
+Tracking Reader Holders is Feasible on Android
+To understand the complexity and overhead of identifying
+all reader holders online, we analyze how many concur-
+rent readers a thread typically has in practice. Based on
+profiling results from a Google Pixel 8 running multiple com-
+monly used apps, we make two observations. First, Android
+apps heavily use shared locks such as rwsem, where latency-
+critical threads could be blocked by many concurrent reader
+holders, up to 24, as shown in Figure 7. Second, in most cases,
+the number of concurrent reader holders is small, with 98%
+having fewer than 8. This likely reflects the limited hard-
+ware parallelism and practical concurrency of smartphone
+workloads (e.g., our tested smartphone has 9 CPU cores).
+0
+5
+10
+15
+20
+25
+Number of Reader Holders Blocking UI Thread
+0.00
+0.25
+0.50
+0.75
+1.00
+CDF
+Alipay
+Taobao
+Tiktok
+X
+Facebook
+Ctrip
+Instagram
+Inshorts
+LinkedIn
+Threads
+Firefox
+Amazon
+Shein
+Weee
+Booking
+WaPost
+Figure 7. Concurrent reader holders blocking UI thread are
+usually small (≈98% have ≤8.)
+In real-time systems, meeting strict deadlines often re-
+quires identifying and accelerating all reader holders that
+can block a latency-critical thread. Our experiments on An-
+droid show in Figure 7, where we found up to 24 concurrent
+readers. Identifying all reader holders can incur substantial
+overhead and complicate worst-case blocking bounds and
+schedulability analysis. However, Android’s latency-critical
+threads target responsiveness rather than strict hard-real-
+time guaranties, so it is practical to track and accelerate only
+a few readers that cover most cases to reduce overhead.
+Insight 2: On Android, although latency-critical threads
+could be blocked by many readers, tracking a limited
+number of readers suffices to achieve good responsive-
+ness while maintaining low overhead in most cases.
+This insight is mostly applicable to mobile devices, which
+have a relatively low number of CPU cores and limited hard-
+ware parallelism. On platforms with many more CPU cores
+and higher concurrency, a latency-critical thread may be
+blocked by a much larger set of concurrent readers across
+5
+multi-layer dependency chains, making online tracking more
+costly and bounded tracking less effective.
+4
+Design of SuperPass
+As discussed above, priority inversion can block latency-
+critical threads (e.g., the UI, input dispatch, and camera
+pipeline control threads) and thus severely hurt responsive-
+ness on Android. This paper proposes SuperPass, a light-
+weight kernel mechanism that mitigates such blocking by
+identifying low-priority blocking threads and accelerating
+their execution, allowing them to release locks earlier.
+Overview. Figure 8 presents the design overview of Super-
+Pass, which comprises four components: (i) a scheduler fast
+track (§ 4.1.1) that instantly accelerates the execution of low-
+priority threads blocking the latency-critical threads (blue
+panel in Figure 8); (ii) scheduler safeguards (§ 4.1.2) that
+bound the acceleration and limit impact on non-blocking
+threads (blue panel); (iii) a lock-level detector (§ 4.2.1) that
+identifies blocking threads of the latency-critical threads (yel-
+low panel); and (iv) a portable lock-identification module
+(§ 4.2.2) that identifies the locks where the latency-critical
+threads block on (gray panel).
+yes
+Thread 
+Labels
+Locks
+obtain label info
+Scheduler Fast Track
+Scheduler Normal Path
+labeled?
+CPU Scheduler 
+Runqueue 
+Tree
+Blocking Detector
+Tail
+Request lock
+yes
+blocking 
+Recorded
+label blocking threads
+record 
+holders
+Wait 
+Queue
+Curr
+enqueue to head
+❶
+❷
+❸ 
+❹ 
+❺ 
+Offline Identification
+Runtime Path
+Requester 
+Thread
+Lock 1
+...
+UI-Blocking 
+Lock Set
+Trace & Analyzer
+Offline UI-Blocking 
+Lock Identification
+Instant speed up
+ 
+❻
+Instant speed up
+ 
+❻
+1. Blocking threads cap
+2. Reader cap 
+3. Short lease+decay
+Safeguards
+no
+Blocking thread
+detected?
+Blocking thread
+detected?
+outputs
+ ❼
+threads
+Figure 8. Design overview of SuperPass.
+4.1
+Fast-Track Scheduling for Blocking Threads
+Guided by Insight 1, SuperPass focuses on the dominant
+contributor to long priority-inversion blockings: scheduler
+induced runnable delays of blocking threads. SuperPass
+therefore accelerates blocking threads in the scheduler to cut
+their runnable delays using a scheduler fast track. However,
+this path can increase contention and delay unrelated work.
+Thus, we add lightweight safeguards to limit how many low-
+priority threads are expedited and for how long.
+4.1.1
+Fast Track: Accelerating Blocking Threads. A
+naive solution to long blockings on latency-critical threads is
+to make all blocking threads real-time, but this risks fairness
+for other real-time tasks, especially when many blocking
+threads are present. Instead, we design a fast track mecha-
+nism that allows designated low-priority blocking threads to
+bypass normal scheduling competition and run immediately,
+without interfering with real-time classes. As illustrated
+in Figure 5 (b), accelerating the blocking thread reduces
+its runnable delays (red rectangles) and thus shortens the
+priority-inversion blockings of the latency-critical threads.
+Android CFS schedules threads based on virtual run-
+time (vruntime) rather than priority. vruntime represents the
+amount of CPU time a thread has consumed relative to its
+weight. CFS tries to allocate each thread the same amount of
+virtual runtime to enforce fairness, so it always selects the
+thread with the smallest vruntime. In this case, a thread with
+raised priority may still wait in the runqueue for a long time
+if its vruntime remains larger than others.
+To address this issue, SuperPass moves labeled block-
+ing threads to the head of the runqueue order so they run
+sooner. We will introduce how SuperPass identifies and la-
+bels blocking threads in §4.2. Specifically, SuperPass adds
+a per-thread flag in the kernel task structure. Only threads
+with this flag use the fast track, and all other threads fol-
+low normal scheduling. The fast track operates as follows.
+When a labeled blocking thread is enqueued to the sched-
+uler runqueue (Step 6 in Figure 8), its scheduling metric
+(e.g., vruntime in CFS) is reset to place it at the head of the
+runqueue for immediate scheduling (Step 7 ). Once the pri-
+ority inversion ends, the label is cleared and its original state
+is restored. In addition, the labeled blocking thread is pro-
+tected from involuntary preemption (e.g., by suppressing
+timeslice expiration), ensuring it can complete its critical
+section promptly. These changes reduce the runnable delay
+of threads blocking latency-critical threads, allowing them
+to run on the CPU earlier and release locks sooner.
+4.1.2
+Safeguarding Fairness. Blindly accelerating many
+blocking threads at once (e.g., concurrent reader holders and
+queued waiters) can increase CPU competition among them
+and significantly delay other unrelated threads. To reduce the
+interference on those unrelated threads, previous approaches
+employ complicated and high overhead reservation frame-
+works [3, 13, 33]. However, the overhead is too large for
+mobile devices, thus we use three lightweight safeguards to
+bound who is expedited and for how long:
+(i) Limit the scope of the acceleration to the latency-critical
+threads’ blocking threads only. Unlike PI, which blindly boosts
+the priority of any low-priority lock holder that blocks a
+higher-priority task, SuperPass accelerates only the low-
+priority threads blocking the latency-critical threads. Threads
+not blocking the latency-critical threads are never acceler-
+ated to limit the impact on unrelated threads;
+(ii) Cap on fast-track threads. Limit the number of fast-
+track blocking threads to one fewer than the available on-
+line CPU cores, ensuring at least one core remains available
+6
+for non-blocking threads while avoiding CPU competition
+among fast-track blocking threads;
+(iii) Deadline-aligned acceleration lease. Revoke labels at
+least once per latency budget interval 𝑇budget, because accel-
+eration is intended to shorten the latency-critical threads’
+blocking duration, rather than to keep blocking threads con-
+tinuously accelerated. On revocation, restore the thread’s
+original scheduling metric and apply a short cool-down pe-
+riod before re-labeling to avoid immediate repeated acceler-
+ation of the same thread.
+These safeguards bound the scope and duration of fast
+track acceleration, preserving system-wide responsiveness
+while retaining the gains from fast-track scheduling.
+Implementation. For UI-thread instantiations, 𝑇budget is set
+to the frame interval (e.g., 16.7 ms at 60 Hz and 8.3 ms at
+120 Hz). For other latency-critical threads, it can be set to the
+corresponding service deadline or latency target. We set the
+cool-down period to 1 ms for the UI-thread instantiation as a
+small fraction of the frame budget (8.3–16.7 ms). This is long
+enough to prevent immediate repeated re-acceleration of the
+same blocking thread, but short enough to allow re-labeling
+within the same frame if the thread blocks the UI thread
+again.
+4.2
+Identifying Blocking Threads and Locks
+In § 4.1, we showed how SuperPass reduces blocking du-
+ration on latency-critical threads once the right blocking
+threads are identified. This section describes how we identify
+blocking threads and the locks on which they are blocked.
+4.2.1
+Lightweight Identification of Blocking Threads.
+A single priority inversion can span multiple locks and threads,
+so reconstructing full dependencies online is expensive.
+However, guided by Insight 2, we avoid full depen-
+dency tracking on Android to identify lock holders with
+low overhead. Concretely, our lock-level scheme (i) labels
+only a bounded set of low-priority holders, and (ii) bypasses
+lock waiters. We classify participants at a contended lock
+into holders (writer/reader holders) and waiters, and han-
+dle them differently because holders already own the lock,
+while waiters have not acquired it yet. We first present the
+detection and labeling workflow, and then describe how we
+handle different lock participants (holders vs. waiters) under
+contention.
+Detection and Labeling Workflow. Algorithm 1 illustrates
+how we deal with holders and waiters. The detector runs
+only when a lock acquisition fails (Line 3; Step 1 in Figure 8).
+It first checks whether the requester is the latency-critical
+thread or if it is labeled before (Line 4), then verifies that the
+current holder has lower priority (Line 5; Step 2 ). If both
+conditions hold, the holder is recorded (Step 3 ) and labeled
+(Step 4 ) to use the scheduler fast track (Line 6). Waiters are
+bypassed by placing the request thread at the head of the
+wait queue (Lines 9-10; Step 5 ). When the blocked requester
+eventually acquires the lock, the label is cleared (Lines 11-
+12). In Line 5, we also check the "already labeled" thread
+because the “already labeled” predicate propagates critical-
+ity transitively along dependency chains (i.e., if a thread is
+labeled because it blocks the latency-critical threads or a pre-
+viously labeled thread, then any holder that now blocks this
+requester is blocking thread of the latency-critical threads.)
+This gives us multi-hop coverage (nested locks, subsystem
+calls) without building a full dependency graph.
+Algorithm 1 Lock-Level Labeling of Blocking Threads
+1: Input: Curr = thread requesting the lock;
+2: Init: lock_holder;
+⊲set to record labeled lock holder
+3: On Curr lock request failed:
+4: if Curr is latency-critical thread or already labeled then
+5:
+if Curr has lower priority than lock_holder then
+6:
+record lock_holder and label it;
+7:
+end if
+8: end if
+9: On Curr start waiting:
+10:
+Place Curr at the head of the lock’s wait queue;
+11: On Curr lock request succeed:
+12:
+Clear the label of the recorded lock_holder;
+Lock Holders. Identifying lock holders is straightforward
+for mutexes because there is a single owner, which is stored
+in a variable (each thread getting a lock will set the variable,
+and clear the variable when it releases the lock). However,
+for shared locks like rwsem, multiple readers may hold the
+lock concurrently, as shown in Figure 7. In real-time systems,
+accelerating all concurrent readers is needed to meet dead-
+lines. However, tracking all readers by inserting/removing
+an owner record on every acquire/release incurs substan-
+tial CPU and memory overhead [1]. In contrast, Android’s
+latency-critical threads target responsiveness rather than
+hard real-time guarantee. Guided by Insight 2, we therefore
+track only a limited set of reader holders with low over-
+head, up to 𝑁CPU −1), which covers most cases. All recorded
+holders are labeled and accelerated via the scheduler fast
+track.
+Lock Waiters. Lock holders already own the lock and are
+executing the critical section, so the blocked latency-critical
+thread must wait for them to release it and cannot bypass
+them. In contrast, queued waiters ahead of the latency-critical
+thread have not acquired the lock yet, so we can bypass these
+waiters and let the latency-critical thread proceed immedi-
+ately after the current lock holders release the lock.
+4.2.2
+Identification of Blocking Locks. Before identi-
+fying blocking threads, we first need to identify the con-
+tended locks on which the latency-critical thread blocks. Do-
+ing so is difficult on Android because many lock types and
+vendor-specific call paths make per-lock instrumentation im-
+practical. We take advantage of an interesting observation:
+long priority-inversion blockings are dominated by sleepable
+7
+locks. We refer to locks that put contending threads to sleep
+(e.g., rwsem) as sleepable locks, which makes their blockers
+sleep, later wake up, and may incur long runqueue delays be-
+fore running again. In contrast, spinlocks busy-wait and do
+not trigger this sleep–wake–runqueue pattern. Our profiling
+results show that across 16 apps, spinlock contention has a
+P99.99 acquisition latency of 660 ± 282 µs, while contended
+rwsem acquisitions reach up to 210 ms (Figure 1a).
+Guided by this observation, We take advantage of a com-
+mon property of sleepable locks that under contention, a
+blocking thread eventually enters the scheduler’s shared
+sleep path. Thus, SuperPass records a lightweight “sleep
+fingerprint” at the single scheduler sleep point and aggre-
+gates these fingerprints offline to identify the lock APIs most
+responsible for blockings on latency-critical threads.
+These offline results remain valid as long as the kernel
+and vendor lock implementations and their sleep paths re-
+main unchanged. The same contended lock operations con-
+tinue to pass through the same scheduler sleep point and
+produce the same fingerprints. Offline lock-identification
+analysis needs to be be re-run upon major kernel or vendor
+updates that may change lock implementations or call paths.
+This approach eliminates per-lock instrumentation and re-
+duces profiling effort. It is portable because it relies only on
+the scheduler’s shared sleep path, which is common across
+many systems.
+Implementation. We implement a bounded per-lock holder
+list to record the lock holders. To allow the latency-critical
+thread bypass queued waiters, we place it at the head of the
+lock’s waiter queue, ahead of ordinary waiters. On the An-
+droid kernel, the scheduler’s shared sleep path goes through
+__schedule(). Thus, we hook __schedule() to identify
+the locks blocking latency-critical threads, specifically right
+before a sleeping thread is switched out (i.e., just before
+context_switch()). We grab a short “fingerprint” of why
+the thread is going to sleep: we record one stack frame
+at a chosen depth (stackNum) using my_dump_stack(sym,
+stackNum) and write the corresponding kernel symbol (sym)
+into the trace log. Each sleep therefore produces a stable ker-
+nel symbol sym that points to the blocking primitive on the
+sleep path (e.g., down_write() for a contended rwsem write).
+We then aggregate these symbols offline to identify the lock
+APIs that dominate latency-critical threads’ blocking.
+4.3
+Generality and Limitations
+Generality. SuperPass is applicable to priority inversions
+on different latency-critical threads (e.g., UI thread, input
+dispatch, sensor processing, camera pipeline control, and
+XR/AR tracking). SuperPass is also not tied to a specific
+scheduler. Its core requirement is a fast track that promptly
+runs labeled blocking threads by adjusting the scheduler’s
+native ordering key. For example, on Android CFS, it lowers
+a labeled thread’s vruntime; on Linux EEVDF [12], it can
+similarly adjust a labeled thread’s eligibility time and virtual
+deadline so that the thread is selected to run on CPU earlier.
+Limitations. SuperPass shortens only scheduler-induced
+delays (i.e., runnable delays). It does not reduce the block-
+ing thread’s critical-section latency and the time spent on
+sleeping (e.g., sleep for I/O). We currently scope to a sin-
+gle latency-critical thread, and arbitration across multiple
+concurrent latency-critical threads is left to future work.
+5
+Evaluation Setup
+In this section, we present the experimental platform, com-
+parison mechanisms, workloads, and evaluation metrics.
+5.1
+Experimental Platform
+Our main experimental platform is a commercial smartphone,
+Google Pixel 8, with 8 GB DRAM, 128 GB flash storage, and 9
+CPU cores (1×3.0 GHz Cortex-X3, 4×2.45GHz Cortex-A715,
+4×2.15 GHz Cortex-A510). The device runs Android 14 with
+Linux 5.15, where CFS is the default scheduler. Following
+previous reviewers’ comments, we use a high-end smart-
+phone with a relatively new Android version to show that
+the priority-inversion problem remains prevalent and severe
+on modern mobile devices. We also measure priority inver-
+sions on a Pixel 5 to show that the problem is not unique to
+Pixel 8, but is general across mobile devices. In this paper, we
+present the main results on Pixel 8, and include the Pixel 5
+results in the supplementary materials.
+5.2
+Comparison Mechanisms
+We extensively compare our solution to the default kernel
+on Android, PI, RT-UI, and PE (state-of-the-art):
+Baseline: We use the default Android kernel without modi-
+fication, which runs Linux 5.15 kernel. The task scheduling
+scheme is widely used in modern mobile devices.
+Priority Inheritance (PI): To reduce penalty, we implement
+and optimize priority inheritance for rwsem1 by boosting the
+priority of the low-priority writer holding the lock when only
+higher-priority latency-critical thread is blocked. Thus, we
+eliminate the overhead associated with the global adoption
+of traditional priority inheritance. The boost is applied by
+adjusting the holder’s scheduling priority within CFS (i.e.,
+prio value), without changing the scheduler class. The boost
+is revoked when the lock is released.
+Real-time UI (RT-UI): We implement an intuitive solution
+that promotes the foreground app’s UI thread to a real-time
+scheduling class while it is in the foreground and restores
+its priority when it goes to the background. No changes are
+made to lock holders or synchronization.
+1UI threads are usually blocked on this lock. We take UI threads as a case
+study in our experiments.
+8
+Proxy Execution (PE): 2 For fair comparison, we adapt PE
+to rwsem based on the original mutex-oriented design [9].
+When a latency-critical thread blocks on a rwsem, PE ran-
+domly chooses a lock holder to run instead of itself. PE han-
+dles one-to-one blocking but does not accelerate multiple
+concurrent readers in shared-lock scenarios.
+SuperPass: Our solution SuperPass is also implemented
+on rwsem. First, it makes the identified blocking threads run
+on CPU instantly via a scheduler fast track. Thus, its perfor-
+mance outperforms the above mechanism. Second, it iden-
+tifies most blocking threads (e.g., concurrent lock holders)
+of latency-critical threads with low overhead via a bounded
+list of lock holders.
+In summary, PI and RT-UI capture two naive approaches:
+boosting the lock holder or prioritizing the latency-critical
+thread. PE represents the closest fair-scheduler-aware mech-
+anism that accelerates blocking threads. Other approaches,
+such as PCP or reservation-based scheduling methods (e.g.,
+SCHED_DEADLINE), require different system assumptions
+(e.g., static task sets or explicit runtime/deadline assign-
+ments) and are therefore discussed in §8 rather than used as
+evaluation baselines.
+5.3
+Workloads and Evaluation Metrics
+Workloads. We use 16 apps across diverse categories (Ta-
+ble 1) as foreground applications. We exclude games, as their
+rendering workloads bypass the UI thread [4, 8, 10], which
+we use as a case study of latency-critical threads in our eval-
+uation. To avoid human bias in testing, we use automated
+scripts to interact with these foreground apps via adb shell
+input commands, ensuring reproducible user interactions. In
+each test, we run 12 apps concurrently in the background to
+approximate realistic user behavior [27, 32]. All experimen-
+tal results in Sections § 2, § 3, and § 6.1 are obtained using
+these realistic workloads.
+Table 1. Sixteen Tested Applications
+Application Category
+Applications
+Social Media
+Facebook, X, LinkedIn, Threads
+Short Video
+Tiktok, Instagram
+Online Shopping
+Amazon, Shein, Weee, Taobao
+Browsing & News
+Firefox, Inshorts, WaPost
+Booking & Lifestyle
+Booking, Ctrip, Alipay
+1 WaPost represents Washington Post.
+Evaluation Metrics. We measure a latency-critical thread’s
+priority-inversion blocking duration directly in the kernel
+by recording two timestamps around the lock acquisition.
+When a latency-critical thread attempts to acquire a lock and
+finds it held by a lower-priority thread, we take a start times-
+tamp using ktime_get(). When the latency-critical thread
+2Due to porting constraints, PE is evaluated on an x86 Cuttlefish Android
+virtual device [7] configured to emulate Pixel 8’s 9-core CPU. In § 6.3,
+Proxy Execution and SuperPass are both evaluated on Cuttlefish to
+ensure a fair comparison.
+acquires the lock successfully, we take an end timestamp and
+compute the elapsed time as the priority-inversion blocking
+duration, and report it via a customized ftrace tracepoint.
+We report three complementary metrics:
+• P99.9 Blocking Duration (ms): the 99.9th percentile of
+blocking durations of priority inversions on UI thread,
+capturing the key scenarios that are affected by priority
+inversion;
+• Number of Priority Inversion Blockings (>100 µs)3: the
+number of priority inversion blockings exceeding 100 µs
+per minute, indicating how often noticeable delays occur;
+• Number of Janky Frames: the number of dropped frames
+caused by priority inversions on UI thread, collected by
+Android dumpsys framestats [6], directly reflecting user-
+perceived UI smoothness.
+Each foreground app was tested in ten one-minute runs. We
+report P99.9 Blocking Duration over all runs. For Number of
+Priority Inversion blocking (>100 µs) and Number of Janky
+Frames, we report the average across runs with error bars
+showing minimum and maximum values.
+6
+Evaluation Results
+In this section, we comprehensively evaluate the effective-
+ness of SuperPass, using UI threads as a case study and
+reduced janky frames as the user-experience metric. § 6.1
+presents the main results, including reductions in priority-
+inversion counts and durations, improvements in janky frames,
+and the fairness impact on non-blocking threads. § 6.2 eval-
+uates robustness under heavier background workloads. § 6.3
+compares SuperPass with Proxy Execution (PE).
+6.1
+Performance Improvement
+To evaluate the effectiveness of SuperPass, we use three
+metrics. § 6.1.1 reports the overall performance on reducing
+the number and duration of priority-inversion blockings
+on the latency-critical thread (UI thread in our evaluation).
+§ 6.1.2 measures its impact on user experience, and § 6.1.3
+then verifies fairness impact on non-blocking threads.
+6.1.1
+Overall Performance. Figures 9b and 9a compare
+SuperPass with Baseline, PI, and RT-UI under a realistic
+workload (one foreground app with 12 background apps).
+On average, SuperPass achieves a 72.0% reduction on P99.9
+blocking duration across 16 apps compared to Baseline and
+delivers a 4.6× improvement over PI. RT-UI increases tail
+latencies in some cases because raising UI thread to real-
+time priority reduces CPU time for CFS-scheduled blocking
+threads of UI thread. For the number of UI-thread priority
+3The 100 µs is used as a filtering threshold to exclude trivial events
+and focus on non-negligible priority inversions. These blockings matter
+because they can accumulate and, when overlapping the frame critical
+path, cause janky frames as shown in § 2.1.
+9
+0
+10
+20
+30
+40
+50
+Alipay
+Taobao
+TikTok
+X
+Facebook
+Ctrip
+Instagram Amazon
+Baseline
+PI
+RT-UI
+SuperPass
+0
+5
+10
+15
+20
+inShorts LinkedIn Threads
+Firefox
+Shein
+Weee
+Booking
+WaPost
+P99.9 Blocking Duration (ms) 
+(a) The 99.9th percentile durations of UI-thread priority-inversion
+blocking. Bars above the red line in 8.3 ms indicate risk of causing
+dropped frames.
+0
+200
+400
+600
+800
+1000
+Alipay
+Taobao
+TikTok
+X
+Facebook
+Ctrip
+Instagram Amazon
+Baseline
+PI
+RT-UI
+SuperPass
+0
+30
+60
+90
+120
+150
+inShorts LinkedIn Threads
+Firefox
+Shein
+Weee
+Booking
+WaPost
+ 
+ 
+ 
+ 
+ 
+ 
+Number of Priority Inversion
+ 
+Blockings
+ 
+(>100
+ 
+μs) 
+(b) The number of UI-thread priority inversions (> 100 µs).
+Figure 9. Overall performance (UI-thread instantiation). The
+duration and number of UI-thread priority-inversion block-
+ings on Baseline, PI, RT-UI, and SuperPass.
+inversion blocking, SuperPass achieves a 47.7% reduction
+relative to Baseline, corresponding to 2.2× fewer blocks than
+PI and 2.5× fewer than RT-UI. SuperPass reduces the dura-
+tion longer than > 100 µs by effectively accelerating blocking
+threads of UI thread. In conclusion, these results demonstrate
+that SuperPass more effectively mitigates both the number
+and duration of priority-inversion blockings on UI thread.
+Variation Across Apps. Figures 9 show that the severity
+of priority inversion on UI thread varies widely across apps.
+Figure 10 suggests that this depends on lock-acquisition in-
+tensity. Apps like Alipay produce thousands of lock requests
+and thus face more priority inversions, while Firefox ac-
+quires fewer locks and correspondingly has fewer priority
+inversions. These results indicate that lock-acquisition in-
+tensity is a key factor in an app’s susceptibility to severe
+priority-inversion blockings on UI thread.
+Performance Breakdown. As described in § 4.2.1, a con-
+tended lock can delay the latency-critical thread through
+three kinds of lock participants: (i) a writer holder that
+0
+2000
+4000
+6000
+8000
+10000
+Number of 
+Lock Requests
+Figure 10. Number of lock requests issued by the foreground
+app’s UI thread (each test runs for one minute).
+currently owns the lock, (ii) queued waiters ahead of the
+requester, and (iii) reader holders that collectively hold a
+shared lock. SuperPass handles them with three correspond-
+ing mechanisms: Writers Acceleration labels and expedites
+a writer holder via the scheduler fast track; Waiters Bypass
+places the blocked latency-critical thread at the head of the
+lock’s wait queue; Readers Acceleration does the same for a
+bounded set of reader holders.
+We quantify the contribution of these three mechanisms
+by enabling them incrementally. Figure 11 breaks down the
+resulting improvement. For each app, we normalize the total
+improvement over the baseline to 100%, and the stacked bars
+show the fraction of this total attributable to the three com-
+ponents. In Figure 11a, averaged across apps, Writers Accel-
+eration, Waiters Bypass, and Readers Acceleration contribute
+44.4%, 29.2%, and 26.4% of the total reduction in the P99.9
+priority-inversion blocking duration on UI thread, respec-
+tively. In Figure 11b, the corresponding shares for reducing
+the number of priority-inversion blocking events (> 100 µs)
+are 58.3%, 31.2%, and 10.4%. Contributions vary across apps
+because their lock-contention patterns and read/write mixes
+differ.
+6.1.2
+User Experience Impact: Janky Frame. To evalu-
+ate SuperPass’s user-experience impact, we measured janky
+frames under the same setup as in § 6.1.1. Figure 12 shows
+that SuperPass reduces the number of janky frames by 29.2%
+compared with the Baseline on average, which corresponds
+to 2.1× fewer janky frames than PI and 4.1× fewer than RT-
+UI. RT-UI even increased the janky frames for some apps,
+as it may block other important system real-time threads.
+In conclusion, SuperPass consistently outperforms PI and
+RT-UI across all 16 apps in reducing janky frames.
+6.1.3
+Faireness Impact on Non-Blocking Threads. To
+evaluate the faireness impact of SuperPass on non-blocking
+threads, we measure their runnable delays under the same re-
+alistic setup as in § 6.1.1. Figure 13 reports the P99.9 runnable
+delays of low-priority non-blocking threads across 16 apps.
+PI increases the P99.9 runnable delay by 32.6% on average,
+indicating longer blocking for threads not blocking UI thread.
+RT-UI also raises this metric by 13.7% on average. In contrast,
+SuperPass increases this metric by only 4.7% on average,
+resulting in nearly baseline-level overhead across all apps.
+10
+0%
+20%
+40%
+60%
+80%
+100%
+Contribution of Design 
+Components (%)
+Writers Acceleration
+Waiters Bypass
+Readers Acceleration
+(a) The P99.9 priority-inversion blockings on UI thread.
+0%
+20%
+40%
+60%
+80%
+100%
+Contribution of Design 
+Components (%)
+Writers Acceleration
+Waiters Bypass
+Readers Acceleration
+(b) The number of priority-inversion blockings exceeding 100 µs
+on UI thread.
+Figure 11. Performance breakdown.
+Figure 12. Number of janky frames (normalized to Baseline).
+In conclusion, these results show that SuperPass have small
+faireness impact on non-blocking threads, consistent with
+the safeguards in § 4.1.2. Although strict fairness cannot be
+guaranteed, SuperPass still outperforms existing methods
+by respecting smartphone workloads where foreground apps
+and UI threads are prioritized for user experience.
+0
+100
+200
+300
+400
+500
+600
+700
+ 
+ 
+P99.9 Runnable Delay of 
+Non-Blocking Threads (ms)
+Baseline
+PI
+RT-UI
+SuperPass
+Figure 13. P99.9 runnable delay of low-priority threads not
+blocking UI thread across 16 apps.
+6.2
+Performance under Heavy Workloads
+To emulate heavy usage, we add a synthetic CPU workload
+with busy-loop workers pinned to cores. We use this work-
+load only in this subsection to evaluate SuperPass under
+heavier background contention and to verify both its robust-
+ness and fairness impact on non-blocking threads.
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+0
+50
+100
+150
+200
+250
+0/9
+2/9
+4/9
+6/9
+P99.9 Blocking 
+Duration (ms)
+Baseline
+PI
+RT-UI
+ass
+P
+Super
+0
+500
+1000
+1500
+0/9
+2/9
+4/9
+6/9
+Number of Priority
+ 
+ 
+ 
+Inversion Blockings
+(>100  μs)
+0
+50
+100
+150
+200
+250
+0/9
+2/9
+4/9
+6/9
+0
+50
+100
+150
+200
+250
+0/9
+2/9
+4/9
+6/9
+Number of 
+Janky Frames
+0
+50
+100
+150
+0/9
+2/9
+4/9
+6/9
+0
+20
+40
+60
+80
+0/9
+2/9
+4/9
+6/9
+Alipay 
+Alipay 
+Alipay 
+Facebook 
+Facebook 
+Facebook 
+Figure 14. Performance under heavy workload. Each row
+reports, from top to bottom, the P99.9 blocking duration, the
+number of blocks >100 µs, and the number of janky frames
+for Alipay and Facebook. The x-axis “𝑘/9” denotes that 𝑘of
+the 9 CPU cores are preoccupied by the busy-loop workers.
+Specifically, We pin 𝑘∈{2, 4, 6} busy-loop workers to
+distinct cores while running 12 background apps concur-
+rently in the background. All busy-loop workers are normal
+threads scheduled by CFS. Figure 14 reports two represen-
+tatives: Alipay (many lock requests, frequent inversions)
+and Facebook (fewer lock requests). We report all results of
+16 apps in the supplementary file. In conclusion, across all
+workloads, SuperPass consistently reduces the number and
+duration of priority-inversion blockings on UI thread, and
+correspondingly lowers the number of janky frames, relative
+to Baseline, PI, and RT-UI, demonstrating robustness under
+heavy background contention.
+We also assess fairness impact on non-blocking threads
+using the P99.9 runnable delay under heavy background
+workload with 𝑘= 6/9 cores occupied. Figure 15 shows
+that SuperPass remains close to Baseline across apps (3.6%
+increase), while PI and RT-UI raise the runnable delay of
+non-blocking threads by 27.7% and 14.5%, respectively. In
+conclusion, the results confirms that our safeguards limit the
+impact of SuperPass on the fairness of non-blocking threads,
+even under severe CPU contention.
+6.3
+Comparison with Proxy Execution
+We compare SuperPass against Proxy Execution (PE) [23, 24]
+on Cuttlefish (9 vCPUs, 8 GB RAM) over five foreground apps
+with 12 background apps. PE is difficult to deploy directly
+on Pixel 8 due to porting constraints, as it was originally
+designed and implemented for Linux kernel mutexes rather
+than Android’s rwsem.
+11
+0
+3000
+6000
+9000
+12000
+15000
+ 
+ 
+P99.9 Runnable Delay of 
+Non-Blocking Threads (ms)
+Baseline
+PI
+RT-UI
+SuperPass
+Figure 15. P99.9 runnable delay of low-priority threads not
+blocking UI thread across 16 apps, under heavy background
+workload with 6 busy-loop workers.
+0
+5
+10
+15
+20
+25
+P99.9 Blocking 
+Duration (ms)
+Baseline
+Proxy Execution
+SuperPass
+0
+20
+40
+60
+80
+Number of Priority 
+Inversion Blockings
+(>100
+ 
+μs)
+Baseline
+Proxy Execution
+SuperPass
+Figure 16. Comparison with Proxy Execution on Cuttlefish.
+Figure 16 shows that PE reduces the number of priority
+inversions on UI thread with blocking duration longer than
+100 µs by 20.6% and the P99.9 blocking duration by 14.0%.
+In comparison, SuperPass achieves reductions of 53.7% and
+51.0% (i.e., 2.61× and 3.64× larger improvements than PE,
+respectively). This advantage comes from two factors: (i)
+broader coverage of blocking threads, since SuperPass ac-
+celerates multiple blocking threads such as rwsem readers
+that PE does not cover; and (ii) faster acceleration, because
+once a blocking thread is labeled, SuperPass grants it CPU
+immediately via the scheduler fast track, whereas PE runs a
+lock holder only when the blocked high-priority waiter is
+scheduled, leaving additional runqueue delay. On Cuttlefish,
+we observe fewer and shorter priority-inversion blockings
+on the UI-thread for three reasons. (i) it lacks big.LITTLE
+DVFS/thermal limits used in physical smartphones [11, 14],
+(ii) it omits OEM/background services and sensor stacks [7],
+and (iii) it uses a virtual display pipeline [17]. In conclusion,
+SuperPass outperforms PE in reducing both the frequency
+and duration of priority-inversion blockings on UI thread.
+6.4
+Overhead Analysis
+Memory Overhead. We implement SuperPass in the An-
+droid kernel with minimal modifications. We add a per-
+thread flag in the struct task_struct to mark the block-
+ing threads of the latency-critical threads (1 B) and a list
+in each rwsem to track up to eight reader holders (8 ×
+sizeof(void*) = 64B). Writers reuse the existing owner field,
+so no extra space is added for writer holders.
+CPU Overhead. At runtime, the lock-level detector for find-
+ing blocking threads works only when the latency-critical
+threads fail to obtain a lock. The detector performs 𝑂(1)
+checks (latency-critical thread/label status and lock hold-
+ers’ priority). On the lock side, each lock holder is inserted
+into (and removed from) the end of the bounded list in 𝑂(1).
+Overall, the measured system-wide CPU overhead is ≈0.74%
+(details in the supplementary file).
+7
+Related Work
+To the best of our knowledge, there is no previous work
+targeting priority inversions of latency-critical threads on
+Android. The existing solutions designed for real-time sys-
+tems fail to address the problem on Android and may intro-
+duce high overheads. To address this gap, we propose a new
+solution for Android, SuperPass, which is inspired by two in-
+sights: first, the long priority inversion blockings are driven
+by the accumulated CPU waiting time of low-priority block-
+ing threads on the scheduler runqueue. Second, on Android,
+even latency-critical threads could be blocked by many con-
+current readers, tracking a limited number of readers suffices
+to achieve good responsiveness while maintaining low over-
+head in most cases. We conduct comprehensive comparisons
+with both the default solution in modern smartphones and
+the state-of-the-art solutions. The remainder of this section
+reviews related work on priority inversion mitigation and
+lock-optimization-based potential solutions.
+Priority Inversion Mitigation. Typical solutions in real-
+time systems for priority inversion include Priority Inher-
+itance (PI) and Priority Ceiling Protocol (PCP) [22, 26, 41].
+The core idea of PI is temporarily raising a low-priority lock
+holder to the blocked thread’s priority until the lock is re-
+leased and propagating this boost transitively across chains
+of blocking threads. We implement this core idea on rwsem
+and compare it with our solution. One of PI’s variants is
+PI for priority-ordered spin locks [44]. PI-based solutions
+share a common limitation that they assume priority raising
+leads to immediate CPU access, which does not hold under
+Android’s CFS. The core idea of PCP is to assign each lock
+a priority ceiling equal to the highest priority of any task
+that may use it and to execute a task at this ceiling while it
+holds the lock. PCP has several variants, including the Stack
+Resource Policy (SRP) [16], the immediate priority ceiling
+protocol [20], and multiprocessor extensions [21, 40]. PCP-
+based solutions require prior knowledge of all potential lock
+users and their priorities, which is impractical in dynamic
+Android workloads.
+Recently, Proxy Execution [9, 23, 24, 43] has been pro-
+posed as a mechanism to accelerate lock holders by exe-
+cuting them on behalf of blocked threads. We evaluate it
+as a comparison mechanism. Its general form is allocation
+inheritance [28], which generalizes priority inheritance by
+transferring processor allocation or execution rights to the
+lock holder. These approaches also aim to unblock waiters.
+12
+SuperPass differs by targeting Android shared-lock multi-
+reader blocking and enabling immediate execution of block-
+ing threads, rather than waiting for the high-priority thread’s
+allocated CPU time.
+Lock-Optimization-Based Potential Solutions. Reader-
+writer lock designs have also been optimized to reduce con-
+tention, improve fairness, or lower tail latency. Examples in-
+clude phase-fair reader-writer locks [19], read-biased designs
+such as BRAVO [25], and queue-management or shuffling-
+based designs that optimize fairness and scalability [29, 30].
+Read-optimized alternatives such as RCU further reduce read-
+side blocking by changing the synchronization model [31,
+37, 38]. These approaches are complementary to SuperPass.
+They redesign the lock or synchronization primitive itself,
+whereas SuperPass targets scheduler-induced runnable de-
+lays on the blocking dependency chain in existing Android
+shared locks. This distinction is important because Figure 6
+shows that long priority-inversion blockings are dominated
+by the runnable delay of blocking threads rather than lock
+critical-section time. Therefore, lock redesign alone does
+not directly address the main bottleneck we target, while
+SuperPass can coexist with improved lock implementations.
+8
+Conclusion
+In this work, we investigate the priority inversion of latency-
+critical threads in Android systems. Using the foreground
+UI thread as a representative case study, we find that it fre-
+quently causes prolonged blocking durations and dropped
+frames that degrade the user experience of mobile devices.
+Existing solutions designed for real-time systems are inef-
+fective and could introduce fairness issues. To address this
+problem, we proposed SuperPass, a lightweight kernel mech-
+anism that effectively reduces the blockings of the latency-
+critical threads with safeguards to limit impact on fairness.
+We evaluate SuperPass on a Google Pixel 8. The results show
+that SuperPass significantly reduces the priority-inversion
+blocking durations compared to both the default scheduler
+and state-of-the-art approaches.
+References
+[1] 2023. kernel/locking/rwsem.c (comment on overhead of track-
+ing readers). https://git.zx2c4.com/wireguard-linux/tree/kernel/
+locking/rwsem.c. Source comment: “Ideally we would like to track
+all the readers that own a rwsem, but the overhead is simply too
+big. [Online; accessed 20-March-2026]”.
+[2] 2024. Google Pixel 8. https://en.wikipedia.org/wiki/Pixel_8. [Online;
+accessed 20-March-2026].
+[3] 2024. SCHED_DEADLINE Linux Documentation. https://www.
+kernel.org/doc/Documentation/scheduler/sched-deadline.txt. [On-
+line; accessed 20-March-2026].
+[4] 2024.
+Slow rendering.
+https://developer.android.com/topic/
+performance/vitals/render. [Online; accessed 20-March-2026].
+[5] 2024. UI jank detection. https://developer.android.com/studio/
+profile/jank-detection. [Online; accessed 20-March-2026].
+[6] 2025.
+Android dumpsys.
+https://developer.android.com/tools/
+dumpsys. [Online; accessed 20-March-2026].
+[7] 2025. Cuttlefish virtual Android devices. https://source.android.
+com/docs/devices/cuttlefish. [Online; accessed 20-March-2026].
+[8] 2025. Learn about rendering in game loops. https://developer.
+android.com/games/develop/gameloops.
+[Online; accessed 20-
+March-2026].
+[9] 2025. Proxy Execution Github. https://github.com/johnstultz-work/
+linux-dev/tree/proxy-exec-v6-6.6.
+[Online; accessed 20-March-
+2026].
+[10] 2025. SurfaceView and GLSurfaceView. https://source.android.
+com/docs/core/graphics/arch-sv-glsv. [Online; accessed 20-March-
+2026].
+[11] 2025. Thermal mitivation. https://source.android.com/docs/core/
+power/thermal-mitigation. [Online; accessed 20-March-2026].
+[12] 2026. EEVDF Scheduler. The Linux Kernel Documentation. https:
+//docs.kernel.org/scheduler/sched-eevdf.html [Online; accessed
+20-March-2026].
+[13] Luca Abeni and Giorgio Buttazzo. 1998. Integrating Multimedia
+Applications in Hard Real-Time Systems. In Proceedings of the IEEE
+Real-Time Systems Symposium (RTSS).
+[14] ARM Ltd. 2013.
+big.LITTLE Technology: The Future of Mobile.
+Technical Report. ARM Whitepaper. https://developer.arm.com/-
+/media/Files/pdf/white-paper/big-little-technology-the-future-
+of-mobile.pdf
+[15] O. Babaoglu, K. Marzullo, and F. Schneider. 1993. A Formalization
+of Priority Inversion. Technical Report.
+[16] T.P. Baker. 1990. A stack-based resource allocation policy for real-
+time processes. In 1990 Proceedings 11th Real-Time Systems Sympo-
+sium. 191–200.
+[17] Alessio Balsini. 2020. Scheduling for the Android display pipeline.
+https://lwn.net/Articles/809545/ [Online; accessed 20-March-2026].
+[18] Justinien Bouron, Sebastien Chevalley, Baptiste Lepers, Willy
+Zwaenepoel, Redha Gouicem, Julia Lawall, Gilles Muller, and Julien
+Sopena. 2018. The Battle of the Schedulers: FreeBSD ULE vs. Linux
+CFS. In 2018 USENIX Annual Technical Conference (USENIX ATC 18).
+USENIX Association, Boston, MA, 85–96.
+[19] Björn B. Brandenburg and James H. Anderson. 2010. Spin-based
+reader-writer synchronization for multiprocessor real-time systems.
+46, 1 (Sept. 2010), 25–87. doi:10.1007/s11241-010-9097-2
+[20] Andreu Carminati, Rômulo Oliveira, Fernando Luís, and Friedrich.
+2012. Implementation and Evaluation of the Synchronization Pro-
+tocol Immediate Priority Ceiling in PREEMPT-RT Linux. Journal of
+Software 7 (03 2012).
+[21] Zewei Chen, Hang Lei, Maolin Yang, Yong Liao, and Lei Qiao. 2021.
+A Hierarchical Hybrid Locking Protocol for Parallel Real-Time
+Tasks. ACM Trans. Embed. Comput. Syst. 20, 5s, Article 86 (sep
+2021), 22 pages.
+[22] Albert MK Cheng and James Ras. 2007. The implementation of the
+priority ceiling protocol in Ada-2005. ACM SIGAda Ada Letters 27,
+1 (2007), 24–39.
+[23] Jonathan Corbet. 2023. Addressing priority inversion with proxy
+exettion. LWN.net.
+https://lwn.net/Articles/934114/ [Online;
+accessed 20-March-2026].
+[24] Jonathan Corbet. 2023. What remains to be done for proxy execu-
+tion. LWN.net. https://lwn.net/Articles/953438/ [Online; accessed
+20-March-2026].
+[25] Dave Dice and Alex Kogan. 2019. BRAVO—Biased Locking for
+Reader-Writer Locks. In 2019 USENIX Annual Technical Conference
+(USENIX ATC 19). USENIX Association, Renton, WA, 315–328.
+[26] John B Goodenough and Lui Sha. 1988. The priority ceiling protocol:
+A method for minimizing the blocking of high priority Ada tasks.
+ACM SIGAda Ada Letters 8, 7 (1988), 20–31.
+13
+[27] Google. 2024. Mobile App Usage & Download Statistics. https:
+//buildfire.com/app-statistics/. [Online; accessed 20-March-2026].
+[28] P. Holman and J.H. Anderson. 2002.
+Object sharing in Pfair-
+scheduled multiprocessor systems. In Proceedings 14th Euromicro
+Conference on Real-Time Systems. Euromicro RTS 2002. 111–120.
+[29] Takashi Hoshino and Kenjiro Taura. 2025. Fairer and More Scalable
+Reader-Writer Locks by Optimizing Queue Management. In Pro-
+ceedings of the 30th ACM SIGPLAN Annual Symposium on Principles
+and Practice of Parallel Programming (Las Vegas, NV, USA) (PPoPP
+’25). Association for Computing Machinery, New York, NY, USA,
+115–127.
+[30] Sanidhya Kashyap, Irina Calciu, Xiaohe Cheng, Changwoo Min,
+and Taesoo Kim. 2019. Scalable and practical locking with shuffling.
+In Proceedings of the 27th ACM Symposium on Operating Systems
+Principles (Huntsville, Ontario, Canada) (SOSP ’19). Association for
+Computing Machinery, New York, NY, USA, 586–599. doi:10.1145/
+3341301.3359629
+[31] Chan-Kyung Kim, Eu teum Choi, Mingyun Han, Seongjin Lee, and
+Jaeho Kim. 2022. Performance Analysis of RCU-Style Non-Blocking
+Synchronization Mechanisms on a Manycore-Based Operating Sys-
+tem. Applied Sciences (2022).
+[32] Yu Liang, Jinheng Li, Rachata Ausavarungnirun, Riwei Pan, Liang
+Shi, Tei-Wei Kuo, and Chun Jason Xue. 2020. Acclaim: Adaptive
+Memory Reclaim to Improve User Experience in Android Systems.
+In 2020 USENIX Annual Technical Conference (USENIX ATC 20).
+USENIX Association, 897–910.
+[33] Giuseppe Lipari and Enrico Bini. 2003. A Framework for Hier-
+archical Scheduling. In Proceedings of the IEEE Real-Time Systems
+Symposium (RTSS).
+[34] Shengzhong Liu, Shuochao Yao, Xinzhe Fu, Rohan Tabish, Simon
+Yu, Ayoosh Bansal, Heechul Yun, Lui Sha, and Tarek Abdelzaher.
+2020. On removing algorithmic priority inversion from mission-
+critical machine inference pipelines. In 2020 IEEE Real-Time Systems
+Symposium (RTSS). IEEE, 319–332.
+[35] D. Locke, L. Sha, R. Rajikumar, J. Lehoczky, and G. Burns. 1988.
+Priority inversion and its control: An experimental investigation.
+In Proceedings of the Second International Workshop on Real-Time
+Ada Issues (Moretonhampstead, Devon, England) (IRTAW ’88). As-
+sociation for Computing Machinery, New York, NY, USA, 39–42.
+[36] Jean-Pierre Lozi, Baptiste Lepers, Justin Funston, Fabien Gaud,
+Vivien Quéma, and Alexandra Fedorova. 2016. The Linux scheduler:
+a decade of wasted cores. In Proceedings of the Eleventh European
+Conference on Computer Systems (London, United Kingdom) (Eu-
+roSys ’16). Association for Computing Machinery, New York, NY,
+USA, Article 1, 16 pages.
+[37] Paul E. McKenney. 2024. The RCU API, 2024 edition. LWN.net (Sept.
+2024). https://lwn.net/Articles/988638/
+[38] Paul E. McKenney, Joel Fernandes, Silas Boyd-Wickizer, and
+Jonathan Walpole. 2020. RCU Usage In the Linux Kernel: Eigh-
+teen Years Later. 54, 1 (Aug. 2020), 47–63.
+[39] Sarvesh Pandey and Udai Shanker. 2020. Transaction scheduling
+protocols for controlling priority inversion: A review. Computer
+Science Review 35 (2020), 100215.
+[40] R. Rajkumar. 1990. Real-time synchronization protocols for shared
+memory multiprocessors. In Proceedings.,10th International Confer-
+ence on Distributed Computing Systems. 116–123.
+[41] L. Sha, R. Rajkumar, and J.P. Lehoczky. 1990. Priority inheritance
+protocols: an approach to real-time synchronization. IEEE Trans.
+Comput. 39, 9 (1990), 1175–1185.
+[42] D. Silambarasan and M RamanathaVenkatesan. 2016. Handling
+of Priority Inversion Problem in RT-Linux using Priority Ceiling
+Protocol.
+[43] John Stultz. 2023. [PATCH v3 00/14] Generalized Priority Inher-
+itance and Proxy Execution. Linux Kernel Mailing List (LKML).
+https://lkml.org/lkml/2023/4/11/17 [Online; accessed 20-March-
+2026].
+[44] Cai-Dong Wang, H. Takada, and K. Sakamura. 1996. Priority in-
+heritance spin locks for multiprocessor real-time systems. In Pro-
+ceedings Second International Symposium on Parallel Architectures,
+Algorithms, and Networks (I-SPAN’96). 70–76.
+14

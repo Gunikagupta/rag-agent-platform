@@ -1,0 +1,2930 @@
+A Taxonomy of Distance Metrics for
+Time-Sensitive Importance Splitting
+Timer Bounds, Resampling, and the Global Age⋆
+Gabriel Dengler1
+, Carlos E. Budde2
+, and Laura Carnevali3
+1 Saarland University, Saarbrücken, Germany
+dengler@depend.uni-saarland.de
+2 Technical University of Denmark, Lyngby, Denmark
+3 Department of Information Engineering, University of Florence, Florence, Italy
+Abstract Importance splitting (ISPLIT) evaluates the probabilities of
+rare events in non-Markovian models. It requires a heuristic importance
+function (IFUN) that estimates the distance to the target. While including
+timer evaluations in the IFUN can substantially improve the effective-
+ness of ISPLIT, the existing time-sensitive IFUNs evaluate simulation
+states with respect to single sampled timer values. Thus, reaching highly
+important states requires simultaneously sampling specific combinations
+of timer values, yielding several unproductive simulation runs.
+In this paper, we revisit time-sensitive ISPLIT with the goal of steering
+simulation runs towards important states. First, we study how timer
+values can be resampled conditioned on the elapsed time. The importance
+can be evaluated by considering the set of feasible timer values, decoupling
+importance estimation from timer samples. Second, we exploit the global
+age of a simulation to identify and prune the executions that can no
+longer reach the target within the remaining time budget. Together, these
+ideas lead to a taxonomy of distance metrics clarifying the role of timer
+bounds, resampling, and the global age. In particular, for models with
+unbounded timers, we show that time-sensitive IFUNs collapse to ordinary
+IFUNs under resampling. Experiments demonstrate that the proposed
+formulations substantially improve the accuracy of ISPLIT estimators.
+1
+Introduction
+Reliability engineering provides methods and tools to assess risks in a variety of
+application domains [14,25], performing quantitative evaluation of probabilistic
+models, e.g., the failure behavior of fault trees [27]. If any stochastic temporal
+parameter is non-exponentially distributed, the underlying stochastic process is
+non-Markovian [9], and the model is termed a non-Markovian model.
+⋆This work was partially funded by DFG grant 389792660 as part of TRR 248 CPEC,
+the European Union (EU) under the INTERREG North Sea project STORM_SAFE
+of the European Regional Development Fund, and the EU’s Horizon 2020 research and
+innovation programme under Marie Skłodowska-Curie grant agreement 101008233
+(MISSION).
+arXiv:2607.17939v1  [stat.ME]  20 Jul 2026
+2
+G. Dengler et al.
+Analysis and simulation methods. Unlike the Markovian case, providing efficient
+solution techniques for the quantitative evaluation of non-Markovian models is
+considered significantly harder. Efficient quantitative evaluation methods do exist
+for restricted model classes such as non-Markovian models with an underlying
+semi-Markov process [7], at most one non-exponential timer in each state [1,16],
+and an underlying Markov regenerative process with a bounded number of steps
+between subsequent regenerations [19]. These restrictions, however, limit the
+model expressiveness and do not fully address scalability challenges [5,12,13].
+Thus, simulation, also known as statistical model checking (SMC), remains
+the default approach for analyzing large non-Markovian models. In contrast to
+methods based on state-space enumeration, SMC produces an estimate ˆφ of some
+property φ s.t. ˆφ ∈[l, u] with some confidence level γ. While applicable to models
+with arbitrary size, it struggles to reliably estimate rare events [17,20,33].
+Importance splitting (ISPLIT) is a prominent technique for reducing the
+variance of rare event estimations by layering (splitting) the state space so that
+reaching one layer from another one is not rare. The selection of layers is given
+by a heuristic importance function (IFUN), whose choice is the main deciding
+factor for the efficiency of ISPLIT. For a wide range of application scenarios, it
+has been demonstrated how an effective IFUN can be derived automatically [4,5].
+Time-sensitive ISPLIT. A notable challenge in non-Markovian models is that
+the progress towards the target depends both on the system’s discrete logical
+state and on the continuous remaining times of the active timers. In [12], we
+addressed this challenge by incorporating concrete timer values into automatically
+generated IFUNs, increasing the amount of information available to ISPLIT
+while tying importance to a particular sampled realization of timer values.
+UPS
+AC
+PAND
+"UPS" fail~uniform(9.8,12)
+     repair~uniform(0,0.1);
+"AC" fail~uniform(18,20)
+    repair~uniform(0,0.5);
+Figure 1: Toy example
+Example 1. Fig. 1 shows a repairable dynamic fault
+tree (DFT) from [12]. It is made of two basic el-
+ements (BEs): UPS (uninterruptible power supply)
+and AC (alternating current grid). The system failure
+is governed by a PAND gate, i.e., it occurs only if
+the attached BEs fail from left to right. Given the
+failure and repair time bounds of the BEs, for the
+shortest path, the UPS BE needs to fail twice near
+the lower bound 9.8, while the AC BE has to fail at
+the upper bound 20. So, an IFUN should assign a
+state for which this condition applies a higher importance than for other states,
+which can only be expressed by considering concrete timer values.
+Thus, two states may receive significantly different importance values given the
+timer values. Reaching highly important states might occur quite rarely, as most
+of the probability mass is concentrated in realizations with low-importance values.
+This raises the question: How can we observe more important simulation runs?
+Contributions. In this paper, we tackle the above problem by (i) resampling
+of timers conditioned on their elapsed time and by (ii) exploiting the global age.
+A Taxonomy of Distance Metrics for Time-Sensitive ISPLIT
+3
+These variations lead to a plethora of distance metrics, whose role regarding
+timer bounds, resampling, and the global age can be categorized in a taxonomy.
+Resampling. The usual simulation semantics of non-Markovian models samples
+timer values when they are newly enabled. When a timer elapses, the values of the
+other persistent timers are reduced by the elapsed time. Notably, there is no need
+to fix the value of a timer upon enabling. Conditioned on each timer’s elapsed
+time, the future behavior is independent of the past samples and captures the
+reachable timing choices that remain available. We refer to sampling from this
+conditioned distribution as resampling. Similar concepts exist for approximating
+distributions from a finite number of samples [2,3]. Resampling enables us to
+enlarge the number of different timer samples that reach a high importance.
+Specifically, for evaluating the time-sensitive IFUN, we consider the maximum
+importance that is reachable given the possible timer evaluations.
+We have a closer look at the special case of models where each timer has
+an infinite domain [0, ∞), which equates to just considering in which order the
+active timers elapse. There, we show that IFUNs based on backwards reachability
+search behave equally in the time-agnostic as well as time-sensitive setting when
+resorting to resampling. For a simulation run where no resampling is used, we
+develop a more efficient data structure to compute the time-sensitive IFUN.
+Global age. For time-bounded reachability properties, we exploit the global age,
+i.e., the elapsed simulation time, to decide if the target condition can be reached
+within the remaining time budget. By integrating the global time as an artificial
+timer, the simulation can dynamically detect when the target condition is no
+longer reachable and immediately terminate unfeasible realizations.
+Structure. We start by reviewing relevant background in Sec. 2. Then, we focus
+on the main contributions in the paper, i.e., resampling of timers (Sec. 3) and
+inclusion of the global age (Sec. 4). The plethora of derived distance metrics is
+categorized in a taxonomy in Sec. 5. We evaluate our variants for challenging
+DFTs and a queueing network in Sec. 6 and draw our conclusions in Sec. 7.
+2
+Background
+2.1
+Input/Output Stochastic Automata
+We specify every model as a network of input/output stochastic automata (IOSA).
+Intuitively, these are automata with stochastic timers that can communicate with
+input/output actions, where urgent actions operate instantaneously:
+Definition 1 (Input/output stochastic automaton).
+An IOSA with ur-
+gency [10] is a tuple (L, A, T , −→, T0, l0) consisting of a denumerable set of
+locations L with l0 ∈L being the initial location; a denumerable set of actions
+A partitioned into two sets of input Ai and output Ao actions, where Au ⊆A
+denotes the set of urgent actions; a finite set of timers T s.t. each t ∈T has an
+associated continuous probability measure µt supported on R≥0, where T0 ⊆T de-
+notes the set of initial timers; and a transition function −→⊆L×2T ×A×2T ×L
+whose elements ⟨l, T, a, T ′, l′⟩are written as l
+T,a,T ′
+−−−−→l′.
+4
+G. Dengler et al.
+We explicitly distinguish between locations and (simulation) states:
+Definition 2 (State). A state is a pair ⟨l, τ⟩∈S with S = L×((R≥0 ˙∪{⊥})T ),
+made of a location l and a timer value function τ yielding an evaluation for each
+timer. We term a timer t ∈T active if τ(t)̸ = ⊥and inactive otherwise.
+A transition l
+T,a,T ′
+−−−−→l′ represents either an external event (if a ∈Ai is an
+input action; then T = ∅) or an internal event (if a ∈Ao is an output action;
+then |T| = 1 for non-urgent actions and |T| = 0 for urgent actions), which triggers
+action a and starts new timers T ′.1 In the end, the full parallel composition of
+the IOSA network must not have any unresolved input actions [10]. We require
+that exactly one subset of timers Tl ⊆T is active in each location l [10,23]. Thus,
+given a location l, for all associated states s = ⟨l, τ⟩and timers t ∈T , it holds
+that τ(t) = ⊥iff t̸ ∈Tl, viz., when a timer is not active in the current state, it
+takes the special value ⊥that denotes an inactive timer. We assume that for
+each timer t ∈T we can provide its bounds [a, b] ⊆Q≥0 ∪{∞}:
+Definition 3 (Timer bounds). When enumerating the n = |Tl| active timers
+of a location l as t1, ..., tn ∈Tl, we denote with ai ∈Q≥0 the lower bound and
+with bi ∈Q≥0 ∪{∞} the upper bound of timer ti for i ∈{1, ..., n}.
+2.2
+State Classes
+To determine the minimum number of transitions needed to reach the target
+given the current timer values, the work of [12] used state classes (SCs) [29]:
+Definition 4 (State class). An SC Σ = ⟨l, D⟩consists of a location l ∈L and
+a joint domain D for the active timers in l, i.e., the timers in Tl.
+The domain D of an SC Σ = ⟨l, D⟩collects the (infinite) possible timer values.
+It can be efficiently encoded as a difference bound matrix (DBM) zone, i.e., the
+solution of a set of linear inequalities constraining the difference between two
+timers (with t⋆being a fictitious timer denoting the time when Σ is entered):
+D = {τ(ti) −τ(tj) ≤bij
+∀ti, tj ∈Tl ∪{t⋆} with ti̸ = tj}
+To compute a distance metric that counts the number of transitions to reach
+the target, we perform backwards reachability search from the target locations.
+For each SC Σ′ = ⟨l′, D′⟩and incoming transition l
+T,a,T ′
+−−−−→l′, we compute the
+predecessor SC Σ = ⟨l, D⟩and derive its distance metric ωT (Σ) as the minimum
+number of transitions needed to reach the target locations from Σ. The predecessor
+calculations effectively resort to computing the weakest precondition, i.e., all states
+of ⟨l, D⟩end up in ⟨l′, D′⟩after taking the transition. Details for the calculation
+can be found in [12] and in App. A. During backwards reachability search, we
+can eliminate redundant information, e.g., if for one location l we have two SCs
+1 Note that, although not part of the original IOSA definition, active timers can also
+be disabled, meaning that they are removed from the set of active timers without
+elapsing. This happens, e.g., in the semantic mapping of SPARE gates to IOSA
+(see [23]) when a spare basic element (SBE) is (de-)activated by the SPARE gate.
+A Taxonomy of Distance Metrics for Time-Sensitive ISPLIT
+5
+Σ1 = ⟨l, D1⟩and Σ2 = ⟨l, D2⟩such that D1 ⊇D2 and ωT (Σ1) ≤ωT (Σ2), so
+Σ1 strictly includes Σ2, we can omit Σ2. Analogously, by performing forwards
+search from the initial state with SCs, we can determine via SCs the set of states
+(locations and timer values) that are reachable during a simulation run [29].
+We can evaluate the distance (i.e., the minimum number of steps to reach the
+target given the timer constraints) of a state s = ⟨l, τ⟩as the minimum distance to
+the target among those of the SCs which s belongs to, i.e., dT : S →N0∪{∞} with
+dT (s) = minΣ | s∈Σ ωT (Σ) (dT is an acronym for distance timed) and dT (s) = ∞
+if s is not contained in any SC Σ. A state s = ⟨l, τ⟩belongs to an SC Σ = ⟨l′, D⟩
+(which we write as s ∈Σ) if l = l′ and the timer values defined by the timer
+value function τ satisfy D (denoted with τ ∈D), which can be easily checked by
+evaluating all inequalities encoded in D (runtime O(|Tl|2)).
+By laying a probability density over domain D, we can quantify the probability
+of timer evaluations through stochastic state classes (SSCs) [19,30]:
+Definition 5 (Stochastic state classes). An SSC is a tuple Σ = ⟨l, D, f⟩
+where l, D are defined as for SCs and f : (R≥0)|Tl| →R≥0 is the probability
+density function (PDF) (immediately after the previous transition) of the random
+vector of the times-to-fire τ of timers t1, ..., tn ∈Tl enabled in l.
+Similarly to SCs, we can enumerate the set of reachable SSCs from the initial
+state by a forwards search from the initial state. This, for example, allows us to
+compute time-bounded reachability probabilities exactly, however, with significant
+costs due to the state-space explosion and complexity of representing SSCs.
+2.3
+Rare Event Simulation
+Statistical model checking. In SMC, evaluating bounded reachability metrics boils
+down to the sampling of simulation traces, i.e., a sequence xi = {⟨lj, τj⟩}ni
+j=0 of
+states with locations lj and timer values τj, so that xi either visits a set of goal
+locations Lg or not [32]. An unbiased estimator for the probability of reaching Lg
+is then given by yi = 1 if ∃j. lj ∈Lg else 0. For robustness, such point estimates
+are accompanied by an (asymptotic) statistical correctness guarantee, typically a
+confidence interval (CI) [l, u] ⊆R with confidence level γ.
+Importance splitting. For rare events, however, regular SMC needs an unfeasible
+number of samples to provide a tight CI. This problem can be alleviated by using
+rare event simulation (RES) methods, which can be categorized as importance
+sampling (IS) and ISPLIT. IS modifies the underlying probability model such
+that the event of interest is more likely. While sophisticated automated methods
+exist for Markovian models, applying them to non-Markovian models is seen as
+significantly more challenging [6,24]. Instead, we focus in this work on ISPLIT
+methods, which partition the state space into layers surrounding the goal states
+Sg ⊊S. This is done using an IFUN f : S →N0 ∪{−∞} that maps each state to
+an importance value (or indicates that the target is unreachable by the value −∞).
+For ISPLIT, there exist multiple variations [4,15], predominantly Fixed Effort
+and RESTART [21,31]. In short, Fixed Effort iteratively starts from the selection
+6
+G. Dengler et al.
+of simulation runs that reached the next importance level, while RESTART
+merges split simulation runs when falling below a certain importance level.
+Importance function derivation. A general automated approach to derive an
+IFUN uses backwards reachability search, i.e., a function d: S →N0 ∪{∞}
+with d(⟨l, τ⟩) = ω(l) that counts the number of needed transitions to the target,
+arriving at the IFUN f(s) .= maxs′∈S,d(s′)<∞{d(s′)} −d(s) [4]. This concept
+straightforwardly translates to a time-sensitive setting using dT : S →N0 ∪{∞}
+(from Sec. 2.2) to arrive at the IFUN fT (s) .= maxs′∈S,dT (s′)<∞{dT (s′)} −dT (s).
+Threshold selection. The practical efficiency of ISPLIT strongly depends on the
+choice of importance levels (called thresholds) at which simulation runs are split.
+Too few thresholds lead to extinction (i.e., most runs fail to reach the target),
+whereas too many cause a significant performance overhead. Most methods for
+automatically computing thresholds [4,8] start from the initial location and
+estimate level-up probabilities to determine the thresholds to include.
+3
+Resampling of Timers
+This section is concerned with the first part of our main contribution, i.e., studying
+how the possibility of resampling timers influences the idea of time-sensitive
+ISPLIT. After explaining the general concept, we consider models with unbounded
+timers in Sec. 3.1 and the adaptations for threshold selection in Sec. 3.2.
+As we can newly determine the value of each timer under the condition that
+a deterministic time has elapsed, we do not consider the currently sampled timer
+values, but the range of timer values that is possible given the elapsed time:
+Definition 6 (Elapsed time). For a state s = ⟨l, τ⟩∈S, τelp ∈(R≥0 ˙∪{⊥})T
+denotes the elapsed time for each timer. Furthermore, we write selp = ⟨l, τelp⟩
+for a location with elapsed time information.
+We determine τelp for each timer during a (forwards) simulation run as
+follows: In the initial state, no time has elapsed, so we set τelp(t) = 0 for all
+t ∈T0. Otherwise, consider a location l with elapsed time τelp, concrete timer
+values τ, and outgoing transition l
+T,a,T ′
+−−−−→l′ with T = {t}. Then, the elapsed time
+of taking this transition is given by the value of the elapsed timer, i.e. ∆= τ(t).
+For the successor state with elapsed timer values s′
+elp = ⟨l′, τ ′
+elp⟩it holds for
+all (newly enabled) timers ti ∈T ′ : τ ′
+elp(ti) = 0 and for all (persistent) timers
+ti ∈Tl′\T ′ : τ ′
+elp(ti) = τelp(ti) + ∆.
+Given the elapsed time, we can compute the lower bound of each timer as
+τmin ∈(R≥0 ˙∪{⊥})T with τmin(ti) = max(0, ai −τelp(ti)) for ti ∈Tl and the
+upper bound τmax ∈(R≥0 ˙∪{∞, ⊥})T with τmax(ti) = bi −τelp(ti).2
+We define the timed distance metric under resampling as the regular minimum
+timed distance achievable by resampling the timers of the current state. This
+corresponds to the highest regular importance achievable by resampling. To
+formally define this metric, we observe that, depending on the value of τelp, selp
+induces an SC containing the potential timer values reachable by resampling:
+2 Note that it holds τ(ti) ≤bi, so bi −τelp(ti) is always non-negative.
+A Taxonomy of Distance Metrics for Time-Sensitive ISPLIT
+7
+Definition 7 (Induced state class). The induced SC of a state s = ⟨l, τ⟩is
+the SC Σselp = ⟨l, D⟩with domain D =×ti∈Tl[τmin(ti), τmax(ti)].
+As for the initial SC in the SC graph for forwards reachability analysis [19,29,30],
+the domain D has a hyper-rectangular shape as the individual timers are solely
+shifted by a time constant and thus remain independent. For the formal definition
+of the timed distance metric under resampling, we consider the minimum distance
+attainable by any state that is possible by resampling the current timers:
+Definition 8 (Time-sensitive distance with resampling). Consider a state
+s = ⟨l, τ⟩with elapsed time information selp = ⟨l, τelp⟩. Then, the timed distance
+metric under resampling is defined as dr
+T (s) = mins′∈Σselp dT (s′).
+Since dT (s) is evaluated by iterating over the SCs associated with location l,
+we can efficiently evaluate dr
+T (s) in a similar vein: We determine the SC with
+the smallest distance to the target that intersects with the induced SC Σselp =
+⟨l, D⟩, formally dr
+T (s) = minΣ=⟨l′,D′⟩| l=l′∧D∩D′̸=∅ωT (Σ) (see Sec. 2.2). Note
+that checking if a point lies inside the domain spanned by a DBM zone has the
+same computational complexity as checking if the domains of two DBM zones
+with equal size intersect [11,29], namely for n timers a runtime of O(n2).
+Moreover, an orthogonal perspective can be achieved by considering the
+probability densities associated with each timer, as selp also induces an SSC:
+Definition 9 (Induced stochastic state class). Consider selp = ⟨l, τelp⟩. For
+a timer ti ∈Tl, let fi : [ai, bi] →R≥0 be its PDF for the corresponding probability
+measure µti. We use xi for the variable describing the value of timer ti, i.e., τ(ti).
+Then, the induced SSC is the SSC ⟨l, D, f⟩with D defined as in Def. 7 and
+f(x1, ..., xn) =
+n
+Y
+i=1
+1
+R bi
+max(ai,τelp(ti)) fi(x)dx
+|
+{z
+}
+Normalization constant
+· fi(xi + τelp(ti))
+|
+{z
+}
+Marginal
+distribution
+.
+As for the induced SC, the individual timers of the SSC are stochastically
+independent. Thus, each timer can be resampled individually, see App. B.
+Example 2. We revisit the toy example from Fig. 1 in Fig. 2, where Fig. 2a shows
+a part of the corresponding synchronized IOSA model. We denote with u✗/ur
+and a✗/ar the failure/repair of the UPS and AC BEs. Fig. 2b shows the shortest
+possible sequence from an initial state to the target, which requires two failures
+with timer values tu✗near the lower bound of 9.8 with intermediate repair tur
+and the failure ta✗near the upper bound of 20 (see Example 1). The DBM zones
+of D1 to D5 are (computed via backwards search in [12]/App. A):
+– D1 = {0 ≤τ(tur) ≤0.1}
+– D2 = {0 ≤τ(tur) ≤0.1 ∧0 ≤τ(ta✗) ≤0.1 ∧0 ≤τ(tur) −τ(ta✗) ≤0.1}
+– D3 = {0 ≤τ(tu✗) ≤12 ∧0 ≤τ(ta✗) ≤12.1 ∧−0.1 ≤τ(tu✗) −τ(ta✗) ≤0}
+– D4 = {0 ≤τ(tur) ≤0.1 ∧9.8 ≤τ(ta✗) ≤12.2 ∧−12.1 ≤τ(tur) −τ(ta✗) ≤−9.8}
+– D5 = {0 ≤τ(tu✗) ≤10.2 ∧9.8 ≤τ(ta✗) ≤20 ∧−12.2 ≤τ(tu✗) −τ(ta✗) ≤−9.8}
+8
+G. Dengler et al.
+lua
+lua
+lua
+{tu✗:= Unif(9.8, 12),
+ta✗:= Unif(18, 20)}
+{tu✗}, u✗,
+{tur := Unif(0, 0.1)}
+{tur}, ur,
+{tu✗:= Unif(9.8, 12)}
+{ta✗}, a✗, ∅
+a✗
+(a) Excerpt from composed IOSA with omitted urgent actions
+⟨lua, D1⟩
+⟨lua, D2⟩
+⟨lua, D3⟩
+⟨lua, D4⟩
+⟨lua, D5⟩
+a✗
+u✗
+ur
+u✗
+(b) Backwards search
+0
+0.1
+0.2
+D1
+τ(tur)
+(c) SCs for lua
+0.1
+0.2
+3
+6
+9
+12
+15
+D2
+D4
+D′
+2
+D′
+3
+τ(tur)
+τ(ta✗)
+(d) SCs for lua
+4
+8
+12
+4
+8
+12
+16
+20
+D3
+D5
+D′
+1
+τ1
+τ2
+τ2
+τ3
+τ(tu✗)
+τ(ta✗)
+(e) SCs for lua
+Figure 2: Selected SCs from backwards reachability search in the toy example
+from Fig. 1. Note the unequal axis scales in Fig. 2d.
+At simulation start, the values for the initial timers tu✗and ta✗are (uniformly)
+sampled from D′
+1 = {9.8 ≤τ(tu✗) ≤12 ∧18 ≤τ(ta✗) ≤20}, i.e., the Cartesian
+product of the domains of τ(tu✗) and τ(ta✗). Assume the following sampled values:
+– τ1 = {tu✗7→9.9, ta✗7→19.9} (shorthand notation for a function τ1 that satisfies
+τ1(tu✗) = 9.9, τ1(ta✗) = 19.9, and τ1(t) = ⊥for any other t ∈T )
+– τ2 = {tu✗7→9.9, ta✗7→18.4}
+– τ3 = {tu✗7→11.5, ta✗7→19.0}
+Then, the distance evaluation for time-sensitive ISPLIT operates as follows:
+– Regular simulation: It holds that τ1 ∈D5, so dT (⟨lua, τ1⟩) = 4. On the
+other hand, both τ2̸ ∈D5 and τ3̸ ∈D5, so it holds dT (⟨lua, τ2⟩) > 4 and
+dT (⟨lua, τ3⟩) > 4. Eventually, we obtain dT (⟨lua, τ2⟩) = dT (⟨lua, τ3⟩) = 14.
+– With resampling: In the initial state, the already elapsed time is τelp = {tu✗7→
+0, ta✗7→0} and the SC domain is D′
+1, which intersects with D5. So, we obtain
+for all timer evaluations dr
+T (⟨lua, τ1⟩) = dr
+T (⟨lua, τ2⟩) = dr
+T (⟨lua, τ3⟩) = 4.
+Depending on whether we choose τ1/τ2 (tu✗7→9.9) or τ3 (tu✗7→11.5),
+however, the elapsed time ∆and the induced SC in the location lua differ:
+• For τ1/τ2, ∆= 9.9, the elapsed time information for the subsequent
+state is τ ′
+elp = {tur 7→0.0, ta✗7→9.9} and the domain of the induced
+SC D′
+2 = {0 ≤τ(tur) ≤0.1 ∧8.1 ≤τ(ta✗) ≤10.1}. The intersection
+D′
+2 ∩D4̸ = ∅is non-empty, leading to dr
+T (s′) = 3 for every s′ ∈⟨lua, D′
+2⟩.
+A Taxonomy of Distance Metrics for Time-Sensitive ISPLIT
+9
+• On the other hand, for τ3, ∆= 11.5, τ ′
+elp = {tur 7→0.0, ta✗7→11.5}, and
+the domain of the induced SC is D′
+3 = {0 ≤τ(tur) ≤0.1 ∧6.5 ≤τ(ta✗) ≤
+8.5}. As the intersection D′
+3 ∩D4 = ∅is empty, dr
+T (s′) > 3 for every
+s′ ∈⟨lua, D′
+3⟩. With further exploration, we obtain dr
+T (s′) = 13.
+Summarizing, resampling considers the set of possible timer values in a state,
+eradicating the need to sample all timer values correctly for a certain importance
+(see τ1). Practically, this leads to a lower variance per ISPLIT run (see Sec. 6).
+3.1
+Models with Unbounded Timers
+This subsection is concerned with the timed distance metrics in the special case
+that each timer in the model has an infinite domain [0, ∞). In fact, this property
+applies to a plethora of commonly used distributions, e.g., the Exponential, Erlang,
+or Weibull distribution. Although we can reuse the backwards reachability metric
+search for the timed distance dT based on exploring the SC graph, dealing with
+DBM zones can induce a significant performance hit: For example (see Sec. 2.2),
+we perform strict inclusion checking during backwards reachability search with
+SCs to limit the explored state space. However, this approach could be further
+optimized: We could merge adjacent DBM zones (e.g., when D1 ∪D2 can be
+represented as a DBM zone again), or omit an SC Σ1 = ⟨l, D1⟩such that there
+exist SCs Σ2 = ⟨l, D2⟩, . . . , Σk = ⟨l, Dk⟩(with k > 2) with lower distances to
+the target than Σ1 and D1 ⊆D2 ∪· · · ∪Dk. Although such operations would be
+strongly beneficial to reduce the SC graph size, their implementation is known
+to be considerably hard for DBM zones [11], rendering their use impractical.
+Efficient data structure. For order-based distance metrics, denoted in the following
+as dO : S →N0 ∪{∞} (acronym for distance ordered), we develop a specialized
+data structure by observing that, in this case, any DBM zone can be captured
+by the union of elementary SCs that store an ordering of timers:
+Definition 10 (Elementary state class for ordered distances). For a
+location l and an ordering of timers Tl encoded as permutation σ : Tl →Tl, the
+elementary SC is Σσ = ⟨l, Dσ⟩with n = |Tl| timers and the elementary domain
+Dσ =
+\
+1≤i≤n−1
+{τ(σ(ti)) ≤τ(σ(ti+1))} = {τ(σ(t1)) ≤τ(σ(t2)) ≤... ≤τ(σ(tn))}.
+Trivially, there exist |Tl|! elementary SCs for a location l as there are as many per-
+mutations for a list of |Tl| elements. By making use of the Lehmer code [22], we can
+index each permutation, leading to the bijection λ : Perm(Tl) →{1, 2, ..., |Tl|!}.
+To calculate the metric dO, instead of working with DBM zones directly, we store
+for each location l an array of size |Tl|! that contains the value of the distance
+metric ωO(Σ) for every elementary SC Σ. We start with the elementary SCs of
+the target locations and perform backwards reachability search as in [12]/App. A.
+Consequently, the size of the created SC graph lies in O(P
+l∈L |Tl|!).
+During simulation, the distance dO can be evaluated for a state s = ⟨l, τ⟩by
+determining the timer ordering permutation σ, evaluating the Lehmer code λ(σ)
+(implemented in time O(|Tl|2)), and looking up the distance of ωO(Σσ).
+10
+G. Dengler et al.
+Resampling for ordered distance metrics. Next, we focus on the following question:
+What changes when we apply resampling to ordered distance metrics? As every
+timer is unbounded, resampling can always arbitrarily change the order of timers.
+This raises the question: When working with unbounded timers, does resorting
+to time-sensitive IFUNs even make a difference? The answer is no, which is
+formalized as follows (where dr
+O(s) = mins′∈Σselp dO(s′) as in Def. 8):
+Theorem 1. For every state s ∈S it holds that d(s) = dr
+O(s).
+This result has practical implications: When working with unbounded timer
+domains, it suffices for resampling to construct the cheaper-to-compute regular
+distance metric. On the other hand, an ISPLIT run without resampling is on
+average faster, albeit with higher variance. The practical performance tradeoff
+between both approaches is discussed in Sec. 6.
+3.2
+Threshold Selection
+Most threshold selection approaches for ISPLIT (see Sec. 2.3) start in the initial
+location and estimate the level-up probabilities. This requires that the initial
+states have (almost) the lowest possible importance value. However, in a time-
+sensitive setting, the initial states might have different importance values [4,8].
+Regular simulation. To find the states in the initial location with lowest
+importance, we sample n different initial states and record the importance values,
+from which we select the k lowest ones and note their importance range. In our
+experiments, we set n = 1000 and k = 10, which ensures that a wide range of
+possible importance values is covered, while preventing too expensive rejection
+sampling from the states with the lowest importance values. Only states with an
+importance value in the range of the k selected states are used as initial states.
+With resampling. On the other hand, when using resampling, the importance
+value is the same for any initial state, as the elapsed time information τelp is
+equal, and thus the induced SC Στelp. Thus, no adjustments are necessary here.
+4
+Considering the Global Age
+As the second part of our main contribution, we analyze how to incorporate global
+time into the time-sensitive framework. For time-bounded reachability analysis,
+the global time can be used to determine whether the target remains reach-
+able within the available time budget. Otherwise, the corresponding simulation
+offspring can be pruned, significantly reducing simulation effort.
+The basis for including the global time information is by means of an artificial
+timer that records the remaining time budget until the simulation time bound.
+Definition 11 (Global age timer). We denote with tage the global age timer
+recording the remaining time budget upon entering a state, and with Tage =
+T ∪{tage} the set of all timers including the global age timer.
+A Taxonomy of Distance Metrics for Time-Sensitive ISPLIT
+11
+This idea is a standard concept in forwards analysis with SCs or SSCs [13,19].
+In our backwards reachability search setting, timer elapsing is followed in the
+opposite direction. Thus, at the end of simulation, it reaches the lowest value 0,
+resulting in potential values of τ(tage) in [0, ∞). Consequently, we extend the
+state space S by a dimension for tage, so Sage = L × ((R≥0 ˙∪{⊥})T × R≥0).
+Distance metrics. For a global time bound tmax
+age ∈R≥0, we extend the distance
+metrics dT (Sec. 2.2) and dr
+T (Sec. 3, Def. 8), as well as dO and dr
+O (Sec. 3.1) with
+the following global age variants returning the minimum number of transitions
+needed to reach the target within the time budget tmax
+age :
+– dT G and dr
+T G (for distance timed global), considering timer bounds
+– dOG and dr
+OG (for distance order global), neglecting timer bounds
+Analogously, the concept can be readily extended to transient probabilities, i.e.,
+the probability of being at a target state exactly at a given time tmax
+age :
+– dT EG and dr
+T EG (for distance timed exactly global), considering timer bounds
+– dOEG and dr
+OEG (for distance order exactly global), neglecting timer bounds
+State class adaptations. For the computation of the distance metrics ωT G(Σ),
+ωOG(Σ), ωT EG(Σ), and ωOEG(Σ) (naming scheme as above), we distinguish for
+all SCs Σ′ = ⟨l′, D′⟩between time-bounded and transient reachability queries:
+– For time-bounded queries (ωT G(Σ), ωOG(Σ)), no adjustments to the target
+SC Σ′ as calculated in App. A and [12] need to be made, as the location l′
+can be left before the global time bound in a simulation run.
+– For transient reachability queries (ωT EG(Σ), ωOEG(Σ)), we must ensure that
+a simulation run does not leave l′ before the end of the time bound. Thus,
+we restrict the domain D′ of Σ′ with D′
+E = D′ ∩(T
+t∈Tl′{τ(t) ≥τ(tage)}).
+For calculating the predecessor SC when inversely following a transition l
+T,a,T ′
+−−−−→l′,
+no adjustments to the procedures in App. A and [12] need to be made. The
+restrictions imposed on tage and the other timers are updated implicitly.
+For evaluating the importance of a state under consideration of resampling,
+one needs to consider: As tage is not a classical timer to which a probability
+distribution is assigned, it can also not be resampled and has a fixed value of
+τ(tage). Thus, we obtain as induced SC (adapted from Def. 7):
+Definition 12 (Induced state class with global age).
+The induced SC
+of s = ⟨l, τ⟩(with global age) is the SC Σselp = ⟨l, D⟩with domain D =
+(×ti∈Tl[τmin(ti), τmax(ti)]) × {τ(tage)}.
+The extension of the induced SSCs (cmp. Def. 9) is analogous. For distance
+evaluation, we determine the SC with the smallest distance to the target from
+the SC graph (with global age) that intersects with the induced SC, as in Sec. 3.
+Pruning. During backwards reachability search, we can prune SCs that are not
+reachable in the given time budget. Formally, when it holds for an SC Σ = ⟨l, D⟩
+12
+G. Dengler et al.
+that minτ∈D τ(tage) > tmax
+age , no further exploration is needed for this branch: The
+time budget does not suffice for a simulation run to intersect with Σ.
+Second, when during simulation the distance of a state s evaluates to ∞,
+i.e., no SC has been found, a simulation offspring can be pruned. Note that an
+unbiased result requires the SC graph to be fully constructed. While this is also
+theoretically conceivable for distance metrics without incorporation of global
+timers, it is usually only effective with them, as (i) many models allow reaching
+the target from any location (pruning is solely possible when incorporating the
+time bound) and (ii) for tight time bounds, constructing the pruned SC graph
+might be cheaper than constructing the complete SC graph without age timer:
+Example 3. We revisit the toy example in Fig. 1/Fig. 2. Constructing the complete
+backwards SC graph without global age results in 14 locations and 97 SCs. For
+time-bounded reachability queries, the SC graph with global age and a time limit
+of tmax
+age = 21 only has 43 SCs when pruning SCs outside the time budget. For
+the initial location lua, the domains D3 and D5 are updated:
+– D3 = {0 ≤τ(tu✗) ≤12 ∧0 ≤τ(ta✗) ≤12.1 ∧0 ≤τ(tage) ∧−0.1 ≤τ(tu✗) −τ(ta✗) ≤
+0 ∧0 ≤τ(tage) −τ(tu✗) ∧0 ≤τ(tage) −τ(ta✗)}
+– D5 = {0 ≤τ(tu✗) ≤10.2 ∧9.8 ≤τ(ta✗) ≤20 ∧9.8 ≤τ(tage) ∧−12.2 ≤τ(tu✗) −
+τ(ta✗) ≤−9.8 ∧9.8 ≤τ(tage) −τ(tu✗) ∧0 ≤τ(tage) −τ(ta✗)}
+As in the initial state (cmp. domain D′
+1) τ(tu✗) ≥9.8 and τ(ta✗) ≥18, a timer
+evaluation τ ∈D5 must in particular fulfill τ(tage) ≥max(9.8 + 9.8, 18) = 19.6.
+So, the time budget must be at least 19.6 such that we initially have dT G(s) = 4.
+5
+Taxonomy of Distance Metrics
+To categorize the distance metrics from Sections 2 to 4 into a taxonomy, we address
+the following question: How does adding information (e.g., timer bounds, global
+age) affect the resulting IFUN? Since these metrics estimate the distance to the
+target, adding information refines the estimate by excluding unfeasible paths, thus
+increasing the calculated distance. According to this, a lower distance estimate
+resampling
+yes
+no
+time granularity
+∅ 
+order 
+timed
+global age
+∅
+time-bounded
+exact
+∅
+time-bounded
+exact
+Figure 3: Taxonomy of the derived distance metrics
+A Taxonomy of Distance Metrics for Time-Sensitive ISPLIT
+13
+indicates a coarser approximation that falsely suggests a higher importance by
+ignoring additional information. This is formalized as follows:
+Definition 13 (Distance metric granularity). We say that a distance metric
+dA is at least as fine-grained as distance metric dB, denoted dA ⪰dB, if it holds
+for all states s ∈S that dA(s) ≥dB(s).
+The relation ⪯defines a partial order on the distance metrics. In particular, two
+distance metrics dA and dB can also be equivalent, denoted dA ≡dB, when it
+holds for all states s ∈S : dA(s) = dB(s). It has already been proven that d ≡dr
+O
+in Thm. 1. Likewise, we can make the following further statements:
+Theorem 2. The following granularity statements about distance metrics hold:
+1. d ≡dr
+O ≡dr
+OG ≡dr
+OEG
+(equivalence for order w/resampling);
+2. dO ⪯dOG ⪯dOEG, dT ⪯dT G ⪯dT EG, dr
+T ⪯dr
+T G ⪯dr
+T EG
+(age inclusion);
+3. d ⪯dO, dO ⪯dT , dOG ⪯dT G, dOEG ⪯dT EG, d ⪯dr
+T
+(time granularity);
+4. dr
+T ⪯dT , dr
+T G ⪯dT G, dr
+T EG ⪯dT EG
+(resampling yes/no).
+While we can compare a distance metric d∗with its resampling variant dr
+∗, note
+that, although d∗⪰dr
+∗, dr
+∗performs better as it incorporates resampling. For
+performance assessment, one should thus compare solely inside the d∗or dr
+∗class.
+Fig. 3 categorizes all distance metrics presented in this paper, sorted by
+whether (i) the timer bounds are considered, (ii) resampling is used or not, and
+(iii) the global age is considered. There is no resampling variant of the metric d
+as d is time-agnostic by default. In the diagram, dA
+dB denotes dA ⪯dB.
+4
+8
+12
+4
+8
+12
+τ(tu✗)
+τ(ta✗)
+(a) Order alone (dO)
+4
+8
+12
+4
+8
+12
+D3
+τ(tu✗)
+τ(ta✗)
+(b) With timer bounds (dT )
+4
+8
+12
+4
+8
+12
+6
+12
+τ(tu✗)
+τ(ta✗)
+τ(tage)
+(c) With global age (dT G)
+Figure 4: Changes of domain D3 from Fig. 2 for different distance metrics
+Example 4. Reconsider the toy example from Fig. 1/Fig. 2. Fig. 4 shows how the
+SC ⟨lua, D3⟩(Fig. 2e) from the backwards reachability search (Fig. 2b) changes
+when instead of dT using a more relaxed (dO, see Fig. 4a) or stricter (dT G, see
+Fig. 4c) distance metric. As can be seen, dO allows a larger domain than dT ,
+which again allows a larger domain than dT G.
+14
+G. Dengler et al.
+6
+Experimental Evaluation
+We demonstrate our theory on repairable DFTs and a queueing network. Our
+implementation, based on the modes SMC tool [18], extends the prototypical
+time-sensitive ISPLIT from [12]. All experiments ran on a 16-core AMD Ryzen 9
+7950X3D CPU with 128 GB of RAM running Ubuntu 22.04.
+6.1
+Tested Model Classes
+Repairable DFTs. A DFT is a DAG-structured reliability model that decom-
+poses a main system failure into a combination of partial failures, where the leaves
+model the failure of basic elements—see Example 1 and [27]. DFTs with repairs
+and non-Markovian failure/repair distributions were given formal semantics as
+IOSA in [23]. We study time-bounded failure probabilities of two such models:
+BE1
+BE4
+BE2
+BE3
+S
+System
+_PAND5
+_SPARE
+1
+_PAND5
+2
+_SPARE
+BE5
+BE1
+BE5
+Figure 5: Experimentation model mℓ
+(ms) the case study from [12], with
+4 PAND gates and uniform fail/re-
+pair distributions; (mℓ) the larger sys-
+tem from Fig. 5, with AND, PAND,
+and
+SPARE
+gates,
+and
+Weibull,
+normal, and exponential fail/dor-
+mant/repair distributions. In both
+models—described in full detail in
+App. E—there is a single RBOX,
+making all BEs and SBEs interdependent.
+Queue 1
+Queue 2
+Figure 6: Tandem queue
+Queueing networks. A tandem queue consists of n
+queues connected in series, with arrivals (departures)
+from outside via the first (resp. last) queue only. We
+experiment on the minimal n = 2 case from Fig. 6
+(mQ), with exponentially distributed inter-arrival
+times at rate λ, and uniform service times at the
+i-th queue with li < ui bounds. We study the time-bounded probability of a
+packet loss in the second queue due to arrivals over a limiting capacity, q2 ≥C.
+6.2
+Experimental Setting
+We study time-bounded events on each model m ∈{ms, mℓ, mQ}: For the DFTs,
+we query the probability φm = P(m(t) ∈fail | t ≤T) of observing a full system
+failure in ms (resp. mℓ) within T = 1248 (resp. 4500) time units. For the tandem
+queue, we query the overflow probability φm = P(q2 ≥3 | t ≤11).
+Let aΦ denote the use of RES algorithm a with IFUN Φ. To measure the
+quality of (our implementation of) Φ for ISPLIT RES, we run aΦ with modes for
+20 min on each model m, producing a 95% confidence interval ˆφaΦ
+m whose width
+| ˆφaΦ
+m | is a quality metric of aΦ. We normalize these values using the relative error
+reaΦ
+m
+.= (1/2 · | ˆφaΦ
+m |)/φm, where the ground truth φm is approximated via 12-hour-
+long crude Monte Carlo (CMC) runs: A more efficient aΦ yields a smaller reaΦ
+m .
+A Taxonomy of Distance Metrics for Time-Sensitive ISPLIT
+15
+0.0
+0.2
+0.4
+0.6
+0.7
+10-4
+10-6
+10-8
+0.0
+0.5
+1.0
+3.1
+10-2
+10-4
+0.0
+0.2
+10-3
+10-5
+global timer
+resampling
+ both
+tsen_orderglobal
+tsen_orderglobal⚬prune
+tsen_order
+tagn_mono
+tagn_comp
+CMC
+tsen_timed
+tsen_timedglobal⚬prune
+tsen_timedglobal
+tagn_monoresamp
+tagn_compresamp
+tsen_timedresamp
+tsen_timedglobal
+resamp
+tsen_timedglobal⚬prune
+resamp
+#{runs > 0} / #{runs}
+Relative error
+Figure 7: Relative error for ms, mℓ, and mQ (lower is better)
+Table 1: IFUNs tested
+IFUN
+d∗G dr
+∗
+prune
+tagn_comp
+✓
+tagn_mono (d)
+✓
+tsen_order (dO)
+✓
+{dOG}
+tsen_timed (dT )
+✓
+✓{dT G, dr
+T G}
+Concretely, we use the RES algorithms Fixed
+Effort and RESTART [21,31], selecting thresh-
+olds with lightweight Sequential Monte Carlo [8],
+for efforts 8 and 15 for Fixed Effort and 2
+and 3 for RESTART, i.e. a ∈A
+.= {FE8,
+FE15, RST2, RST3} [4]. We then aggregate all
+values per IFUN × model into a single scalar
+reΦ
+m = Γa∈A{reaΦ
+m } that demonstrates the quality of Φ for ISPLIT. We use two
+aggregation functions: Γ = median to measure expected quality, and Γ = min to
+observe best-case possibilities. In all cases a better IFUN Φ yields a smaller reΦ
+m.
+We thus use relative errors to compare 13 IFUNs that Table 1 maps to the
+taxonomy from Fig. 3: • For the time-agnostic functions tagn_mono (the distance
+metric d) and tagn_comp (counting q2 for mQ, or a compositional IFUN for the
+DFTs, see App. D and [5]), we also test their resampling variants dr
+∗; • For
+the (time-sensitive) order metrics tsen_order (dO), we also test the global-timer
+variant dOG, including a variant tsen_orderglobal ◦prune that prunes the runs which
+provably cannot reach the target in the remaining time; • For the (time-sensitive)
+timed metrics tsen_timed (dT ), we test all combinations of resampling, global
+timer, and pruning. Since we are evaluating time-bounded queries, we do not
+test exact global age IFUNs (d∗EG in Fig. 3). We further omit experiments with
+some equivalent specimens from the taxonomy, e.g. dr
+O and dr
+OG.
+6.3
+Experimental Results
+Fig. 7 shows the results of our experiments, for approximated ground truths
+φms ≈5.2e-7, φmℓ≈2.2e-8, and φmQ ≈1.7e-8. The height of a bar indicates the
+relative error achieved by each IFUN Φ and CMC: solid plain-color bars in the
+16
+G. Dengler et al.
+back stand for median reΦ
+m values, and star-hatched bars in the front stand for
+min (“best”) values. The secondary y-axis plots the proportion of “useful” runs
+that observed a rare event, with ■and ⋆respectively for the median and best
+runs. For example, for model mℓand IFUN tsen_timedglobal—the most central
+blue bars in the middle plot in Fig. 7—the median and best relative errors were
+0.47 and 0.36, with resp. proportions of useful runs of 5.9e-5 and 4.2e-4. Table 3
+in App. E shows the numerical results used to compile Fig. 7.
+Since timers in ms are bounded (uniform distributions), the impact of time-
+granularity (Thm. 2) in the upper plot is apparent. Visual comparisons should
+be done along a single dimension of Fig. 3, e.g. either dO vs. dT (without global
+timer) or else dOG vs. dT G. For instance, dO ⪯dT means that tsen_order should
+be less efficient than tsen_timed to estimate φms, which is evidenced by the
+higher bars of tsen_order in the upper plot of Fig. 7. Comparing tsen_orderglobal
+vs. tsen_timedglobal tells the same story, and can be explained by dOG ⪯dT G.
+Analogous results can be seen in the lower plot corresponding to mQ, where
+the service times also follow bounded distributions. In contrast, the unbounded
+timers of mℓmake the difference due to time granularity much less pronounced.
+In cases like mℓ, where specific timer constellations must be reached in an
+asymmetric state space, resampling achieves the biggest performance boost.
+This applies to both time-agnostic and -sensitive IFUNs to a similar degree (in
+compliance with Thm. 1 for models with unbounded timer domains), as evidenced
+by the lower bars of the dr
+∗variants for tagn_mono, tagn_comp, and tsen_timed
+in the middle plot of Fig. 7. Computational overhead also has a big impact in
+this (largest) model: for both dOG and dT G, pruning runs that cannot reach the
+rare event before the time limit produces narrower CIs. Note that this is purely
+a matter of achieving more runs in the given simulation budget, even though the
+proportion of useful runs generated is the same with or without pruning.
+In contrast to these DFTs, queueing systems like mQ have a fully connected
+and symmetrical state space, where resampling has a much lower impact. However,
+early pruning significantly increases the number of executed runs and thus yields
+more accurate estimates, as we observe that tsen_orderglobal ◦prune has lower relative
+errors than tsen_order alone, and analogously for tsen_timed.
+On the representativeness of our experiments. These results demonstrate many
+practical implications of the taxonomy in Sec. 5, in a reduced but varied set of
+models. We highlight that, despite getting results that we can explain with Sec. 5,
+we only have a partial empirical view. For instance, to compare functions like
+tsen_orderglobal ◦prune and tsen_timedresamp
+global , our numerical results do not allow us
+to discriminate how much performance gain is due to information depth (IFUN
+granularity) and how much to computational overhead (resampling, pruning).
+A more nuanced answer to these practical questions requires a much larger
+experimental setup, which falls outside the scope of this contribution.
+A Taxonomy of Distance Metrics for Time-Sensitive ISPLIT
+17
+7
+Conclusion
+In this paper, we substantially extended the original concept of time-sensitive
+ISPLIT [12] by considering resampling and information about the global age.
+We discovered different distance metrics and explored the tradeoff between
+information depth and computational costs. We demonstrated the feasibility and
+effectiveness of our approach for a relevant class of repairable DFT models.
+Limitations and future work. While the experimental evaluation demon-
+strated significant performance improvements compared to existing approaches,
+these improvements have thus far only been established experimentally. Conse-
+quently, deriving theoretical performance guarantees under a controlled setting,
+analogous to previous ISPLIT work [17,20], remains an important avenue for
+future research. Methodically, instead of fixing a concrete time for every elapsed
+timer in a step (see Def. 6), one can do this only for a subset of the elapsed
+timers, effectively obtaining a mixture between SSC analysis and simulation.
+Data availability statement. An artifact for experimental reproduction of the
+results in Sec. 6 is publicly available at DOI 10.5281/zenodo.19616627.
+Acknowledgments. We thank Pedro R. D’Argenio from Universidad Nacional
+de Córdoba for fruitful discussions about the relationship between time-sensitive
+ISPLIT and resampling.
+References
+1. Amparore, E.G., Donatelli, S.: A component-based solution for reducible Markov
+regenerative processes. Performance Evaluation 70(6), 400–422 (2013)
+2. Barton,
+R.R.,
+Schruben,
+L.W.:
+Uniform
+and
+bootstrap
+resampling
+of
+empirical
+distributions.
+In:
+WSC.
+pp.
+503–508.
+ACM
+(1993).
+https://doi.org/10.1145/256563.256699
+3. Blom, H.A., Bakker, G.B., Krystul, J.: Rare event estimation for a large-scale
+stochastic hybrid system with air traffic application, chap. 9, pp. 193–214. In:
+Rubino and Tuffin [26] (2009). https://doi.org/10.1002/9780470745403.ch9
+4. Budde,
+C.E.,
+D’Argenio,
+P.R.,
+Hartmanns,
+A.:
+Automated
+composi-
+tional
+importance
+splitting.
+Sci.
+Comput.
+Program.
+174,
+90–108
+(2019).
+https://doi.org/10.1016/J.SCICO.2019.01.006
+5. Budde, C.E., D’Argenio, P.R., Monti, R.E., Stoelinga, M.: Analysis of non-
+Markovian repairable fault trees through rare event simulation. STTT 24(5),
+821–841 (2022). https://doi.org/10.1007/S10009-022-00675-X
+6. Buijsrogge, A., de Boer, P.T., Scheinhardt, W.R.W.: Importance sampling for
+non-Markovian tandem queues using subsolutions. Queueing Syst. Theory Appl.
+93(1-2), 31–65 (2019). https://doi.org/10.1007/S11134-019-09623-0
+7. Carnevali, L., German, R., Santoni, F., Vicario, E.: Compositional analysis of
+hierarchical UML Statecharts. IEEE Transactions on Software Engineering 48(12),
+4762–4788 (2021). https://doi.org/10.1109/TSE.2021.3125720
+8. Cérou, F., Del Moral, P., Furon, T., Guyader, A.: Sequential Monte Carlo for rare
+event estimation. Statistics and computing 22(3), 795–808 (2012)
+18
+G. Dengler et al.
+9. Ciardo, G., German, R., Lindemann, C.: A characterization of the stochastic process
+underlying a stochastic Petri net. IEEE Transactions on software engineering 20(7),
+506–515 (1994). https://doi.org/10.1109/32.297939
+10. D’Argenio, P.R., Monti, R.E.: Input/output stochastic automata with urgency:
+Confluence and weak determinism. In: ICTAC. LNCS, vol. 11187, pp. 132–152.
+Springer (2018). https://doi.org/10.1007/978-3-030-02508-3_8
+11. David, A.: Merging DBMs efficiently. In: 17th Nordic Workshop on Programming
+Theory. pp. 54–56. DIKU University of Copenhagen (2005)
+12. Dengler, G., Budde, C.E., Carnevali, L., Hartmanns, A.: Time-sensitive importance
+splitting. In: QEST+FORMATS. LNCS, vol. 16143, pp. 21–41. Springer (2025).
+https://doi.org/10.1007/978-3-032-05792-1_2
+13. Dengler, G., Carnevali, L., Budde, C.E., Vicario, E.: Transient evaluation of non-
+Markovian models by stochastic state classes and simulation. In: QEST+FORMATS.
+LNCS, vol. 14996 (2024). https://doi.org/10.1007/978-3-031-68416-6_13
+14. Dongliang, Z., Kaiwen, Z., Chaofan, Z.: Reliability modeling and analysis of reactor
+protection system based on FPGA. Nuclear Power Engineering 42(5), 173–177
+(2021). https://doi.org/10.13832/j.jnpe.2021.05.0173
+15. Garvels, M.J.J.: The splitting method in rare event simulation. Ph.D. thesis,
+University of Twente (2000), http://eprints.eemcs.utwente.nl/14291/
+16. German, R., Logothetis, D., Trivedi, K.S.: Transient analysis of Markov regenerative
+stochastic Petri nets: A comparison of approaches. In: PNPM. pp. 103–112. IEEE
+(1995), https://dlnext.acm.org/doi/10.5555/826033.826790
+17. Glasserman, P., Heidelberger, P., Shahabuddin, P., Zajic, T.: Multilevel splitting
+for estimating rare event probabilities. Operations Research 47(4), 585–600 (1999),
+http://www.jstor.org/stable/223163
+18. Hartmanns, A., Hermanns, H.: The Modest Toolset: An integrated environment for
+quantitative modelling and verification. In: TACAS. LNCS, vol. 8413, pp. 593–598.
+Springer (2014). https://doi.org/10.1007/978-3-642-54862-8_51
+19. Horváth, A., Paolieri, M., Ridi, L., Vicario, E.: Transient analysis of non-Markovian
+models using stochastic state classes. Perform. Evaluation 69(7-8), 315–335 (2012).
+https://doi.org/10.1016/J.PEVA.2011.11.002
+20. L’Ecuyer, P., Blanchet, J.H., Tuffin, B., Glynn, P.W.: Asymptotic robustness of
+estimators in rare-event simulation. ACM Trans. Model. Comput. Simul. 20(1)
+(2010). https://doi.org/10.1145/1667072.1667078
+21. L’Ecuyer,
+P.,
+Le
+Gland,
+F.,
+Lezaud,
+P.,
+Tuffin,
+B.:
+Splitting
+Tech-
+niques,
+chap.
+3,
+pp.
+39–61.
+In:
+Rubino
+and
+Tuffin
+[26]
+(2009).
+https://doi.org/10.1002/9780470745403.ch3
+22. Lehmer, D.H.: Teaching combinatorial tricks to a computer. In: Proceed-
+ings
+of
+Symposia
+in
+Applied
+Mathematics.
+pp.
+179–193.
+AMS
+(1960).
+https://doi.org/10.1090/psapm/010/0113289
+23. Monti, R.E., Budde, C.E., D’Argenio, P.R.: A compositional semantics for repairable
+fault trees with general distributions. In: LPAR. EPiC Series in Computing, vol. 73,
+pp. 354–372. EasyChair (2020). https://doi.org/10.29007/P16V
+24. Reijsbergen, D., de Boer, P.T., Scheinhardt, W.R.W., Haverkort, B.R.: Automated
+rare event simulation for stochastic Petri nets. In: QEST. LNCS, vol. 8054, pp.
+372–388. Springer (2013). https://doi.org/10.1007/978-3-642-40196-1_31
+25. Robert L., J.: Analysis of phase-type stochastic Petri nets with discrete and contin-
+uous timing. Tech. rep. (2000), https://ntrs.nasa.gov/citations/20000120040
+26. Rubino, G., Tuffin, B. (eds.): Rare Event Simulation Using Monte Carlo Methods.
+Wiley (2009). https://doi.org/10.1002/9780470745403
+A Taxonomy of Distance Metrics for Time-Sensitive ISPLIT
+19
+27. Ruijters, E., Stoelinga, M.: Fault tree analysis: A survey of the state-of-the-art in
+modeling, analysis and tools. Computer science review 15, 29–62 (2015)
+28. Sullivan, K.J., Dugan, J.B., Coppit, D.: The Galileo fault tree analysis tool. In:
+FTCS. pp. 232–235 (1999), https://dl.acm.org/doi/10.5555/795672.796973
+29. Vicario, E.: Static analysis and dynamic steering of time-dependent systems. IEEE
+TSE 27(8), 728–748 (2001). https://doi.org/10.1109/32.940727
+30. Vicario, E., Sassoli, L., Carnevali, L.: Using stochastic state classes in quantita-
+tive evaluation of dense-time reactive systems. IEEE Transactions on Software
+Engineering 35(5), 703–719 (2009). https://doi.org/10.1109/TSE.2009.36
+31. Villén-Altamirano, M., Villén-Altamirano, J.: RESTART: a method for accelerating
+rare event simulations. Queueing, Performance and Control in ATM (ITC-13) pp.
+71–76 (1991)
+32. Younes, H.L.S., Simmons, R.G.: Probabilistic verification of discrete event systems
+using acceptance sampling. In: CAV. LNCS, vol. 2404, pp. 223–235. Springer (2002).
+https://doi.org/10.1007/3-540-45657-0_17
+33. Zuliani,
+P.,
+Baier,
+C.,
+Clarke,
+E.M.:
+Rare-event
+verification
+for
+stochastic
+hybrid
+systems.
+In:
+HSCC.
+pp.
+217–226.
+ACM
+(2012).
+https://doi.org/10.1145/2185632.2185665
+A
+Backwards Reachability Calculations with State Classes
+We recall the calculations of predecessor SCs in an IOSA from [12].
+Target SCs. For each target location l′, we build the largest possible domain
+D′ for the active timers in l′, considering only whether the target location l′
+is reachable from these evaluations of timers, not whether these evaluations
+of timers are reachable from an initial state. To this end, we limit each timer
+ti ∈Tl′ by its upper bound bi ∈Q≥0 ∪{∞}, obtaining the SC Σ′ = ⟨l′, D′⟩
+with D′ =×ti∈Tl′[0, bi] ⊆(Q≥0 ∪{∞})|Tl′|. Note that D′ does not introduce
+dependencies between the involved timers, so D′ has a hyper-rectangular shape.
+Conversely, we do not limit ti by its lower bound ai ∈Q≥0 given that, depending
+on the sequence of executed transitions, it may not be newly activated in l′ (i.e.,
+after the last incoming transition).
+Predecessor SC. Given an SC Σ′ = ⟨l′, D′⟩and an incoming transition l
+T,a,T ′
+−−−−→l′,
+we compute the largest possible SC Σ = ⟨l, D⟩such that for any state s in Σ, the
+action a leads to a state s′ in Σ′ (we could say that Σ is the weakest precondition
+of Σ′ given a). At each step of this derivation, we normalize the DBM domain of
+the SC being computed using the Floyd-Warshall algorithm [29] (as in forwards
+analysis), ensuring the uniqueness of the result and the correct resolution of
+all transitive restrictions. In the following derivation steps, let τ and τ ′ be the
+vectors of random variables containing the active timers in l and l′, respectively:
+1. Inverse of newly activating: Let τ ′ := ⟨t′
+2, . . . , t′
+n+m⟩and t′
+n+1, . . . , t′
+n+m ∈T ′
+be the m newly activated timers in l′. We limit each such timer by its lower
+bound (as no time elapses from new activation to entrance in Σ′), obtaining
+τ a := ⟨ta
+2, ..., ta
+n, ta
+n+1, ..., ta
+n+m⟩= τ ′ | t′
+n+1, ..., t′
+n+m ∈T ′,
+20
+G. Dengler et al.
+with support
+Da = D′ ∩{ai ≤τ(t′
+i) ∀i ∈{n + 1, ..., n + m}}.
+After normalizing Da, we remove ta
+n+1, . . . , ta
+n+m from τ a, yielding
+τ b := ⟨tb
+2, . . . , tb
+n⟩= ⟨ta
+2, . . . , ta
+n⟩
+with support:
+Db = {⟨τ(ta
+2), ..., τ(ta
+n)⟩
+s.t. ∃τ(ta
+n+1), ..., τ(ta
+n+m)
+s.t. ⟨τ(ta
+2), ..., τ(ta
+n), τ(ta
+n+1), ..., τ(ta
+n+m)⟩∈Da}
+2. Inverse of time advancement: We increase the timers by the timer expiring
+first in Σ, say tb
+1, obtaining
+τ c := ⟨tc
+1, . . . , tc
+n⟩= ⟨tb
+1, tb
+2 + tb
+1, . . . , tb
+n + tb
+1⟩
+with support:
+Dc = {⟨τ(tb
+1), τ(tb
+2), . . . , τ(tb
+n)⟩
+s.t. τ(tb
+1) ∈[0, ∞)
+s.t. ⟨τ(tb
+2) −τ(tb
+1), . . . , τ(tb
+n) −τ(tb
+1)⟩∈Db}
+3. Applying upper bounds of timers: After normalizing Dc, we limit each active
+timer by its upper bound (to guarantee the timer does not exceed the bound
+due to the time retardation), obtaining
+τ := ⟨t1, ..., tn⟩= τ c | tc
+i ≤bi ∀i ∈{1, ..., n}
+with the final domain (which is finally normalized, similarly to the previous
+passages):
+D = Dc ∩{τ(tc
+i) ≤bi ∀i ∈{1, ..., n}}
+Note that there is no need for a conditioning step to guarantee that the timer tb
+1
+expiring first actually elapses before the other timers. In fact, the non-negativity
+of the timer evaluations in domain Db, i.e., 0 ≤τ(tb
+i) −τ(tb
+1) ∀i ∈{2, ..., n},
+already implies that τ(tb
+1) ≤τ(tb
+i) ∀i ∈{2, ..., n}.
+Disabled timers. As mentioned in Sec. 2.1, there are cases occurring in the
+repairable DFT semantics in [23], although not strictly being part of the original
+IOSA definition, where a set of timers, say t2, ..., tp+1 ∈Td, is disabled while
+taking a transition. In this case, only the elapsing timer was added in step 2
+(inverse of time advancement). Thus, we need to insert the p disabled timers
+t2, ..., tp+1 after step 2 into the zone Dc while ensuring that these elapse after t1.
+Formally, we expand the set of timers τ c = ⟨tc
+1, tc
+p+2, ..., tc
+n⟩, obtaining
+τ d := ⟨td
+1, td
+2, . . . , td
+n⟩= ⟨tc
+1, t2, . . . , tp+1, tc
+p+2, . . . , tc
+n⟩
+with support:
+Dd = {⟨τ(td
+1), τ(td
+2), . . . , τ(td
+n)⟩
+s.t. ∀i ∈{2, ..., p + 1} : τ(td
+i ) ∈[0, ∞) ∧τ(td
+1) ≤τ(td
+i )
+s.t. ⟨τ(td
+1), τ(td
+p+2), . . . , τ(td
+n)⟩∈Dc}
+A Taxonomy of Distance Metrics for Time-Sensitive ISPLIT
+21
+In step 3 (applying upper bounds of timers), we then have to work with τ d
+instead of τ c and Dd instead of Dc, respectively.
+B
+Resampling Implementation
+As each timer can be resampled individually, we solely have to answer how to
+sample from a truncated timer distribution. Formally, for a timer ti, let Xi
+be the random variable distributed according to the cumulative distribution
+function (CDF) Fi. Analogously, let Yi = (Xi | Xi ≥τelp(ti)) −τelp(ti) be the
+random variable that is based on Xi, but truncates all values below τelp(ti) and
+subtracts the elapsed time. Sampling of Yi corresponds to resampling the value
+of timer ti. Exponential distributions can be resampled without adaptations due
+to the memoryless property as it holds here that Xi = Yi. Furthermore, for the
+case τelp(ti) ≤ai, it holds (Xi | Xi ≥τelp(ti)) = Xi, so we can sample from the
+distribution Xi and subtract the elapsed time τelp(ti) to obtain a sample from
+Yi. Otherwise, as in [5], we distinguish two cases:
+– For distributions where the inverse CDF F −1
+i
+: [0, 1] →R≥0 exists or can be
+approximated efficiently (e.g., Uniform, Normal, or Rayleigh distribution), we
+can compute a sample for (Xi | Xi ≥τelp(ti)) via inverse transform sampling
+as follows: First, create a random value u ∼Unif[0, 1], and then create a
+sample for (Xi | Xi ≥τelp(ti)) by evaluating F −1(u + (1 −u) · F(τelp(ti))).
+– Otherwise (e.g., Erlang or Weibull distribution), we evaluate (Xi | Xi ≥
+τelp(ti)) by rejection sampling, i.e., sample values of Xi until one is at
+least τelp(ti) and then calculate Yi. To limit the computational complexity
+beforehand, we fix a maximum number of sampling attempts (in our case
+k = 20) and resort to the old value Xi if no suitable sample has been found.
+Note that limiting the number of sampling attempts to k retains the old
+sample with a probability of F(τelp(ti))k instead of creating a new one.
+Although the old sample is used, the timer evaluation still represents an
+unbiased sample from the conditioned distribution (Xi | Xi ≥τelp(ti)) and
+does ultimately yield unbiased simulation results: As a time of τelp(ti) has
+elapsed for timer ti, the old sampled timer value is distributed according
+to (Xi | Xi ≥τelp(ti)). Furthermore, the probability that the old sample is
+retained is independent of the old sampled timer value.
+C
+Omitted Proofs
+Proof (Thm. 1). Remember that ω(l) (distance of each location to the target)
+is calculated by backwards reachability search from the target states. Consider
+a state s = ⟨l, τ⟩. First, we show that, for each state s, the distance d(s) is an
+upper bound of the ordered distance with resampling dr
+O(s). Specifically, let
+ω(l) = n. By definition of backwards reachability, there exists a shortest sequence
+of actions and locations ln
+an
+→ln−1
+an−1
+→ln−2
+an−2
+→. . .
+a1
+→l0 such that ln = l, l0
+is a target location, and ω(li) = i for all i ∈{0, ..., n}. Then, we consider the
+22
+G. Dengler et al.
+corresponding sequence of elementary SCs Σn
+an
+→Σn−1
+an−1
+→Σn−2
+an−2
+→. . .
+a1
+→Σ0
+with ωO(Σi) = i for i ∈{0, ..., n}. Given that all timers are unbounded, no
+timer is disabled due to clock bounds. Consequently, a valid execution sequence
+matching the sequence of actions and locations is guaranteed to exist, implying
+that ωO(Σn) ≤n. Since ω(l) represents the shortest distance unconstrained by
+timer values, ωO(Σn) cannot be strictly lower than n, implying that there exists
+an elementary SC Σσ s.t. ω(l) = ωO(Σσ).
+Second, via resampling, independent of the elapsed time τelp, the induced
+SC Σselp always intersects with any of the |Tl|! elementary SCs of location l. For
+reference, consider any timer permutation σ. Define τ = {σ(t1) 7→1, σ(t2) 7→
+2, ..., σ(tn) 7→n}. Then, τ is both contained in Σσ (the order of the timer values
+is trivially given) and Σselp (the lower bound is always zero, and no upper bound
+exists as we are solely working with unbounded timers), so Σσ and Σselp intersect.
+Combining both arguments, it follows directly that d(s) = dr
+O(s) for s ∈S.
+Proof (Thm. 2). We prove the statements individually:
+1. d ≡dr
+O ≡dr
+OG ≡dr
+OEG (Equivalence for order with resampling)
+d ≡dr
+O was already proven by Thm. 1. Consider dr
+O ≡dr
+OG. For a state s
+and distance metric dr
+O, we have a look at the shortest possible sequence
+of elementary SCs to the target Σn
+an
+→Σn−1
+an−1
+→Σn−2
+an−2
+→. . .
+a1
+→Σ0 with
+ωO(Σi) = i for i ∈{0, ..., n} and delays ∆i ∈R≥0 for i ∈{1, ..., n}. The same
+sequence is possible for dr
+OG independent of the remaining (positive) time
+budget τ(tage): Due to resampling and the unbounded distributions, one can
+scale the values of the sampled timers s.t. the time to execute all transitions
+is shorter than the remaining time budget, i.e. Pn
+i=1 ∆i ≤τ(tage), while
+preserving the order of timers in each state. This makes the same sequence
+possible as for dr
+O. Similarly to the argument made in Thm. 1, no shorter
+sequence exists, proving dr
+O ≡dr
+OG. To prove dr
+OG ≡dr
+OEG, one recognizes
+that a simulation run can always stay in a target state infinitely long (as no
+upper bounds on the timers exist), so it only matters that a target state is
+reached within the given time limit (and so dr
+OG and dr
+OEG coincide here).
+2. dO ⪯dOG ⪯dOEG, dT ⪯dT G ⪯dT EG, dr
+T ⪯dr
+T G ⪯dr
+T EG (Age inclusion)
+3. d ⪯dO, dO ⪯dT , dOG ⪯dT G, dOEG ⪯dT EG, d ⪯dr
+T (Time granularity)
+All of these statements from 2. and 3. of the type dA ⪯dB follow directly
+from the fact that the left side dA applies strictly fewer restrictions than the
+right side dB. Thus, every sequence of states to the target sn
+an
+→sn−1
+an−1
+→
+sn−2
+an−2
+→
+. . .
+a1
+→s0 reflected by dA cannot be done in fewer steps when
+resorting to the restrictions denoted in the distance metric dB. For d ⪯dr
+T
+note that, as d ≡dr
+O (see 1.), this statement is equivalent to dr
+O ⪯dr
+T and
+is handled by the same argument (strictly fewer restrictions) as the other
+statements.
+4. dr
+T ⪯dT , dr
+T G ⪯dT G, dr
+T EG ⪯dT EG (Resampling yes/no)
+We recall that Def. 8 defines dr
+T (s) = mins′∈Σselp dT (s′). Thus, it holds for
+A Taxonomy of Distance Metrics for Time-Sensitive ISPLIT
+23
+every state s ∈Σselp that dr
+T (s) ≤dT (s). As this is true for every elapsed
+time information selp, dr
+T (s) ≤dT (s) for all s ∈S and thus dr
+T ⪯dT . The
+proof is analogous for dr
+T G ⪯dT G and dr
+T EG ⪯dT EG.
+D
+Time-Agnostic Compositional Importance Function
+Definition for Repairable Dynamic Fault Trees
+Table 2: IFUN definition for repairable DFTs [5]
+type(v)
+Iv(x)
+BE, SBE
+zv
+AND
+lcmv · P
+w∈chil(v)
+Iw(x)
+maxIw
+OR
+lcmv ·
+max
+w∈chil(v)
+n Iw(x)
+maxIw
+o
+VOTk
+lcmv ·
+max
+W ⊆chil(v),|W |=k
+nP
+w∈W
+Iw(x)
+maxIw
+o
+SPARE
+lcmv · max
+P
+w∈chil(v)
+Iw(x)
+maxIw , zv · m
+
+PAND
+lcmv · max
+ Il(x)
+maxI
+l + ord Ir(x)
+maxIr , zv · 2
+
+where ord = 1 if xv ∈{1, 4} and ord = −1 otherwise
+with maxI
+v = maxx∈S Iv(x) and lcmv = lcm
+
+maxI
+w
+ w ∈chil(v)
+	
+Table 2 depicts the compositional IFUN definition for repairable DFTs ac-
+cording to [5]. It specifies for each gate a local IFUN; for BEs and SBEs this is
+either 0 or 1, depending on whether the BE/SBE is working or not, while the
+other gates take the values of their children into account. zv denotes if a gate
+has failed, while xv refers to the internal state of the gate (for more details,
+see [5]). The weights of the children are balanced by their maximum importance;
+the least common multiple (LCM) is used to attain solely integer levels despite
+the balancing. The local IFUN of the topmost gate resembles the global IFUN.
+During simulation, the global IFUN is evaluated by stepwise applying these rules
+until arriving at BEs or SBEs.
+E
+More Details About the Experiments
+E.1
+Theoretical Models
+This section provides more details about the models used for experiments in Sec. 6.
+For DFTs we study the time-bounded probability φm = P(m(t) ∈fail | t ≤T)
+24
+G. Dengler et al.
+PAND1
+PAND2
+PAND3
+BE1
+BE2
+BE3
+BE4
+(a) ms [12]
+BE1
+BE4
+BE2
+BE3
+S
+System
+_PAND5
+_SPARE
+1
+BE5
+BE1
+BE4
+BE2
+BE3
+S
+_PAND5
+_SPARE
+2
+BE5
+(b) mℓ, where n-ary PANDs are actually cascaded as in Fig. 8a
+Figure 8: DFT experimentation models from Sec. 6
+of observing a full system failure, using T = 1248 for ms and T = 4500 for
+mℓ. The corresponding ground truth failure probabilities—approximated with
+12-hours-long CMC runs—are φms ≈5.2e-7 and φmℓ≈2.2e-8.
+All timers that govern failures and repairs in the BEs of ms have (bounded) uni-
+form distributions—the concrete bounds can be found in Code 1 and [12].
+In con-
+trast, mℓis sketched in Fig. 8b, and has basic elements whose failure, repair, and
+dormant-failure events obey exponential(λ =2 · 10−4), normal(µ =500, σ =50),
+and Weibull(α =5.6, β =104) distributions in time, resp. Moreover, all BEs and
+SBEs are repaired by a single RBOX, which makes all components dependent on
+each other. Finally, note that while n-ary PANDs are represented compactly in
+Figs. 5 and 8b, they are implemented as right-cascading binary PANDs equiva-
+lently to what is shown in Fig. 8a, i.e. PAND(a, b, c) becomes PAND(a, PAND(b, c)).
+Both models are described in App. E.2 in a domain-specific language for DFTs.
+Besides fault trees, we experiment with a classic RES benchmark from the
+domain of queueing networks: the two-station tandem queue. We study the
+time-bounded probability φmQ = P(q2 ≥3 | t ≤11) of observing an overflow in
+the second station, whose approximated ground truth value is φmQ ≈1.7e-8.
+The tandem queue under consideration has mixed timers: external arrivals to
+the first station are governed by an (unbounded) exponential(λ =0.17) distribu-
+tion, while service times at the stations are governed by bounded distributions:
+uniform(l1 =2, u1 =3) in the first station and uniform(l2 =1, u2 =3) in the second.
+These timers were chosen such that the loads at subsequent stations are decremen-
+tal. Together with the tight time bound (t ≤11), this makes the probability φmQ
+a rare event that becomes exponentially more rare with the limiting capacity C
+of the second queue whose overflow we are interested in measuring. The Modest
+model used in our experiments is introduced as Code 3 in App. E.2.
+E.2
+Models in Kepler/Modest Syntax
+Below we provide the description of both DFT models in Kepler [5], an adaptation
+of the well-known Galileo input format for fault trees [28]. Kepler allows specifying
+A Taxonomy of Distance Metrics for Time-Sensitive ISPLIT
+25
+general (i.e. non-Markovian) distributions for failure, repair, and dormant-failure
+events of BEs and SBEs.
+1
+toplevel "PAND1";
+2
+"PAND1" pand "BE1" "PAND2";
+3
+"PAND2" pand "BE2" "PAND3";
+4
+"PAND3" pand "BE3" "BE4";
+5
+"BE1" fail~uniform(1198,1218) repair~uniform(10,15);
+6
+"BE2" fail~uniform(530,595)
+repair~uniform(10,45);
+7
+"BE3" fail~uniform(385,465)
+repair~uniform(10,45);
+8
+"BE4" fail~uniform(1105,1205) repair~uniform(10,15);
+9
+"RBOX" rbox prio "BE1" "BE2" "BE3" "BE4";
+Code 1: Kepler syntax for ms in Fig. 8a [12]
+1
+toplevel "System";
+2
+"System" and "G1_PAND5_a" "G2_PAND5_a";
+3
+"G1_PAND5_a" pand "G1_SPARE_a" "G1_PAND5_b";
+4
+"G1_PAND5_b" pand "G1_SPARE_b" "G1_PAND5_c";
+5
+"G1_PAND5_c" pand "G1_BE_c" "G1_PAND5_d";
+6
+"G1_PAND5_d" pand "G1_BE_d" "G1_BE_e";
+7
+"G1_SPARE_a" spare "G1_BE_a" "G1_SBE";
+8
+"G1_SPARE_b" spare "G1_BE_b" "G1_SBE";
+9
+"G1_BE_a" fail~exponential(2e-4) repair~normal(500,50);
+10
+"G1_BE_b" fail~exponential(2e-4) repair~normal(500,50);
+11
+"G1_BE_c" fail~exponential(2e-4) repair~normal(500,50);
+12
+"G1_BE_d" fail~exponential(2e-4) repair~normal(500,50);
+13
+"G1_BE_e" fail~exponential(2e-4) repair~normal(500,50);
+14
+"G1_SBE"
+fail~exponential(2e-4) repair~normal(500,50) dorm~weibull(5.6,1e4);
+15
+"G2_PAND5_a" pand "G2_SPARE_a" "G2_PAND5_b";
+16
+"G2_PAND5_b" pand "G2_SPARE_b" "G2_PAND5_c";
+17
+"G2_PAND5_c" pand "G2_BE_c" "G2_PAND5_d";
+18
+"G2_PAND5_d" pand "G2_BE_d" "G2_BE_e";
+19
+"G2_SPARE_a" spare "G2_BE_a" "G2_SBE";
+20
+"G2_SPARE_b" spare "G2_BE_b" "G2_SBE";
+21
+"G2_BE_a" fail~exponential(2e-4) repair~normal(500,50);
+22
+"G2_BE_b" fail~exponential(2e-4) repair~normal(500,50);
+23
+"G2_BE_c" fail~exponential(2e-4) repair~normal(500,50);
+24
+"G2_BE_d" fail~exponential(2e-4) repair~normal(500,50);
+25
+"G2_BE_e" fail~exponential(2e-4) repair~normal(500,50);
+26
+"G2_SBE"
+fail~exponential(2e-4) repair~normal(500,50) dorm~weibull(5.6,1e4);
+27
+"RBOX" rbox prio "G2_SBE" "G2_BE_e" "G2_BE_d" "G2_BE_c" "G2_BE_b" "G2_BE_a"
+28
+"G1_SBE" "G1_BE_e" "G1_BE_d" "G1_BE_c" "G1_BE_b" "G1_BE_a";
+Code 2: Kepler syntax for mℓin Fig. 8b
+Furthermore, we provide in the following the description of the tandem queue in
+the Modest model description language [18]:
+1
+// Actions
+2
+action arrival, queue1_service, queue2_service, overflow;
+3
+// Constants
+4
+const int C = 3; // Capacity of each queue
+5
+const int B = 11; // Time-bound
+6
+const real l = 0.17; // Arrival rate
+7
+// Bounds for service distribution
+8
+const real lowb1 = 2.0, uppb1 = 3.0; // of first server
+9
+const real lowb2 = 1.0, uppb2 = 3.0; // of second server
+10
+// Discrete variables and timers
+11
+int(0..C) q1, q2;
+12
+bool failed = false;
+13
+timer t_arrivals = Exponential(l), t_server_1, t_server_2;
+14
+// Ad-hoc importance function and time-bounded failure property
+26
+G. Dengler et al.
+15
+property Importance = q2;
+16
+property TimeBounded = Pmax(<>[T<=B] (failed));
+17
+// Main loop
+18
+do {
+19
+// Logic for arrivals
+20
+:: when(t_arrivals <= 0) invariant(t_arrivals >= 0) arrival
+21
+{= t_arrivals = Exponential(l), q1 = min(q1 + 1, C),
+22
+t_server_1 = (q1 == 0) ? Uniform(lowb1,uppb1) : t_server_1 =}
+23
+// Logic for server 1 (without triggering an overflow)
+24
+:: when(q1 > 0 && q2 < C - 1 && t_server_1 <= 0)
+25
+invariant(q1 == 0 || q2 >= C - 1 || t_server_1 >= 0) queue1_service
+26
+{= q1--, q2 = min(q2 + 1, C),
+27
+t_server_1 = (q1 >
+1) ? Uniform(lowb1,uppb1) : t_server_1,
+28
+t_server_2 = (q2 == 0) ? Uniform(lowb2,uppb2) : t_server_2 =}
+29
+// Logic for server 2
+30
+:: when(q2 > 0 && t_server_2 <= 0)
+31
+invariant(q2 == 0 || t_server_2 >= 0) queue2_service
+32
+{= q2--, t_server_2 = q2 > 1 ? Uniform(lowb2,uppb2) : t_server_2 =}
+33
+// Check for overflow (triggered by server 1 when server 2 is full)
+34
+:: when(q1 > 0 && q2 >= C - 1 && t_server_1 <= 0)
+35
+invariant(q1 == 0 || q2 < C - 1 || t_server_1 >= 0)
+36
+overflow {= failed = true =}; Overflow()
+37
+}
+38
+// Failure location: we stop here
+39
+process Overflow()
+40
+{
+41
+stop
+42
+}
+Code 3: Modest syntax for mQ in Fig. 6
+E.3
+Importance Functions
+Code 4/Code 5 show the IFUNs used for ms/mℓ, matching the Kepler syn-
+tax identifiers from Code 1/Code 2 and their corresponding IOSA translations
+implemented in the modes tool.
+For ms, we limit the maximum expansion depth for each distance metric
+to 12. However, this still ensures that the relevant state space is covered (see
+detailed discussion in App. E.4). For mℓ, we notice that the system consists of
+two subtrees that are solely connected by a repair box. To limit the explored state
+space, we construct for each subtree a local IFUN and sum up their individual
+IFUNs. Note that the maximum expansion depth of 17 for the distance metrics
+in mℓis chosen large enough such that the complete SC graphs are constructed.
+1
+"tagn_comp"
+// IFUN time-agnostic compositional
+2
+max(((4*E([BE1:[BE1__failure,BE1__repairing]]))+(if E([PAND1:[PAND1__first_failed,
+PAND1__gate_failure,PAND1__gate_repaired_first_fail,PAND1__failed_first_up,
+PAND1__failed_first_fail]]) then max(((2*E([BE2:[BE2__failure,BE2__repairing]]))
++(if E([PAND2:[PAND2__first_failed,PAND2__gate_failure,
+PAND2__gate_repaired_first_fail,PAND2__failed_first_up,PAND2__failed_first_fail]]
+) then max((E([BE3:[BE3__failure,BE3__repairing]])+(if E([PAND3:[
+PAND3__first_failed,PAND3__gate_failure,PAND3__gate_repaired_first_fail,
+PAND3__failed_first_up,PAND3__failed_first_fail]]) then E([BE4:[BE4__failure,
+BE4__repairing]]) else -E([BE4:[BE4__failure,BE4__repairing]]))), if E([PAND3:[
+PAND3__failed_first_up,PAND3__failed_first_fail]]) then 2 else 0) else -max((E([
+BE3:[BE3__failure,BE3__repairing]])+(if E([PAND3:[PAND3__first_failed,
+PAND3__gate_failure,PAND3__gate_repaired_first_fail,PAND3__failed_first_up,
+PAND3__failed_first_fail]]) then E([BE4:[BE4__failure,BE4__repairing]]) else -E([
+BE4:[BE4__failure,BE4__repairing]]))), if E([PAND3:[PAND3__failed_first_up,
+A Taxonomy of Distance Metrics for Time-Sensitive ISPLIT
+27
+PAND3__failed_first_fail]]) then 2 else 0))), if E([PAND2:[PAND2__failed_first_up
+,PAND2__failed_first_fail]]) then 4 else 0) else -max(((2*E([BE2:[BE2__failure,
+BE2__repairing]]))+(if E([PAND2:[PAND2__first_failed,PAND2__gate_failure,
+PAND2__gate_repaired_first_fail,PAND2__failed_first_up,PAND2__failed_first_fail]]
+) then max((E([BE3:[BE3__failure,BE3__repairing]])+(if E([PAND3:[
+PAND3__first_failed,PAND3__gate_failure,PAND3__gate_repaired_first_fail,
+PAND3__failed_first_up,PAND3__failed_first_fail]]) then E([BE4:[BE4__failure,
+BE4__repairing]]) else -E([BE4:[BE4__failure,BE4__repairing]]))), if E([PAND3:[
+PAND3__failed_first_up,PAND3__failed_first_fail]]) then 2 else 0) else -max((E([
+BE3:[BE3__failure,BE3__repairing]])+(if E([PAND3:[PAND3__first_failed,
+PAND3__gate_failure,PAND3__gate_repaired_first_fail,PAND3__failed_first_up,
+PAND3__failed_first_fail]]) then E([BE4:[BE4__failure,BE4__repairing]]) else -E([
+BE4:[BE4__failure,BE4__repairing]]))), if E([PAND3:[PAND3__failed_first_up,
+PAND3__failed_first_fail]]) then 2 else 0))), if E([PAND2:[PAND2__failed_first_up
+,PAND2__failed_first_fail]]) then 4 else 0))), if E([PAND1:[
+PAND1__failed_first_up,PAND1__failed_first_fail]]) then 8 else 0)
+3
+"tagn_mono"
+// IFUN time-agnostic monolithic
+4
+12-D([BE3,PAND1,RBOX,BE2,PAND3,PAND2,BE1,BE4],[PAND1:[PAND1__failed_first_fail]],12)
+5
+"tsen_order"
+// IFUN time-sensitive order
+6
+12-OD([BE3,PAND1,RBOX,BE2,PAND3,PAND2,BE1,BE4],[PAND1:[PAND1__failed_first_fail]],12)
+7
+"tsen_orderglobal" // IFUN time-sensitive order global
+8
+12-OGD([BE3,PAND1,RBOX,BE2,PAND3,PAND2,BE1,BE4],[PAND1:[PAND1__failed_first_fail]],12)
+9
+"tsen_timed"
+// IFUN time-sensitive timed
+10
+12-TD([BE3,PAND1,RBOX,BE2,PAND3,PAND2,BE1,BE4],[PAND1:[PAND1__failed_first_fail]],12)
+11
+"tsen_timedglobal" // IFUN time-sensitive timed global
+12
+12-TGD([BE3,PAND1,RBOX,BE2,PAND3,PAND2,BE1,BE4],[PAND1:[PAND1__failed_first_fail]],12)
+Code 4: IFUNs used to run RES in model ms (Code 1)
+1
+"tagn_comp"
+// IFUN time-agnostic compositional
+2
+// Omitted due to excessive length
+3
+"tagn_mono"
+// IFUN time-agnostic monolithic
+4
+17-D([G1_BE_e,G1_BE_a,G1_BE_c,G1_SBE,G1_BE_b,G1_SBE__multiplexer,G1_PAND5_d,G1_SPARE_b,
+G1_PAND5_a,RBOX,G1_PAND5_c,G1_BE_d,G1_SPARE_a,G1_PAND5_b],[G1_PAND5_a:[
+G1_PAND5_a__failed_first_fail]],17)+17-D([G2_SBE,G2_SBE__multiplexer,G2_BE_a,
+G2_BE_b,G2_BE_e,G2_PAND5_c,G2_SPARE_a,RBOX,G2_BE_d,G2_BE_c,G2_PAND5_b,G2_PAND5_a,
+G2_PAND5_d,G2_SPARE_b],[G2_PAND5_a:[G2_PAND5_a__failed_first_fail]],17)
+5
+"tsen_order"
+// IFUN time-sensitive order
+6
+17-OD([G1_BE_e,G1_BE_a,G1_BE_c,G1_SBE,G1_BE_b,G1_SBE__multiplexer,G1_PAND5_d,G1_SPARE_b
+,G1_PAND5_a,RBOX,G1_PAND5_c,G1_BE_d,G1_SPARE_a,G1_PAND5_b],[G1_PAND5_a:[
+G1_PAND5_a__failed_first_fail]],17)+17-OD([G2_SBE,G2_SBE__multiplexer,G2_BE_a,
+G2_BE_b,G2_BE_e,G2_PAND5_c,G2_SPARE_a,RBOX,G2_BE_d,G2_BE_c,G2_PAND5_b,G2_PAND5_a,
+G2_PAND5_d,G2_SPARE_b],[G2_PAND5_a:[G2_PAND5_a__failed_first_fail]],17)
+7
+"tsen_orderglobal" // IFUN time-sensitive order global
+8
+17-OGD([G1_BE_e,G1_BE_a,G1_BE_c,G1_SBE,G1_BE_b,G1_SBE__multiplexer,G1_PAND5_d,
+G1_SPARE_b,G1_PAND5_a,RBOX,G1_PAND5_c,G1_BE_d,G1_SPARE_a,G1_PAND5_b],[G1_PAND5_a:
+[G1_PAND5_a__failed_first_fail]],17)+17-OGD([G2_SBE,G2_SBE__multiplexer,G2_BE_a,
+G2_BE_b,G2_BE_e,G2_PAND5_c,G2_SPARE_a,RBOX,G2_BE_d,G2_BE_c,G2_PAND5_b,G2_PAND5_a,
+G2_PAND5_d,G2_SPARE_b],[G2_PAND5_a:[G2_PAND5_a__failed_first_fail]],17)
+9
+"tsen_timed"
+// IFUN time-sensitive timed
+10
+17-TD([G1_BE_e,G1_BE_a,G1_BE_c,G1_SBE,G1_BE_b,G1_SBE__multiplexer,G1_PAND5_d,G1_SPARE_b
+,G1_PAND5_a,RBOX,G1_PAND5_c,G1_BE_d,G1_SPARE_a,G1_PAND5_b],[G1_PAND5_a:[
+G1_PAND5_a__failed_first_fail]],17)+17-TD([G2_SBE,G2_SBE__multiplexer,G2_BE_a,
+G2_BE_b,G2_BE_e,G2_PAND5_c,G2_SPARE_a,RBOX,G2_BE_d,G2_BE_c,G2_PAND5_b,G2_PAND5_a,
+G2_PAND5_d,G2_SPARE_b],[G2_PAND5_a:[G2_PAND5_a__failed_first_fail]],17)
+11
+"tsen_timedglobal" // IFUN time-sensitive timed global
+12
+17-TGD([G1_BE_e,G1_BE_a,G1_BE_c,G1_SBE,G1_BE_b,G1_SBE__multiplexer,G1_PAND5_d,
+G1_SPARE_b,G1_PAND5_a,RBOX,G1_PAND5_c,G1_BE_d,G1_SPARE_a,G1_PAND5_b],[G1_PAND5_a:
+[G1_PAND5_a__failed_first_fail]],17)+17-TGD([G2_SBE,G2_SBE__multiplexer,G2_BE_a,
+G2_BE_b,G2_BE_e,G2_PAND5_c,G2_SPARE_a,RBOX,G2_BE_d,G2_BE_c,G2_PAND5_b,G2_PAND5_a,
+G2_PAND5_d,G2_SPARE_b],[G2_PAND5_a:[G2_PAND5_a__failed_first_fail]],17)
+Code 5: IFUNs used to run RES in model mℓ(Code 2)
+Code 6 shows the IFUNs used for the tandem queue model mQ from Code 3.
+Note that loc_20 refers to the failure location (i.e., an overflow happened) of the
+28
+G. Dengler et al.
+model. Again, the maximum expansion depth of 30 ensures that the complete
+SC graph is constructed.
+1
+"tagn_comp"
+// IFUN time-agnostic compositional
+2
+// Encoded in the Modest code in property Importance
+3
+"tagn_mono"
+// IFUN time-agnostic monolithic
+4
+30-D([Main], [Main:[loc_20]], 30)
+5
+"tsen_order"
+// IFUN time-sensitive order
+6
+30-OD([Main], [Main:[loc_20]], 30)
+7
+"tsen_orderglobal" // IFUN time-sensitive order global
+8
+30-OGD([Main], [Main:[loc_20]], 30)
+9
+"tsen_timed"
+// IFUN time-sensitive timed
+10
+30-TD([Main], [Main:[loc_20]], 30)
+11
+"tsen_timedglobal" // IFUN time-sensitive timed global
+12
+30-TGD([Main], [Main:[loc_20]], 30)
+Code 6: IFUNs used to run RES in model mQ (Code 3)
+E.4
+Construction Times of Importance Functions
+We report on the construction times that were necessary to construct the IFUNs
+used during experimentation:
+• Fault tree ms: The construction of the complete SC graph is possible for the
+ordered distance metric ωO(Σ) and the timed distance metrics with global
+age (ωT G(Σ)) in under one second. Meanwhile, constructing the full timed
+distance metric without global age (ωT (Σ)) does not terminate within five
+minutes. However, we know from a high-level perspective that at most 10
+traversed transitions are needed to reach the target: The distributions for
+failures and repairs of BEs have tight lower and upper bounds, limiting the
+maximum number of possible executed transitions within the given time
+frame; for more information, see [12, Section 4]. Thus, we limit the maximum
+expansion depth to 12 (10 plus 2 further steps as a safety margin). With this
+modification, all distance metrics can be computed in under one second.
+• Fault tree mℓ: All distance metrics can be fully constructed in a short time
+frame. However, the construction of the ordered distance metric ωO(Σ) is
+significantly faster (about 2 seconds) than for the timed distance metrics
+ωT (Σ)/ωT G(Σ) (between 11 and 12 seconds). This indicates that the special-
+ized data structure for ordered distance metrics is more efficient than plainly
+using DBM zones, as discussed in Sec. 3.1.
+• Tandem queue mQ: All distance metrics can be constructed within one second.
+E.5
+Numerical Results
+Table 3 shows the numerical results of all experiments discussed in Sec. 6.3, and
+it was used to compile Fig. 7:
+A Taxonomy of Distance Metrics for Time-Sensitive ISPLIT
+29
+Table 3: Numerical results of the experiments from Sec. 6.3
+CMC or RES run aΦ
+Number
+of runs
+Non-zero
+runs ratio
+Center
+ˆφaΦ
+m
+Half-width
+| ˆφaΦ
+m |/2
+Variance
+Results of runs on m = ms (Code 1)
+CMC
+1.04E+8
+5.5E-7
+5.5E-7
+1.4E-7
+5.5E-7
+tagn_comp_FE_8_standard
+1.22E+7
+3.0E-6
+3.6E-7
+1.2E-7
+4.5E-8
+tagn_comp_FE_8_resample
+1.10E+7
+1.0E-5
+6.4E-7
+1.4E-7
+5.9E-8
+tagn_comp_FE_15_standard
+6.17E+6
+6.6E-6
+4.5E-7
+1.4E-7
+3.1E-8
+tagn_comp_FE_15_resample
+5.47E+6
+1.8E-5
+4.9E-7
+1.3E-7
+2.3E-8
+tagn_comp_RST_2_standard
+4.62E+7
+1.1E-6
+5.6E-7
+1.5E-7
+2.8E-7
+tagn_comp_RST_2_resample
+4.55E+7
+2.2E-6
+5.6E-7
+1.3E-7
+2.1E-7
+tagn_comp_RST_3_standard
+4.54E+7
+1.1E-6
+5.6E-7
+1.5E-7
+2.8E-7
+tagn_comp_RST_3_resample
+4.47E+7
+2.2E-6
+5.7E-7
+1.3E-7
+2.1E-7
+tagn_mono_FE_8_standard
+1.21E+7
+3.9E-6
+4.7E-7
+1.4E-7
+5.7E-8
+tagn_mono_FE_8_resample
+1.12E+7
+1.8E-5
+5.7E-7
+9.0E-8
+2.4E-8
+tagn_mono_FE_15_standard
+6.02E+6
+9.5E-6
+6.1E-7
+1.6E-7
+4.1E-8
+tagn_mono_FE_15_resample
+5.64E+6
+4.2E-5
+5.6E-7
+8.2E-8
+9.9E-9
+tagn_mono_RST_2_standard
+3.79E+7
+9.5E-7
+4.8E-7
+1.6E-7
+2.4E-7
+tagn_mono_RST_2_resample
+3.62E+7
+4.5E-6
+5.7E-7
+9.2E-8
+8.1E-8
+tagn_mono_RST_3_standard
+3.54E+7
+9.3E-7
+4.7E-7
+1.6E-7
+2.3E-7
+tagn_mono_RST_3_resample
+3.65E+7
+4.6E-6
+5.8E-7
+9.3E-8
+8.2E-8
+tsen_order_FE_8_standard
+1.26E+7
+4.4E-6
+5.5E-7
+1.4E-7
+6.8E-8
+tsen_order_FE_15_standard
+6.49E+6
+7.7E-6
+5.2E-7
+1.5E-7
+3.6E-8
+tsen_order_RST_2_standard
+2.99E+7
+9.7E-7
+4.9E-7
+1.8E-7
+2.4E-7
+tsen_order_RST_3_standard
+3.07E+7
+9.5E-7
+4.7E-7
+1.7E-7
+2.4E-7
+tsen_order_global_FE_8_standard
+1.22E+7
+3.3E-6
+4.1E-7
+1.3E-7
+5.1E-8
+tsen_order_global_FE_8_standard_prune
+2.24E+7
+4.5E-6
+5.6E-7
+1.1E-7
+7.1E-8
+tsen_order_global_FE_15_standard
+6.09E+6
+8.5E-6
+5.9E-7
+1.6E-7
+4.2E-8
+tsen_order_global_FE_15_standard_prune
+1.11E+7
+7.6E-6
+5.1E-7
+1.1E-7
+3.4E-8
+tsen_order_global_RST_2_standard
+4.15E+7
+8.4E-7
+4.2E-7
+1.4E-7
+2.1E-7
+tsen_order_global_RST_2_standard_prune
+4.54E+7
+1.3E-6
+6.4E-7
+1.6E-7
+3.2E-7
+tsen_order_global_RST_3_standard
+4.14E+7
+8.4E-7
+4.2E-7
+1.4E-7
+2.1E-7
+tsen_order_global_RST_3_standard_prune
+5.99E+7
+9.2E-7
+4.6E-7
+1.2E-7
+2.3E-7
+tsen_timed_FE_8_standard
+1.35E+7
+2.9E-4
+5.2E-7
+3.1E-8
+3.5E-9
+tsen_timed_FE_8_resample
+4.82E+6
+7.7E-3
+5.4E-7
+1.0E-8
+1.3E-10
+tsen_timed_FE_15_standard
+7.16E+6
+8.7E-4
+5.6E-7
+3.2E-8
+1.9E-9
+tsen_timed_FE_15_resample
+2.09E+6
+4.5E-2
+5.3E-7
+6.6E-9
+2.4E-11
+tsen_timed_RST_2_standard
+5.27E+7
+3.6E-5
+5.1E-7
+2.6E-8
+9.2E-9
+tsen_timed_RST_2_resample
+4.03E+7
+1.4E-4
+5.3E-7
+1.5E-8
+2.2E-9
+tsen_timed_RST_3_standard
+5.12E+7
+3.6E-5
+5.1E-7
+2.6E-8
+9.2E-9
+tsen_timed_RST_3_resample
+4.34E+7
+6.8E-5
+5.2E-7
+2.0E-8
+4.4E-9
+tsen_timed_global_FE_8_standard
+1.29E+7
+3.0E-4
+5.6E-7
+3.5E-8
+4.1E-9
+tsen_timed_global_FE_8_resample
+4.96E+6
+7.7E-3
+5.4E-7
+9.9E-9
+1.3E-10
+tsen_timed_global_FE_8_standard_prune
+1.69E+8
+3.0E-4
+5.2E-7
+9.0E-9
+3.6E-9
+tsen_timed_global_FE_8_resample_prune
+2.39E+7
+7.6E-3
+5.3E-7
+4.5E-9
+1.3E-10
+tsen_timed_global_FE_15_standard
+6.98E+6
+8.7E-4
+5.2E-7
+2.8E-8
+1.4E-9
+tsen_timed_global_FE_15_resample
+2.05E+6
+4.5E-2
+5.3E-7
+6.7E-9
+2.4E-11
+tsen_timed_global_FE_15_standard_prune
+3.62E+8
+8.7E-4
+5.3E-7
+4.1E-9
+1.6E-9
+tsen_timed_global_FE_15_resample_prune
+1.02E+7
+4.5E-2
+5.3E-7
+3.1E-9
+2.5E-11
+tsen_timed_global_RST_2_standard
+5.15E+7
+3.7E-5
+5.2E-7
+2.6E-8
+9.4E-9
+tsen_timed_global_RST_2_resample
+3.95E+7
+1.4E-4
+5.2E-7
+1.5E-8
+2.2E-9
+tsen_timed_global_RST_2_standard_prune
+2.43E+9
+2.0E-5
+5.4E-7
+5.3E-9
+1.8E-8
+tsen_timed_global_RST_2_resample_prune
+8.82E+7
+1.4E-4
+5.3E-7
+9.9E-9
+2.2E-9
+30
+G. Dengler et al.
+Table 3: Numerical results of the experiments from Sec. 6.3
+CMC or RES run aΦ
+Number
+of runs
+Non-zero
+runs ratio
+Center
+ˆφaΦ
+m
+Half-width
+| ˆφaΦ
+m |/2
+Variance
+tsen_timed_global_RST_3_standard
+5.27E+7
+3.7E-5
+5.2E-7
+2.6E-8
+9.4E-9
+tsen_timed_global_RST_3_resample
+4.36E+7
+6.8E-5
+5.2E-7
+2.0E-8
+4.4E-9
+tsen_timed_global_RST_3_standard_prune
+2.42E+9
+2.0E-5
+5.3E-7
+5.2E-9
+1.7E-8
+tsen_timed_global_RST_3_resample_prune
+1.15E+8
+7.0E-5
+5.4E-7
+1.2E-8
+4.5E-9
+Results of runs on m = mℓ(Code 2)
+CMC
+1.71E+7
+0
+–
+–
+–
+tagn_comp_FE_8_standard
+1.47E+6
+2.7E-6
+9.8E-9
+1.1E-8
+4.7E-11
+tagn_comp_FE_8_resample
+8.65E+5
+2.5E-3
+3.9E-8
+1.1E-8
+3.0E-11
+tagn_comp_FE_15_standard
+7.35E+5
+4.1E-6
+4.0E-8
+6.7E-8
+8.6E-10
+tagn_comp_FE_15_resample
+3.75E+5
+3.1E-2
+2.8E-8
+4.6E-9
+2.1E-12
+tagn_comp_RST_2_standard
+2.21E+6
+1.8E-5
+4.9E-8
+5.8E-8
+1.9E-9
+tagn_comp_RST_2_resample
+1.92E+6
+9.8E-4
+3.2E-8
+2.7E-9
+3.5E-12
+tagn_comp_RST_3_standard
+4.76E+6
+6.1E-6
+6.8E-8
+1.0E-7
+1.3E-8
+tagn_comp_RST_3_resample
+4.83E+6
+2.3E-4
+3.2E-8
+4.2E-9
+2.2E-11
+tagn_mono_FE_8_standard
+1.70E+6
+2.9E-6
+2.7E-8
+2.7E-8
+3.2E-10
+tagn_mono_FE_8_resample
+1.07E+6
+7.2E-3
+3.2E-8
+2.5E-9
+1.7E-12
+tagn_mono_FE_15_standard
+8.13E+5
+7.4E-6
+3.3E-8
+4.9E-8
+5.1E-10
+tagn_mono_FE_15_resample
+4.51E+5
+6.5E-2
+3.3E-8
+1.4E-9
+2.4E-13
+tagn_mono_RST_2_standard
+4.48E+6
+2.9E-6
+2.4E-8
+1.6E-8
+2.8E-10
+tagn_mono_RST_2_resample
+4.49E+6
+2.8E-5
+3.5E-8
+6.6E-9
+5.0E-11
+tagn_mono_RST_3_standard
+4.49E+6
+2.9E-6
+2.4E-8
+1.5E-8
+2.8E-10
+tagn_mono_RST_3_resample
+4.42E+6
+2.8E-5
+3.5E-8
+6.6E-9
+5.0E-11
+tsen_order_FE_8_standard
+1.42E+6
+6.3E-6
+3.5E-8
+3.3E-8
+4.0E-10
+tsen_order_FE_15_standard
+7.13E+5
+1.8E-5
+3.1E-8
+2.6E-8
+1.2E-10
+tsen_order_RST_2_standard
+2.08E+6
+3.4E-5
+2.3E-8
+9.7E-9
+5.1E-11
+tsen_order_RST_3_standard
+1.96E+6
+5.9E-5
+3.9E-8
+1.4E-8
+1.0E-10
+tsen_order_global_FE_8_standard
+1.82E+6
+9.0E-5
+3.3E-8
+1.4E-8
+9.1E-11
+tsen_order_global_FE_8_standard_prune
+2.24E+8
+9.3E-5
+2.6E-8
+1.1E-9
+6.9E-11
+tsen_order_global_FE_15_standard
+9.31E+5
+4.3E-4
+2.3E-8
+7.1E-9
+1.2E-11
+tsen_order_global_FE_15_standard_prune
+1.16E+8
+4.1E-4
+2.7E-8
+9.8E-10
+2.9E-11
+tsen_order_global_RST_2_standard
+7.21E+6
+6.1E-5
+3.8E-8
+1.3E-8
+3.0E-10
+tsen_order_global_RST_2_standard_prune
+3.19E+8
+4.4E-5
+3.3E-8
+1.8E-9
+2.8E-10
+tsen_order_global_RST_3_standard
+7.22E+6
+6.1E-5
+3.8E-8
+1.3E-8
+3.0E-10
+tsen_order_global_RST_3_standard_prune
+5.14E+8
+8.2E-6
+3.2E-8
+1.7E-9
+3.9E-10
+tsen_timed_FE_8_standard
+1.50E+6
+6.0E-6
+3.3E-8
+3.1E-8
+3.8E-10
+tsen_timed_FE_8_resample
+1.07E+6
+7.2E-3
+3.2E-8
+2.5E-9
+1.7E-12
+tsen_timed_FE_15_standard
+7.44E+5
+1.7E-5
+3.0E-8
+2.5E-8
+1.2E-10
+tsen_timed_FE_15_resample
+4.56E+5
+6.5E-2
+3.2E-8
+1.4E-9
+2.3E-13
+tsen_timed_RST_2_standard
+2.01E+6
+5.9E-5
+3.8E-8
+1.4E-8
+9.9E-11
+tsen_timed_RST_2_resample
+4.50E+6
+2.8E-5
+3.6E-8
+6.6E-9
+5.1E-11
+tsen_timed_RST_3_standard
+2.01E+6
+6.0E-5
+3.9E-8
+1.4E-8
+9.9E-11
+tsen_timed_RST_3_resample
+4.55E+6
+2.8E-5
+3.5E-8
+6.5E-9
+5.0E-11
+tsen_timed_global_FE_8_standard
+2.41E+6
+9.7E-5
+3.0E-8
+1.1E-8
+7.4E-11
+tsen_timed_global_FE_8_resample
+1.06E+6
+7.2E-3
+3.2E-8
+2.5E-9
+1.7E-12
+tsen_timed_global_FE_8_standard_prune
+3.21E+8
+9.7E-5
+2.6E-8
+9.6E-10
+7.8E-11
+tsen_timed_global_FE_8_resample_prune
+1.07E+6
+7.2E-3
+3.2E-8
+2.5E-9
+1.7E-12
+tsen_timed_global_FE_15_standard
+1.21E+6
+4.2E-4
+2.4E-8
+7.9E-9
+2.0E-11
+tsen_timed_global_FE_15_resample
+4.64E+5
+6.5E-2
+3.3E-8
+1.4E-9
+2.3E-13
+tsen_timed_global_FE_15_standard_prune
+1.82E+8
+4.0E-4
+2.7E-8
+7.9E-10
+3.0E-11
+tsen_timed_global_FE_15_resample_prune
+4.53E+5
+6.5E-2
+3.2E-8
+1.4E-9
+2.3E-13
+A Taxonomy of Distance Metrics for Time-Sensitive ISPLIT
+31
+Table 3: Numerical results of the experiments from Sec. 6.3
+CMC or RES run aΦ
+Number
+of runs
+Non-zero
+runs ratio
+Center
+ˆφaΦ
+m
+Half-width
+| ˆφaΦ
+m |/2
+Variance
+tsen_timed_global_RST_2_standard
+9.23E+6
+5.9E-5
+3.5E-8
+1.0E-8
+2.5E-10
+tsen_timed_global_RST_2_resample
+4.65E+6
+2.8E-5
+3.6E-8
+6.4E-9
+5.0E-11
+tsen_timed_global_RST_2_standard_prune
+3.37E+8
+6.2E-5
+3.2E-8
+1.4E-9
+1.8E-10
+tsen_timed_global_RST_2_resample_prune
+4.40E+6
+2.8E-5
+3.5E-8
+6.6E-9
+5.0E-11
+tsen_timed_global_RST_3_standard
+9.36E+6
+5.9E-5
+3.4E-8
+1.0E-8
+2.4E-10
+tsen_timed_global_RST_3_resample
+4.58E+6
+2.8E-5
+3.6E-8
+6.6E-9
+5.2E-11
+tsen_timed_global_RST_3_standard_prune
+5.08E+8
+1.5E-5
+3.3E-8
+1.6E-9
+3.6E-10
+tsen_timed_global_RST_3_resample_prune
+4.58E+6
+2.8E-5
+3.6E-8
+6.5E-9
+5.1E-11
+Results of runs on m = mQ (Code 3)
+CMC
+4.52E+8
+6.6E-9
+6.6E-9
+7.5E-9
+6.6E-9
+tagn_comp_FE_8_standard
+2.50E+7
+5.6E-7
+1.8E-8
+1.0E-8
+6.7E-10
+tagn_comp_FE_8_resample
+3.45E+7
+2.3E-7
+2.1E-8
+1.5E-8
+2.1E-9
+tagn_comp_FE_15_standard
+1.26E+7
+1.2E-6
+1.2E-8
+6.8E-9
+1.5E-10
+tagn_comp_FE_15_resample
+1.75E+7
+3.4E-7
+1.9E-8
+1.6E-8
+1.1E-9
+tagn_comp_RST_2_standard
+1.07E+8
+4.7E-8
+1.2E-8
+1.0E-8
+2.9E-9
+tagn_comp_RST_2_resample
+8.19E+7
+2.1E-7
+2.3E-8
+1.1E-8
+2.6E-9
+tagn_comp_RST_3_standard
+1.10E+8
+4.5E-8
+1.1E-8
+9.9E-9
+2.8E-9
+tagn_comp_RST_3_resample
+7.90E+7
+2.0E-7
+2.3E-8
+1.1E-8
+2.5E-9
+tagn_mono_FE_8_standard
+3.20E+7
+1.1E-6
+2.2E-8
+8.2E-9
+5.7E-10
+tagn_mono_FE_8_resample
+2.12E+7
+2.4E-6
+1.7E-8
+5.5E-9
+1.7E-10
+tagn_mono_FE_15_standard
+1.56E+7
+1.9E-6
+1.6E-8
+6.2E-9
+1.5E-10
+tagn_mono_FE_15_resample
+1.00E+7
+5.0E-6
+1.7E-8
+5.5E-9
+7.8E-11
+tagn_mono_RST_2_standard
+8.18E+7
+3.2E-7
+2.0E-8
+7.6E-9
+1.2E-9
+tagn_mono_RST_2_resample
+8.12E+7
+5.2E-7
+1.7E-8
+5.4E-9
+6.1E-10
+tagn_mono_RST_3_standard
+1.16E+8
+8.6E-8
+1.1E-8
+6.7E-9
+1.3E-9
+tagn_mono_RST_3_resample
+1.14E+8
+2.7E-7
+1.7E-8
+6.0E-9
+1.1E-9
+tsen_order_FE_8_standard
+2.86E+7
+7.0E-7
+1.1E-8
+5.2E-9
+2.0E-10
+tsen_order_FE_15_standard
+1.37E+7
+2.3E-6
+1.3E-8
+5.3E-9
+1.0E-10
+tsen_order_RST_2_standard
+9.05E+7
+4.1E-7
+1.4E-8
+4.6E-9
+5.0E-10
+tsen_order_RST_3_standard
+1.31E+8
+2.0E-7
+1.5E-8
+6.0E-9
+1.2E-9
+tsen_order_global_FE_8_standard
+2.39E+7
+1.3E-6
+1.8E-8
+7.2E-9
+3.2E-10
+tsen_order_global_FE_8_standard_prune
+4.27E+7
+1.1E-6
+1.7E-8
+5.8E-9
+3.8E-10
+tsen_order_global_FE_15_standard
+1.12E+7
+3.1E-6
+2.0E-8
+7.6E-9
+1.7E-10
+tsen_order_global_FE_15_standard_prune
+2.05E+7
+2.7E-6
+1.6E-8
+4.8E-9
+1.2E-10
+tsen_order_global_RST_2_standard
+1.10E+8
+5.6E-7
+1.9E-8
+5.0E-9
+7.3E-10
+tsen_order_global_RST_2_standard_prune
+1.19E+8
+4.0E-7
+1.4E-8
+4.2E-9
+5.4E-10
+tsen_order_global_RST_3_standard
+1.06E+8
+5.5E-7
+1.9E-8
+5.1E-9
+7.2E-10
+tsen_order_global_RST_3_standard_prune
+1.79E+8
+2.3E-7
+1.6E-8
+5.3E-9
+1.3E-9
+tsen_timed_FE_8_standard
+2.27E+7
+8.0E-5
+1.5E-8
+1.5E-9
+1.2E-11
+tsen_timed_FE_8_resample
+1.92E+7
+1.1E-4
+1.8E-8
+1.3E-9
+8.8E-12
+tsen_timed_FE_15_standard
+1.07E+7
+3.6E-4
+1.6E-8
+1.1E-9
+3.2E-12
+tsen_timed_FE_15_resample
+8.36E+6
+5.2E-4
+1.7E-8
+8.4E-10
+1.5E-12
+tsen_timed_RST_2_standard
+1.61E+8
+3.0E-6
+1.8E-8
+1.8E-9
+1.4E-10
+tsen_timed_RST_2_resample
+9.35E+7
+4.0E-6
+1.6E-8
+1.7E-9
+7.0E-11
+tsen_timed_RST_3_standard
+1.60E+8
+2.9E-6
+1.8E-8
+1.8E-9
+1.4E-10
+tsen_timed_RST_3_resample
+1.21E+8
+2.4E-6
+2.0E-8
+2.3E-9
+1.7E-10
+tsen_timed_global_FE_8_standard
+2.80E+7
+2.1E-4
+1.7E-8
+1.0E-9
+7.4E-12
+tsen_timed_global_FE_8_resample
+1.34E+7
+4.3E-4
+1.6E-8
+7.9E-10
+2.2E-12
+tsen_timed_global_FE_8_standard_prune
+1.78E+8
+2.1E-4
+1.7E-8
+4.1E-10
+7.9E-12
+tsen_timed_global_FE_8_resample_prune
+4.05E+7
+4.4E-4
+1.7E-8
+4.8E-10
+2.4E-12
+32
+G. Dengler et al.
+Table 3: Numerical results of the experiments from Sec. 6.3
+CMC or RES run aΦ
+Number
+of runs
+Non-zero
+runs ratio
+Center
+ˆφaΦ
+m
+Half-width
+| ˆφaΦ
+m |/2
+Variance
+tsen_timed_global_FE_15_standard
+1.28E+7
+1.0E-3
+1.6E-8
+6.9E-10
+1.6E-12
+tsen_timed_global_FE_15_resample
+5.57E+6
+2.5E-3
+1.7E-8
+5.7E-10
+4.7E-13
+tsen_timed_global_FE_15_standard_prune
+8.57E+7
+1.0E-3
+1.7E-8
+2.9E-10
+1.8E-12
+tsen_timed_global_FE_15_resample_prune
+1.84E+7
+2.5E-3
+1.7E-8
+3.1E-10
+4.5E-13
+tsen_timed_global_RST_2_standard
+2.08E+8
+3.0E-6
+1.8E-8
+1.6E-9
+1.4E-10
+tsen_timed_global_RST_2_resample
+1.14E+8
+8.5E-6
+1.7E-8
+1.1E-9
+3.6E-11
+tsen_timed_global_RST_2_standard_prune
+6.75E+8
+2.8E-6
+1.6E-8
+8.4E-10
+1.2E-10
+tsen_timed_global_RST_2_resample_prune
+1.36E+8
+8.1E-6
+1.6E-8
+9.8E-10
+3.4E-11
+tsen_timed_global_RST_3_standard
+2.04E+8
+3.0E-6
+1.8E-8
+1.6E-9
+1.4E-10
+tsen_timed_global_RST_3_resample
+1.64E+8
+2.0E-6
+1.6E-8
+1.8E-9
+1.3E-10
+tsen_timed_global_RST_3_standard_prune
+6.72E+8
+2.8E-6
+1.6E-8
+8.4E-10
+1.2E-10
+tsen_timed_global_RST_3_resample_prune
+2.21E+8
+4.2E-6
+1.7E-8
+1.1E-9
+7.1E-11

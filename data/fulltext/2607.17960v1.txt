@@ -1,0 +1,529 @@
+Fixed Point Exploration For CV-QKD IR
+QC-MET-LDPC Toward Hardware Implementation
+Guilherme Vergne de Oliveira , Mauro Queiroz Nooblath Neto , Micael Andrade Dias , Francisco Revson
+Fernandes Pereira , Francisco Marcos de Assis , Valéria Loureiro da Silva
+and Nelson Alves Ferreira Neto
+Abstract— High-speed LDPC decoding is a major bottleneck
+in CV-QKD and motivates hardware acceleration with fixed-
+point arithmetic. This work compares SPA, MSA, and NMS
+under a unified low-SNR fixed-point framework using common
+graph, matrix, and quantization settings. Multiple formats are
+evaluated through FER, and average iterations. The results show
+that performance depends strongly on the interaction between
+decoder rule and numerical precision. SPA achieved the best
+overall performance. For reduced-complexity decoders, Q16.8
+was the lowest consistent precision, with NMS outperforming
+MSA. Practically, SPA with Q8.4 offered the best balance between
+reliability and hardware efficiency for large-scale implementations.
+Keywords— Fixed-point arithmetic, METLDPC codes, low-SNR
+decoding, hardware-oriented implementation.
+I. INTRODUCTION
+Low-density parity-check (LDPC) codes play a central role
+in modern error-correction systems operating close to channel
+capacity, especially in scenarios where reliable communication
+must be maintained at very low signal-to-noise ratio (SNR), typ-
+ically around or below 0 dB and, in severe operating conditions,
+in the negative-SNR regime [1], [2]. This regime is particularly
+relevant in reconciliation architectures for continuous-variable
+quantum key distribution (CV-QKD), where the legitimate
+users, conventionally referred to as Alice and Bob, must convert
+correlated continuous variables into a common binary key
+after transmission through a noisy quantum channel. In this
+context, decoding efficiency and error-correction capability
+directly impact the achievable secret key rate and transmission
+distance [3], [4]. Structured low-rate constructions, typically
+associated with code rates far below those used in conventional
+communication systems and often below 0.1, such as multi-
+edge LDPC codes, have therefore received increasing attention
+Guilherme Vergne de Oliveira , QuIIN – Quantum Industrial Innova-
+tion, EMBRAPII CIMATEC Competence Center in Quantum Technologies,
+SENAI CIMATEC, Salvador-Bahia, e-mail: guilhermevergne@gmail.com;
+Mauro Queiroz Nooblath Neto , QuIIN – Quantum Industrial Innovation,
+EMBRAPII CIMATEC Competence Center in Quantum Technologies, SENAI
+CIMATEC, Salvador-Bahia, e-mail: mauro.neto@fieb.org.br; Micael Andrade
+Dias , Department of Electrical and Photonics Engineering, Technical Univer-
+sity of Denmark, Lyngby-Denmark, e-mail: mandi@dtu.dk; Francisco Revson
+Fernandes Pereira , IQM Quantum Computers, Georg-Brauchle-Ring 23–25,
+80992 Munich, Germany, e-mail: revson.ee@gmail.com; Francisco Marcos de
+Assis , Departamento de Engenharia Elétrica, UFCG - Universidade Federal de
+Campina Grande, Campina Grande-Paraíba, e-mail: fmarcos@dee.ufcg.edu.br;
+Valéria Loureiro da Silva , QuIIN – Quantum Industrial Innovation, EM-
+BRAPII CIMATEC Competence Center in Quantum Technologies, SENAI
+CIMATEC, Salvador-Bahia, e-mail: valeria.dasilva@fieb.org.br; Nelson Alves
+Ferreira Neto , QuIIN – Quantum Industrial Innovation, EMBRAPII CI-
+MATEC Competence Center in Quantum Technologies, SENAI CIMATEC,
+Salvador-Bahia, e-mail: nelson.neto@fieb.org.br.
+due to their favorable balance between decoding performance
+and implementation feasibility [5], [6].
+Although floating-point implementations are useful for algo-
+rithmic validation, practical high-throughput decoders intended
+for hardware platforms such as FPGAs must operate under
+strict constraints on memory footprint, arithmetic complexity,
+latency, and power consumption [7]. For this reason, fixed-
+point arithmetic becomes a natural requirement in the transition
+from software-based simulation to hardware-oriented realiza-
+tion. However, reducing numerical precision introduces non-
+negligible effects, including quantization noise, restricted dy-
+namic range, saturation, and sensitivity to intermediate products
+and accumulations. These effects are especially critical in low-
+SNR decoding, where small differences in message reliability
+may determine whether iterative convergence succeeds or fails
+[8], [9], [7].
+The literature already reports relevant advances on limited-
+precision LDPC decoding, both from the perspective of hard-
+ware implementation and from the standpoint of low-bit-width
+message-passing strategies [8], [10], [11], [12]. In parallel,
+multi-edge constructions have been investigated as promising
+candidate for reconciliation in long-distance CV-QKD systems
+[5], [13]. Nevertheless, a direct and controlled comparison
+between distinct decoding algorithms under the same fixed-
+point experimental framework remains relevant, particularly
+in the low-SNR regime. In practice, the numerical behavior
+of the sum-product algorithm (SPA), the min-sum algorithm
+(MSA), and the normalized min-sum algorithm (NMS) may
+differ substantially when subjected to the same clipping, scaling,
+and word-length restrictions [14], [12].
+In this work, we present a unified fixed-point decoding
+framework for the comparative evaluation of SPA, MSA, and
+NMS. The three decoders are implemented under the same
+sparse graph representation, the same parity-check matrix, and
+the same quantization pipeline, allowing a fair comparison
+of the impact of arithmetic precision on decoding behavior.
+The analysis considers distinct fixed-point configurations, pa-
+rameterized by total word length and fractional precision, and
+evaluates their effect on frame error rate (FER) and average
+number of iterations. In addition, the proposed framework
+makes it possible to discuss practical implementation effects,
+such as saturation and intermediate-product overflow.
+A. Multidimensional Reconciliation
+In CV-QKD, Alice and Bob initially share correlated Gaus-
+sian variables rather than binary sequences. In the low-SNR
+arXiv:2607.17960v1  [cs.AR]  20 Jul 2026
+regime, direct reconciliation over these continuous observations
+becomes inefficient. Multidimensional reconciliation (MDR)
+addresses this issue by transforming the original Gaussian cor-
+relation into an equivalent binary-input additive white Gaussian
+noise (BI-AWGN) channel, enabling the use of binary error-
+correcting codes such as LDPC codes [15]. In this work, MDR
+is not the main object of investigation, but the reconciliation
+strategy that motivates the decoding stage analyzed in the
+following sections.
+B. MET-LDPC
+Multi-edge type low-density parity-check (MET-LDPC)
+codes generalize irregular LDPC ensembles by describing the
+Tanner graph through multiple edge classes rather than a single
+aggregated degree distribution [5]. This allows variable and
+check nodes to be characterized not only by their total degree,
+but also by the distribution of edge types connected to them,
+providing finer structural control.
+This flexibility is especially relevant in very low-SNR recon-
+ciliation scenarios, where conventional irregular degree profiles
+may be insufficient to sustain efficient iterative decoding. MET-
+LDPC ensembles are commonly described by multivariate
+degree-distribution polynomials, enabling more detailed graph
+design at the cost of increased construction complexity. In this
+work, MET-LDPC codes are relevant as a structural framework
+suitable for low-rate, low-SNR decoding conditions.
+C. Fixed-Point Modeling
+The transition from floating-point to fixed-point arithmetic is
+a fundamental step when moving from algorithmic validation
+to hardware-oriented decoder design. In practical implemen-
+tations, especially in FPGA-based architectures, arithmetic
+precision must be explicitly constrained in order to reduce
+memory usage, simplify datapaths, and improve throughput.
+However, this reduction in numerical precision may also affect
+decoder convergence, message reliability, and overall error-
+correction performance, particularly in low-SNR regimes [8],
+[10], [9].
+In the fixed-point model adopted in this work, real-valued
+quantities are represented by signed integers associated with
+a scaling factor determined by the number of fractional bits.
+Let nt denote the total word length and nf the number of
+fractional bits. A real-valued quantity x ∈R is quantized as
+xq = round(x 2nf ) ,
+(1)
+where xq is the corresponding integer representation. The
+inverse mapping is approximately given by
+x ≈xq
+2nf .
+(2)
+Therefore, nf controls the resolution of the representation,
+while nt determines the available dynamic range.
+For a signed fixed-point format with nt total bits, the
+representable integer interval is
+qmin = −2 nt−1,
+qmax = 2 nt−1 −1.
+(3)
+Any value exceeding this interval must be clipped or saturated
+to the nearest representable bound. In addition, before quanti-
+zation, channel log-likelihood ratios (LLRs) are clipped to the
+interval
+[−Lmax, Lmax],
+(4)
+where Lmax is a design parameter that limits the dynamic
+range of the decoder messages. This clipping operation is
+particularly important in low-SNR decoding, since excessively
+large message magnitudes may produce numerical instability
+without providing significant reliability gains [9].
+In practice, the use of finite precision introduces two distinct
+numerical effects. The first is quantization itself, which limits
+the resolution with which message magnitudes can be repre-
+sented. The second is saturation, which limits the maximum
+representable magnitude. In iterative LDPC decoding, both
+effects are relevant because messages are repeatedly updated,
+accumulated, and transformed along the Tanner graph. As a
+consequence, the chosen word length may affect not only FER,
+but also convergence speed and numerical stability [10], [11].
+Under the model adopted here, the three decoding algorithms
+considered in this paper share the same fixed-point infras-
+tructure. Channel LLRs are clipped and quantized according
+to (1)–(4), variable-node messages are accumulated under
+saturation constraints, and decoder outputs are kept within
+the representable range defined by (3). The main difference
+lies in the check-node update: MSA uses the standard min-
+sum rule, NMS applies a normalization factor α, and SPA
+employs nonlinear reliability updates while keeping message
+storage in fixed-point form. This unified representation makes
+it possible to isolate the influence of arithmetic precision from
+the influence of the decoding rule itself.
+The fixed-point model is therefore not only a numerical ap-
+proximation, but also an abstraction of the constraints expected
+in future hardware realization. By varying nt and nf, one can
+investigate the trade-off between decoding performance and
+implementation cost, identifying precision regimes that pre-
+serve reliable operation while reducing arithmetic complexity
+[8], [10].
+D. Decoding Algorithms
+The decoding framework considered in this work is based
+on iterative message passing over the Tanner graph associated
+with the parity-check matrix. In all cases, reliability messages
+are exchanged between variable nodes and check nodes until
+either the target syndrome is satisfied or the maximum number
+of iterations is reached. Under the fixed-point model introduced
+in the previous subsection, the three algorithms analyzed here—
+SPA, MSA, and NMS—share the same message representation
+and the same variable-node update rule. Their main difference
+lies in the check-node processing.
+Let Lch
+j
+denote the channel log-likelihood ratio (LLR)
+associated with variable node j, Lj→i the message sent from
+variable node j to check node i, and Li→j the message sent
+from check node i to variable node j.
+In the sum-product algorithm (SPA), the check-node update
+follows the standard belief-propagation rule in the LLR domain
+[16]:
+Li→j = 2 tanh−1
+
+
+Y
+j′∈N(i)\j
+tanh
+Lj′→i
+2
+
+,
+(5)
+where N(i) denotes the set of variable nodes connected to
+check node i. Among the algorithms considered in this work,
+SPA provides the most accurate reliability update, since it
+preserves the nonlinear form derived from the exact message-
+passing equations. For this reason, it is used here as the main
+decoding reference, although its implementation is also the
+most demanding from the numerical and architectural points
+of view.
+The min-sum algorithm (MSA) replaces the nonlinear check-
+node rule by a reduced-complexity approximation based on
+the sign product and the minimum magnitude of the incoming
+messages [16]:
+Li→j ≈
+
+
+Y
+j′∈N(i)\j
+sign(Lj′→i)
+
+
+min
+j′∈N(i)\j |Lj′→i| .
+(6)
+This approximation substantially simplifies the check-node
+computation and makes MSA attractive in implementation-
+oriented scenarios. However, since it neglects the correction
+term implicitly present in the SPA formulation, MSA tends
+to overestimate message magnitudes, which may degrade
+decoding performance depending on the operating regime.
+To reduce this discrepancy, the normalized min-sum algo-
+rithm (NMS) introduces a scaling factor α ∈(0, 1] in the
+min-sum update [17]:
+LNMS
+i→j = α
+
+
+Y
+j′∈N(i)\j
+sign(Lj′→i)
+
+
+min
+j′∈N(i)\j |Lj′→i| . (7)
+When α = 1, NMS reduces to the conventional MSA. For
+α < 1, the outgoing check-node messages are attenuated, which
+generally leads to a better approximation of the SPA behavior
+while preserving the simplicity of the min-sum structure.
+As discussed by Chen and Fossorier [17], this normalization
+improves the convergence behavior of min-sum-based decoding
+and can yield a more favorable performance-complexity trade-
+off.
+In the fixed-point framework adopted in this paper, the
+three algorithms are evaluated under the same sparse graph
+representation, the same quantization pipeline, and the same
+saturation constraints. This allows the comparison to focus
+on the combined effect of arithmetic precision and check-
+node update rule. In particular, SPA serves as a higher-
+complexity decoding reference, MSA represents the simplest
+approximation, and NMS occupies an intermediate position by
+introducing a controlled correction to the min-sum rule.
+II. EXPERIMENTAL CONFIGURATION
+The experimental evaluation was conducted under a common
+simulation framework in order to compare the fixed-point
+behavior of the SPA, MSA, and NMS decoders under identical
+decoding conditions. For all experiments, the same parity-check
+matrix, channel model, stopping criterion, and maximum num-
+ber of iterations were adopted, so that the observed differences
+could be associated primarily with the decoding rule and the
+fixed-point precision.
+Decoder performance was evaluated in terms of frame error
+rate (FER), and average number of iterations. Considering
+Nframes simulated frames of length N, the FER is defined
+as
+FER = Nframe_err
+Nframes
+,
+(8)
+where Nframe_err is the number of frames containing at least
+one residual bit error. In addition, as Ik denotes the number
+of iterations associated with frame k, the average number of
+iterations is computed as
+¯I =
+1
+Nframes
+Nframes
+X
+k=1
+Ik.
+(9)
+The simulations were performed over a low-SNR range, with
+SNRdB ∈{−20.0, −19.5, . . . , −15.0},
+(10)
+using a step of 0.5 dB. For each SNR point, 2000 frames
+were simulated. The codeword length was fixed at N =
+10000, and the design rate was set to R = 0.02. The code
+ensemble was generated from the MET-LDPC polynomials
+ν(x) = 0.02x2
+1x51
+2 +0.02x3
+1x60
+2 +0.96x3 and µ(x) = 0.016x4
+1+
+0.004x9
+1 + 0.30x3
+2x3 + 0.66x2
+2x3, with normalized check-node
+fractions, being ν(x) the variable polynomial and µ(x) the
+check polynomial..
+The fixed-point analysis was carried out by varying the
+total word length and the number of fractional bits. The tested
+configurations were
+Q8.4,
+Q12.6,
+Q16.8,
+Q24.12,
+(11)
+all evaluated with the same clipping limit Lmax = 8.0 and
+the same maximum number of decoding iterations, Imax =
+100. In this notation, Qnt.nf denotes a signed fixed-point
+representation with nt total bits and nf fractional bits.
+For NMS, α was preliminarily swept from 0.40 to 0.85
+in steps of 0.05, and α = 0.65 was selected for the main
+experiments. The MSA results correspond to the particular
+case α = 1, while SPA was evaluated separately through its
+own check-node update rule.
+To ensure a fair comparison, all decoders were tested using
+the same sparse graph representation, the same quantization
+pipeline for a given fixed-point configuration, and the same
+simulation procedure at each SNR point. In this way, the
+analysis isolates the effect of arithmetic precision and decoding
+rule, allowing the comparison to focus directly on the reliability
+and convergence behavior of SPA, MSA, and NMS in the low-
+SNR regime.
+III. RESULTS AND DISCUSSION
+Figure 1 highlight the most representative FER comparison
+among the decoders when the fixed-point precision is kept
+constant.
+Fig. 1
+BIT ERROR RATE (FER) AS A FUNCTION OF SNR FOR DIFFERENT
+DECODERS OPERATING UNDER THE Q12.6 FIXED-POINT FORMAT.
+The comparison indicates that SPA is the most reliable
+decoder among the evaluated strategies. For all precision
+settings, SPA exhibits the most pronounced waterfall region
+and the lowest FER over the relevant SNR interval, reinforcing
+its role as the strongest decoding reference in the present study.
+In contrast, the reduced-complexity decoders, especially MSA,
+show a stronger dependence on the adopted numerical format,
+which directly affects their ability to converge in the low-SNR
+regime.
+Figures 2, 3, and 4 show the FER behavior of each decoder
+as a function of the tested fixed-point precision values.
+Fig. 2
+BIT ERROR RATE (FER) AS A FUNCTION OF SNR FOR DIFFERENT
+FIXED-POINT PRECISION VALUES USING THE MSA DECODER.
+Fig. 3
+BIT ERROR RATE (FER) AS A FUNCTION OF SNR FOR DIFFERENT
+FIXED-POINT PRECISION VALUES USING THE NMS DECODER.
+Fig. 4
+BIT ERROR RATE (FER) AS A FUNCTION OF SNR FOR DIFFERENT
+FIXED-POINT PRECISION VALUES USING THE SPA DECODER.
+The precision sweep reveals that both MSA and NMS
+achieve their most suitable operating condition under the Q16.8
+and Q12.6 formats respectively. In this case, the decoders are
+able to preserve the expected improvement with increasing
+SNR while maintaining stable convergence. Lower precisions
+are progressively limited by quantization, which reduces the
+numerical fidelity of the exchanged messages and degrades
+decoding performance. On the other hand, larger formats do not
+provide further benefit and can become vulnerable to numerical
+saturation in intermediate operations, particularly when the
+increased fractional precision reduces the available dynamic
+range in fixed-width accumulators.
+For SPA, the interpretation is slightly different. The decoder
+remains robust over a wider precision range, reaching its
+quantization-limited behavior at Q8.4 and extending up to
+Q24.12 without visible degradation in the final FER curves.
+IV. CONCLUSION
+This work presented a comparative fixed-point evaluation
+of the SPA, MSA, and NMS decoders in a low-SNR LDPC
+decoding scenario, with emphasis on the influence of numerical
+precision on FER, and convergence behavior. The results show
+that decoder performance depends not only on the decoding
+rule itself, but also on how well the selected fixed-point format
+matches the numerical requirements of each algorithm.
+Among the evaluated decoders, SPA delivered the best
+overall decoding results. It consistently achieved the lowest
+FER values, the clearest waterfall behavior, and the most stable
+convergence across the tested precision range. In addition, SPA
+remained effective even under reduced precision, which makes
+it particularly attractive from an implementation perspective.
+For the reduced-complexity decoders, Q16.8 emerged as the
+optimal precision threshold, since it was the lowest tested
+format that still provided stable and reliable operation for
+all tested decoders algorithms. Under this condition, NMS
+clearly outperformed MSA and became the best simplified
+alternative to SPA. Lower precisions led to progressively
+stronger quantization effects.
+From a practical standpoint, however, the most relevant
+outcome of this study is that the best overall scenario is
+obtained by combining SPA with the Q8.4 format. Although
+wider representations may still be numerically feasible for
+SPA, the Q8.4 format already preserves excellent decoding
+performance while significantly reducing the number of bits
+required in the fixed-point representation. This becomes es-
+pecially important when the analysis is scaled to much larger
+parity-check matrices, where memory footprint, data movement,
+and arithmetic cost grow substantially. In this sense, SPA with
+Q8.4 provides the most favorable balance between decoding
+reliability and implementation efficiency within the evaluated
+conditions.
+Overall, the results establish a clear ranking for the tested
+configurations: SPA is the most reliable decoder, NMS provides
+the best performance-complexity trade-off among the reduced-
+complexity alternatives, and MSA is the most sensitive to
+fixed-point constraints. Therefore, the selection of a fixed-point
+format must consider not only representational resolution, but
+also the numerical behavior of intermediate operations.
+As a final outcome, this work provides practical guidance
+for hardware-oriented LDPC decoder design in the low-SNR
+regime. SPA should be regarded as the performance reference,
+while Q16.8 serves as the optimal threshold for reduced-
+complexity decoders. At the same time, SPA with Q8.4 stands
+out as the most attractive operating point when performance
+and scalability are considered jointly.
+V. ACKNOWLEDGEMENTS
+This work was fully funded by the project LDPC Code
+Design for Information Reconciliation in CV-QKD Optimized
+for Hardware Implementation, supported by QuIIN – Quantum
+Industrial Innovation, the EMBRAPII CIMATEC Competence
+Center in Quantum Technologies. Financial resources were
+provided by the PPI IoT/Industry 4.0 program of the Brazilian
+Ministry of Science, Technology and Innovation (MCTI), under
+grant number 053/2023, in partnership with EMBRAPII.
+REFERENCES
+[1] H. Mani, T. Gehring, P. Grabenweger, B. Ömer, C. Pacher, and U. L. An-
+dersen, “Multiedge-type low-density parity-check codes for continuous-
+variable quantum key distribution,” Physical Review A, vol. 103, no. 6,
+p. 062419, 2021, [Fontes 520, 521] - Justifica o uso de MET-LDPC no
+regime de baixo SNR.
+[2] X. Wang, Y. Zhang, S. Yu, and H. Guo, “High speed error correction
+for continuous-variable quantum key distribution with multi-edge type
+ldpc code,” Scientific Reports, vol. 8, no. 1, p. 10543, 2018, [Fonte 348]
+- Corrobora a importância do LDPC para QKD em baixo SNR.
+[3] P. Jouguet, S. Kunz-Jacques, and A. Leverrier, “Long-distance continuous-
+variable quantum key distribution with a gaussian modulation,” Physical
+Review A, vol. 84, no. 6, p. 062317, 2011, [Fonte 256, 360] - Relação
+direta entre a eficiência de decodificação e a taxa/distância da chave
+secreta.
+[4] Y. Zhang, Y. Bian, Z. Li, S. Yu, and H. Guo, “Continuous-variable
+quantum key distribution system: Past, present, and future,” Applied
+Physics Reviews, vol. 11, no. 1, p. 011318, 2024, [Fonte 247].
+[5] M. Milicevic, C. Feng, L. M. Zhang, and P. G. Gulak, “Quasi-cyclic
+multi-edge ldpc codes for long-distance quantum cryptography,” npj
+Quantum Information, vol. 4, no. 1, Apr. 2018. [Online]. Available:
+http://dx.doi.org/10.1038/s41534-018-0070-6
+[6] S.-S. Yang, Z.-G. Lu, and Y.-M. Li, “High-speed post-processing in
+continuous-variable quantum key distribution based on fpga implementa-
+tion,” Journal of Lightwave Technology, vol. 38, no. 15, pp. 3935–3941,
+2020, [Fonte 354] - Aborda as restrições de implementação em FPGA
+para LDPC.
+[7] S.-S. Yang, J.-Q. Liu, Z.-G. Lu, Z.-L. Bai, X.-Y. Wang, and Y.-M. Li, “An
+fpga-based ldpc decoder with ultra-long codes for continuous-variable
+quantum key distribution,” IEEE Access, vol. 9, pp. 47 687–47 697, 2021,
+[Fontes 389, 402] - Discute especificamente o problema de quantização
+uniforme e consumo de recursos para LDPC no CV-QKD.
+[8] C. Zhou, Y. Li, L. Ma, J. Yang, W. Huang, H. Wang, Y. Luo, F. C. M. Lau,
+Y. Li, and B. Xu, “High-throughput decoder of quasi-cyclic ldpc codes
+with limited precision for continuous-variable quantum key distribution
+systems,” 2022. [Online]. Available: https://arxiv.org/abs/2207.01860
+[9] E. E. Cil and L. Schmalen, “Log-log domain sum-product algorithm
+for information reconciliation in continuous-variable quantum key
+distribution,” 2024. [Online]. Available: https://arxiv.org/abs/2401.13748
+[10] L. Wang, C. Terrill, M. Stark, Z. Li, S. Chen, C. Hulse, C. Kuo, R. Wesel,
+G. Bauch, and R. Pitchumani, “Reconstruction-computation-quantization
+(rcq): A paradigm for low bit width ldpc decoding,” 2022. [Online].
+Available: https://arxiv.org/abs/2111.08920
+[11] M. Geiselhart, A. Elkelesh, J. Clausius, F. Liang, W. Xu, J. Liang, and
+S. ten Brink, “Learning quantization in ldpc decoders,” 2022. [Online].
+Available: https://arxiv.org/abs/2208.05186
+[12] J. Chen, A. Dholakia, E. Eleftheriou, M. P. Fossorier, and X.-Y. Hu,
+“Reduced-complexity decoding of ldpc codes,” IEEE Transactions on
+Communications, vol. 53, no. 8, pp. 1288–1299, 2005, [Fontes 364, 417]
+- Literatura fundamental discutindo a diferença de performance entre
+SPA, MSA e NMS em arquiteturas práticas.
+[13] C. Zhou, X. Wang, Z. Zhang, S. Yu, Z. Chen, and H. Guo, “Rate compati-
+ble reconciliation for continuous-variable quantum key distribution using
+raptor-like ldpc codes,” Science China Physics, Mechanics & Astronomy,
+vol. 64, p. 260311, 2021, [Fontes 377, 423] - Investiga a construção de
+códigos multi-edge e compatíveis em taxa para sistemas reais.
+[14] O. Ferraz, S. Subramaniyan, R. Chinthala, J. Andrade, J. R. Cavallaro,
+S. K. Nandy, V. Silva, X. Zhang, M. Purnaprajna, and G. Falcao, “A
+survey on high-throughput non-binary ldpc decoders: Asic, fpga, and gpu
+architectures,” IEEE Communications Surveys & Tutorials, vol. 24, no. 1,
+pp. 524–556, 2022, [Fonte 287] - Excelente survey detalhando restrições
+de latência, footprint e comparações de SPA/MSA em hardware.
+[15] A. Leverrier, R. Alléaume, J. Boutros, G. Zémor, and P. Grangier,
+“Multidimensional reconciliation for continuous-variable quantum key
+distribution,” Physical Review A, vol. 77, p. 042325, 2008.
+[16] T. K. Moon, “Error correction coding: Mathematical methods and
+algorithms,” Hoboken, NJ, 2021.
+[17] J. Chen and M. Fossorier, “Density evolution for two improved bp-
+based decoding algorithms of ldpc codes,” IEEE Communications Letters,
+vol. 6, no. 5, pp. 208–210, 2002.

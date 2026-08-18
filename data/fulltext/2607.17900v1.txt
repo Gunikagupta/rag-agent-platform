@@ -1,0 +1,923 @@
+Harness TTS: Towards Context-Aware Expressive
+Speech Synthesis with Harness Layer
+Shengfan Shen1,2, Di Wu1,3, Xingchen Song1,3, Dinghao Zhou1,3, Pengyu
+Cheng1, Sixiang Lyu1,2, Jian Luan1, and Shuai Wang2,3B
+1 MiLM Plus, Xiaomi Inc., China
+2 Nanjing University, China
+shenshengfan@hnu.edu.cn,shuaiwang@nju.edu.cn
+3 WeNet Open Source Community
+Abstract. Expressive speech synthesis for voice assistants requires flex-
+ible style control that adapts to explicit requests and broader interaction
+context. We propose Harness TTS, a lightweight control layer that wraps
+around a TTS engine to externalize and govern its expressive behavior.
+It reformulates style control as closed-set prompt-tool routing: offline, a
+compact registry of stylistic prompt tools is constructed with structured
+metadata; online, an LLM planner selects the appropriate tool based on
+a priority-aware observation schema, and the TTS executor synthesizes
+speech using the corresponding prompt audio. We evaluate Harness TTS
+on both routing and synthesis tasks. In routing, Qwen3-4B achieves Top-
+1 accuracies of 74.3%, 43.0%, and 64.6% on explicit, implicit, and con-
+flict subsets. For synthesis, experiments on CosyVoice3 and VoxCPM2
+show that Harness TTS outperforms instruction-only control, achiev-
+ing higher instruction-following win rates (margins of 23.1–35.6 points
+on CosyVoice3 and 13.8–20.0 points on VoxCPM2) and improving UT-
+MOSv2 scores by 0.11–0.38. Moreover, the 4B planner delivers its first
+tool recommendation in under 50 ms in standard mode, introducing neg-
+ligible latency for real-time interaction. These results demonstrate that
+equipping TTS engines with a dedicated Harness layer offers a practi-
+cal, auditable, and context-aware solution for voice assistant expression
+control.
+Keywords: Expressive speech synthesis · Harness layer · Context-aware
+TTS · Voice assistants
+1
+Introduction
+Despite the rapid progress of large-scale generative TTS models in producing
+highly natural and emotionally diverse speech [4, 22, 19], effectively harnessing
+these expressive capabilities in practical voice assistants remains challenging.
+Zero-shot TTS typically relies on a fixed reference prompt for speaker imitation,
+which limits flexible style adaptation. Instruct TTS introduces natural language
+descriptions for style control but often yields unstable outputs under ambiguous
+arXiv:2607.17900v1  [cs.SD]  20 Jul 2026
+2
+S. Shen et al.
+requests. More importantly, existing paradigms primarily focus on the imme-
+diate input, lacking a systematic mechanism to incorporate broader contextual
+signals—such as user profiles, interaction scenarios, and environmental condi-
+tions—that are essential for personalized voice assistants.
+We argue that the major bottleneck is not the generative capacity of modern
+TTS models, but the absence of a systematic interface layer that bridges con-
+textual understanding and speech generation. Drawing inspiration from harness
+engineering, where external orchestration layers organize information, constrain
+behaviors, and improve model usability [21], we introduce a lightweight Harness
+layer for TTS. Rather than modifying the underlying TTS engine, our approach
+augments existing models by externalizing expressive decision-making: the Har-
+ness interprets contextual signals, selects an appropriate expressive prompt,
+and delegates speech generation to the TTS backend. This separation of con-
+cerns enables more stable, interpretable, and context-aware expressive synthe-
+sis without altering the TTS backend. In practical voice assistant scenarios,
+maintaining a curated collection of high-quality expressive prompts for a target
+speaker—and selecting the most suitable one according to each interaction con-
+text—has emerged as a pragmatic and reliable strategy. Under this setting, the
+key challenge shifts from generating arbitrary styles to reliably matching con-
+textual requirements with available expressive resources. However, existing solu-
+tions—heuristic rules, or embedding-based retrieval—often fail to handle implicit
+preferences, resolve conflicting requirements, or make priority-aware decisions.
+To address this challenge, we instantiate the Harness layer as a lightweight
+decision-making component on top of the TTS engine. Offline, curated expressive
+prompts are organized into a structured tool registry with descriptive metadata.
+During online inference, an LLM-based planner receives a multi-source obser-
+vation, resolves potential conflicts through a predefined priority policy, and se-
+lects an appropriate prompt. The selected prompt is then executed by the TTS
+engine to synthesize speech. By interposing this Harness layer between contex-
+tual understanding and speech generation, we transform expressive requests into
+closed-set prompt-tool routing, allowing existing TTS engines to more reliably
+realize their inherent expressive potential.
+Our core contributions are as follows:
+– A lightweight Harness layer for expressive TTS: We introduce an in-
+termediate layer that augments existing TTS engines with expressive prompt
+selection, enabling more stable and interpretable style realization without
+modifying the underlying generator.
+– A context-grounded planning mechanism: We design a multi-level ob-
+servation schema and a priority-based conflict resolution strategy, allowing
+the Harness layer to integrate diverse contextual signals and make reliable
+expressive decisions.
+– Comprehensive evaluation: Through routing and synthesis benchmarks,
+we demonstrate that Harness-guided synthesis improves instruction following
+and naturalness over instruction-only control while maintaining competitive
+speaker consistency.
+Harness TTS
+3
+2
+Related Work
+Zero-shot TTS Zero-shot TTS has evolved from timbre cloning to fine-grained
+style control. Early work such as VALL-E [2] demonstrated the feasibility of
+cloning voices from short prompt audio via in-context learning. Subsequent mod-
+els including NaturalSpeech 2 [12], Voicebox [10], and CosyVoice 2 [5] further
+improved naturalness and speaker similarity through large-scale training. More
+recent systems like MegaTTS 2 [8] and IndexTTS 2 [22] explore the disentan-
+glement of speech attributes including timbre, prosody, and emotion, enabling
+independent control over these dimensions. Despite these advances, zero-shot
+TTS typically relies on a fixed reference prompt at runtime. This design limits
+its flexibility for real-time adaptation, motivating the need for a selection-based
+mechanism that can dynamically choose among multiple candidate prompts.
+Instruct TTS Instruct TTS enable flexible style control through natural lan-
+guage descriptions. PromptTTS [6] first validated the feasibility of controlling
+acoustic attributes using text prompts. Later work like InstructTTS [19] adopted
+longer descriptive sentences for richer style specification. OV-InstructTTS [11]
+introduced a two-step reasoning framework that infers acoustic attributes from
+open-ended instructions, further improving instruction following. Additionally,
+CosyVoice 3 [4] and VoxCPM2 [23] allow users to adjust speaking style via nat-
+ural language while preserving consistent timbre through audio cloning. These
+methods offer the advantage of open-vocabulary expressiveness. However, map-
+ping free-form instructions to acoustic realization can still be challenging due to
+ambiguous descriptions and the stochastic nature of generative inference, making
+it difficult to guarantee stable behavior in production deployments.
+Context-Aware Conversational TTS Speech synthesis in dialogue scenarios re-
+quires models to go beyond the current utterance and understand the emo-
+tional and prosodic dynamics conveyed in the conversation history. FCTalker [7]
+captures contextual dependencies at both the word and sentence levels. M²-
+CTTS [16] further incorporates both textual and acoustic modalities to model
+prosodic variations more comprehensively. CapTalk [13] introduces speaker-level
+descriptions and Chain-of-Thought reasoning to plan prosodic attributes turn
+by turn. The ISCSLP 2026 CoT-TTS Challenge [17] tasks participants with
+reasoning about speaking styles from dialogue histories, further promoting this
+direction. Nevertheless, current conversational TTS primarily rely on short-term
+dialogue history, lacking broader signals such as user profiles, scenario types, or
+ambient cues, which limits their adaptability in complex real-world scenarios.
+3
+Method
+3.1
+Problem Formulation
+We approach context-aware expressive TTS from the perspective of harness en-
+gineering, which advocates externalizing control logic and decision-making from
+4
+S. Shen et al.
+audio
+annotation
+audio ID
+   annotation
+instruction
+Tool Registry
+Planner
+Executor
+Observation
+offline
+online
+Speech
+SLM/Human
+Style Audio
+Tool Registry
+Prompt-based
+TTS
+selected audio
+User
+Memory
+Environment User Profile
+Structure
+Input
+Designed 
+Prompt
+Light LLM
+Fig. 1. Overview of the Harness TTS architecture. The offline stage constructs the tool
+registry. The online stage consists of three steps: observation, planning, and execution.
+The planner selects a tool from the registry given the structured observation, and the
+executor synthesizes speech using the corresponding prompt.
+the core generative model into an orchestration layer. As illustrated in Figure 1,
+our Harness layer wraps around a TTS engine E and operates through a closed-
+set tool routing framework. Instead of navigating an unbounded, continuous
+acoustic parameter space, we bound the decision space to a finite, pre-registered
+tool registry T . Each tool in T corresponds to a specific audio prompt and is
+uniquely identified by an audio_id.
+This closed-set design provides two critical advantages: (1) constrained de-
+cision space, which strictly limits the output scope to enhance controllability
+and system stability; and (2) traceable routing, which ensures every stylis-
+tic decision is fully interpretable and debuggable. During inference, given the
+structured contextual observation o and tool metadata, a compact LLM planner
+π outputs a ranked list of candidate tools. The executor E then conditions its
+speech generation on the prompt audio associated with the top-ranked tool ID.
+3.2
+Tool Registry
+The tool registry is the foundational component of the Harness layer, defining the
+set of available expressive controls that govern the TTS engine’s output. Unlike
+approaches that build large-scale multi-speaker voice libraries, we construct a
+compact, style-oriented prompt library for a single target speaker. This design
+narrows the planner’s decision space while meeting the practical requirement for
+speaker consistency in voice assistants. Each tool in the registry T is associated
+Harness TTS
+5
+with a prompt audio and structured textual metadata, allowing the planner to
+select suitable tools without accessing raw audio. Figure 2 illustrates the registry
+structure: the left panel presents the two tool categories, and the right panel
+details the contents of each entry.
+Axis-based Tool
+Scenario-preset Tool
+slow / normal / fast
+Speed
+soft / medium / loud
+Volume
+Casual Chat
+Children
+Companion
+News
+BroadCast
+Audiobook
+Schedule
+Reminder
+Tool Registry
+warm / calm / bright 
+Emotion
+Discrete Tags
+Free-text Caption
+Speed: slow
+volume: soft
+emotion: warm
+A gentle, caring female voice, soft
+in volume and slow in pace, with a
+distinctly soothing breath, as if
+whispering comfort in your ear, full
+of tenderness and care, perfect for
+everyday greetings and concern.
+Bound Audio
+Tool
+Fig. 2. Categorical construction of the tool registry (left) and content of each tool entry
+(right). The registry consists of two categories: Axis-based tools and Scenario-preset
+tools. Each tool contains discrete tags, a free-text caption, and the bound audio.
+Tool Categories: Axis-Based and Scenario-Preset Tools The registry
+comprises two complementary categories: axis-based tools and scenario-preset
+tools. Axis-based tools enable systematic control over low-level acoustic at-
+tributes across three primary axes—speed, volume, and emotion. Combinations
+of these attributes yield diverse expressive variants, supporting fine-grained ad-
+justments to the TTS output. Conversely, for frequently encountered interaction
+scenarios, scenario-preset tools provide a dedicated style audio for each case,
+offering directly applicable expressive patterns for common use cases.
+Dual-Annotation Structure Each tool comprises a bound audio and a struc-
+tured description that enables the Harness planner to reason about its function.
+To balance precision and flexibility, the description follows a dual-annotation
+format combining discrete tags and free-text captions. Specifically, discrete
+tags cover low-level acoustic attributes such as speed, volume, and emotion
+to facilitate precise property matching during routing. Complementing these,
+a free-text caption provides a natural-language summary of the tool’s appli-
+6
+S. Shen et al.
+cable scenarios and auditory style, delivering broader semantic and contextual
+associations beyond the discrete tags.
+3.3
+Observation Schema and Priority Policy
+Existing expressive TTS systems primarily control speaking style based on the
+current utterance and explicit user instructions. In practice, however, voice assis-
+tant scenarios involve additional contextual signals—such as user profiles, inter-
+action scenarios, and ambient cues—that substantially influence style expression.
+To capture this richer context, our observation module aggregates heterogeneous
+upstream information and structures it into five decision layers: system defaults,
+user profile, scenario, implicit intent cues, and explicit instructions. This schema
+enables the Harness layer to reason beyond what is being said to under what
+scenario, for whom, and with what intended expression.
+Priority Field
+Description
+5
+Explicit instruction Direct style request (e.g., “speak slowly and gently”).
+4
+Implicit intent
+Contextual cues (time, ambient noise, dialogue history, user
+emotion) that implicitly reveal user needs.
+3
+Scene
+Dialogue scenario (e.g., navigation, bedtime story, news
+broadcast, reminder, or safety alert).
+2
+User profile
+User information such as age group, preferred and avoided
+speaking styles.
+1
+System default
+Default persona style used when no stronger evidence is
+present.
+Table 1. Observation hierarchy within the Harness layer. Higher-priority fields override
+lower-priority fields in case of conflicts.
+These five fields follow a predefined priority order, as detailed in Table 1. This
+priority policy serves as a key embedded decision rule, ensuring that the planner
+resolves conflicting signals in a predictable and interpretable manner. The design
+adheres to a practical interaction principle: explicit and immediate user require-
+ments override implicit, scenario-based, or default preferences. Lower-priority
+fields supply background context, while higher-priority fields dominate when
+they convey more specific or immediate instructions.
+3.4
+LLM-based Planner
+The planner is the decision-making core of the Harness layer, implemented as a
+text-only router built on a lightweight LLM. This design externalizes style selec-
+tion from the TTS engine into the Harness, leveraging LLM reasoning for tool
+selection while maintaining low inference latency. Its input comprises three com-
+ponents: (i) the tool registry T , (ii) the structured observation o, and (iii) a rout-
+ing prompt encoding the priority policy. To improve the planner’s understanding
+Harness TTS
+7
+of routing criteria and output format adherence, we incorporate few-shot exam-
+ples covering three representative scenarios: explicit instruction, implicit intent,
+and conflicting contextual requirements. We further experiment with a Chain-of-
+Thought (CoT) [15] variant, where the planner produces structured output with
+<reason> and <audio_id> tags for each candidate, enforcing explicit reasoning
+before each selection at the cost of additional inference latency.
+3.5
+Executor: Prompt-Based TTS
+The executor is the governed component of the Harness system—the underlying
+TTS engine that the Harness layer controls. Given the target utterance text x
+and the selected audio_id, it retrieves the corresponding prompt audio from the
+registry and synthesizes the response. The executor exposes a simple interface:
+the planner determines only the prompt identity, while the executor maps the
+selected tool to the corresponding acoustic conditioning signal. This modular
+design cleanly separates contextual decision-making, handled by the Harness,
+from speech generation, performed by the engine, enabling seamless integration
+of various prompt-based TTS backends. Ideally, the TTS executor is more than
+a generic zero-shot TTS engine: it should be fine-tuned on the target speaker
+and capable of cloning that speaker’s voice across diverse styles. This ensures
+both stable style rendering and consistent timbre preservation.
+4
+Experiments
+We evaluate the proposed Harness layer along three research questions:
+(RQ1) Whether the Harness planner selects appropriate expressive tools
+from the registry under structured contextual observations;
+(RQ2) Whether the Harness layer, built on a lightweight LLM, meets the
+latency requirements for real-time interactive scenarios;
+(RQ3) Whether Harness-guided selection improves expressive realization in
+downstream speech synthesis over instruction-only control.
+To address these questions, we design two complementary experiments. The
+routing task targets RQ1 and RQ2 by assessing the planner’s decision-making
+capability and inference latency. The synthesis task targets RQ3 by evaluating
+the complete Harness pipeline in end-to-end speech generation.
+4.1
+Routing Task
+Data Construction We construct an evaluation dataset to assess the planner’s
+decision-making capability under various routing scenarios. Since the planner
+relies solely on textual metadata without accessing audio, we create a simulated
+registry of 42 tools annotated with captions and tags only. This provides a rea-
+sonably diverse decision space for routing evaluation. The registry comprises 27
+axis-based tools covering all 3 × 3 × 3 combinations of speed, volume, and emo-
+tion, and 15 scenario-preset tools for common voice-assistant use cases. Based
+8
+S. Shen et al.
+on this registry, we construct three subsets, each targeting a distinct aspect of
+routing behavior:
+– Explicit Subset. Cases where user instructions directly specify the desired
+speech style attributes. This subset tests the planner’s ability to follow ex-
+plicit style requirements.
+– Implicit Subset. Cases where the preferred tool must be inferred from
+contextual cues—such as ambient noise, time, user emotion, and interaction
+scenario—rather than from explicit directives. User input, if present, con-
+veys only user states or environmental feedback. This subset evaluates the
+planner’s capacity for contextual reasoning.
+– Conflict Subset. Cases where contextual fields intentionally conflict with
+the explicit user instruction. Correct routing follows the predefined priority
+policy and prioritizes explicit user requirements over other contextual signals.
+This subset examines whether the planner adheres to the specified conflict
+resolution rule.
+For each subset, we prompt Gemini-2.5-Pro [3] to generate 5 test cases per
+tool, following manually designed templates that encourage the corresponding
+routing patterns. This yields 210 samples per subset.
+Systems Compared We employ Gemini-2.5-Pro as the teacher model to produce
+ranked tool labels for every test case. Student planners include Qwen3-0.6B,
+Qwen3-1.7B, and Qwen3-4B [18]. We compare our LLM-based planners against
+two types of non-planner baselines:
+– Keyword baseline: We design manually specified keywords for scenario-
+preset tools and for each attribute value of axis-based tools. During inference,
+keyword matching is performed over the observation text. Matched keywords
+determine the corresponding scenario or attribute values, while unmatched
+attributes are randomly filled to simulate a rule-based system without se-
+mantic reasoning.
+– Retrieval baselines: We use Qwen3-Embedding [20] to encode tool cap-
+tions and observation text, and retrieve the top-five tools using cosine sim-
+ilarity. We experiment with two model sizes, denoted as Retrieval-0.6B and
+Retrieval-4B, corresponding to Qwen3-Embedding-0.6B and Qwen3-Embedding-
+4B, respectively. This baseline performs semantic matching without explic-
+itly modeling field priorities or conflict resolution.
+Accuracy Metrics We report teacher-alignment metrics, prefixed with “T-” to
+indicate that the reference is the teacher model rather than human labels. Let
+g1 and G5 denote the teacher’s top-ranked tool and top-five set, respectively,
+while PK represents the planner’s top-K predictions. We evaluate performance
+using four metrics: T-Exact@1 (1[P1 = g1]) checks for an exact match with
+the teacher’s top choice; T-Contain@K (1[g1 ∈PK]) measures if the teacher’s
+top tool appears within the first K predictions; T-Recall@5 (|P5 ∩G5|/|G5|)
+calculates the recall against the teacher’s top-5 set; and T-Jaccard@5 (|P5 ∩
+G5|/|P5 ∪G5|) quantifies the Jaccard similarity between the two top-5 sets.
+Harness TTS
+9
+Latency Metrics We measure planner-only inference latency on an RTX 5090
+GPU with vLLM [9] serving. P50/P95 Full denote the time (ms) to produce
+the complete ranked list of five candidates. P50/P95 First-ID denote the time
+until the first valid audio_id is generated. We report First-ID latency separately
+because synthesis can begin as soon as the top tool is known, without waiting
+for the full list.
+4.2
+Synthesis Task
+We evaluate synthesis quality by comparing two control conditions on both
+CosyVoice3 [4] and VoxCPM2 [23]: (1) Harness, which utilizes Qwen3-4B as
+planner; and (2) Instruct, where the TTS engine directly receives the instruc-
+tion while conditioned on a default reference audio of the target speaker.
+Data Construction The voice library used in this experiment contains 25 audio
+clips in total: 14 axis-based tools, 10 scenario-preset tools, and 1 default tool.
+We select 27 style instruction tags covering two main categories: acoustic control
+and application scenarios. For each tag, we generate 5 utterances with different
+textual content using an LLM, resulting in 135 test cases. Since the Instruct
+condition only accepts user instructions and cannot utilize other contextual in-
+formation, we construct the test cases solely around user instructions. For the
+Harness condition, we set all other fields in the structured observation to default
+neutral values to ensure comparability.
+Executor Metrics We use three automatic metrics to evaluate synthesis quality:
+Instruction Following Win Rate (Inst. win%) uses Gemini-3.1-Pro to as-
+sess how well the synthesized speech follows the style instruction. The judge is
+provided with the instruction and two randomly shuffled audio samples (Harness
+vs. Instruct) to eliminate position bias, and is prompted to first generate a reason
+and then output a preference. UTMOSv2 [1] provides a no-reference predic-
+tion of speech naturalness. Speaker Stability (Spk-Stab) measures timbre
+consistency under slight instruction variations by calculating the average pair-
+wise speaker similarity among all synthesized utterances within each instruction
+tag using WeSpeaker [14].
+5
+Results
+5.1
+RQ1: Routing Accuracy
+Explicit Subset. When users provide explicit style instructions, Qwen3-4B with
+CoT achieves the highest T-Exact@1 (74.3%) in Table 2, showing a large teacher-
+alignment gain over the best retrieval baseline (Retrieval-4B: 34.8%). Model
+scale significantly impacts decision accuracy: the 4B variant outperforms the
+1.7B model (54.3%) and the 0.6B model (21.4%) by large margins. We attribute
+this gap to the smaller models’ difficulty in following instructions and reasoning
+10
+S. Shen et al.
+Table 2. Performance on the explicit subset. Bold indicates the best performance, and
+underline indicates the second-best performance across all methods.
+Method
+T-Exact@1
+T-Contain@3
+T-Contain@5
+T-Recall@5
+T-Jaccard@5
+Keyword
+0.376
+0.533
+0.576
+0.392
+0.274
+Retrieval-0.6B
+0.329
+0.529
+0.643
+0.331
+0.229
+Retrieval-4B
+0.348
+0.543
+0.662
+0.223
+0.215
+Qwen3-0.6B w/ CoT
+0.214
+0.362
+0.390
+0.275
+0.202
+Qwen3-0.6B w/o CoT
+0.033
+0.090
+0.133
+0.207
+0.131
+Qwen3-1.7B w/ CoT
+0.543
+0.619
+0.643
+0.374
+0.270
+Qwen3-1.7B w/o CoT
+0.348
+0.510
+0.610
+0.420
+0.296
+Qwen3-4B w/ CoT
+0.743
+0.886
+0.914
+0.540
+0.431
+Qwen3-4B w/o CoT
+0.614
+0.767
+0.833
+0.559
+0.415
+under lengthy contexts, which occasionally leads to hallucinated or repeated tool
+outputs, further degrading effective accuracy. CoT prompting improves perfor-
+mance across all model sizes, albeit at the cost of increased inference latency.
+Retrieval baselines can locate the correct tool within their top-5 candidates (T-
+Contain@5: up to 66.2%) but exhibit weaker ranking precision, as reflected by
+their lower T-Exact@1 scores. This gap underscores the value of incorporating
+an LLM-based decision core within the Harness layer, rather than relying solely
+on embedding similarity for selection.
+Table 3. Performance on the implicit subset.
+Method
+T-Exact@1
+T-Contain@3
+T-Contain@5
+T-Recall@5
+T-Jaccard@5
+Keyword
+0.207
+0.267
+0.385
+0.439
+0.306
+Retrieval-0.6B
+0.193
+0.296
+0.385
+0.316
+0.206
+Retrieval-4B
+0.259
+0.393
+0.459
+0.255
+0.135
+Qwen3-0.6B w/ CoT
+0.259
+0.378
+0.393
+0.265
+0.194
+Qwen3-0.6B w/o CoT
+0.081
+0.237
+0.259
+0.176
+0.121
+Qwen3-1.7B w/ CoT
+0.252
+0.444
+0.504
+0.373
+0.276
+Qwen3-1.7B w/o CoT
+0.333
+0.467
+0.585
+0.409
+0.281
+Qwen3-4B w/ CoT
+0.430
+0.652
+0.756
+0.505
+0.394
+Qwen3-4B w/o CoT
+0.311
+0.496
+0.607
+0.507
+0.372
+Implicit Subset. When tool selection depends on contextual cues, all methods
+exhibit lower T-Exact@1 (Table 3) compared with the explicit subset. This over-
+all accuracy drop stems partly from task ambiguity: implicit cues are less con-
+straining than explicit instructions, naturally lowering the ceiling for agreement
+with the teacher’s top-1 prediction. Despite this, Qwen3-4B with CoT achieves
+the highest T-Exact@1 (43.0%), outperforming Retrieval-4B (25.9%) by a con-
+siderable margin. In such cases, retrieval baselines, which rely on surface-level
+semantic similarity, struggle with cross-semantic inferences—e.g., mapping “late
+night” to a “soft and gentle” style. The LLM planner, in contrast, demonstrates a
+clear advantage in candidate coverage, with its top prediction falling within the
+teacher’s top-5 set 75.6% of the time. This suggests that LLM-based planning is
+more adaptable in scenarios where direct semantic matching proves insufficient.
+Harness TTS
+11
+Table 4. Performance on the conflict subset.
+Method
+T-Exact@1
+T-Contain@3
+T-Contain@5
+T-Recall@5
+T-Jaccard@5
+Keyword
+0.286
+0.364
+0.398
+0.236
+0.157
+Retrieval-0.6B
+0.233
+0.364
+0.456
+0.245
+0.157
+Retrieval-4B
+0.199
+0.364
+0.456
+0.223
+0.137
+Qwen3-0.6B w/ CoT
+0.165
+0.262
+0.311
+0.200
+0.144
+Qwen3-0.6B w/o CoT
+0.034
+0.097
+0.136
+0.137
+0.087
+Qwen3-1.7B w/ CoT
+0.490
+0.558
+0.568
+0.283
+0.195
+Qwen3-1.7B w/o CoT
+0.194
+0.325
+0.388
+0.250
+0.164
+Qwen3-4B w/ CoT
+0.646
+0.840
+0.883
+0.450
+0.335
+Qwen3-4B w/o CoT
+0.495
+0.631
+0.709
+0.395
+0.273
+Conflict Subset. When contextual fields are deliberately set to contradict the
+user’s explicit instruction, correct routing requires the planner to enforce the
+priority hierarchy. As shown in Table 4, Qwen3-4B with CoT achieves 64.6%
+T-Exact@1, substantially outperforming Retrieval-4B (19.9%)—the largest gap
+among all three subsets. This performance disparity stems from a fundamental
+design difference: as an embedding-based matcher, the flat embedding retrieval
+baseline cannot resolve conflicts between signals, whereas our LLM planner is
+explicitly designed to identify such conflicts and invoke the priority policy.
+5.2
+RQ2: Planner Latency
+Table 5. Planner inference latency (ms) across different methods. P50 and P95 denote
+median and 95th-percentile latencies.
+Method
+P50 Full
+P95 Full
+P50 First-ID
+P95 First-ID
+Retrieval-0.6B
+26.5
+27.1
+26.5
+27.1
+Retrieval-4B
+54.6
+56.1
+54.6
+56.1
+Qwen3-0.6B w/o CoT
+57.5
+66.9
+10.6
+12.6
+Qwen3-1.7B w/o CoT
+92.2
+102.0
+17.5
+31.8
+Qwen3-4B w/o CoT
+179.9
+206.0
+34.4
+41.2
+Qwen3-0.6B w/ CoT
+258.9
+401.5
+65.4
+80.4
+Qwen3-1.7B w/ CoT
+459.2
+537.4
+104.8
+135.1
+Qwen3-4B w/ CoT
+979.8
+1191.7
+216.3
+323.6
+Retrieval baselines achieve the lowest full-list latency (P95 Full: 27.1–56.1
+ms), as they only perform query embedding and similarity computation against
+pre-computed tool embeddings. For LLM planners without CoT, P95 Full la-
+tency ranges from 66.9 ms (0.6B) to 206.0 ms (4B). More importantly, P95
+First-ID latency is substantially lower: the 4B model generates its first valid
+audio_id within 41.2 ms, which is comparable to retrieval baselines. Since most
+deployments require only the top-ranked tool to initiate synthesis, First-ID la-
+tency is the more practically relevant metric for real-time interaction. Under this
+metric, the 4B model without CoT introduces only marginal latency, well within
+the requirements of interactive applications. CoT prompting increases latency,
+12
+S. Shen et al.
+yet its First-ID latency remains acceptable for applications without stringent
+real-time constraints.
+5.3
+RQ3: Synthesis Quality
+0
+20
+40
+60
+80
+100
+Percentage (%)
+Instruction-Following Win Rate
+66.7
+31.1
+57.8
+4.4
+37.8
+61.5
+38.5
+55.4
+3.1
+41.5
+Scenario-CosyVoice3
+Scenario-VoxCPM
+Parameter-CosyVoice3
+Parameter-VoxCPM
+Harness Win
+Tie
+Instruct Win
+Fig. 3. Instruction-following win rates under the Harness and Instruct conditions, with
+CosyVoice3 and VoxCPM2 as the TTS executor. Results are shown separately for
+parameter and scenario categories.
+Instruction-Following Win Rate. As shown in Figure 3, Harness consistently
+achieves higher instruction-following win rates than Instruct across all four con-
+ditions. On VoxCPM2, Harness outperforms Instruct by 13.8 and 20.0 percentage
+points on the parameter and scenario subsets, respectively. The improvement is
+more pronounced on CosyVoice3, with margins of 23.1 percentage points on the
+parameter subset and 35.6 percentage points on the scenario subset. For both
+backends, the gains on the scenario subset are larger than those on the parame-
+ter subset, suggesting that instruction-only control struggles to realize high-level
+scenario descriptions. In contrast, Harness can either directly match the de-
+scribed scenario to a corresponding preset tool or, when no direct match exists,
+infer the underlying acoustic attributes and compose an appropriate axis-based
+candidate. This flexibility makes Harness particularly advantageous for holistic,
+high-level style instructions.
+Naturalness and Speaker Stability. Figure 4 presents the UTMOSv2 and speaker
+stability results. For naturalness, Harness outperforms Instruct across all four
+Harness TTS
+13
+CosyVoice3
+VoxCPM
+CosyVoice3
+VoxCPM
+2.4
+2.6
+2.8
+3.0
+3.2
+3.4
+UTMOSv2
+Parameter
+Scenario
+UTMOSv2
+3.08
+2.67
+3.34
+3.01
+2.93
+2.56
+2.96
+2.82
+CosyVoice3
+VoxCPM
+CosyVoice3
+VoxCPM
+60
+65
+70
+75
+80
+85
+90
+95
+100
+Speaker Stability (%)
+Parameter
+Scenario
+Speaker Stability
+89.8
+86.3
+90.4
+85.9
+86.8
+74.2
+92.9
+82.9
+Harness
+Instruct
+Fig. 4. UTMOSv2 and Speaker Stability under Harness and Instruct conditions, with
+CosyVoice3 and VoxCPM2 as the TTS executor.
+conditions, indicating improved perceptual quality. For speaker stability, Vox-
+CPM2 shows consistent gains with Harness on both subsets, suggesting more
+stable speaker characteristics under Harness. On CosyVoice3, Harness achieves
+slightly higher stability on the parameter subset (89.8 vs. 86.8), while Instruct
+shows a marginally higher score on the scenario subset (92.9 vs. 90.4). This
+latter result, however, should be interpreted alongside the instruction-following
+outcomes. As shown in Figure 3, CosyVoice3-Instruct yields substantially lower
+Inst. win% on the scenario subset, indicating that its higher speaker stability
+may be partly attributable to poorer instruction adherence, which limits stylis-
+tic variation and artificially inflates timbre consistency. In contrast, Harness
+successfully delivers the required style while maintaining competitive speaker
+stability. Overall, these results suggest that Harness enhances both instruction
+following and naturalness without sacrificing speaker consistency.
+6
+Limitations
+Our study has several limitations. First, while CoT prompting improves routing
+accuracy, it incurs additional inference latency that may affect real-time inter-
+action; distilling the teacher model into a smaller student model could offer a
+more favorable accuracy–speed trade-off. Second, our evaluation relies on LLM-
+based teachers and judges rather than human annotations; thus, the reported
+metrics should be interpreted as automated benchmarks that await subjective
+validation. Third, all test data are generated by LLMs rather than collected
+from real-world user logs, so the generalization of the proposed Harness layer to
+naturally occurring conversational scenarios remains to be investigated.
+14
+S. Shen et al.
+7
+Conclusion
+We presented Harness TTS, a lightweight Harness layer that wraps around a
+TTS engine to enable context-grounded, auditable, and stable expressive control
+for voice assistants. Drawing inspiration from harness engineering, our approach
+externalizes the decision-making logic—interpreting multi-source contextual sig-
+nals, resolving conflicting requirements, and selecting appropriate styles—from
+the TTS engine into a control layer. This design preserves the engine’s genera-
+tive fidelity while enhancing it with observability, interpretability, and priority-
+aware decision-making. Experimental results demonstrate strong routing accu-
+racy across explicit, implicit, and conflict scenarios, outperforming retrieval-
+based baselines. Synthesis evaluations further confirm that Harness-guided syn-
+thesis improves instruction following and naturalness over instruction-only con-
+trol, while maintaining competitive speaker consistency. These findings validate
+the effectiveness of augmenting TTS engines with a dedicated Harness layer,
+offering a practical and extensible pathway toward personalized, context-aware
+voice assistants.
+References
+1. Baba, K., Nakata, W., Saito, Y., Saruwatari, H.: The t05 system for the voice-
+mos challenge 2024: Transfer learning from deep image classifier to naturalness
+mos prediction of high-quality synthetic speech. In: 2024 IEEE Spoken Language
+Technology Workshop (SLT). pp. 818–824. IEEE (2024)
+2. Chen, S., Wang, C., Wu, Y., Zhang, Z., Zhou, L., Liu, S., Chen, Z., Liu, Y., Wang,
+H., Li, J., He, L., Zhao, S., Wei, F.: Neural codec language models are zero-shot
+text to speech synthesizers. IEEE Transactions on Audio, Speech and Language
+Processing 33, 705–718 (2025). https://doi.org/10.1109/TASLPRO.2025.3530270
+3. Comanici, G., Bieber, E., Schaekermann, M., Pasupat, I., Sachdeva, N., Dhillon,
+I., Blistein, M., Ram, O., Zhang, D., Rosen, E., et al.: Gemini 2.5: Pushing the
+frontier with advanced reasoning, multimodality, long context, and next generation
+agentic capabilities. arXiv preprint arXiv:2507.06261 (2025)
+4. Du, Z., Gao, C., Wang, Y., Yu, F., Zhao, T., Wang, H., Lv, X., Wang, H., Ni, C.,
+Shi, X., et al.: Cosyvoice 3: Towards in-the-wild speech generation via scaling-up
+and post-training. arXiv preprint arXiv:2505.17589 (2025)
+5. Du, Z., Wang, Y., Chen, Q., Shi, X., Lv, X., Zhao, T., Gao, Z., Yang, Y., Gao,
+C., Wang, H., et al.: Cosyvoice 2: Scalable streaming speech synthesis with large
+language models. arXiv preprint arXiv:2412.10117 (2024)
+6. Guo, Z., Leng, Y., Wu, Y., Zhao, S., Tan, X.: Prompttts: Controllable text-to-
+speech with text descriptions. In: ICASSP 2023-2023 IEEE International Confer-
+ence on Acoustics, Speech and Signal Processing (ICASSP). pp. 1–5. IEEE (2023)
+7. Hu, Y., Liu, R., Gao, G., Li, H.: Fctalker: Fine and coarse grained context modeling
+for expressive conversational speech synthesis. In: 2024 IEEE 14th International
+Symposium on Chinese Spoken Language Processing (ISCSLP). pp. 299–303. IEEE
+(2024)
+8. Jiang, Z., Liu, J., Ren, Y., He, J., Ye, Z., Ji, S., Yang, Q., Zhang, C., Wei, P.,
+Wang, C., et al.: Mega-tts 2: Boosting prompting mechanisms for zero-shot speech
+synthesis. In: International Conference on Learning Representations. vol. 2024, pp.
+57919–57939 (2024)
+Harness TTS
+15
+9. Kwon, W., Li, Z., Zhuang, S., Sheng, Y., Zheng, L., Yu, C.H., Gonzalez, J., Zhang,
+H., Stoica, I.: Efficient memory management for large language model serving with
+pagedattention. In: Proceedings of the 29th symposium on operating systems prin-
+ciples. pp. 611–626 (2023)
+10. Le, M., Vyas, A., Shi, B., Karrer, B., Sari, L., Moritz, R., Williamson, M., Manohar,
+V., Adi, Y., Mahadeokar, J., et al.: Voicebox: Text-guided multilingual universal
+speech generation at scale. Advances in neural information processing systems 36,
+14005–14034 (2023)
+11. Ren, Y., Yi, J., Tao, J., Sun, H., Wen, Z., Gu, H., Xu, L., Bai, Y.: Ov-instructtts:
+Towards open-vocabulary instruct text-to-speech. arXiv preprint arXiv:2601.01459
+(2026)
+12. Shen, K., Ju, Z., Tan, X., Liu, E., Leng, Y., He, L., Qin, T., Bian, J., et al.: Natu-
+ralspeech 2: Latent diffusion models are natural and zero-shot speech and singing
+synthesizers. In: International conference on learning representations. vol. 2024,
+pp. 698–722 (2024)
+13. Su, X., Sun, Z., Jia, P., Gao, J.: Captalk: Unified voice design for single-utterance
+and dialogue speech generation. arXiv preprint arXiv:2604.08363 (2026)
+14. Wang, H., Liang, C., Wang, S., Chen, Z., Zhang, B., Xiang, X., Deng, Y., Qian,
+Y.: Wespeaker: A research and production oriented speaker embedding learning
+toolkit. In: ICASSP 2023-2023 IEEE International Conference on Acoustics, Speech
+and Signal Processing (ICASSP). pp. 1–5. IEEE (2023)
+15. Wei, J., Wang, X., Schuurmans, D., Bosma, M., Xia, F., Chi, E., Le, Q.V., Zhou,
+D., et al.: Chain-of-thought prompting elicits reasoning in large language models.
+Advances in neural information processing systems 35, 24824–24837 (2022)
+16. Xue, J., Deng, Y., Wang, F., Li, Y., Gao, Y., Tao, J., Sun, J., Liang, J.: M 2-
+ctts: End-to-end multi-scale multi-modal conversational text-to-speech synthesis.
+In: ICASSP 2023-2023 IEEE International Conference on Acoustics, Speech and
+Signal Processing (ICASSP). pp. 1–5. IEEE (2023)
+17. Xue, W., Feng, J., Zhang, S., Wang, Y., Yang, R., Liu, B., Xue, L., Cheng, S.,
+Pan, J., Bian, W., et al.: Iscslp 2026 cot-tts challenge: Chain-of-thought reasoning
+for context-aware text-to-speech. arXiv preprint arXiv:2606.21933 (2026)
+18. Yang, A., Li, A., Yang, B., Zhang, B., Hui, B., Zheng, B., Yu, B., Gao, C., Huang,
+C., Lv, C., et al.: Qwen3 technical report. arXiv preprint arXiv:2505.09388 (2025)
+19. Yang, D., Liu, S., Huang, R., Weng, C., Meng, H.: Instructtts: Modelling expres-
+sive tts in discrete latent space with natural language style prompt. IEEE/ACM
+Transactions on Audio, Speech, and Language Processing 32, 2913–2925 (2024)
+20. Zhang, Y., Li, M., Long, D., Zhang, X., Lin, H., Yang, B., Xie, P., Yang, A., Liu,
+D., Lin, J., et al.: Qwen3 embedding: Advancing text embedding and reranking
+through foundation models. arXiv preprint arXiv:2506.05176 (2025)
+21. Zhou, C., Chai, H., Chen, W., Guo, Z., Shan, R., Song, Y., Xu, T., Yang, Y., Yu,
+A., Zhang, W., et al.: Externalization in llm agents: A unified review of memory,
+skills, protocols and harness engineering. arXiv preprint arXiv:2604.08224 (2026)
+22. Zhou, S., Zhou, Y., He, Y., Zhou, X., Wang, J., Deng, W., Shu, J.: Indextts2:
+A breakthrough in emotionally expressive and duration-controlled auto-regressive
+zero-shot text-to-speech. In: Proceedings of the AAAI Conference on Artificial
+Intelligence. vol. 40, pp. 35139–35148 (2026)
+23. Zhou, Y., Zeng, G., Liu, X., Li, X., Yu, R., Gui, J., Wu, J., Wang, Z., Shen, X.,
+Ye, R., et al.: Voxcpm2 technical report. arXiv preprint arXiv:2606.06928 (2026)

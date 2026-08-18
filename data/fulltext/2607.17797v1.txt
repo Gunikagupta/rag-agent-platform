@@ -1,0 +1,2115 @@
+Financial Audit Assistance using Misinformation
+Detection and Explanation
+Kshitij Madhav Jadhav1*, Sushodhan Vaishampayan1,
+Manoj Apte1, Sachin Pawar1, Nitin Ramrakhiyani1,
+Girish Keshav Palshikar2
+1TCS Research, Pune, 411057, Maharashtra, India.
+2Work done while working at TCS Research.
+*Corresponding author(s). E-mail(s): kshitij.jadhav@tcs.com;
+Contributing authors: sushodhan.sv@tcs.com; manoj.apte@tcs.com;
+sachin7.p@tcs.com; nitin.ramrakhiyani@tcs.com;
+girishpalshikar@gmail.com;
+Abstract
+Financial statements (FS) such as Balance Sheet (BS), Income Statement
+(IS) and Cash-flow Statement (CS) summarize the annual financial perfor-
+mance of a company. FS are widely used for evaluating corporate governance,
+credit appraisal, risk analysis, validate taxation, make investment decisions etc.
+Financial auditing is a complex and knowledge-intensive discipline whose one
+important aim is ensuring integrity, accuracy, fairness and absence of mate-
+rial misstatement in the published FS. Given the importance of FS, there are
+incentives to hide, omit or falsify information to misrepresent the true financial
+health of the company; e.g., reduce tax liabilities, or increase investor confidence.
+Given the complex, time-consuming and expertise-dependent nature of auditing,
+auditors would benefit from an AI-assisted system that automatically detects
+instances of misinformation in the given FS and identify likely sources of this
+misinformation in the financial data. In this paper, we present unsupervised tech-
+niques to identify misinformation in FS, and also generate explanations as to the
+financial variables that are likely sources of misinformation. The auditor can then
+explore in more detail the associated data sources and business processes to vali-
+date these suggestions. A crucial feature of our approach is the use of past corpus
+of FS and associated audit reports to generate insights, which help in providing
+assistance. We demonstrate the efficacy of these techniques on a large corpus of
+11,460 FS over 5 years and associated audit reports. This paper integrates and
+adds more novel contributions over the previously reported research (Shinde et
+1
+arXiv:2607.17797v1  [cs.AI]  20 Jul 2026
+al., 2022)[1], (Vaishampayan et al., 2022)[2], (Pawar et al., 2023)[3], which we
+have used as the foundation for our AI-assisted Auditor Assistance system.
+Keywords: Financial Audit, Financial Statements, Misinformation Detection,
+Explainability, Anomaly Detection, Text Classification, Large Language Model
+1 Introduction
+Financial auditing is a complex and knowledge-intensive discipline within accounting,
+whose important aims include ensuring integrity of published financial information,
+building trust in the business processes and practices, and ensuring quality of gov-
+ernance in an organization [4]. A financial audit (or just audit) consists of many
+inter-related tasks such as: validation of internal controls, safeguarding the assets,
+evaluation of current and future risks, providing suggestions for improving the gov-
+ernance, ensuring that processes are followed as required, ensuring compliance with
+standards, guidelines, laws and regulations and ensuring that the reported financial
+information is fair and accurate. Stakeholders use audited financial statements (FS),
+such as balance sheet (BS), income statement, cash-flow statement etc., for decision-
+making. Examples: regulatory bodies use FS to check compliance, tax departments
+use FS to validate taxes paid and benefits claimed, investors use FS to estimate the
+financial health of the company and to make investment decisions.
+A financial auditor is responsible for carrying out financial audit of an organiza-
+tion. In this paper, we focus on the important outcome of an audit viz., validation
+and certification that the financial data mentioned in the FS of a company is fair
+and accurate and free of misinformation. Accountants adhere to Generally Accepted
+Accounting Principles (GAAP)1 and International Financial Reporting Standards
+(IFRS)2 when preparing FS. In many practical domains—such as corporate gover-
+nance, credit appraisal, risk analysis, taxation, auditing, and investment decisions—the
+contents of financial statements (which are typically publicly available for listed com-
+panies) are thoroughly analyzed from multiple perspectives [5], [6]. Thus validation of
+the quality of information in FS is an important task in audit. This validation is typ-
+ically done by an auditor by collecting evidence from (a) trails of business processes
+followed in the company (e.g., payment receipts, transaction statements, contractual
+documents, letters to and from banks, authorities, customers and suppliers etc.); as
+well as from (b) physical inspections (e.g., of warehouses). If the data in FS is consis-
+tent with the evidence collected, then the auditor declares in an audit report that the
+FS, are fair and accurate, and presented in accordance with the relevant accounting
+standards. If not, the auditor makes adverse remarks about the detected or potential
+instances of non-conformance, misinformation, irregularities, inconsistencies, errors,
+inaccuracies, frauds, lapses, non-compliance, violations etc. Adverse remarks often also
+include auditors’ suggestions for improvement. Clearly, knowledge and experience of
+the auditor play a vital role to efficiently and effectively carry out an audit.
+1https://asc.fasb.org/
+2https://www.ifrs.org/
+2
+Given the significance of FS, companies often have strong incentives to conceal,
+omit, or manipulate information to distort their true financial position—for exam-
+ple, to minimize tax liabilities or boost investor confidence. [7]. Common forms of
+misinformation in financial statements include inflating the firm’s assets, revenues, or
+profits, and understating its liabilities, expenses, or losses3. It is widely recognized that
+numerous major corporate frauds have their roots in accounting misrepresentation;
+e.g., Enron in 2001 in USA [8], WorldCom in 2003 in USA4 and, Satyam Computers
+in 2009 in India [9]. Misinformation in FS can cause significant monetary losses to
+customers, employees, and creditors, while also damaging the company’s reputation,
+trust, and goodwill, if caught. Auditors and forensic accountants employ a variety of
+investigative techniques to verify the sources of figures reported in financial statements
+and, in doing so, detect potential misinformation [10]. These techniques are largely
+manual and rely heavily on the deep domain expertise of human professionals. Due
+to the effort-intensive and subjective nature of such investigations, numerous analyt-
+ical methods have been developed to identify financial statements that are likely to
+contain misinformation
+Considering these challenges, in this paper we consider developing techniques to
+provide assistance to the auditors. Specifically, we consider the scenario where an
+auditor is conducting financial audit of a particular company for a particular financial
+year and has access to the associated FS. We propose the following auditor assistance
+approach: use large external database(s) of semi-structured FS of various companies as
+well as an associated corpus of textual audit reports; derive insights from these inputs;
+then use these inputs to provide assistance to the auditor for the following tasks:
+1. Misinformation Detection: Classify the given FS as likely to contain financial
+misinformation or not, and validate the results using the silver labels (explained
+below).
+2. Explanation of Misinformation: If yes, then we develop techniques to gen-
+erate a human-understandable explanation as to the nature of likely financial
+misinformation in the FS.
+3. Audit Hypotheses Generation: Generate suggestions (hypotheses) to auditors
+for more detailed exploration.
+As part of pre-processing, we also generate silver labels for each FS in the input
+database. Since ground-truth labels for FS - whether it contains any instance of mis-
+information or not - are usually not available, we develop techniques for using the
+associated audit report to automatically assign a silver label to the FS. Figure 1 shows
+the conceptual flow of the assistance facilities in our system.
+This paper essentially integrates the separate pieces of previously reported research
+[1], [3], [2], which we have used as the foundation for our AI-assisted Auditor Assis-
+tance system. Apart from conceptually integrating previous techniques for auditor
+assistance, this paper also adds more novel contributions, as follows.
+1. The FS data we used in this paper is much bigger as compares to previous works.
+We use the FS data and audit reports of 2292 companies for five years (11,460 in
+3https://www.acfe.com
+4https://www.scu.edu/ethicsI-areas/businessethics/ resources/worldcom/
+3
+Fig. 1: Components and overall flow of the audit assistance facilities.
+total), unlike the earlier work where only one year’s data was used. Earlier work
+also used only balance sheets, whereas we integrate multiple FS: balance sheet,
+income statement (IS), and cash-flow statement (CS).
+2. In this paper, we extend the number of financial variables in our dataset than those
+used earlier, by including additional financial variables from Income Statement and
+Cash-flow Statement. This increases the effectiveness of the techniques for detecting
+misinformation in the FS.
+3. We propose two different strategies to use audit reports and generative language
+models to create the silver-labelled data for detecting misinformation in FS. This
+approach is scalable and can be used to automatically label all FS in our dataset.
+The datasets in the earlier work used a small manually labeled subset of FS for
+validation.
+4. We use a T5[11] based encoder-decoder model with generative capability for the
+classification of sentences in audit reports. This model provides the classification
+label and the explanation for classification. This is an improved model as compared
+to the Attn-BERT model used in the earlier research [3].
+5. Unlike the previous work (which used manually generated explanations), we
+propose an unsupervised method to automatically generate silver standard expla-
+nations for FS identified as anomalous i.e., likely to contain misinformation. We use
+the international standard for financial vocabulary (called XBRL) in performing
+this task. The idea is to identify adverse remarks in the audit report, assign XBRL
+categories to each of them, and map these categories to the financial variables we
+use, which constitutes the silver standard explanation.
+6. Effectively, our integrated system removes manual labour involved in the vari-
+ous steps in generating assistance, making the system efficient, scalable and more
+objective.
+A quick summary of motivations for providing AI-based assistance to auditors is
+as follows. Given the critical importance of audits and the substantial demands on the
+knowledge, experience, and effort of auditing teams, it is essential to minimize reliance
+4
+on manual processes and human expertise during audits. Such assistance can enhance
+both the effectiveness and efficiency of audits by reducing time, cost, and effort. Poor-
+quality audits—whether intentional or accidental—can lead to severe consequences,
+including fraud, loss of earnings, erosion of goodwill, legal disputes, inability to con-
+tinue as a going concern, and even bankruptcy; e.g., see [12]. There are many reasons
+why an audit can be of poor quality: lack of expertise in the auditing team [13], com-
+promised auditor independence [14], auditor biases, conservatism (recognize bad news
+rather than good news) [15] and risk-averse attitudes of auditors, non-cooperation
+from management, insufficient time/efforts spent in auditing etc. The Sarbanes-Oxley
+Act of 2002 was specifically introduced to strengthen auditing practices and improve
+public information disclosure, following a series of persistent scandals driven by audit-
+ing failures such as Enron [16] and Satyam [9]. A comprehensive and high-quality
+audit report serves as a key indicator of an effective audit. Monitoring bodies, such as
+the Institute of Chartered Accountants (CA) Society of India , have issued guidelines
+specifying the essential components of audit reports, outlining the aspects auditors
+should address and describe. As we show in this paper, AI can extract useful insights
+from past audits and use them to provide effective assistance to improving various
+auditing tasks in a new audit, and thereby improving the quality of the new audit.
+This paper is organized as follows. In section 2 we review some of the related work.
+Section 3 contains the description of the various datasets used in this paper. In this
+section, we also develop a technique to use pre-trained large language models (LLMs)
+for a binary classification of sentences from audit reports into adverse remark or not
+(e.g., [3]). A simple technique for generating silver-labels for each FS (whether it con-
+tains misinformation or not) is also described in this section. Use of unsupervised
+regression based techniques and anomaly detection techniques to detect misinforma-
+tion in structured FS data is described in section 4. Section 5 proposes techniques for
+automatically generating human-understandable explanations for each FS predicted
+to likely contain instance(s) of misinformation. This explanation takes the form of a
+set of financial variables responsible for marking the companies come out as anomalous
+in our predictive techniques for misinformation detection. Section 5.7 describes the
+techniques that can be used for generating suggestions to assist the auditor. Finally,
+we conclude our discussion in section 6 and add the tasks to be done in the future.
+2 Related Work
+Supervised Detection of Misinformation in FS: Each FS is typically represented
+as a vector of well-established financial ratios. In addition to FS, many companies also
+publish an auditor’s report, which highlights any issues or discrepancies identified dur-
+ing the audit. Financial statements flagged in such reports are referred to as qualified.
+A FS with labelled as positive case of misinformation if it is qualified and negative
+case if it is unqualified, to create a labelled dataset of FS. [17] trained a binary logistic
+regression classifier on a labeled dataset comprising FS from 76 manufacturing firms
+(38 fraudulent and 38 non-fraudulent), each represented by 10 financial ratios. Sim-
+ilarly, [18] analyzed FS of 164 firms for 2001–02 (41 fraudulent), using 23 financial
+5
+ratios. They applied rank influence to select 8 key ratios and trained multiple classi-
+fication models, achieving up to 96.7% accuracy with a stacking ensemble approach.
+[19] proposed a two-stage framework for detecting fraudulent FS: Stage 1 employed
+CART and CHAID models to identify significant variables, while Stage 2 combined
+classifiers such as CART, CHAID, Bayesian Belief Networks, SVMs, and artificial neu-
+ral networks for fraud detection. A similar methodology was adopted by [20] on 160
+companies (40 fraudulent) from the Taiwan Stock Exchange, yielding an accuracy of
+90.83% in detecting fraudulent statements.
+Unsupervised Detection of Misinformation in FS: [21] applied Self-
+Organizing Maps (SOM) to an unlabeled dataset of FS from 1,560 South African
+municipalities, each represented by three financial ratios. The resulting map was clus-
+tered using K-Means, and adverse auditor comments were used to label certain clusters
+as fraudulent. Similarly, [22] employed a Mahalanobis distance-based anomaly detec-
+tion technique on an unlabeled dataset of 937 Vietnamese companies (each represented
+by 24 financial ratios) to identify anomalous FS potentially containing misinforma-
+tion. Another form of accounting error occurs when semantically equivalent facts
+reported in different sections of a FS have inconsistent numerical values. To address
+this, [23] proposed a neural network-based system for determining whether two table
+cells refer to the same fact. Beyond FS, misinformation is also prevalent in other
+financial documents, such as tax reports, primarily for tax evasion purposes. Unsu-
+pervised techniques are commonly used to detect suspicious tax reports [24], [25],
+[26], [27]. Broadly, these methods involve clustering tax reports, learning patterns
+characterizing each cluster (e.g., association rules, in-cluster probability distributions,
+cluster-specific CHAID classification trees), and then using these patterns to identify
+suspicious reports.
+Explanations for Anomalies: A basic explanation for an outlier can be derived
+by identifying the subspace where the point is most distinct from others. These out-
+lying aspects [28] are typically determined using two approaches: (i) selecting the top
+k subspaces with the highest anomaly scores (Score and Search), or (ii) identifying
+a small, relevant subspace aligned with feature selection objectives [29]. [28] intro-
+duced a distance-based metric called outlying degree (OD) and a dynamic subspace
+search framework, HOS-miner, to locate subspaces where a query object is an outlier.
+OAMiner [30] employs a heuristic search strategy, ranking subspaces based on kernel
+density estimation of the query object. To address the challenge of searching through
+exponentially many subspaces, [31] proposed dimensionally unbiased methods such as
+density Z-score and iPath, combined with a beam search algorithm. OARank [32], a
+hybrid framework, integrates the efficiency of feature selection with the versatility of
+score-and-search methods. In its first stage, features are ranked by their potential to
+make a point outlying; in the second stage, score-and-search is applied to a smaller
+subset of the top-ranked k ≪m features, where m is the total number of features.
+Local Outliers with Graph Projection (LOGP) [33] introduces a set of objective
+functions to learn the local discriminating subspace for a point using a graph-based
+transformation. The outlier score is computed as the statistical distance between the
+point and its neighbors in the transformed subspace. [34] proposed a criterion that
+estimates the probability density function (pdf) of an attribute value for an outlier
+6
+relative to the pdf of the same attribute across other instances—the lower the prob-
+ability, the more likely the instance is an outlier. Anomaly Contribution Explainer
+(ACE) [35] and its variant ACE-KL provide feature-level contributions as a vector of
+real numbers. ACE approximates the neighborhood of an outlier by generating syn-
+thetic neighbors and fitting a linear regression model with a modified loss function,
+while ACE-KL adds a regularizer to maximize the KL divergence between a uniform
+distribution and the computed contribution distribution. [36] introduced Sequential
+Feature Explanations (SFE), which present features one at a time to users until a
+confident anomaly judgment can be made, formulated as an optimization problem.
+The Explainer [37] provides explanations in the form of rule disjunctions derived
+from decision trees within a random forest for a given anomalous point. LOOK-
+OUT [38], given a set of outliers and their feature sets, generates an optimal number
+of 2-D focus plots based on a user-defined budget, ensuring that anomalies with the
+highest scores are visually highlighted. To address the NP-hard nature of generating
+optimal plots, the authors propose an approximation algorithm. However, none of the
+above methods, including [38] and [39], perform qualitative evaluation of explanations
+in the absence of ground truth. Furthermore, some approaches are model-dependent,
+meaning the quality of generated explanations is influenced by the underlying model’s
+accuracy.
+Our method, EiForest, leverages Isolation Forest (iForest) as a data structure while
+extracting additional novel features, unlike iPath [31], which relies solely on path
+length as the scoring mechanism for subspaces. Using only path length restricts the
+correctness of explanations to the accuracy of the iForest algorithm. In contrast, our
+EMI method generates a rule set that identifies a subspace in the m-dimensional space
+where the anomalous point is most isolated, without requiring any learning. This
+differs from Explainer [37], where rules are expressed in disjunctive form and decision
+trees are trained on imbalanced data.
+Adverse Remarks in Audit Reports: Identifying adverse remark sentences
+from a corpus of audit reports is essentially a sentence classification task. We employ
+FinBERT, which has been widely used in financial applications; for instance, [40]
+utilized it for sentiment analysis on financial news to study the impact of public
+sentiment on stock prices. These models typically classify sentences as positive, neg-
+ative, or neutral. However, negative sentiment does not always indicate an adverse
+remark—for example, company has incurred loss of Rs. 320 lacs reflects a financial
+fact, not an adverse remark, despite its negative sentiment. Our Task B resembles
+Extreme Multi-Label Classification (XMLC), as there are 1,437 XBRL categories, and
+a single sentence may correspond to multiple categories. Supervised ML approaches
+are challenging due to the significant time and effort required from expert accountants
+to create labeled training data. SurveyCoder [41], [42] propose unsupervised methods
+for assigning one or more codes from a predefined code-frame to customer responses
+in open-ended questions by checking semantic unit overlaps. Similarly, [43] presents
+an unsupervised XMLC approach for tagging tech forum posts (e.g., StackOverflow)
+using embeddings of posts and category tags from Transformer-based models, com-
+paring them via cosine similarity and reporting tags above a threshold. [44] models
+XBRL tagging as a named entity recognition task but uses a supervised approach and
+7
+considers only 139 categories, whereas we address all 1,437 categories to develop an
+interpretable, unsupervised method.
+3 Datasets
+Name
+Size
++1%
+Description
+D(1)
+ann
+#sent=300
+42.0 ADV REMARK%
+Adverse remarks manually annotated
+D(2)
+ann
+#sent=500
+16.4 ADV REMARK%
+Adverse remarks manually annotated
+D0
+#sent=13698
+20.7 ADV REMARK%
+Adverse remarks using linguistic rules
+D1
+#sent=1152
+47.6 ADV REMARK%
+Adverse
+remarks
+using
+MISTRAL-7B-
+Instruct5
+Dstr
+#companies=
+11460
+-
+2292 companies for 5 years, 42 financial vari-
+ables + 22 ratios
+D(SL)
+str
+#labels=11460
+19.8 MISINFO%
+Silver labels for misinformation
+Daud
+#reports=
+11460
+-
+Audit reports of 2292 companies for 5 years
+Table 1: Summary of datasets.
+We have web-scrapped the semi-structured Financial Statements (FS) - mainly
+Balance Sheets (BS), Income Statements (IS) and Cash-flow Statements (CS) - of
+2292 listed Indian companies for five years (2010 to 2014)6. We extracted a total of
+42 financial variables - or just variables - (28 from BS, 9 from IS and 5 from CS) and
+22 financial ratios, which we used to find companies with misinformation in their FS.
+Tables 4, 5 contain the description of the financial variables and ratios used, respec-
+tively. Note that the data does not contain any labels regarding whether a FS contains
+any kind of misinformation or not. This makes using supervised techniques inappropri-
+ate. This raw, structured dataset is denoted as Dstr, where each of 2292 × 5 = 11, 460
+rows consists of 64 (42+22) features for a particular company for a particular year.
+Audit reports (as text files) are available for each of these companies for all 5
+years. We have web-scrapped6 the audit reports of these companies for the same 5-
+year time span. A company’s financial health and the accuracy of information in its
+FS are evaluated by the auditors in their audit reports. For the 2292 companies for
+5 years, there were a total of 2292 × 5 = 11460 audit reports. The raw corpus of
+audit reports is denoted Daud. After cleaning and removing small and non-sentence
+lines (e.g., tables), Daud contains 578789 sentences and 22233701 words. The average
+number of sentences and words per audit report in the dataset Daud are 50.50 and
+1891.40 respectively. The Figures 2a and 2b represent the word clouds of nouns and
+verbs from Daud respectively.
+Our focus is to extract (from each audit report) sentences that indicate adverse
+remarks by the auditors. These adverse remarks provide crucial help in saying whether
+5https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3
+6https://www.moneycontrol.com/
+8
+(a) Word cloud: Nouns
+(b) Word cloud: Verbs
+Fig. 2: Word clouds for 5years audit corpus.
+the associated FS might contain misinformation or not. We created several datasets
+from these two raw datasets (Table 1).
+• Dataset D0: We used linguistic rules from [3] to automatically label each sentence
+from the dataset Daud as ADV REMARK or NA. This resulted 13698 sentences (2.37%)
+labeled as ADV REMARK and the rest as NA.
+• Dataset D1: We used the trained adverse remark classification BERT model from
+[3] to predict labels of each sentence in Daud. This resulted in 33308 sentences
+(5.75%) labeled as ADV REMARK and the rest as NA. In an attempt to select the
+most diverse sentences as adverse remarks, we clustered these 33308 sentences and
+selected 1 representative sentence from each cluster; this yielded 1152 sentences.
+For clustering, we used a Fast Clustering algorithm from sentence-transformers
+python library[45]. Then we used the MISTRAL-7B-Instruct LLM to label these
+1152 sentences in the dataset Daud as ADV REMARK or NA. The prompt given to
+the LLM for classification was as follows:
+Check whether the following sentence from a financial audit report is an
+adverse remark.
+Sentence:S
+Answer as "Yes" or "No" followed by a short explanation.
+Answer:
+and if the output is Yes then we label it as ADV REMARK, else NA.
+• Dataset D(1)
+ann: This dataset consists of 300 randomly selected sentences from Daud,
+each labelled manually as either ADV REMARK or NA. The annotation guidelines are
+explained below.
+• Dataset D(2)
+ann: For obtaining unseen sentences to evaluate sentence classification
+models, we used audit reports from 2015, removed the sentences that did not have
+any verb, or had length less than 10 words or greater than 50 words and from
+the remaining sentences, randomly selected 500 sentences making sure they are
+sufficiently different from each other to avoid near-duplicates. We designed detailed
+annotation guidelines using which we manually labelled each sentence as either
+ADV REMARK or NA. A total of 82 sentences (16.4%) were labeled as ADV REMARK
+and the remaining 418 as NA.
+9
+• Dataset D(SL)
+str : We do not have gold-standard ground truth about misinformation
+for any company for any year. So to enable evaluation of our methods on misinfor-
+mation detection, we created a silver-standard dataset, where for each company and
+each year, the label indicates whether its FS for that year contains misinformation
+or not. The method to assign such a predicted silver label is as follows. Let A denote
+the audit report for a company C for year Y . We use MISTRAL-7B-Instruct to
+label each sentence in A as ADV REMARK or NA. We also use our specially-trained
+T5 classifier (explained below) to label each sentence in A as ADV REMARK or NA.
+If A contains at least 2 sentences both of which are labeled as ADV REMARK by both
+MISTRAL and T5 classifier, then we assign the label MISINFO (contains misinfor-
+mation) to the tuple (C, Y ); else we assign it the label NA. We denote this dataset
+as DSL. Using this method, out of 11460 companies (over 5 years), 2727 companies
+(19.80%) were labeled as containing misinformation. Year-wise distribution of the
+silver labels is given in Figure 3.
+A brief highlight of the annotation guidelines for marking a sentence as
+ADV REMARK are as follows: Adverse remarks are sentences which contain men-
+tions of the detected or potential instances of non-conformance, misinformation,
+irregularities, inconsistencies, errors, inaccuracies, frauds, lapses, non-compliance, vio-
+lations etc.; e.g., Loss for the current year is understated by Rs. X and current
+liabilities are also understated by Rs. Y. Adverse remarks often also include
+auditors’ suggestions for improvement. In addition, a sentence containing mention
+of an action of the management/state of the company which indicates a problem
+should be marked adverse. Example:
+Company is not in a position to meet its
+financial obligations. A sentence in which the auditor is only stating facts (with-
+out negative opinion) should not be marked as adverse, though the facts may appear
+negative from a business perspective. Example: the sentence Company has disclosed
+the impact of pending litigation in financial statements, should not be marked
+as ADV REMARK, because the auditor is noting that the company had taken a correct
+action. Kappa statistic for inter-annotator agreement (2 annotators) was κ = 0.718,
+which indicates substantial agreement.
+Training of T5 classifier: We now explain how we trained the T5 classifier to
+label a given sentence as ADV REMARK or NA. We used sentence datasets D0, D1 and
+D(1)
+ann to train the T5 model. The training process involved two steps:
+1. First, we generated a one-line explanation using MISTRAL-7B-Instruct for
+each sentence-label pair in the datasets. The prompt for generating the expla-
+nation for any sentence S with label ADV REMARK (or, NA) in the dataset, is
+given
+as
+Explain why the following sentence from a financial audit report
+is an adverse remark (or, not an adverse remark, respectively). Keep the
+explanation concise and up to 2 sentences.
+Sentence:{S}. Explanation:
+2. Suppose that, for a sentence-label pair (S, l) in the dataset, the generated explana-
+tion in step1 is exp. We used the generative ability of T5 classifier (encode-decoder
+model) to generate text as output. The training data for the T5 classifier consists
+10
+Fig. 3: Year-wise label count in D(SL)
+str
+of an input text and an output text. The input text contains a textual prompt con-
+catenated with the sentence S where as the output text contains the label for the
+respective sentence, l and the explanation exp generated in step1 for (S, l). Example
+of a sample used in training is given in Table 2.
+The T5 classifier trained on this data is capable of classifying a given audit sentence
+as ADV REMARK or NA and provide a one-line explanation for its classification. We
+evaluated the classifier on the D(2)
+ann dataset. We extracted the predicted labels from
+the output of the classifier and evaluated the results with F1-score as evaluation metric
+(see Table 3). The T5 classifier has F1-score of 0.80.
+Variable
+Mean
+Stdev
+Q1
+Q2
+Q3
+V1 Equity Share Capital
+65.76
+407.39
+5.10
+10.97
+25.25
+V2 Reserves and Surplus
+912.39
+6437.14
+1.43
+29.12
+213.41
+V3 Total Shareholders Funds
+991.00
+6657.67
+9.30
+45.44
+258.93
+V4 Long Term Borrowings
+568.60
+4930.10
+0.00
+3.22
+46.05
+V5 Deferred Tax Liabilities [Net]
+42.74
+475.25
+0.00
+0.03
+4.31
+V6 Other Long Term Liabilities
+44.02
+416.29
+0.00
+0.00
+1.44
+V7 Long Term Provisions
+31.07
+576.92
+0.00
+0.10
+1.64
+V8 Total Non-Current Liabilities
+686.44
+5334.67
+0.50
+9.30
+77.31
+V9 Short Term Borrowings
+221.53
+1434.74
+0.00
+7.93
+60.57
+V10 Trade Payables
+209.32
+1667.88
+0.32
+8.99
+54.12
+V11 Other Current Liabilities
+245.01
+1283.46
+0.44
+6.41
+50.16
+V12 Short Term Provisions
+59.62
+642.18
+0.06
+1.00
+7.70
+V13 Total Current Liabilities
+735.47
+4337.37
+4.00
+40.50
+231.55
+V14 Total Capital And Liabilities
+2417.84
+14339.12
+22.84
+124.10
+611.38
+11
+V15 Fixed Assets
+787.58
+6084.09
+2.09
+25.05
+154.91
+V16 Non-Current Investments
+304.64
+2191.23
+0.00
+1.89
+28.12
+V17 Deferred Tax Assets [Net]
+4.92
+57.39
+0.00
+0.00
+0.00
+V18 Long Term Loans And Advances
+392.88
+5210.24
+0.22
+2.76
+20.69
+V19 Other Non-Current Assets
+26.63
+305.05
+0.00
+0.00
+0.60
+V20 Total Non-Current Assets
+1516.65
+10130.76
+9.02
+49.88
+303.29
+V21 Current Investments
+80.64
+977.09
+0.00
+0.00
+0.00
+V22 Inventories
+224.10
+1842.32
+0.14
+10.06
+66.23
+V23 Trade Receivables
+195.23
+1023.19
+0.85
+14.12
+72.03
+V24 Cash And Cash Equivalents
+136.10
+1244.63
+0.31
+2.38
+14.24
+V25 Short Term Loans And Advances
+182.56
+1241.64
+0.76
+6.22
+36.33
+V26 OtherCurrentAssets
+82.51
+796.76
+0.00
+0.23
+3.75
+V27 Total Current Assets
+901.14
+5195.71
+9.32
+56.93
+285.37
+V28 Total Assets
+2417.84
+14339.12
+22.84
+124.10
+611.38
+V29 Other Income
+46.51
+449.75
+0.13
+1.06
+6.42
+V30 Total Revenue
+1746.50
+15693.73
+7.16
+80.63
+469.23
+V31 Cost Of Materials Consumed
+726.48
+9090.48
+0.00
+4.93
+142.91
+V32 Changes In Inventories Of FGWIP
+And Stock-In Trade
+-5.05
+87.19
+-1.45
+0.00
+0.11
+V33 Employee Benefit Expenses
+105.82
+895.59
+0.48
+5.34
+28.72
+V34
+Depreciation
+And
+Amortisation
+Expenses
+52.98
+403.43
+0.16
+2.01
+12.84
+V35 Other Expenses
+184.24
+1069.26
+0.86
+9.06
+58.22
+V36 Profit/Loss Before Tax
+152.70
+1336.24
+-0.10
+1.09
+19.14
+V37 Current Tax
+39.39
+294.63
+0.00
+0.17
+4.22
+V38 Net Profit/Loss Before Extraordinary
+Items And Tax
+156.39
+1358.32
+-0.07
+1.06
+19.72
+V39 Net CashFlow From Operating Activ-
+ities
+142.94
+1690.20
+-0.26
+2.28
+28.41
+V40 Net Cash Used In Investing Activities
+-131.03
+1674.14
+-14.42
+-0.69
+0.10
+V41 Net Cash Used From Financing Activ-
+ities
+-16.20
+909.41
+-12.87
+-0.30
+0.59
+V42
+Net Inc/Dec In Cash And Cash
+Equivalents
+-2.37
+449.75
+-0.95
+0.00
+0.64
+Table 4: Financial Variables and summary statistics - 2014
+4 Unsupervised Methods for Misinformation
+Detection
+As mentioned earlier, the dataset does not have any gold standard labels for any of
+the FS, as to whether the FS contain any known and confirmed instances of misinfor-
+mation or not. We use the adverse remarks found in the audit report associated with
+a company’s FS to automatically build such labels; this is the DSL
+str dataset (Figure
+3). Clearly, these labels would be at best silver standard and a positive label does not
+12
+Sentence
+In this situation , we are unable to comment upon the non
+provision of statutory liabilities for current year as well as for
+the earlier years.
+Label
+ADV REMARK
+Explanation
+from
+MIS-
+TRAL
+This sentence is an adverse remark because it indicates that
+the company has not made sufficient provisions for statutory
+liabilities, which could result in under reported expenses and
+potential financial instability. The auditor is unable to provide
+an opinion on the accuracy of the financial statements due to this
+significant deficiency.
+input text
+Check whether the following sentence from a financial audit report
+contains an adverse remark. Answer as "adverse remark" or "NA"
+followed by a short explanation in 1 sentence. Sentence: In this
+situation , we are unable to comment upon the non provision of
+statutory liabilities for current year as well as for the earlier
+years. Answer:
+output text
+Label: adv remark Explanation: This sentence is an adverse remark
+because it indicates that the company has not made sufficient
+provisions for statutory liabilities, which could result in under
+reported expenses and potential financial instability. The auditor
+is unable to provide an opinion on the accuracy of the financial
+statements due to this significant deficiency.
+Table 2: Example of training data used for T5 model.
+Model
+P
+R
+F1
+Attn-BERT[3]
+0.76
+0.70
+0.72
+T5
+0.85
+0.76
+0.80
+Table 3: Evaluation results for adverse remark clas-
+sification on D(2)
+ann
+necessarily mean that there is any actual instance of misinformation. Based on our
+study of the dataset, we treat a FS as qualified (i.e. containing misinformation) if its
+audit report has at least 2 sentences that are marked a ADV REMARK by both the
+T5 classifier and MISTRAL-7B-Instruct LLM from the audit report for either in the
+current year or in the next year. The reason for using current and next year audit
+reports is that the effects of misinformation sometimes accumulate and amplify over
+time, which means it may be easier for an auditor to catch it next year.
+We use several types of unsupervised algorithms on the structured dataset to detect
+FS in a particular year that are likely to contain misinformation. We then use the
+silver labels in DSL
+str dataset to compute the precision of these detection methods as
+follows. Suppose FS of a company C for year Y are detected as likely containing
+misinformation. If the corresponding label is MISINFO either for that year or the next
+year (if available), then we mark C as true positive else as false positive.
+13
+Name
+Formula
+Mean
+Stdev
+Q1
+Q2
+Q3
+R1
+V23/V28
+0.15
+0.16
+0.02
+0.11
+0.24
+R2
+V27/V28
+0.50
+0.27
+0.30
+0.51
+0.71
+R3
+V15/V28
+0.28
+0.24
+0.05
+0.24
+0.44
+R4
+log(V28)
+4.83
+2.44
+3.14
+4.83
+6.42
+R5
+V24/V28
+0.06
+0.12
+0.01
+0.02
+0.05
+R6
+log(V8 + V13)
+3.80
+3.00
+2.03
+4.06
+5.85
+R7
+(V27-V22)/V13
+10.20
+86.77
+0.56
+0.97
+2.25
+R8
+(V8+V13)/V28
+0.93
+6.47
+0.23
+0.51
+0.71
+R9
+V13/V27
+4.03
+50.50
+0.35
+0.73
+1.01
+R10
+(V8+V13)/V3
+0.86
+38.34
+0.16
+0.81
+1.95
+R11
+V13/V28
+0.64
+5.63
+0.13
+0.32
+0.50
+R12
+V24/V27
+0.13
+0.20
+0.02
+0.05
+0.13
+R13
+V22/V28
+0.14
+0.16
+0.00
+0.10
+0.22
+R14
+V36/V30
+-5.65
+243.44
+-0.02
+0.03
+0.11
+R15
+(V36-V37)/V3
+0.11
+3.26
+0.00
+0.04
+0.12
+R16
+(V36-V37)/V28
+-0.01
+0.56
+-0.01
+0.01
+0.05
+R17
+(V36-V37)/V30
+-5.67
+243.44
+-0.02
+0.02
+0.09
+R18
+V39/V13
+0.24
+14.22
+-0.04
+0.11
+0.34
+R19
+V39/(V36-V37)
+5.01
+204.69
+-0.41
+0.80
+2.50
+R20
+(V7+V12)/(V8+V13)
+0.10
+0.19
+0.01
+0.03
+0.10
+R21
+(V4+V9)/(V8+V13)
+0.42
+0.30
+0.10
+0.44
+0.65
+R22
+(V5+V10)/(V8+V13)
+0.26
+0.24
+0.06
+0.20
+0.38
+Table 5: Financial ratios and summary statistics - 2014
+4.1 Anomaly Detection (AD)
+One reasonable hypothesis is that any FS which contains some misinformation would
+appear anomalous in some well-defined sense, as compared to honest FS (i.e., one
+without any misinformation). To test this idea, we used several well-known Anomaly
+Detection (AD) algorithms implemented in PyOD package [46] on the structured
+dataset to identify anomalous (i.e., suspicious) FS. The ensemble method takes top-20
+FS having the highest count of AD algorithms which marked it as anomalous (we do
+this year-by-year).
+Table 6 shows the precision@20 (P@20) results for 18 (17 + 1 ensemble) AD
+algorithms. As seen, Connectivity-Based Outlier Factor (COF) algorithm [47] has the
+highest P@20 (0.60) for year 2014 i.e., 12 out of 20 companies identified by it as
+anomalous are indeed marked as MISINFO in the D(SL)
+str . The P@20 results of all the
+algorithms for years 2010-2014 can be seen in the Table 6. The averageP@20 column
+shows the average precision of an algorithm across 5 years. Notice that the Linear
+Outlier Factor (LOF)[48] algorithm, gives the highest precision for 4 (out of 5) years
+in the data. The LOF algorithm computes the local density of each point based on
+the distance between its k-nearest neighbors. The points with less density are given
+as outliers. Other algorithms such as COF and SOS have the high precision for the
+14
+year 2014 and give a descent average precision across all years respectively. On the
+other hand, the Histogram Based Outlier Detection (HBOS)[49] algorithm preforms
+poorly for all the years. HBOS constructs histograms for each feature with fixed or
+dynamic number of bins (depending on data distribution) and decides the outliers
+by estimating the density based on the frequency of samples in each bin. Lower the
+density indicates higher the likelihood of being an outlier.
+4.2 Step-wise Regression
+When a FS for a company is identified as suspicious (i.e., likely to contain misinforma-
+tion), it is important to provide a justification or explanation for this prediction, which
+is human-understandable. For improved usability, the key question to be answered
+is: where exactly is the misinformation present in a FS? It is well-known that some
+financial variables in the FS - e.g., those related to assets and liabilities - are more
+susceptible for misinformation than others; e.g., auditors adverse remarks are more
+often based on these variables[1]. For example, misinformation often tends to deflate
+losses or liabilities or inflate profits.
+Algorithm
+2010
+2011
+2012
+2013
+2014
+averageP@20
+ABOD
+0.30
+0.25
+0.20
+0.25
+0.35
+0.27
+CBLOF
+0.30
+0.25
+0.15
+0.25
+0.25
+0.24
+COF
+0.40
+0.60
+0.30
+0.35
+0.60
+0.45
+HBOS
+0.10
+0.25
+0.10
+0.15
+0.20
+0.16
+iForest
+0.15
+0.20
+0.15
+0.20
+0.25
+0.19
+KNN
+0.30
+0.25
+0.15
+0.20
+0.20
+0.22
+LMDD
+0.20
+0.15
+0.30
+0.35
+0.40
+0.28
+LODA
+0.25
+0.20
+0.10
+0.30
+0.20
+0.21
+LOF
+0.65
+0.65
+0.55
+0.40
+0.55
+0.56
+Mahalanobis
+0.35
+0.30
+0.45
+0.40
+0.30
+0.36
+MCD
+0.30
+0.25
+0.20
+0.25
+0.40
+0.28
+OCSVM
+0.20
+0.30
+0.25
+0.00
+0.15
+0.18
+PCA
+0.35
+0.25
+0.30
+0.30
+0.30
+0.30
+SOD
+0.30
+0.30
+0.30
+0.25
+0.25
+0.28
+SOS
+0.40
+0.50
+0.50
+0.25
+0.45
+0.42
+Auto-Encoder
+0.35
+0.25
+0.30
+0.30
+0.30
+0.30
+VAE
+0.35
+0.25
+0.30
+0.30
+0.30
+0.30
+Ensemble
+0.35
+0.25
+0.25
+0.35
+0.30
+0.30
+Table 6: Anomaly detection methods - Results P@20
+We used the first approach from Model-based anomaly detection method from [1],
+where the models are various step-wise regression models. To illustrate the approach,
+we have considered the variables related to liabilities as susceptible variables (we could
+easily add other kinds of variables also). We build regression models and use them
+to identify suspicious FS. We start with a given susceptible variable as the dependent
+15
+variable, identify other variables on which that susceptible variable depends on (inde-
+pendent variables), and use only these variables to build regression model(s) for that
+suspicious variable. Finally, we use these regression models to identify suspicious FS.
+The approach consists of the following steps:
+1. Select a susceptible variable (say, Y );
+2. Identify variables most correlated with Y as dependent variables;
+3. Use step-wise regression to incrementally build multiple Ordinary Least Squares
+(OLS) regression models for Y and select the best regression model MY for Y
+having the highest adjusted R2 value;
+4. Use MY to identify suspicious BS as follows. Take a BS, predict the value of Y
+using the values (in this BS) of the independent variables used in MY , compute the
+prediction error Y −ˆY and mark those 20 BS as suspicious which have the highest
+squared prediction error in Y using MY .
+M14: R8 ←[R12 R5 R3 V40 V41 V32 R15 V42 R19 V18 V17 V19 V31 V26 V22 V30 R1 R14
+R17 V1 V15 V21 V25 V39 V20 V24 V29 V34 V27 V28 V33 V16 V23 V35 V36 V37 V38 V2 V3 R2
+R13 R4 R16]
+M15: R9 ←[R12 V1 R3 V40 V32 V41 V42 R15 R19 V18 V19 R14 R17 V17 V31 V39 V21 V26
+V15 V16 V20 V24 V29 V30 V34 V22 V33 V36 V38 V3 V25 V28 V37 V2 V35 V27 V23 R5 R4 R1
+R13 R16 R2]
+M16: R10 ←[R4 R3 R1 V18 V25 V28 V20 V23 V27 R5 R12 R16 V15 V22 V26 V30 V34 V41
+V31 V1 V19 V35 R14 R17 V2 V3 V16 V24 V37 V21 V29 V33 V36 V38 V42 V17 V32 V40 V39 R19
+R2 R13 R15]
+M17: R11 ←[R12 R1 R5 V40 V32 V42 R3 R15 V41 R19 V31 V17 V19 V22 V26 V30 V39 V18
+V21 V24 V25 V29 V33 R14 R17 V1 V15 V23 V34 V16 V27 V35 V36 V37 V38 V20 V28 V2 V3 R2
+R13 R4 R16]
+Table 7: Best Regression Models - 2014
+Apart from the OLS regression, we used the models with same input-output structure
+but built on Lasso, Ridge, Support Vector Regression (SVR) and Random Forest
+Regression (RFR). Lasso (or Ridge) is a regularization technique that supplements the
+OLS formulation by adding L1 penalty (or L2 penalty, respectively) to the objective
+function. SVR (based on Support Vector machines algorithm) is used to model the
+complex, non-linear relationships in the data and predict the continuous outputs for
+the given inputs. RFR fits a number of decision tree regressors on various sub-samples
+of the dataset and uses averaging to improve the predictive accuracy and control over-
+fitting [50]. To illustrate, Table 7 shows the 4 best regression models built using step-
+wise OLS regression for susceptible variables related to liabilities: R8, R9, R10, R11.
+We used a total of 21 variables and ratios that are related to liabilities, as susceptible
+variables and built regression models. The P@20 results for these regression models
+on the 5-year data are given in Table 8. As we can see, the SVR models have higher
+precision as compared to the other models.
+16
+Model
+2010-
+P@20
+2011-
+P@20
+2012-
+P@20
+2013-
+P@20
+2014-
+P@20
+average-
+P@20
+OLS M14
+0.65
+0.70
+0.70
+0.65
+0.70
+0.68
+OLS M15
+0.55
+0.55
+0.5
+0.6
+0.45
+0.53
+OLS M16
+0.65
+0.65
+0.65
+0.50
+0.50
+0.59
+OLS M17
+0.70
+0.60
+0.65
+0.60
+0.70
+0.65
+Ridge M14
+0.65
+0.75
+0.70
+0.65
+0.70
+0.69
+Ridge M15
+0.55
+0.60
+0.50
+0.60
+0.45
+0.54
+Ridge M16
+0.65
+0.65
+0.65
+0.50
+0.50
+0.59
+Ridge M17
+0.70
+0.60
+0.65
+0.60
+0.70
+0.65
+Lasso M14
+0.65
+0.70
+0.80
+0.70
+0.70
+0.71
+Lasso M15
+0.55
+0.65
+0.50
+0.70
+0.50
+0.58
+Lasso M16
+0.65
+0.65
+0.65
+0.50
+0.50
+0.59
+Lasso M17
+0.70
+0.75
+0.65
+0.60
+0.70
+0.68
+SVR M14
+0.80
+0.70
+0.90
+0.75
+0.75
+0.78
+SVR M15
+0.55
+0.60
+0.70
+0.75
+0.95
+0.71
+SVR M16
+0.65
+0.65
+0.80
+0.55
+0.55
+0.64
+SVR M17
+0.80
+0.90
+0.90
+0.75
+0.80
+0.83
+RFR M14
+0.50
+0.50
+0.40
+0.45
+0.50
+0.47
+RFR M15
+0.65
+0.35
+0.55
+0.60
+0.60
+0.55
+RFR M16
+0.55
+0.50
+0.60
+0.50
+0.50
+0.53
+RFR M17
+0.65
+0.50
+0.45
+0.40
+0.55
+0.51
+Table 8: Results of Regression Models in Identifying Suspicious FS.
+5 Explanations for Misinformation
+For further processing of detected instances of misinformation in a financial statement,
+it is often useful to automatically generate human-understandable justifications or
+explanations for each instance. Such explanations assist in determining whether the
+company’s financial statement truly contains misinformation or if it is simply a false
+alarm. Research in Explainable AI (XAI) [51] focuses on producing explanations for
+predictions made by AI models, primarily classification models.
+Name
+Description
+f1
+Average depth of the trees
+f2
+Average size of the leaf containing z
+f3
+Number of paths that contain feature v
+f4
+Average % drop in the partition after split
+f5
+Number of short paths (less than the maximum tree depth)
+f6
+The level at which feature v is present on average
+f7
+Average % drop in the partition after split for short paths
+f8
+The level at which feature v is present in short paths on average
+Table 9: Summary feature vector for EiForest
+17
+Algorithm 1: EMD
+input : D, V, z, k0, c; s.t. 1 ≤k0 ≤|V |; c = 1.0
+output: Eset s.t. for each ϕ ∈Eset, ϕ ⊆V
+begin
+Eset = ∅
+for k = k0 to 0 do
+foreach ϕ ∈2V and |ϕ| = k do
+foreach z ∈D do
+dz = RV (z) −RV \ϕ(z);
+if dz > 0 and dz > µ + c · σ then
+Eset = Eset ∪ϕ;
+return Eset
+XAI aims to provide explanations in various forms, such as weighted or non-weighted
+subsets of features, rule sets, visual representations, and natural language descriptions.
+In contrast, the research area of Outlying Aspect Mining (OAM) [52], [53] focuses
+on generating explanations for the anomalousness of a point, typically as a subset of
+features forming a subspace. While XAI explains the reasoning of an underlying model
+OAM offers a holistic, model-agnostic view of why a point is interesting or anomalous.
+Parameters:
+• m: Number of features in the dataset
+• n: Number of points in the dataset
+• z: The anomalous point to be explained
+• L: Maximum number of features to be included in the explanation
+• M1: n × m size matrix representing whether other points have higher values than the
+anomalous point
+• M1[j, i] = 1 only if ith feature of jth point is greater than z[i]
+• M1[j, i] = 0 otherwise
+• M2: n × m size matrix representing whether other points have lower values than the
+anomalous point
+• M2[j, i] = 1 only if ith feature of jth point is less than z[i]
+• M2[j, i] = 0 otherwise
+Variables:
+• x1: m length binary array such that x1[i] = 1 implies that the ith feature is included in
+the explanation as vi ≤z[i]
+• x2: m length binary array such that x2[i] = 1 implies that the ith feature is included in
+the explanation as vi ≥z[i]
+• y: n length array such that:
+• y[j] = 1 only if ∃i((M1[j, i] = 1) ∧(x1[i] = 1)) ∨((M2[j, i] = 1) ∧(x2[i] = 1))
+(y[j] is 1 only if jth point breaks at least one condition used in the explanation)
+• y[j] = 0 otherwise (y need not be an integer)
+Objective:
+• Maximize P
+j y[j] (maximize no. of other points which do not satisfy at least one
+condition used in the explanation)
+Constraints:
+18
+• C1: Pm
+i=1(x1[i] + x2[i]) ≤L (At most L variables can be chosen in final explanation)
+• C2: x1[i] + x2[i] ≤1, ∀i s.t. 1 ≤i ≤m
+(A variable should not be repeated in the set of L variables used for the explanation.)
+• C3: y[j] ≥x1[i] · M1[j, i], ∀ij s.t. 1 ≤i ≤m, 1 ≤j ≤n
+(y[j] has to be at least 1 if M1[j, i] is 1 for any feature i which is included in the explanation.)
+• C4: y[j] ≥x2[i] · M2[j, i], ∀ij s.t. 1 ≤i ≤m, 1 ≤j ≤n
+(y[j] has to be at least 1 if M2[j, i] is 1 for any feature i which is included in the explanation.)
+• C5: y[j] ≤Pm
+i=1(x1[i] · M1[j, i] + x2[i] · M2[j, i]), ∀j s.t. 1 ≤j ≤n
+(y[j] should remain 0 for the points which do not contain 1 for any of the selected variables
+in M1[j] and M2[j].)
+• C6: y[j] ≤1, ∀j s.t. 1 ≤j ≤n (y[j] should be at most 1.)
+Table 10: ILP formulation for generating explanations
+5.1 Problem Formulation
+We have an m-dimensional dataset D = {x1, x2, . . . , xn} where each xi ∈Rm and
+V = {V1, V2, . . . , Vm} is the feature set (names of features). Suppose we are given an
+anomalous instance z ∈D, which is obtained by some AD technique unknown to us.
+The objective is to generate an explanation E that explains why the the data-point
+should be considered anomalous. While explanations can take many forms, typically
+E is either a subset of features E ⊆V or it is a set of logical rules over V . In our
+case, D is a dataset of FS of n companies, where each company is represented as an
+m-dimensional feature vector and z is an anomalous company that is suspected of
+having misinformation in its FS.
+We discuss 3 methods for generating explanation for why a point could be anomalous;
+the methods are the same as in
+[2]. However, they had used manually constructed
+explanations for evaluations of automatically generated explanations. In this paper,
+we propose a novel technique for automatically creating silver standard explanations.
+Moreover, we use a much larger dataset for evaluation of the algorithms.
+5.2 Explanation using Mahalanobis Distance (EMD)
+We sort all points in D in descending order of their Mahalanobis distance from the
+mean vector of D. The Mahalanobis rank RV (x) of a point x ∈D is defined as its
+position in this sorted list. For any proper subset A ⊂V of features, RV \A(x) is
+similarly defined, except that Mahalanobis distances are computed after removing all
+features in A from every point in D. Note that a smaller rank value indicates that the
+point lies farther from the mean vector in terms of Mahalanobis distance.
+An explanation E ⊆V can be any subset from the power set 2V . The EMD algorithm
+generates a set of candidate explanations Eset for a given (presumably anomalous) data
+point z, such that for each subset ϕ ∈Eset, the rank difference exceeds a predefined
+threshold of µ + c · σ, where µ and σ are the mean and standard deviation of all rank
+differences. This ensures that the subset explains why z is anomalous. The size of each
+candidate subset ϕ is restricted to at most k0. If no such subset satisfies the condition,
+the algorithm returns an empty set.
+19
+We compute the belief of an explanation ϕ ∈Eset using the standard deviation σ of
+the rank difference between RV (x) and RV \A(x) across all instances. Specifically, the
+belief is calculated as:
+Bel(z, ϕ) = RV \A(z) −RV (z)
+σ
+This value represents how many standard deviations the rank difference for z deviates
+from the mean of all rank differences. In other words, it measures the Mahalanobis
+distance of the rank difference for z from the mean. Each candidate subset ϕ and its
+corresponding belief value is then provided as input to the Dempster-Shafer evidence
+combination method [54]. The subset with the highest belief score is considered the
+most valid explanation.
+5.3 Explanation using iForest (EiForest)
+A well-known anomaly detection algorithm, iForest [55], recursively partitions the
+data by randomly selecting a feature and its values for splitting. Data instances that
+become isolated in earlier splits are considered anomalies. We used iForest to construct
+a forest of T such random partition trees. Let P(z) denote the set of T paths that lead
+to z. For a given instance z, we identify the set of features VP ⊆V that appear on at
+least one path in P(z), contributing to the isolation of z. For each variable v ∈VP ,
+we construct an 8-dimensional summary feature vector F z
+v using the paths leading to
+z that contain v (see Table 9 for details). We then build the set of summary vectors
+Fv for all points and all variables in the dataset. Next, we compute the Mahalanobis
+distance π(v) from the mean of Fv for each v ∈V . Finally, the top k variables, sorted
+in decreasing order of π(v), are selected as the explanation E.
+5.4 Explanation using Maximal Isolation (EMI)
+We propose a method based on Integer Linear Programming (ILP) that isolates an
+anomalous point to the maximum possible extent. The explanation E generated by
+this method, called Explanation using Maximal Isolation (EMI), is a conjunction of
+L specified conditions. These conditions, when applied as filters on the entire dataset,
+minimize the number of points other than the anomalous point that satisfy all L
+conditions.
+Given a set of features V and an anomalous point z to be explained, the explanation
+takes the form:
+AND(v(≤or ≥)zv),
+v ∈E, E ⊂V, |E| = L
+where zv is the value of z for feature v. These L conditions serve as an explanation
+for the anomalous nature of z because they describe how z differs from the rest of the
+dataset.
+Table 10 describes the ILP formulation in detail. Constraints C3, C4, C5, and C6 ensure
+that y[j] becomes 1 if and only if the jth point violates at least one condition in the
+explanation. The objective function maximizes the number of such points, effectively
+20
+minimizing the number of other points that satisfy all conditions along with z, the
+anomalous point to be explained.
+5.5 Constructing the Silver Standard Ground Truth
+Explanations
+We have FS of 11,460 companies in our dataset, out of which 2727 were assigned the
+silver label MISINFO using the method explained earlier. But what is the explanation
+(as a subset of our 42 financial variables) for each of these 2727 companies? Manually
+identifying such a subset involves too much efforts, time, and subjectivity. We now
+propose a novel automated method for constructing silver standard explanations for
+each of these 2727 companies. The idea is to use the sentences marked as ADV REMARK
+in the associated audit report for the FS of a company in a particular year, extract
+financial variables mentioned in each of these sentences (labeled ADV REMARK), and
+use that set as the explanation. However, there is a subtlety here: each financial vari-
+able mentioned in the sentence needs to be mapped to one of the features used in the
+structured representation of the FS.
+Example: in the sentence
+In respect of disputed [Income tax] and [Sales Tax]
+cases , the company has not ascertained the amount of such dues ., the financial
+variables mentioned are enclosed in square brackets. But neither of these match with
+any feature in the list of features. In order to identify the related feature, we first assign
+1 or more XBRL categories to the sentence using the techniques in [3] (explained
+below). XBRL is an international standard for the vocabulary to be used in financial
+reporting7. We use the 1724 categories in the XBRL 2012 taxonomy as a set of stan-
+dardized names of financial variables. Then one of the XBRL categories assigned to
+this sentence by the method is Taxes Payable Sales Tax; since this name is not among the
+42 financial variables we use, we assign its parent XBRL category Total Current Liabili-
+ties (which is present among the list of features) as one of the ground truth variables
+making this particular company anomalous.
+The method for assigning 0, 1 or more XBRL categories as the silver standard expla-
+nation for explaining why a particular company (i.e., its FS) is labeled MISINFO in
+the database D(SL)
+str
+is now explained [3]. This corresponds to the task B mentioned in
+[3]. For year Y and company C which has the silver label MISINFO, we take the sen-
+tences (there are at least two) from the associated audit report which are labeled as
+ADV REMARK by both T5 and MISTRAL, as explained earlier. For each XBRL cate-
+gory X having |X| = k words in it, we consider windows of sizes k −1, k, k + 1 and
+k + 2 and obtain all possible contiguous word sequences in a given sentence S by slid-
+ing these windows. The similarity of the category X with the sentence is the highest
+Jaccard similarity with any of these subsets. While computing similarity, synonyms
+and morphological variations of a word are taken into consideration and stopwords
+are ignored. A category is matched with a sentence if the Jaccard similarity thus com-
+puted is above a threshold θ1 (we used θ1 = 0.6). Once the categories are assigned,
+we map them with the 42 financial variables used in this paper. In case we do not
+7www.xbrl.org
+21
+find an exact match for the XBRL category in these variables, we use the hierarchi-
+cal relations in the XBRL taxonomy and consider its immediate next parent that will
+match to the variables (see the example above). This way, we take the union of the
+variables assigned to the sentences as the ground truth of explanations for company
+C and year y.
+5.6 Experiments and Results
+Dataset: We use the Dstr dataset of the specific year to generate explanations for
+any company C (belongs to Dstr) marked as suspicious. As mentioned in section 3, for
+each year, the dataset consists of 2292 companies and values for 42 financial variables
+taken from Balance Sheet, Income Statement and Cash-flow Statement.
+Parameter settings: Parameter values for EMD algorithm are set as c = 0.5 and k0
+= 2. For EiForest, we set T = 1000 and retain top 5 features (k = 5). For EMI, we set
+the value of L = 2. For SHAP and LIME we have retained top 5 features responsible
+for the prediction of the model.
+Baseline methods: SHAP[56] and LIME[57] are two widely used explanation gen-
+eration methods for classification and regression. Both need an auxiliary classifier for
+generating the explanations for anomalous instances; we use Random Forest classifier
+for this purpose. We use the 2024 subset of the the silver label dataset DSL
+str to train
+the Random Forest classifier.
+For illustrative purposes, we take the top 20 companies whose FS for 2014 were iden-
+tified as anomalous by SVR M15 regression model for year 2014. We compare the
+explanations generated by SHAP, LIME and our methods (EMD, EiForest, EMI) for
+these companies and compare these explanations with the silver standard explana-
+tions (explained earlier); see Table 11, which also includes the silver standard ground
+truth explanations. The Table includes only 7 of these companies (out of 20) because
+for the remaining 13 companies, either (i) the the intersection of sentences from audit
+reports classified by T5 and MISTRAL as ADV REMARK is empty (thus there is no
+misinformation in these FS as per our criterion); or (ii) the intersection of the gener-
+ated explanations (by all 5 methods) with silver standard explanation is empty. We
+used precision P, recall R and F1 measure for each generated explanation as evalua-
+tion metrics, by comparing it with the generated explanation using the silver-standard
+ground truth; see Table 12. To cover such companies, We could relax our criterion,
+and generate explanations using sentences classified as adverse remarks by either T5
+or MISTRAL.
+The EiForest algorithm exhibited improved results as compared to the original
+study [2]. In contrast, the other algorithms experience a decline in performance rela-
+tive to their previously reported outcomes. The key factor contributing to this shift
+could be the increased number of financial variable (18 in [2], current paper:42). EMI
+algorithm gives the average precision of 0.21, which is very near to the precision from
+EiForest. We have selected the top k features for SHAP, LIME and EiForest algo-
+rithms. The value of k can affect the precision values. The explanations given by
+SHAP and LIME are almost the same for most of the companies with just one vari-
+able difference between them. EMD algorithm could detect the variables correctly for
+22
+2 companies. The average P, R, F1 values of EiForest algorithm are highest among all
+the algorithms.
+One limitation of our 3 methods for explanation generation is that they assume that
+the corresponding audit report is already available, which may not be the case in all
+possible scenarios. In case the audit report is not available, and so silver label ground
+truth is also not available, we can use SHAP or LIME to generate the explanation for
+a company whose FS is identified as anomalous.
+5.7 Generation of Suggestions for Auditors:
+For a sample company which was identified as anomalous in the experiments the
+explanation generation technique EiForest identified the following as the explanatory
+financial variables as to why FS is likely anomalous (corresponding XBRL category
+is also shown)
+1. v40 →Net Cash Used In Investing Activities
+→
+Net cash flow used in
+investing activities
+2. v12 →Short Term Provisions →Provisions
+3. v15 →Fixed Assets →Fixed Assets
+4. v5 →Deferred Tax Liabilities [Net] →Net deferred tax liabilities
+5. v28 →Total Assets →Total Assets
+We mapped each ADV REMARK sentence in the dataset D1 to 0, 1 or more XBRL cat-
+egories. Mapping the above XBRL categories corresponding to the above explanation,
+following are some of the matching adverse remarks in past audit reports:
+1. Adequacy of the provision made for meeting workers liability can not be
+ascertained
+2. Adequate provision for non recoverability has not been made for debtors
+3. No provision for diminution in the value of investment in shares of company
+X has been made.
+4. could not quantify the non provision of interest.
+5. No provision for pending sales tax amount of Rs. X has been made by the
+company.
+We could easily transform these selected adverse remarks (using LLMs or using simple
+linguistic rules for text transformation) as audit suggestions. For example, the last
+two adverse remark sentences above can be transformed into audit suggestions as:
+1. Check if provisions for interests have been made.
+2. Check if provisions for pending taxes have been made.
+23
+No.
+Company
+Ground truth
+SHAP
+LIME
+EMD
+EiForest
+EMI
+1
+La Tim Metal
+v15, v33, v40
+v2, v3, v36, v37,v38
+v2, v3, v30, v36, v38
+NA
+v40, v12, v15, v5,
+v28
+v26 ≤0.01 ∧v41 ≥
+0.01
+2
+Unimers India
+v13, v21, v27, v36 , v39, v40,
+v41
+v2, v3, v36, v37, v38
+v2,
+v3,
+v11,
+v36,
+v38
+v19, v6, v11, v32
+v10, v24, v42, v35,
+v21
+v27 ≤38.26 ∧v19
+≥38.08
+3
+Nicco Uco Fin
+v3, v13, v15, v16, v17, v27,
+v34, v39, v41
+v2, v3, v36, v37, v38
+v2, v3, v7, v36, v38
+v13, v32, v42, v7
+v32, v39, v7, v19,
+v17
+v2 ≤-564.2 ∧v19
+≤8.7
+4
+Entegra
+v40, v41, v9
+v2, v11, v36, v37,v38
+v2, v3, v11, v36, v38
+v32, v39, v11
+v11,
+v1,
+v7,
+v34,
+v41
+v8 ≤0.08 ∧v11 ≥
+162.68
+5
+Quintegra Solut
+v2,v40,v41
+v2, v3, v36, v37,v38
+v1, v2, v3, v36, v38
+NA
+v3, v36, v6, v25, v30
+v3 ≤-108.29 ∧v2
+≥-135.11
+6
+Modipon
+v2, v9, v12, v13, v40, v41
+v2, v3, v30, v37, v38
+v2, v3 v5, v30, v37
+v41, v6, v32
+v1, v41, v42
+v8 ≤21.7 ∧v6 ≥
+21.69
+7
+Encore Software
+v33, v39, v13
+v2, v3, v36, v37,v38
+v2, v3, v36, v37,v38
+v17, v11, v32
+v2,
+v13,
+v11,
+v7,
+v27
+v13 ≤24.6 ∧v11 ≥
+23.27
+Table 11: Explanations generated by all the methods.
+SHAP
+LIME
+EMD
+EiForest
+EMI
+No.
+Company
+P
+R
+F
+P
+R
+F
+P
+R
+F
+P
+R
+F
+P
+R
+F
+1
+La Tim Metal
+0.00
+0.00
+0.00
+0.00
+0.00
+0.00
+0.00
+0.00
+0.00
+0.40
+0.67
+0.50
+0.00
+0.00
+0.00
+2
+Unimers India
+0.20
+0.14
+0.17
+0.20
+0.14
+0.17
+0.00
+0.00
+0.00
+0.20
+0.14
+0.17
+0.50
+0.14
+0.22
+3
+Nicco Uco Fin
+0.20
+0.11
+0.14
+0.20
+0.11
+0.14
+0.25
+0.11
+0.15
+0.40
+0.22
+0.29
+0.00
+0.00
+0.00
+4
+Entegra
+0.00
+0.00
+0.00
+0.00
+0.00
+0.00
+0.00
+0.00
+0.00
+0.20
+0.33
+0.25
+0.00
+0.00
+0.00
+5
+Quintegra Solut
+0.20
+0.33
+0.25
+0.20
+0.33
+0.25
+0.00
+0.00
+0.00
+0.00
+0.00
+0.00
+0.50
+0.33
+0.40
+6
+Modipon
+0.20
+0.17
+0.18
+0.20
+0.17
+0.18
+0.33
+0.17
+0.22
+0.33
+0.17
+0.22
+0.00
+0.00
+0.00
+7
+Encore Software
+0.00
+0.00
+0.00
+0.00
+0.00
+0.00
+0.00
+0.00
+0.00
+0.20
+0.33
+0.25
+0.50
+0.33
+0.40
+Average
+0.11
+0.11
+0.11
+0.11
+0.11
+0.11
+0.08
+0.04
+0.05
+0.25
+0.27
+0.24
+0.21
+0.12
+0.15
+Table 12: Precision, Recall and F1 measure for all methods
+24
+6 Conclusions and Future Work
+Financial auditing plays an important role in maintaining the trust and transparency
+of the company. Detecting misinformation present in the Financial Statements is an
+important outcome expected from an audit. In this paper, we propose an integrated
+collection of AI-based techniques, based on previous work [1], [3], [2], to provide assis-
+tance to human auditors, with the goals of reducing the time, efforts and subjectivity
+involved in the auditing process, as well as increasing its effectiveness. The idea is
+to provide effective assistance to human auditors by extracting knowledge from past
+corpus of FS and associated audit reports.
+We web-scraped gathered a broad range of financial variables from three types of FS.
+We proposed unsupervised techniques (unsupervised anomaly detection, as well as
+regression-based) for detecting misinformation in FS and showed that they they detect
+companies whose FS are likely containing misinformation with good precision. Due
+to the absence of ground truth about FS having misinformation, we used NLP tech-
+niques and Language Models on audit reports to generate the silver-standard labels
+for this FS data. The techniques showed an improved precision on the much larger
+dataset used in this paper, as compared to the earlier papers. To identify precisely
+where the misinformation is present, we proposed techniques to generate explana-
+tions for the identified suspicious companies using the explainable AI (XAI) and other
+explainability techniques, as proposed in our previous work. Instead of manually vali-
+dating the generated explanations (as was done earlier), we used the Jaccard Similarity
+technique and XBRL categories to get silver-standard ground truth for explanations.
+We assign the XBRL categories most similar to the audit report sentences which as
+adverse remarks, map the assigned XBRL categories to the financial variables used in
+this paper and consider the union of mapped variables as the silver standard ground
+truth. We have implemented the complete process for providing such assistance to the
+auditors, without involving any manual labour. This reduces the subjectivity involved
+in our previous work. Our techniques provide a focused area that seems suspicious,
+which could be helpful for the auditors while performing the audit.
+For future work, we are working on integrating several other components of our
+research into a system that can be used by human auditors to get some assistance
+for improving the quality and effectiveness of the audits. Measuring the efficacy and
+usability of such a system, particularly the trustworthiness of the misinformation and
+its explanation is an important issue that needs to be tackled. Gathering auditor feed-
+back about the detected misinformation, its explanation as well as generated audit
+suggestions and learning from the feedback to incrementally improve the systems are
+an important aspect that we will work on. We are also working on incorporating other
+sources of auditing knowledge, in the form of knowledge graphs, to improve the quality
+of generated outputs.
+25
+7 Statements and Declarations
+7.1 Conflict of Interest Declaration
+On behalf of all authors, the corresponding author states that there is no conflict of
+interest.
+7.2 Competing Interests
+Not Applicable
+7.3 Funding Information
+We have not received any fundings.
+7.4 Author contribution
+• Kshitij Madhav Jadhav – Conceptualization, Data curation, Formal analysis, Inves-
+tigation, Project administration, Software, Writing – original draft, Visualization
+• Sudhodhan Vaishampayan- Conceptualization, Formal analysis, Investigation,
+Methodology, Writing – review and editing, Supervision
+• Manoj Apte- Conceptualization, Formal analysis, Methodology, Writing – review
+and editing, Supervision
+• Sachin Pawar- Conceptualization, Formal analysis, Methodology, Writing – review
+and editing, Supervision
+• Nitin Ramrakhiyani- Conceptualization, Formal analysis, Methodology, Writing –
+review and editing, Supervision
+• Girish Keshav Palshikar- Conceptualization, Methodology, Formal analysis, Project
+administration, Writing – original draft, Supervision
+7.5 Data Availability Statement
+Data used in the study is publicly available on https://www.moneycontrol.com/.
+Further processing on data is done as per the steps given in the manuscript.
+7.6 Research Involving Human and /or Animals
+Not Applicable
+7.7 Informed Consent
+Not Applicable
+7.8 Consent to Publish declaration
+Not Applicable
+7.9 Consent to Participate declaration
+Not Applicable
+26
+7.10 Ethics declaration
+Not Applicable
+References
+[1] Shinde, A., Vaishampayan, S., Apte, M., Palshikar, G.K.: Unsupervised detection
+of misinformation in financial statements. In: Proceedings of the International
+FLAIRS Conference, vol. 35 (2022)
+[2] Vaishampayan, S., Shinde, A., Pawde, A., Pawar, S., Apte, M., Palshikar, G.K.:
+Explainability for misinformation in financial statements. In: CIKM-2022 Work-
+shop on Advances in Interpretable Machine Learning and Artificial Intelligence
+(AIMLAI 2022) (2022)
+[3] Pawar, S., Apte, M., Pawde, A., Vaishampayan, S., Palshikar, G., Shinde, A.: Dig
+here! extracting and using knowledge from financial audit reports. In: Proceedings
+of the International FLAIRS Conference, vol. 36 (2023)
+[4] Arens, A., Elder, R., Beasley, M.: Auditing and Assurance Services: An Integrated
+Approach, 16 edn. Pearson Publishers, ??? (2016)
+[5] Feldman, M., Libman, A.: Crash Course in Accounting and Financial Statement
+Analysis, 3rd edn. Wiley, ??? (2007)
+[6] Drake, P.P., Fabozzi, F.J.: Analysis of Financial Statements, 3rd edn. Wiley, ???
+(2012)
+[7] Beasley, M., Carcello, J., Hermanson, D.: Fraudulent financial reporting (1987-
+1997) an analysis of US public companies. Technical report, American Institute
+of Certified Public Accountants (1999)
+[8] Healy, P.M., Palepu, K.G.: The fall of enron. Journal of Economic Perspectives
+17, 3–26 (2003)
+[9] Bhasin, M.: Corporate accounting fraud: A case study of satyam computers
+limited. Open Journal of Accounting 2, 26–38 (2013)
+[10] Nigrini, M.J.: Forensic Analytics: Methods and Techniques for Forensic Account-
+ing Investigations, 2nd edn. Wiley, ??? (2020)
+[11] Raffel, C., Shazeer, N., Roberts, A., Lee, K., Narang, S., Matena, M., Zhou, Y., Li,
+W., Liu, P.J.: Exploring the limits of transfer learning with a unified text-to-text
+transformer. Journal of machine learning research 21(140), 1–67 (2020)
+[12] Lennox, C., Li, B.: When are audit firms sued for financial reporting failures
+and what are the lawsuit outcomes? Contemporary Accounting Research 37,
+1370–1399 (2019)
+27
+[13] Reichelt, K.J., Wang, D.: National and office-specific measures of auditor industry
+expertise and effects on audit quality. Journal of Accounting Research 48(3),
+647–686 (2010)
+[14] Tepalagul, N., Lin, L.: Auditor independence and audit quality: A literature
+review. Journal of Accounting, Auditing and Finance 30(1), 101–121 (2015)
+[15] Basu, S.: The conservatism principle and the asymmetric timeliness of earnings.
+Journal of Accounting and Economics 24, 3–37 (1997)
+[16] Beasley, M.S., Carcello, J.V., Hermanson, D.R., Treadway Commission, C., et al.:
+Fraudulent Financial Reporting: 1987-1997: an Analysis of US Public Companies.
+American Institute of Certified Public Accountants, ??? (1999)
+[17] Spathis, C.T.: Detecting false financial statements using published data: some
+evidence from greece. Managerial Auditing Journal 17, 179–191 (2002)
+[18] Kotsiantis, S., Koumanakos, E., Tzelepis, D., Tampakas, V.: Forecasting fraud-
+ulent financial statements using data mining. International journal of computa-
+tional intelligence 3, 104–110 (2006)
+[19] Chen, S.: Detection of fraudulent financial statements using the hybrid data
+mining approach. SpringerPlus 5, 1–16 (2016)
+[20] Jan, C.-l.: An effective financial statements fraud detection model for the sustain-
+able development of financial markets: Evidence from taiwan. Sustainability 10,
+513 (2018)
+[21] Mongwe, W.T., Malan, K.M.: The efficacy of financial ratios for fraud detec-
+tion using self organising maps. In: IEEE Symposium Series on Computational
+Intelligence (SSCI), pp. 1100–1106 (2020)
+[22] Lokanan, M., Tran, V., Vuong, N.H.: Detecting anomalies in financial statements
+using machine learning algorithm: The case of vietnamese listed firms. Asian
+Journal of Accounting Research 4 (2019)
+[23] Li, H., Yang, Q., Cao, Y., Yao, J., Luo, P.: Cracking tabular presentation diversity
+for automatic crosschecking over numerical facts. In: Proceedings of the 26th ACM
+SIGKDD International Conference on Knowledge Discovery and Data Mining,
+pp. 2599–2607 (2020)
+[24] Roux, D., Perez, B., Moreno, A., Pilar Villamil, M., , Figueroa, C.: Tax fraud
+detection for underreporting declarations using an unsupervised machine learning
+approach. In: 24th ACM SIGKDD Conference on Knowledge Discovery and Data
+Mining (KDD2018), pp. 215–222 (2018)
+[25] Matos, T., Macedo, J.A.F., Monteiro, J.M.: An empirical method for discovering
+28
+tax fraudsters: A real case study of brazilian fiscal evasion. In: 19th International
+Database Engineering and Applications Symposium (IDEAS 2015), pp. 41–48
+(2015)
+[26] Gonzalez, P., Velasquez, J.: Characterization and detection of taxpayers with
+false invoices using data mining techniques. Expert Systems with Applications
+40, 1427–1436 (2013)
+[27] Wu, R.-S., Ou, C., Lin, H.-Y., Chang, S.-I., Yen, D.: Using data mining technique
+to enhance tax evasion detection performance. Expert Systems with Applications
+39, 8769–8777 (2012)
+[28] Zhang, J., Lou, M., Ling, T.W., Wang, H.: HOS-miner: A system for detecting
+outlying subspaces of high-dimensional data. In: VLDB, pp. 1265–1268 (2004)
+[29] Samariya, D., Ma, J., Aryal, S.: A comprehensive survey on outlying aspect
+mining methods. arXiv preprint arXiv:2005.02637 (2020)
+[30] Duan, L., Tang, G., Pei, J., Bailey, J., Campbell, A., Tang, C.: Mining outlying
+aspects on numeric data. Data Mining and Knowledge Discovery 29(5), 1116–
+1151 (2015)
+[31] Vinh, N.X., Chan, J., Romano, S., Bailey, J., Leckie, C., Ramamohanarao, K., Pei,
+J.: Discovering outlying aspects in large datasets. Data Mining and Knowledge
+Discovery 30(6), 1520–1555 (2016)
+[32] Vinh, N.X., Chan, J., Bailey, J., Leckie, C., Ramamohanarao, K., Pei, J.: Scalable
+outlying-inlying aspects discovery via feature ranking. In: PAKDD, pp. 422–434
+(2015). Springer
+[33] Dang, X.H., Assent, I., Ng, R.T., Zimek, A., Schubert, E.: Discriminative features
+for identifying and interpreting outliers. In: International Conference on Data
+Engineering, pp. 88–99 (2014). IEEE
+[34] Angiulli, F., Fassetti, F., Manco, G., Palopoli, L.: Outlying property detection
+with numerical attributes. Data Mining and Knowledge Discovery 31(1), 134–163
+(2017)
+[35] Zhang, X., Marwah, M., Lee, I.-t., Arlitt, M., Goldwasser, D.: Ace–an anomaly
+contribution explainer for cyber-security applications. In: International Confer-
+ence on Big Data, pp. 1991–2000 (2019). IEEE
+[36] Siddiqui, M.A., Fern, A., Dietterich, T.G., Wong, W.-K.: Sequential feature expla-
+nations for anomaly detection. ACM Transactions on Knowledge Discovery in
+Databases 13(1), 1–22 (2019)
+[37] Kopp, M., Pevn`y, T., Holeˇna, M.: Anomaly explanation with random forests.
+29
+Expert Systems with Applications 149, 113187 (2020)
+[38] Gupta, N., Eswaran, D., Shah, N., Akoglu, L., Faloutsos, C.: Beyond outlier
+detection: Lookout for pictorial explanation. In: ECML-PKDD, pp. 122–138
+(2018)
+[39] Samek, W., Binder, A., Montavon, G., Lapuschkin, S., M¨uller, K.-R.: Evaluating
+the visualization of what a deep neural network has learned. Transactions on
+Neural Networks and Learning Systems 28(11), 2660–2673 (2016)
+[40] Yadav, A., Jha, C., Sharan, A., Vaish, V.: Sentiment analysis of financial news
+using unsupervised and supervised approach. In: International Conference on
+Pattern Recognition and Machine Intelligence, pp. 311–319 (2019). Springer
+[41] Patil, S., Palshikar, G.K.: Surveycoder: A system for classification of survey
+responses. In: M´etais, E., Meziane, F., Saraee, M., Sugumaran, V., Vadera,
+S. (eds.) Proc. of Natural Language Processing and Information Systems, pp.
+417–420. Springer, ??? (2013)
+[42] Patil, S., Ravindran, B.: Active learning based weak supervision for textual survey
+response classification. In: International Conference on Intelligent Text Processing
+and Computational Linguistics, pp. 309–320 (2015)
+[43] Devine, P., Blincoe, K.: Unsupervised extreme multi label classification of stack
+overflow posts. In: 2022 IEEE/ACM 1st International Workshop on Natural
+Language-Based Software Engineering (NLBSE), pp. 1–8 (2022)
+[44] Loukas, L., Fergadiotis, M., Chalkidis, I., Spyropoulou, E., Malakasiotis, P.,
+Androutsopoulos, I., Paliouras, G.: FiNER: Financial numeric entity recognition
+for XBRL tagging. arXiv preprint arXiv:2203.06482 (2022)
+[45] Reimers, N., Gurevych, I.: Sentence-bert: Sentence embeddings using siamese
+bert-networks. In: Proceedings of the 2019 Conference on Empirical Methods
+in Natural Language Processing. Association for Computational Linguistics, ???
+(2019). https://arxiv.org/abs/1908.10084
+[46] Zhao, Y., Nasrullah, Z., Li, Z.: PyOD: A python toolbox for scalable outlier
+detection. Journal of Machine Learning Research 20, 1–7 (2019)
+[47] Tang, J., Chen, Z., Fu, A.W.-c., Cheung, D.: A robust outlier detection scheme
+for large data sets. In: 6th Pacific-Asia Conf. on Knowledge Discovery and Data
+Mining (PAKDD 2001), pp. 6–8 (2001)
+[48] Zhong, S.-H., Wang, Y., Ren, T., Zheng, M., Liu, Y., Wu, G.: Steganographer
+detection via multi-scale embedding probability estimation. ACM Transactions
+on Multimedia Computing, Communications, and Applications (TOMM) 15(4),
+1–23 (2019)
+30
+[49] Goldstein, M., Dengel, A.: Histogram-based outlier score (hbos): A fast unsu-
+pervised anomaly detection algorithm. KI-2012: poster and demo track 1, 59–63
+(2012)
+[50] scikit-learn:
+Random
+Forest
+Regression.
+Accessed
+on
+May
+17,
+2025
+(2025).
+https://scikit-learn.org/stable/modules/generated/sklearn.ensemble.
+RandomForestRegressor.html
+[51] Tchaghe, V.Y., Smits, G., Pivert, O.: Anomaly explanation: A review. Data &
+Knowledge Engineering 137, 101946 (2022)
+[52] Samariya, D., Ma, J.a.: A new dimensionality-unbiased score for efficient and
+effective outlying aspect mining. Data Science and Engineering 7, 120–135 (2022)
+[53] L¨udtke, S., Bartelt, C., Stuckenschmidt, H.: Outlying aspect mining via sum-
+product networks. In: 27th Pacific-Asia Conference on Knowledge Discovery and
+Data Mining (PAKDD2023) - Part I, pp. 27–38 (2023)
+[54] Dempster, A.P.: A generalization of bayesian inference. Journal of the Royal
+Statistical Society: Series B 30, 205–247 (1968)
+[55] Liu, F.T., Ting, K.M., Zhou, Z.-H.: Isolation forest. In: 8th ICDM, pp. 413–422
+(2008). IEEE
+[56] Kuhn, H.W., Tucker, A.W.: Contributions to the Theory of Games vol. 28.
+Princeton University Press, ??? (1953)
+[57] Ribeiro, M.T., Singh, S., Guestrin, C.: ” why should i trust you?” explaining the
+predictions of any classifier. In: Proceedings of the 22nd ACM SIGKDD Inter-
+national Conference on Knowledge Discovery and Data Mining, pp. 1135–1144
+(2016)
+31

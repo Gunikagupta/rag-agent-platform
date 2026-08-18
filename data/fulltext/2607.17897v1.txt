@@ -1,0 +1,1543 @@
+Distributional Soft Bellman Operator under the Cram´er Geometry
+Keru Wang1
+KERU.WANG@UCDCONNECT.IE
+Yixin Deng1
+YIXIN.DENG@UCDCONNECT.IE
+Yao Lyu2
+LVYAO@MAIL.TSINGHUA.EDU.CN
+Stephen Redmond1*
+STEPHEN.REDMOND@UCD.IE
+Shengbo Eben Li2,3*
+LISHBO@TSINGHUA.EDU.CN
+1School of Electrical and Electronic Engineering, University College Dublin, Dublin, Ireland
+2School of Vehicle and Mobility, Tsinghua University, Beijing, China
+3College of Artificial Intelligence, Tsinghua University, Beijing, China
+Abstract
+Distributional soft policy iteration (DSPI) provides an important framework for combining distribu-
+tional reinforcement learning (DRL) with maximum-entropy control, in which the policy evaluation
+step is governed by a distributional soft Bellman operator acting on entropy-regularised returns. Theo-
+retical analysis of such an evaluation step requires a probability metric under which Bellman updates can
+be controlled, typically by showing that the operator contracts the distance between any two candidate
+return-distribution estimates. In this paper, we focus on the Cram´er geometry, a cumulative distribution
+function (CDF)-based metric with an L2 structure, and study whether the fixed-policy distributional soft
+Bellman operator has this contraction property and hence a unique fixed point under this metric. Work-
+ing directly on an admissible CDF field domain, we formulate the CDF-level distributional soft Bellman
+operator, prove that it is a √γ-contraction, and obtain the corresponding unique fixed point together with
+convergent iterative policy evaluation. The CDF formulation also shows that this finite-Cram´er-domain
+property follows from a uniform first-moment condition on the combined one-step reward entropy shift,
+rather than from separate uniform boundedness assumptions on the reward and entropy terms. We then
+transport the same evaluation problem to the spectral domain by conjugation, obtaining an equivalent
+Hilbert-space representation of the same decision process. Taken together, these results identify the
+Cram´er-geometric Bellman fixed point associated with the policy-evaluation step of DSPI, providing a
+reference point for studying approximate critics, evaluation error, and critic-loss design in DSPI-style
+algorithms.
+Keywords: Distributional Reinforcement Learning; Distributional Soft Bellman Operator; Cram´er Met-
+ric; Spectral Realisation; Distributional Soft Policy Iteration.
+1. Introduction
+Distributional reinforcement learning (DRL) (Bellemare et al., 2017, 2023) studies Bellman updates at
+the level of return distributions rather than only expectations. In the policy evaluation setting (Bellemare
+et al., 2017, 2023; Rowland et al., 2018), contraction-based analysis depends on the probability metric
+used to compare return distributions (Rowland et al., 2018; Lyle et al., 2019; Rowland et al., 2019). In
+this work, we focus on the Cram´er metric (Sz´ekely, 2003; Rizzo and Szekely, 2016; Lyle et al., 2019), a
+cumulative distribution function (CDF)-based metric under which distances between return distributions
+are expressed as L2 distances between CDFs. Recent work (Wang et al., 2026) has further shown that,
+for standard, non-soft distributional policy evaluation under the Cram´er geometry, the same evaluation
+problem admits an equivalent spectral Hilbert-space representation. Thus, under the Cram´er geometry,
+standard distributional policy evaluation can be understood equivalently at the distributional, CDF, and
+spectral levels.
+A parallel line of work studies maximum-entropy reinforcement learning (RL) (Todorov, 2006,
+2009; Toussaint, 2009; Rawlik et al., 2013; Neu et al., 2017; Geist et al., 2019; Haarnoja et al., 2017,
+2019a, 2018, 2019b), where entropy regularisation modifies the Bellman recursion and leads to the soft
+* Corresponding authors.
+© K. Wang, Y. Deng, Y. Lyu, S. Redmond & S.E. Li.
+arXiv:2607.17897v1  [cs.LG]  20 Jul 2026
+WANG DENG LYU REDMOND LI
+Bellman framework underlying soft policy iteration. Combining this viewpoint with DRL yields distri-
+butional soft policy iteration (DSPI) and related algorithmic formulations (Duan et al., 2022; Ma et al.,
+2025; Duan et al., 2025), in which one evaluates entropy-regularised return distributions rather than only
+their expectations. In some practical DSPI or distributional soft actor-critic (DSAC) style algorithms,
+policy evaluation is implemented by fitting a parameterised distributional critic to a bootstrapped Bell-
+man target distribution, often through a tractable distribution-matching loss such as a KL divergence.
+This choice is algorithmically convenient, especially for parametric critic families where the loss can
+be estimated or optimised directly from samples. However, tractability of the critic loss does not by
+itself imply that the associated Bellman evaluation step is non-expansive or contractive under the same
+geometry, so errors in the bootstrapped target may be propagated or amplified rather than systematically
+reduced by repeated critic updates. Although such methods have achieved strong empirical perfor-
+mance, DSAC has also been reported to suffer from instability in challenging high-dimensional control
+tasks (Duan et al., 2022); while such behaviour may have multiple algorithmic causes, the absence of
+a contraction guarantee for the underlying bootstrapped evaluation step is a natural theoretical issue to
+examine. Subsequent refinements, such as DSAC-T, introduce more sophisticated training mechanisms
+to improve empirical stability (Duan et al., 2025); however, these refinements do not by themselves
+guarantee that the underlying distributional soft Bellman evaluation step is contractive. Without such
+an evaluation-level guarantee, it is difficult to explain theoretically why iterative critic updates should
+converge to the policy’s entropy-regularised return distribution, which is a prerequisite for analysing
+the subsequent policy improvement step. The Cram´er geometry is a useful candidate for analysing the
+Bellman evaluation step because its CDF-L2 structure turns the distributional Bellman update into a
+shift-and-rescale operation on CDFs, for which the discount rescaling yields a direct contraction es-
+timate, while Its connection with the energy distance also suggests a practical sample-based way to
+estimate Cram´er-type critic losses, avoiding the need to compute the Cram´er distance through an ex-
+plicit CDF integral and making such losses more readily implementable in DRL algorithms. Motivated
+by these considerations, this paper takes a fixed-policy evaluation perspective and studies whether the
+distributional soft Bellman operator admits a contraction and fixed-point theory under the Cram´er ge-
+ometry.
+This paper studies the policy evaluation component of DSPI under the Cram´er geometry. At the
+CDF level, the soft Bellman update can be written as a shifted and rescaled operator on CDF fields,
+while the Cram´er metric is measured by the L2 distance between those CDFs. This metric-compatible
+formulation yields a direct proof of the √γ-contraction. It also makes explicit the condition needed
+for the entropy-regularised Bellman target to remain in the finite-Cram´er-distance domain: a uniform
+first-moment condition on the combined one-step soft shift, rather than separate uniform boundedness
+assumptions on the reward and entropy terms (Geist et al., 2019; Haarnoja et al., 2018; Duan et al.,
+2022). Building on this CDF-level formulation, we then transport the same evaluation problem to the
+spectral domain by conjugation (Conway, 2007), obtaining an equivalent Hilbert-space representation
+of the same dynamics.
+Our contributions are as follows.
+• We formulate the distributional soft Bellman operator directly at the CDF level on an admissible
+CDF field domain associated with the Cram´er geometry, and show that this formulation is consistent
+with the underlying distribution-level soft Bellman recursion.
+• We prove a √γ-contraction and the resulting fixed-point and convergence guarantees for the CDF-
+level distributional soft Bellman operator, with domain preservation ensured by a first-moment
+condition on the combined one-step reward-entropy shift rather than by separate uniform bounded-
+ness assumptions on the reward and entropy terms (Geist et al., 2019; Haarnoja et al., 2018; Duan
+et al., 2022).
+• We transport the same evaluation problem to the spectral domain by conjugation, obtaining an exact
+Hilbert-space realisation of the CDF-level dynamics. This provides an equivalent spectral repre-
+2
+DISTRIBUTIONAL SOFT BELLMAN OPERATOR UNDER THE CRAM´ER GEOMETRY
+sentation of the same soft evaluation problem and identifies the exact Cram´er-geometric Bellman
+target that the policy-evaluation step of DSPI would attempt to estimate.
+The remainder of the paper is organised as follows. Section 2 positions the paper relative to the
+relevant literature. Section 3 introduces the probabilistic setup, the CDF field domain, and the spectral
+transport used later. Section 4 develops the CDF-level formulation and soft policy evaluation theory
+of the distributional soft Bellman operator under the Cram´er geometry. Section 5 gives the spectral
+realisation of the same dynamics. Section 6 explains how the resulting evaluation theory fits into the
+broader framework of DSPI. Section 7 discusses the scope of the analysis and possible extensions to
+projected or approximate soft distributional critics, and Section 8 concludes.
+2. Related work
+In DRL, early work already studied return distributions through non-parametric and parametric return-
+density estimation (Morimura et al., 2010, 2012). Later work developed both practical approximations
+(Bellemare et al., 2019; Killingberg and Langseth, 2023) and algorithms (Dabney et al., 2018b,a; Yang
+et al., 2020; Tessler et al., 2019; Barth-Maron et al., 2018; Nguyen-Tang et al., 2021; Luo et al., 2022;
+Wenliang et al., 2024) for distributional value learning, together with theoretical analyses (Lyle et al.,
+2019; Rowland et al., 2019) under several probability metrics (for comparing different probability laws),
+including Wasserstein distances (Villani, 2009; Sun et al., 2024) and CDF-based Lp metrics (Hirsch
+and Lacombe, 1999). Among these, the Cram´er metric is the distinguished L2 case and is naturally
+expressed at the level of cumulative distribution functions. Recent work (Wang et al., 2026) has further
+emphasised the CDF domain itself as the intrinsic analytical setting for Bellman dynamics under the
+Cram´er geometry, and established an exact spectral realisation of the corresponding evaluation problem
+in the non-soft setting.
+In maximum-entropy RL, the optimisation objective is augmented by policy entropy, with roots in
+entropy-regularised control and inference-based formulations (Ziebart et al., 2008; Todorov, 2006, 2009;
+Toussaint, 2009; Rawlik et al., 2013). This line of work yields the soft Bellman framework (Haarnoja
+et al., 2017; Neu et al., 2017; Geist et al., 2019; Haarnoja et al., 2018, 2019b), and underlies modern
+deep maximum-entropy methods for continuous control (Haarnoja et al., 2019a, 2018, 2019b). Existing
+analyses in this setting, however, are developed mainly at the scalar level of soft value or action-value
+functions, where the focus is on the expectation of the entropy-regularised return rather than on its full
+distribution.
+These two lines of work meet in distributional formulations of soft policy iteration and related al-
+gorithm design (Duan et al., 2022; Ma et al., 2025; Duan et al., 2025), where one models entropy-
+regularised returns rather than only their expectations. This leads to the fixed-policy evaluation problem
+for the distributional soft Bellman operator. Under the Cram´er metric, distances between return distribu-
+tions are L2 distances between their CDFs. When the distributional soft Bellman update is written at this
+CDF level, the discount factor acts by rescaling the CDF argument, while the reward and entropy terms
+enter as a combined random shift. The former gives the √γ-contraction estimate, and the latter deter-
+mines the condition needed for the update to remain in the finite-Cram´er-distance domain. Moreover,
+at this level of analysis, this domain condition can be stated as a first-moment bound on the combined
+one-step soft shift, rather than separate uniform boundedness assumptions on the reward and entropy
+terms often used in maximum entropy RL analyses (Geist et al., 2019; Haarnoja et al., 2018; Duan et al.,
+2022). The present paper develops this CDF-level and spectral evaluation theory, and thereby identifies
+the exact Cram´er-geometric Bellman fixed point associated with the policy evaluation step of DSPI.
+3. Preliminaries and analytical setup
+This section introduces the probabilistic objects used in soft policy evaluation, specifies the CDF field
+domain used in the subsequent analysis, and recalls the CDF-to-spectral transport (Wang et al., 2026)
+needed later.
+3
+WANG DENG LYU REDMOND LI
+3.1. Basic setup for soft policy evaluation
+Consider a discounted Markov decision process (MDP) (Li, 2023; Sutton and Barto, 2018) ⟨S, A, P, R, γ⟩,
+where S and A are the state and action spaces, P(· | s, a) is the transition kernel on S given (s, a) ∈
+S × A, R : S × A × S →R is the reward function, and γ ∈(0, 1) is the discount factor. A trajectory
+is a stochastic process {St, At, Rt}t≥0 such that St+1 ∼P(· | St, At), Rt = R(St, At, St+1).
+Throughout the paper, π denotes a fixed stationary policy, where π(· | s) is a probability distribution
+on A for each state s ∈S. For each (s, a) ∈S ×A, let s′ denote the next state sampled from P(· | s, a),
+and then let a′ denote the next action, if a′ ∼π(· | s′), we write (s′, a′) ∼Pπ(· | s, a) for this joint
+sampling scheme. The corresponding one-step reward random variable is denoted by R(s, a), that is,
+R(s, a) has the distribution induced by R(s, a, s′) when the next state s′ is generated from P(· | s, a).
+In the maximum-entropy setting, the return is augmented by discounted entropy terms. For t ≥0,
+define the soft return by
+Zπ
+t := Rt +
+∞
+X
+k=1
+γk[Rt+k −α log π(At+k | St+k)],
+(1)
+where α > 0 is the entropy-regularisation coefficient. For (s, a) ∈S × A, we then define
+Zπ(s, a) := Zπ
+t conditioned on (St, At) = (s, a).
+(2)
+Under the time-homogeneous dynamics induced by the stationary policy π, the conditional law above
+does not depend on the choice of t, so the notation Zπ(s, a) is well defined. By separating the first
+reward term in (1), one obtains the Bellman equation
+Zπ(s, a) = R(s, a) + γ
+ Zπ(s′, a′) −α log π(a′ | s′)
+
+,
+(s′, a′) ∼Pπ(· | s, a).
+(3)
+A return-distribution field (Bellemare et al., 2017, 2023) is a mapping Z : S × A →P(R), where
+P(R) denotes the set of probability laws on R. Thus, for each (s, a) ∈S × A, Z(s, a) is a probability
+law on R. The distributional soft Bellman operator T π
+DS acts on return-distribution fields by
+(T π
+DSZ)(s, a) := Law
+ R(s, a) + γ
+ Z′ −α log π(a′ | s′)
+
+,
+(4)
+where (s′, a′) ∼Pπ(· | s, a) and, conditionally on (s′, a′), the random variable Z′ has law Z(s′, a′),
+i.e. Law(Z′) = Z(s′, a′), equivalently Z′ ∼Z(s′, a′). Accordingly, the family of soft return ran-
+dom variables {Zπ(s, a)}(s,a)∈S×A induces the return-distribution field Zπ : S × A →P(R), where
+Zπ(s, a) := Law
+ Zπ(s, a)
+
+. Taking laws on both sides of (3) yields the fixed-point relation Zπ =
+T π
+DSZπ.
+When the first moment is finite, the soft return also induces the corresponding soft action-value
+function Qπ(s, a) := E
+
+Zπ(s, a)
+
+. The corresponding expectation-level soft Bellman operator T π
+S acts
+on action-value functions Q : S × A →R by
+(T π
+S Q)(s, a) := Er∼R(s,a), (s′,a′)∼Pπ(·|s,a)
+h
+r + γ
+ Q(s′, a′) −α log π(a′ | s′)
+i
+.
+(5)
+By taking expectations in (3), one likewise obtains the fixed-point relation Qπ = T π
+S Qπ.
+3.2. CDF field domain
+We now pass from return-distribution fields to their CDF representations, since the Cram´er geom-
+etry is expressed directly in terms of CDF. For a probability law P on R, let FP denote its CDF
+(Rohatgi et al., 2001). The Cram´er distance between probability laws P1 and P2 is dC(P1, P2) :=
+R
+R
+ FP1(x) −FP2(x)
+2 dx
+1/2
+. Let δ0 denote the Dirac law at 0. We define the finite-Cram´er CDF
+domain by
+ΓF := {FP : FP is a CDF and dC(P, δ0) < ∞} .
+(6)
+4
+DISTRIBUTIONAL SOFT BELLMAN OPERATOR UNDER THE CRAM´ER GEOMETRY
+Thus ΓF consists of those CDFs whose underlying laws have finite Cram´er distance to δ0.
+Given a return-distribution field Z : S × A →P(R) such that FZ(s,a) ∈ΓF for every (s, a) ∈
+S × A, define its associated CDF field pointwise by FZ(s, a)(x) := FZ(s,a)(x). The admissible CDF
+field domain is then
+X cdf :=
+(
+FZ
+ FZ(s,a) ∈ΓF for all (s, a) ∈S × A,
+sup
+(s,a)∈S×A
+dC
+ Z(s, a), δ0
+
+< ∞
+)
+.
+(7)
+Thus X cdf consists of state-action indexed CDF fields whose pointwise laws lie in the finite-Cram´er
+class, with a uniform finite-Cram´er bound over S × A.
+For FZ1, FZ2 ∈X cdf, define
+dCr(FZ1, FZ2) :=
+sup
+(s,a)∈S×A
+Z
+R
+ FZ1(s, a)(x) −FZ2(s, a)(x)
+2 dx
+1/2
+.
+(8)
+This is the state-action supremum of the pointwise Cram´er distances between the corresponding return
+laws.
+For comparison with the non-soft setting, note that taking α = 0 in (1), (3), and (4) recovers
+the standard distributional Bellman recursion. The corresponding CDF-level update is then given by
+Er∼R(s,a), (s′,a′)∼Pπ(·|s,a)[FZ(s′, a′)(x−r
+γ )]. The soft CDF-level operator introduced later is the entropy-
+regularised counterpart of this update.
+3.3. Spectral transport
+We next introduce the spectral domain objects associated with the CDF field domain. The construction
+is based on the same finite-Cram´er setting as above: raw CDFs are taken from ΓF , and CDF fields are
+taken from X cdf. Fix ϵ > 0. Throughout this subsection, the notationb· denotes the symmetric unitary
+Fourier transform (Stade, 2005; Kreyszig, 1989) on R, namely bf(ω) :=
+1
+√
+2π
+R
+R f(x)e−iωx dx.
+Let Fδ0(x) = 1{x ≥0} denote the CDF of the Dirac law at 0, and define the centring map C(F) :=
+F −Fδ0. Thus the spectral construction acts on centred CDFs rather than on raw CDFs directly. For the
+fixed ϵ > 0, define
+the centred CDF Hilbert space Hcdf
+ϵ
+:=
+n
+H | ∥H∥2
+Hcdf
+ϵ
+=
+R
+R
+ω2
+ω2+ϵ| bH(ω)|2 dω < ∞
+o
+, and the
+regularised spectral Hilbert space Hϵ :=
+n
+f | ∥f∥2
+Hϵ =
+1
+2π
+R
+R
+| bf(ω)|2
+ω2+ϵ dω < ∞
+o
+. For F ∈ΓF , the
+centred CDF C(F) belongs to Hcdf
+ϵ
+, this follows from the corresponding result in the construction in
+(Wang et al., 2026). Define the map U : Hcdf
+ϵ
+→Hϵ through its Fourier transform by
+\
+(UH)(ω) := −
+√
+2π iω bH(ω).
+(9)
+Here bH(ω) denotes the complex conjugate of bH(ω). This convention agrees with the standard Cram´er
+spectral construction and sends centred CDFs to their associated spectral objects.
+The raw-to-spectral map is then defined by V := U ◦C. Hence V is defined on ΓF , maps ΓF into
+Hϵ, and acts on a raw CDF by first centring it and then applying U. Its inverse is well defined on its
+range. Applying V pointwise to CDF fields yields the lifted map
+ VFZ
+
+(s, a) := V
+ FZ(s, a)
+
+,
+FZ ∈X cdf.
+(10)
+The corresponding spectral field domain is X spec :=
+n
+ν : S × A →Hϵ
+|
+∥ν∥∞,ϵ < ∞
+o
+for
+measurable ν, equipped with the supremum norm ∥ν∥∞,ϵ := sup(s,a)∈S×A ∥ν(s, a)∥Hϵ. We then define
+the admissible spectral domain by
+X adm := range(V) ⊂X spec.
+(11)
+The inverse lifted map is well defined on X adm by pointwise application of V−1. Thus V maps CDF
+fields in X cdf into X adm, and V−1 recovers the corresponding CDF field on this domain.
+5
+WANG DENG LYU REDMOND LI
+4. CDF-level formulation and soft policy evaluation
+We now develop the policy evaluation theory of the distributional soft Bellman operator on the CDF field
+domain. We begin by formulating its action directly at the CDF level, and then use this formulation to
+establish the main evaluation results under the Cram´er metric, including well-definedness, contraction,
+fixed-point existence and uniqueness, and convergence of the associated policy-evaluation iterates.
+4.1. The distributional soft Bellman operator at the CDF level
+We now formulate the distributional soft Bellman operator directly on the CDF field domain, starting
+from the distribution-level recursion (4). Since the CDF-level update involves both an affine shift and
+averaging over successor state-action pairs, we first record the assumptions needed to ensure that the
+induced operator is well defined on X cdf.
+Assumption 1 (Soft policy admissibility)
+For each s ∈S, if a ∼π(· | s), then log π(a | s) is well
+defined almost surely. Moreover,
+sup
+(s,a)∈S×A
+Er∼R(s,a), (s′,a′)∼Pπ(·|s,a)
+
+| r −γα log π(a′ | s′) |
+
+< ∞.
+(12)
+Finally, for every FZ ∈X cdf and x ∈R, the map
+(s, a) 7→Er∼R(s,a), (s′,a′)∼Pπ(·|s,a)
+"
+FZ(s′, a′)
+x −r
+γ
++ α log π(a′ | s′)
+#
+(13)
+is measurable.
+The central quantitative part of Assumption 1 is the uniform first-moment condition in (12), which
+controls the one-step soft shift r −γα log π(a′ | s′).
+Remark 2 (On the strength of Assumption 1) The requirement in (12) controls the first absolute mo-
+ment of the one-step soft shift r −γα log π(a′ | s′). In particular, it is implied by stronger boundedness-
+style conditions used in related entropy-regularised RL analyses, such as uniformly bounded rewards
+together with uniformly bounded entropy terms, or finite-action assumptions ensuring bounded entropy-
+augmented rewards (Geist et al., 2019; Haarnoja et al., 2018; Duan et al., 2022), but does not require
+either quantity to be almost surely bounded on its own. In this sense, Assumption 1 isolates the level of
+regularity actually needed for the CDF-level domain-preservation argument under the Cram´er geome-
+try.
+For the policy-induced soft return field itself, we additionally assume that its CDF representation
+lies in the admissible domain.
+Assumption 3 (Admissible soft return CDF field) For the fixed policy π, the policy-induced soft return-
+distribution field Zπ satisfies FZπ ∈X cdf.
+Under Assumption 1, the distribution-level soft Bellman recursion induces the following operator
+on CDF fields.
+Definition 4 (CDF-level distributional soft Bellman operator) Suppose Assumption 1 holds. For FZ ∈
+X cdf, define
+(T π
+cdfFZ)(s, a)(x) := Er∼R(s,a), (s′,a′)∼Pπ(·|s,a)
+"
+FZ(s′,a′)
+x −r
+γ
++ α log π(a′ | s′)
+#
+.
+(14)
+6
+DISTRIBUTIONAL SOFT BELLMAN OPERATOR UNDER THE CRAM´ER GEOMETRY
+Relative to the non-soft CDF-level Bellman update, the only change is the additional shift α log π(a′ |
+s′) in the successor argument.
+We first verify that this operator preserves the CDF field domain.
+Proposition 5 (The CDF-level soft Bellman operator preserves the CDF field domain) Suppose As-
+sumption 1 holds. Then T π
+cdf : X cdf →X cdf.
+Proof [Proof sketch] For each FZ ∈X cdf, the map in (14) is obtained by averaging successor CDFs
+after an affine change of variable with positive slope 1/γ. It therefore remains a CDF. The uniform
+finite-Cram´er bound in X cdf, together with Assumption 1, yields preservation of finite Cram´er distance
+to δ0, while the required measurability is included in the same assumption. Hence T π
+cdfFZ ∈X cdf. A
+full proof is given in Appendix A.1.
+We next relate T π
+cdf to the distribution-level soft Bellman operator.
+Proposition 6 (Consistency with the distribution-level soft Bellman operator)
+Let Z be a return-
+distribution field such that FZ ∈X cdf. Then FT π
+DSZ = T π
+cdfFZ.
+Proof [Proof sketch] Evaluate the CDF of (T π
+DSZ)(s, a) at x, condition on (s′, a′) ∼Pπ(· | s, a), and
+identify the resulting conditional probability with the successor CDF FZ(s′, a′). This yields (14), and
+hence FT π
+DSZ = T π
+cdfFZ. A full proof is given in Appendix A.2.
+As an immediate consequence, any distribution-level fixed point induces a corresponding CDF-level
+fixed point.
+Corollary 7 (Fixed-point correspondence)
+Let Zπ be a return-distribution field such that FZπ ∈
+X cdf under Assumption 3. If T π
+DSZπ = Zπ, then T π
+cdfFZπ = FZπ.
+Proof This follows immediately from Proposition 6, since T π
+cdfFZπ = FT π
+DSZπ = FZπ.
+This identifies the CDF-level operator as the appropriate formulation of the distribution-level soft
+Bellman recursion on X cdf. We next turn to the corresponding policy evaluation problem under the
+Cram´er metric.
+4.2. Distributional soft policy evaluation
+Having established the CDF-level formulation of the soft Bellman operator, we now turn to the cor-
+responding soft policy evaluation problem under the Cram´er metric. Since T π
+cdf gives the CDF-level
+representation of the underlying distributional soft Bellman dynamics, the analysis may be carried out
+directly on X cdf.
+The key observation is that the soft Bellman action remains contractive under the Cram´er metric,
+with the same factor √γ as in the standard distributional policy evaluation setting.
+Theorem 8 (Cram´er contraction of the distributional soft Bellman operator) Suppose Assumption 1
+holds. Then T π
+cdf is a √γ-contraction on (X cdf, dCr). More precisely, for any FZ1, FZ2 ∈X cdf,
+dCr
+ T π
+cdfFZ1, T π
+cdfFZ2
+
+≤√γ dCr(FZ1, FZ2).
+Proof [Proof sketch] For each (s, a), the difference of the two updated CDFs is the expectation of
+the shifted successor CDF difference. Applying Jensen’s inequality (Jensen, 1906) and the change of
+variable y = (x−r)/γ +α log π(a′ | s′) gives a factor γ at the level of squared Cram´er distance. Taking
+the supremum over (s, a) and then square roots yields dCr
+ T π
+cdfFZ1, T π
+cdfFZ2
+
+≤√γ dCr(FZ1, FZ2). A
+full proof is given in Appendix A.3.
+To pass from contraction to soft policy evaluation, we invoke the completeness (Rudin et al., 1979)
+of the ambient CDF field space.
+7
+WANG DENG LYU REDMOND LI
+Lemma 9 (Complete CDF field space (Wang et al., 2026)) The metric space (X cdf, dCr) is complete.
+Combining Theorem 8 with Proposition 5 and Lemma 9 yields the existence and uniqueness of the
+fixed point for distributional soft evaluation.
+Proposition 10 (Unique fixed point for distributional soft policy evaluation) Suppose Assumption 1
+holds. Then T π
+cdf admits a unique fixed point F ⋆∈X cdf such that T π
+cdfF ⋆= F ⋆.
+Proof By Proposition 5, T π
+cdf is a self-map on X cdf. By Theorem 8, it is a contraction on (X cdf, dCr).
+The claim follows from Lemma 9 and the Banach fixed-point theorem (Ciesielski, 2007).
+Proposition 10 should be distinguished from Corollary 7. The proposition gives the abstract ex-
+istence and uniqueness of a fixed point F ⋆for T π
+cdf on X cdf, whereas the corollary shows that any
+distribution-level fixed point is represented faithfully at the CDF level. Under Assumption 3, the policy-
+induced field FZπ is such a CDF-level fixed point, and uniqueness therefore yields FZπ = F ⋆. Thus the
+abstract fixed point obtained above is precisely the CDF representation of the policy-induced soft return
+field.
+The fixed-point characterisation immediately yields convergence of the associated policy evaluation
+iterates.
+Corollary 11 (Convergence of soft policy evaluation iterates)
+Suppose Assumption 1–3 holds, and
+let FZ0 ∈X cdf be arbitrary. Define the sequence {FZk}k≥0 ⊂X cdf by FZk+1 = T π
+cdfFZk. Then
+FZk →FZπ in (X cdf, dCr), where FZπ is the unique fixed point from Proposition 10. More precisely,
+for every k ≥0, dCr(FZk, FZπ) ≤(√γ)k dCr(FZ0, FZπ).
+Proof Applying Theorem 8 to FZk and FZπ yields dCr
+ T π
+cdfFZk, T π
+cdfFZπ
+≤√γ dCr(FZk, FZπ).
+Since FZπ is a fixed point and FZk+1 = T π
+cdfFZk, this becomes dCr(FZk+1, FZπ) ≤√γ dCr(FZk, FZπ).
+Iterating the inequality proves dCr(FZk, FZπ) ≤(√γ)k dCr(FZ0, FZπ), hence FZk →FZπ.
+These results show that distributional soft policy evaluation is well posed on the admissible CDF
+field domain. In particular, the CDF-level distributional soft Bellman operator admits a unique fixed
+point and generates convergent policy evaluation iterates under the Cram´er metric. This completes the
+distributional soft policy evaluation theory at the CDF level.
+5. Spectral form of the distributional soft Bellman dynamics
+We now transfer the CDF-level formulation to the spectral domain. Since V is already defined on
+the admissible CDF field domain in (10), the spectral soft Bellman operator is obtained from T π
+cdf by
+conjugation (Conway, 2007). The resulting spectral formulation therefore represents exactly the same
+soft policy evaluation dynamics as at the CDF level.
+Definition 12 (Spectral distributional soft Bellman operator) Define the spectral distributional soft
+Bellman operator on X adm by T π := V T π
+cdf V−1.
+Since X adm = range(V) as in (11), the map V : X cdf →X adm is bijective. Together with
+Proposition 5, this shows that T π : X adm →X adm is a well-defined self-map.
+The same conjugation also transports the Cram´er geometry from the CDF field domain to the spectral
+domain. In particular, X adm may be equipped with the induced metric
+edCr(ν1, ν2) := dCr(V−1ν1, V−1ν2),
+ν1, ν2 ∈X adm.
+(15)
+Thus the spectral formulation represents not only the same evaluation dynamics, but also the same
+evaluation geometry under transport by V. The first point to verify is that the spectral soft Bellman
+dynamics are exactly the transported image of the CDF-level dynamics.
+8
+DISTRIBUTIONAL SOFT BELLMAN OPERATOR UNDER THE CRAM´ER GEOMETRY
+Proposition 13 (Transported soft Bellman dynamics) For every FZ ∈X cdf,
+V
+ T π
+cdfFZ
+
+= T π VFZ
+
+.
+(16)
+Proof Let FZ ∈X cdf. By Definition 12, T π VFZ
+
+= V T π
+cdf V−1 VFZ
+
+= V
+ T π
+cdfFZ
+
+, which proves
+(16).
+The above proposition immediately induce the corresponding spectral fixed-point relation.
+Corollary 14 (Spectral fixed-point correspondence) Suppose Assumption 1–3 holds, and let FZπ ∈
+X cdf be the unique fixed point of T π
+cdf from Proposition 10. Then νπ := VFZπ ∈X adm is the unique
+fixed point of T π on X adm, that is, T πνπ = νπ.
+Proof Since FZπ satisfies T π
+cdfFZπ = FZπ, applying V to both sides and using Definition 12 gives
+T π(VFZπ) = V(T π
+cdfFZπ) = VFZπ. Thus νπ = VFZπ is a fixed point of T π.
+If υ ∈X adm is another fixed point, then V−1υ ∈X cdf satisfies T π
+cdf(V−1υ) = V−1υ by Defini-
+tion 12. By uniqueness of the CDF-level fixed point from Proposition 10, V−1υ = FZπ. Applying V
+again yields υ = νπ.
+The same transport mechanism also identifies the spectral iterates with the image of the CDF-level
+policy evaluation iterates.
+Corollary 15 (Spectral iterate correspondence)
+Suppose Assumption 1–3 holds. Let FZ0 ∈X cdf,
+and define FZk+1 = T π
+cdfFZk. For each k ≥0, define νk := VFZk. Then νk+1 = T πνk. Moreover,
+if FZπ is the unique fixed point of T π
+cdf and νπ = VFZπ, then νk →νπ by transport of the CDF-level
+convergence from Corollary 11.
+Proof By Proposition 13, νk+1 = VFZk+1 = V(T π
+cdfFZk) = T π(VFZk) = T πνk, which forms the
+spectral domain iteration. The convergence statement follows by transporting the CDF-level iterates
+from Corollary 11.
+These results provide a spectral realisation of distributional soft evaluation. The spectral domain is
+not a separate approximation model, but the transported image of the CDF-level soft Bellman dynamics
+under V. In particular, the spectral fixed point and spectral iterates are exactly the images of their CDF-
+level counterparts under the same transport. Additional direct results of this transport on the spectral
+domain, including the induced-metric contraction viewpoint, are recorded in Appendix B.
+6. Relation to distributional soft policy iteration
+We now explain how the evaluation theory developed in Sections 4 and 5 enters the framework of
+distributional soft policy iteration. The key point is that the soft return process introduced in Section 3.1
+provides the state-action conditioned evaluation object underlying this iteration.
+Let ρ be an initial-state distribution. Under a stationary policy π, the maximum-entropy objective
+(Haarnoja et al., 2017, 2018, 2019b; Neu et al., 2017; Geist et al., 2019) is
+J(π; ρ) := E
+St∼ρ,
+At+k∼π(·|St+k), k≥0,
+St+k+1∼P(·|St+k,At+k),
+Rt+k=R(St+k,At+k,St+k+1)
+" ∞
+X
+k=0
+γk Rt+k −α log π(At+k | St+k)
+
+#
+.
+(17)
+This is the trajectory-level entropy-regularised performance criterion, standard in maximum-entropy
+reinforcement learning, in which the entire trajectory, including the initial action at time t, is generated
+by π. By contrast, the soft return process Zπ
+t in (1) is the state-action conditioned evaluation object
+used for soft action-value analysis after conditioning on an initial state-action pair (St, At) = (s, a).
+9
+WANG DENG LYU REDMOND LI
+In that evaluation object, the initial action is already prescribed rather than sampled from π, so the
+entropy regularisation begins only with subsequent policy-generated actions. Conditioning this process
+on (St, At) = (s, a) yields the return variable Zπ(s, a), whose expectation defines the soft action-value
+function relevant for policy improvement at a prescribed initial action. When the first moment is finite,
+the corresponding soft action-value function is given by Qπ(s, a) := E
+
+Zπ(s, a)
+
+, and the associated
+soft state-value function is V π(s) := Ea∼π(·|s)
+
+Qπ(s, a) −α log π(a | s)
+
+. Accordingly,
+J(π; ρ) = ESt∼ρ[V π(St)].
+(18)
+Thus J(π; ρ) provides the trajectory-level performance criterion, while V π gives its state-conditioned
+form. Since the policy-improvement step in soft policy iteration is defined statewise (Neu et al., 2017;
+Geist et al., 2019; Haarnoja et al., 2018, 2019b), the latter will be the more convenient form below.
+The present paper develops this distributional soft evaluation theory explicitly. For each fixed policy
+π, the conditional law of Zπ
+t given (St, At) = (s, a) is the distributional object Zπ(s, a) introduced
+in Section 3.1. The evaluation theory developed in Sections 4 and 5 shows that this evaluation object
+admits equivalent representations at the distributional, CDF, and spectral levels, namely Zπ, FZπ, and
+νπ := VFZπ. Here Zπ is the fixed point of the distribution-level soft Bellman operator T π
+DS, FZπ ∈
+X cdf is the unique fixed point of the CDF-level operator T π,α
+cdf , and νπ ∈X adm is the corresponding
+fixed point of the spectral operator T π. When the first moment is finite, these exact evaluation objects
+induce the same soft critic Qπ, and hence the same soft state-value function V π. Recall from (5) that
+the scalar soft Bellman operator is
+(T π
+S Q)(s, a) := Er∼R(s,a), (s′,a′)∼Pπ(·|s,a)
+h
+r + γ
+ Q(s′, a′) −α log π(a′ | s′)
+i
+.
+The following proposition shows that the distributional fixed point induces the corresponding expectation-
+level one.
+Proposition 16 (Expectation-level fixed-point consistency)
+Suppose Assumption 1–3 holds, and let
+Zπ be the fixed point of the distribution-level soft Bellman operator T π
+DS. Assume that the first moment
+of Zπ(s, a) is finite for every (s, a) ∈S × A. Then the induced soft action-value function Qπ satisfies
+Qπ = T π
+S Qπ.
+Proof Since Zπ is the fixed point of T π
+DS, the corresponding return random variable satisfies Zπ(s, a) D=
+R(s, a) + γ
+ Zπ(s′, a′) −α log π(a′ | s′)
+
+, where (s′, a′) ∼Pπ(· | s, a). By the assumed finiteness of
+the first moments, taking expectations on both sides is legitimate and yields
+Qπ(s, a) = Er∼R(s,a), (s′,a′)∼Pπ(·|s,a)
+h
+r + γ
+ Qπ(s′, a′) −α log π(a′ | s′)
+i
+.
+By (5), this is exactly Qπ(s, a) = (T π
+S Qπ)(s, a). Hence Qπ = T π
+S Qπ.
+Consider the k-th policy-iteration step, with k ≥0. Once the soft return under the current pol-
+icy πk has been evaluated and the induced critic Qπk is available, the policy-improvement step takes
+the standard maximum-entropy form. Its relation to (17) is mediated by the state-value representation
+V π: the scalar objective is the expectation of V π under the initial-state distribution, while the actual
+improvement step is defined pointwise in the state variable.
+Lemma 17 (Soft policy improvement (Haarnoja et al., 2017, 2018, 2019b)) Let πk be a policy, and
+let Qπk be its soft action-value function. Define πk+1 statewise by
+πk+1(· | s) ∈arg max
+π(·|s) Ea∼π(·|s)
+
+Qπk(s, a) −α log π(a | s)
+
+,
+s ∈S.
+(19)
+Assume that the corresponding soft action-value function Qπk+1 exists. Then
+Qπk+1(s, a) ≥Qπk(s, a),
+∀(s, a) ∈S × A.
+(20)
+10
+DISTRIBUTIONAL SOFT BELLMAN OPERATOR UNDER THE CRAM´ER GEOMETRY
+Combining the fixed-policy evaluation established above with Lemma 17, we obtain the correspond-
+ing distributional soft policy-iteration scheme, in the sense that the present theory provides the exact
+evaluation component underlying DSPI-style formulations (Duan et al., 2022; Ma et al., 2025; Duan
+et al., 2025).
+Proposition 18 (Distributional soft policy evaluation induces DSPI) Suppose that, for each k ≥0,
+the policy πk satisfies the admissibility conditions required for the fixed-policy theory developed in Sec-
+tions 4 and 5, so that the associated evaluation objects Zπk, FZπk, νπk, and Qπk(s, a) = E
+
+Zπk(s, a)
+
+are well defined. If πk+1 is defined from Qπk by (19), then the iteration πk 7−→
+ (Zπk, FZπk, νπk), Qπk
+7−→
+πk+1 forms a distributional soft policy-iteration scheme with evaluation under the Cram´er geometry.
+Moreover, Qπk+1(s, a) ≥Qπk(s, a), ∀(s, a) ∈S × A, and
+V πk+1(s) ≥V πk(s),
+∀s ∈S.
+It follows that, for any initial-state distribution ρ, J(πk+1; ρ) ≥J(πk; ρ).
+Proof [Proof sketch] The fixed-policy evaluation objects Zπk, FZπk, νπk, and Qπk are provided by
+the theory developed in Sections 4 and 5. The Q-level improvement Qπk+1(s, a) ≥Qπk(s, a) for all
+(s, a) ∈S × A is Lemma 17. The state value improvement V πk+1(s) ≥V πk(s) then follows from
+the defining optimality of πk+1(· | s) in (19) with the Q-level inequality. The objective improvement
+J(πk+1; ρ) ≥J(πk; ρ) follows from (18). A full proof is given in Appendix A.4.
+The preceding discussion places the evaluation theory developed in Sections 4 and 5 within distribu-
+tional soft policy iteration. For each current policy πk, these results provide the corresponding evaluation
+objects at the distributional, CDF, and spectral levels, together with the induced soft critic Qπk and state-
+value function V πk. Combined with the standard maximum-entropy improvement step of Lemma 17,
+Proposition 18 identifies the present contribution as the exact evaluation side of DSPI under the Cram´er
+geometry.
+This also clarifies the scope of the present paper. The analysis developed here concerns the unpro-
+jected evaluation component under the Cram´er geometry. Questions involving projected or restricted
+critics, approximation error, and its propagation through repeated policy improvement are deferred to
+Section 7.
+7. Discussion
+The preceding analysis establishes the exact policy evaluation theory of the distributional soft Bellman
+operator under the Cram´er geometry. More precisely, for each fixed policy, the soft evaluation problem
+can be formulated at the distributional level, at the CDF level, and after spectral conjugation. The CDF
+level is where the Cram´er metric is represented as an L2 distance between CDFs, while the spectral level
+gives an equivalent Hilbert-space representation of the same CDF-level dynamics. From this viewpoint,
+the present paper identifies the exact evaluation object that underlies Cram´er-based distributional soft
+policy iteration.
+This exactness also clarifies the scope of the present work. The results developed here concern
+the unprojected evaluation problem, where the Bellman target is represented without approximation
+and the analysis is carried out directly under the Cram´er geometry, in which the CDF-level operator
+is contractive. The only role of the first-moment assumption is to ensure domain preservation: after
+applying the soft Bellman update, the resulting CDF field remains in the admissible CDF domain on
+which the Cram´er distance is finite.(Geist et al., 2019; Haarnoja et al., 2018; Duan et al., 2022).
+A natural next step is therefore to study restricted or approximate critics in DSPI- and DSAC-style
+methods (Duan et al., 2022, 2025). From the perspective of algorithm design, the exact fixed point
+characterised in this paper may be interpreted as an oracle (distributional/CDF/spectral level) Bellman
+target for exact soft evaluation under the Cram´er geometry. This oracle-target viewpoint provides a
+precise reference relative to which approximation questions can be formulated: whether a restricted
+11
+WANG DENG LYU REDMOND LI
+critic remains close to the exact Bellman target, whether the induced evaluation error can be controlled,
+and whether one-step Bellman error bounds can be established. Moreover, because exact fixed-policy
+evaluation is contractive under the Cram´er geometry, these questions at least arise within a well-defined
+Bellman evaluation framework. This is the sense in which the Cram´er analysis is useful for approximate
+critics: it supplies a contractive reference problem before one introduces a particular critic class or
+distribution-matching loss. Objectives such as KL-based distribution matching may still be effective
+empirically, but their use as critic losses does not by itself give a Bellman-level contraction guarantee
+(Bellemare et al., 2017, 2023; Lyle et al., 2019). In this sense, the present theory supplies a clearer
+analytical starting point for studying approximate critics.
+A further issue arises in practical actor-critic methods when the target itself is no longer treated as
+exact, but is instead affected by the current critic approximation. In that case, the problem is no longer
+only one of approximating a fixed oracle Bellman target, but also of understanding the coupled error
+generated by approximate evaluation and repeated policy improvement. The present paper does not
+address these control-level questions, but it provides the exact evaluation framework relative to which
+they can be formulated precisely.
+More broadly, although the present analysis is developed under the Cram´er geometry, the underly-
+ing viewpoint is not confined to this metric alone. One may similarly ask, under other distributional
+geometries, what the corresponding exact evaluation structure is, whether an intrinsic analytical level
+analogous to the CDF representation exists, and what class of Bellman-compatible critic parameterisa-
+tions such a geometry would naturally suggest. In this sense, the contribution of the present paper is
+both specific and methodological: specific to Cram´er-based distributional soft evaluation, and method-
+ological in showing how the choice of distributional geometry can determine a representation in which
+the Bellman update and the metric used to analyse it are expressed directly.
+8. Conclusion
+In this paper, we established the policy evaluation theory of the distributional soft Bellman operator un-
+der the Cram´er geometry. Working on an admissible CDF field domain, we formulated the induced CDF-
+level recursion and showed that the resulting operator is well defined and remains a √γ-contraction.
+Consequently, the associated distributional soft evaluation problem admits a unique fixed point together
+with convergent policy evaluation iterations. The first-moment condition on the one-step soft shift is
+used to ensure that the soft Bellman update maps the admissible CDF field domain into itself, so that the
+updated return distributions remain within the class on which the Cram´er distance is finite (Geist et al.,
+2019; Haarnoja et al., 2018; Duan et al., 2022). We then showed that the same evaluation problem ad-
+mits an exact spectral realisation by conjugation. In this way, the distributional, CDF-level, and spectral
+formulations are linked as equivalent representations of the same soft Bellman evaluation problem. The
+role of the CDF formulation is to make explicit when the entropy-regularised Bellman target remains
+inside the finite-Cram´er-distance domain, so that the √γ-contraction and fixed-point guarantees apply.
+This gives stable reference target before introducing critics or empirical distribution matching losses.
+In particular, the required condition is a first-moment bound on the combined one-step reward-entropy
+shift, rather than separate boundedness assumptions on the reward and entropy terms. Taken together,
+these results furnish the evaluation component of Cram´er-based distributional soft policy iteration with a
+precise theoretical foundation. They also provide a rigorous reference point for later algorithmic devel-
+opments under the same geometry, including restricted-critic analysis, Bellman-compatible critic losses,
+and critic parameterisations formulated at the distributional, CDF, or spectral level.
+Acknowledgments
+This publication has emanated from research supported in part by a grant from Taighde ´Eireann - Re-
+search Ireland under Grant number 18/CRT/6049. For the purpose of Open Access, the author has
+applied a CC BY public copyright licence to any Author Accepted Manuscript version arising from this
+submission.
+12
+DISTRIBUTIONAL SOFT BELLMAN OPERATOR UNDER THE CRAM´ER GEOMETRY
+References
+Gabriel Barth-Maron, Matthew W. Hoffman, David Budden, Will Dabney, Dan Horgan, Dhruva TB,
+Alistair Muldal, Nicolas Heess, and Timothy P. Lillicrap. Distributed distributional deterministic pol-
+icy gradients. In 6th International Conference on Learning Representations, Vancouver, BC, Canada,
+2018. ICLR 2018.
+Marc G. Bellemare, Will Dabney, and R´emi Munos. A distributional perspective on reinforcement learn-
+ing. In Doina Precup and Yee Whye Teh, editors, Proceedings of the 34th International Conference on
+Machine Learning, volume 70 of Proceedings of Machine Learning Research, pages 449–458. PMLR,
+06–11 Aug 2017. URL https://proceedings.mlr.press/v70/bellemare17a.html.
+Marc G. Bellemare, Nicolas Le Roux, Pablo Samuel Castro, and Subhodeep Moitra. Distributional
+reinforcement learning with linear function approximation, 2019. URL https://arxiv.org/
+abs/1902.03149.
+Marc G. Bellemare, Will Dabney, and Mark Rowland. Distributional Reinforcement Learning. The
+MIT Press, 2023. doi: 10.7551/mitpress/14207.001.0001. URL https://direct.mit.edu/
+book-pdf/2111075/book_9780262374026.pdf.
+Krzysztof Ciesielski. On Stefan Banach and some of his results. Banach Journal of Mathematical
+Analysis, 1(1):1 – 10, 2007. doi: 10.15352/bjma/1240321550. URL https://doi.org/10.
+15352/bjma/1240321550.
+John B. Conway. A Course in Functional Analysis. Graduate Texts in Mathematics, 96. Springer New
+York, New York, NY, 2nd ed. 2007. edition, 2007. ISBN 1-4757-4383-1.
+Will Dabney, Georg Ostrovski, David Silver, and Remi Munos. Implicit quantile networks for distri-
+butional reinforcement learning. In Jennifer Dy and Andreas Krause, editors, Proceedings of the
+35th International Conference on Machine Learning, volume 80 of Proceedings of Machine Learn-
+ing Research, pages 1096–1105. PMLR, 10–15 Jul 2018a. URL https://proceedings.mlr.
+press/v80/dabney18a.html.
+Will Dabney, Mark Rowland, Marc Bellemare, and R´emi Munos. Distributional reinforcement learning
+with quantile regression. Proceedings of the AAAI Conference on Artificial Intelligence, 32(1), Apr.
+2018b. doi: 10.1609/aaai.v32i1.11791. URL https://ojs.aaai.org/index.php/AAAI/
+article/view/11791.
+Jingliang Duan, Yang Guan, Shengbo Eben Li, Yangang Ren, Qi Sun, and Bo Cheng. Distributional
+soft actor-critic: Off-policy reinforcement learning for addressing value estimation errors.
+IEEE
+Transactions on Neural Networks and Learning Systems, 33(11):6584–6598, November 2022. ISSN
+2162-2388. doi: 10.1109/tnnls.2021.3082568. URL http://dx.doi.org/10.1109/TNNLS.
+2021.3082568.
+Jingliang Duan, Wenxuan Wang, Liming Xiao, Jiaxin Gao, Shengbo Eben Li, Chang Liu, Ya-Qin
+Zhang, Bo Cheng, and Keqiang Li. Distributional soft actor-critic with three refinements. IEEE
+Transactions on Pattern Analysis and Machine Intelligence, 47(5):3935–3946, May 2025.
+ISSN
+1939-3539. doi: 10.1109/tpami.2025.3537087. URL http://dx.doi.org/10.1109/TPAMI.
+2025.3537087.
+Matthieu Geist, Bruno Scherrer, and Olivier Pietquin. A theory of regularized Markov decision pro-
+cesses. In Kamalika Chaudhuri and Ruslan Salakhutdinov, editors, Proceedings of the 36th Interna-
+tional Conference on Machine Learning, volume 97 of Proceedings of Machine Learning Research,
+pages 2160–2169. PMLR, 09–15 Jun 2019. URL https://proceedings.mlr.press/v97/
+geist19a.html.
+13
+WANG DENG LYU REDMOND LI
+Tuomas Haarnoja, Haoran Tang, Pieter Abbeel, and Sergey Levine. Reinforcement learning with deep
+energy-based policies. In Doina Precup and Yee Whye Teh, editors, Proceedings of the 34th Interna-
+tional Conference on Machine Learning, volume 70 of Proceedings of Machine Learning Research,
+pages 1352–1361. PMLR, 06–11 Aug 2017. URL https://proceedings.mlr.press/v70/
+haarnoja17a.html.
+Tuomas Haarnoja, Aurick Zhou, Pieter Abbeel, and Sergey Levine. Soft actor-critic: Off-policy maxi-
+mum entropy deep reinforcement learning with a stochastic actor. International Conference on Ma-
+chine Learning (ICML), 2018.
+Tuomas Haarnoja, Sehoon Ha, Aurick Zhou, Jie Tan, George Tucker, and Sergey Levine. Learning to
+walk via deep reinforcement learning, 2019a. URL https://arxiv.org/abs/1812.11103.
+Tuomas Haarnoja, Aurick Zhou, Kristian Hartikainen, George Tucker, Sehoon Ha, Jie Tan, Vikash
+Kumar, Henry Zhu, Abhishek Gupta, Pieter Abbeel, and Sergey Levine. Soft actor-critic algorithms
+and applications, 2019b. URL https://arxiv.org/abs/1812.05905.
+F. Hirsch and Gilles. Lacombe. Elements of functional analysis. Graduate texts in mathematics ; 192.
+Springer, New York ;, 1999. ISBN 0387985247.
+J. L. W. V. Jensen. Sur les fonctions convexes et les in´egalit´es entre les valeurs moyennes. Acta Math-
+ematica, 30(none):175 – 193, 1906. doi: 10.1007/BF02418571. URL https://doi.org/10.
+1007/BF02418571.
+Ludvig Killingberg and Helge Langseth. The multiquadric kernel for moment-matching distributional
+reinforcement learning. Transactions on Machine Learning Research, 2023. ISSN 2835-8856. URL
+https://openreview.net/forum?id=z49eaB8kiH.
+Erwin. Kreyszig. Introductory functional analysis with applications. Wiley, New York ;, wiley classics
+edition. edition, 1989. ISBN 0471504599.
+Shengbo Eben Li. Reinforcement Learning for Sequential Decision and Optimal Control. Springer
+Verlag, Singapore, 2023.
+Yudong Luo, Guiliang Liu, Haonan Duan, Oliver Schulte, and Pascal Poupart. Distributional reinforce-
+ment learning with monotonic splines. In International Conference on Learning Representations,
+2022. URL https://openreview.net/forum?id=C8Ltz08PtBp.
+Clare Lyle, Pablo Samuel Castro, and Marc G. Bellemare. A comparative analysis of expected and
+distributional reinforcement learning, 2019. URL https://arxiv.org/abs/1901.11084.
+Xiaoteng Ma, Junyao Chen, Li Xia, Jun Yang, Qianchuan Zhao, and Zhengyuan Zhou. Dsac: Distri-
+butional soft actor-critic for risk-sensitive reinforcement learning, 2025. URL https://arxiv.
+org/abs/2004.14547.
+Tetsuro Morimura, Masashi Sugiyama, Hisashi Kashima, Hirotaka Hachiya, and Toshiyuki TANAKA.
+Nonparametric return distribution approximation for reinforcement learning. In International Confer-
+ence on Machine Learning, 2010. URL https://api.semanticscholar.org/CorpusID:
+976202.
+Tetsuro Morimura, Masashi Sugiyama, Hisashi Kashima, Hirotaka Hachiya, and Toshiyuki Tanaka.
+Parametric return density estimation for reinforcement learning, 2012. URL https://arxiv.
+org/abs/1203.3497.
+Gergely Neu, Anders Jonsson, and Vicenc¸ G´omez. A unified view of entropy-regularized markov deci-
+sion processes, 2017. URL https://arxiv.org/abs/1705.07798.
+14
+DISTRIBUTIONAL SOFT BELLMAN OPERATOR UNDER THE CRAM´ER GEOMETRY
+Thanh Nguyen-Tang, Sunil Gupta, and Svetha Venkatesh. Distributional reinforcement learning via
+moment matching. In Proceedings of the AAAI conference on artificial intelligence, volume 35, pages
+9144–9152, 2021.
+Konrad Rawlik, Marc Toussaint, and Sethu Vijayakumar. On stochastic optimal control and reinforce-
+ment learning by approximate inference (extended abstract). In Proceedings of the Twenty-Third
+International Joint Conference on Artificial Intelligence, IJCAI ’13, page 3052–3056. AAAI Press,
+2013. ISBN 9781577356332.
+Maria Rizzo and Gabor Szekely. Energy distance. Wiley Interdisciplinary Reviews: Computational
+Statistics, 8:27–38, 01 2016. doi: 10.1002/wics.1375.
+V. K. Rohatgi, A. K. Md. Ehsanes. Saleh, and V. K. Rohatgi. An introduction to probability and statistics.
+Wiley series in probability and statistics. Texts and references section. Wiley, New York, second edi-
+tion. edition, 2001. ISBN 0471348465. URL http://www.loc.gov/catdir/toc/onix06/
+00026288.html.
+Mark Rowland, Marc G. Bellemare, Will Dabney, R´emi Munos, and Yee Whye Teh.
+An analysis
+of categorical distributional reinforcement learning, 2018.
+URL https://arxiv.org/abs/
+1802.08163.
+Mark Rowland, Robert Dadashi, Saurabh Kumar, Remi Munos, Marc G. Bellemare, and Will Dabney.
+Statistics and samples in distributional reinforcement learning. In Kamalika Chaudhuri and Ruslan
+Salakhutdinov, editors, Proceedings of the 36th International Conference on Machine Learning, vol-
+ume 97 of Proceedings of Machine Learning Research, pages 5528–5536. PMLR, 09–15 Jun 2019.
+URL https://proceedings.mlr.press/v97/rowland19a.html.
+Walter Rudin, Jes´us Fern´andez Novoa, Louis Bou, and Walter Rudin. An´alisis funcional. Editorial
+Revert´e, Barcelona, 1979.
+ISBN 9788429191301.
+URL https://login.eux.idm.oclc.
+org/login?url=http://www.digitaliapublishing.com/a/67945/.
+Eric Stade. Fourier analysis. Pure and applied mathematics. Wiley-Interscience, Hoboken, N.J, 2005.
+ISBN 9781118165515.
+URL https://login.eux.idm.oclc.org/login?url=http:
+//onlinelibrary.wiley.com/book/10.1002/9781118165508.
+Ke Sun, Yingnan Zhao, Wulong Liu, Bei Jiang, and Linglong Kong. Distributional reinforcement learn-
+ing with regularized wasserstein loss. In The Thirty-eighth Annual Conference on Neural Information
+Processing Systems, 2024. URL https://openreview.net/forum?id=CiEynTpF28.
+Richard S. Sutton and Andrew G. Barto. Reinforcement Learning: An Introduction. The MIT Press, sec-
+ond edition, 2018. URL http://incompleteideas.net/book/the-book-2nd.html.
+G´abor J Sz´ekely. E-statistics: The energy of statistical samples. Bowling Green State University, De-
+partment of Mathematics and Statistics Technical Report, 3(05):1–18, 2003.
+Chen Tessler, Guy Tennenholtz, and Shie Mannor. Distributional policy optimization: An alternative
+approach for continuous control. In Advances in Neural Information Processing Systems, Vancouver,
+Canada, 2019. NeurIPS 2019.
+Emanuel Todorov.
+Linearly-solvable markov decision problems.
+In B. Sch¨olkopf, J. Platt, and
+T. Hoffman, editors, Advances in Neural Information Processing Systems, volume 19. MIT Press,
+2006. URL https://proceedings.neurips.cc/paper_files/paper/2006/file/
+d806ca13ca3449af72a1ea5aedbed26a-Paper.pdf.
+Emanuel Todorov. Efficient computation of optimal actions. Proceedings of the National Academy
+of Sciences, 106(28):11478–11483, 2009. doi: 10.1073/pnas.0710743106. URL https://www.
+pnas.org/doi/abs/10.1073/pnas.0710743106.
+15
+WANG DENG LYU REDMOND LI
+Marc Toussaint. Robot trajectory optimization using approximate inference. In Proceedings of the 26th
+Annual International Conference on Machine Learning, ICML ’09, page 1049–1056, New York, NY,
+USA, 2009. Association for Computing Machinery. ISBN 9781605585161. doi: 10.1145/1553374.
+1553508. URL https://doi.org/10.1145/1553374.1553508.
+C´edric Villani. The Wasserstein distances, pages 93–111. Springer Berlin Heidelberg, Berlin, Hei-
+delberg, 2009.
+ISBN 978-3-540-71050-9.
+doi: 10.1007/978-3-540-71050-9 6.
+URL https:
+//doi.org/10.1007/978-3-540-71050-9_6.
+Keru Wang, Yixin Deng, Yao Lyu, Stephen Redmond, and Shengbo Eben Li. A spectral revisit of the
+distributional bellman operator under the cram´er metric, 2026. URL https://arxiv.org/abs/
+2603.12576.
+Li Kevin Wenliang, Gregoire Deletang, Matthew Aitchison, Marcus Hutter, Anian Ruoss, Arthur Gret-
+ton, and Mark Rowland.
+Distributional Bellman operators over mean embeddings.
+In Ruslan
+Salakhutdinov, Zico Kolter, Katherine Heller, Adrian Weller, Nuria Oliver, Jonathan Scarlett, and
+Felix Berkenkamp, editors, Proceedings of the 41st International Conference on Machine Learning,
+volume 235 of Proceedings of Machine Learning Research, pages 52839–52868. PMLR, 21–27 Jul
+2024. URL https://proceedings.mlr.press/v235/wenliang24a.html.
+Derek Yang, Li Zhao, Zichuan Lin, Tao Qin, Jiang Bian, and Tieyan Liu. Fully parameterized quan-
+tile function for distributional reinforcement learning, 2020. URL https://arxiv.org/abs/
+1911.02140.
+Brian D Ziebart, Andrew L Maas, J Andrew Bagnell, Anind K Dey, et al. Maximum entropy inverse
+reinforcement learning. In Aaai, volume 8, pages 1433–1438. Chicago, IL, USA, 2008.
+Appendix A. Proofs details for the main text
+A.1. Proof of Proposition 5
+Proof Let FZ ∈X cdf. Fix (s, a) ∈S × A. For each r ∈R and (s′, a′) ∈S × A, consider the function
+x 7→FZ(s′, a′)
+x −r
+γ
++ α log π(a′ | s′)
+
+.
+Because FZ ∈X cdf, by definition we have FZ(s′, a′) ∈ΓF for every (s′, a′) ∈S × A. Hence the map
+FZ(s′, a′) : R →[0, 1] is non-decreasing, right-continuous, and satisfies
+lim
+y→−∞FZ(s′, a′)(y) = 0,
+lim
+y→+∞FZ(s′, a′)(y) = 1.
+Moreover, the affine map
+x 7→x −r
+γ
++ α log π(a′ | s′)
+has positive slope 1/γ > 0. Hence the composition
+x 7→FZ(s′, a′)
+x −r
+γ
++ α log π(a′ | s′)
+
+is again non-decreasing and right-continuous, with limits
+lim
+x→−∞FZ(s′, a′)
+x −r
+γ
++ α log π(a′ | s′)
+
+= 0,
+and
+lim
+x→+∞FZ(s′, a′)
+x −r
+γ
++ α log π(a′ | s′)
+
+= 1.
+16
+DISTRIBUTIONAL SOFT BELLMAN OPERATOR UNDER THE CRAM´ER GEOMETRY
+We next verify that the expectation in (14) is also a CDF. Let x1 ≤x2. Since the quantity inside the
+expectation is non-decreasing in x, we have
+FZ(s′, a′)
+x1 −r
+γ
++ α log π(a′ | s′)
+
+≤FZ(s′, a′)
+x2 −r
+γ
++ α log π(a′ | s′)
+
+for all r and (s′, a′). Taking expectation with respect to r ∼R(s, a) and (s′, a′) ∼Pπ(· | s, a) yields
+(T π
+cdfFZ)(s, a)(x1) ≤(T π
+cdfFZ)(s, a)(x2),
+so x 7→(T π
+cdfFZ)(s, a)(x) is non-decreasing.
+Next, let xn ↓x. For each r and (s′, a′), right-continuity of FZ(s′, a′) gives
+FZ(s′, a′)
+xn −r
+γ
++ α log π(a′ | s′)
+
+→FZ(s′, a′)
+x −r
+γ
++ α log π(a′ | s′)
+
+.
+Since every CDF takes values in [0, 1], the quantity inside the expectation is bounded by 1. Dominated
+convergence therefore implies
+(T π
+cdfFZ)(s, a)(xn) →(T π
+cdfFZ)(s, a)(x),
+so x 7→(T π
+cdfFZ)(s, a)(x) is right-continuous.
+Finally, for each r and (s′, a′),
+FZ(s′, a′)
+x −r
+γ
++ α log π(a′ | s′)
+
+→0
+as x →−∞,
+and
+FZ(s′, a′)
+x −r
+γ
++ α log π(a′ | s′)
+
+→1
+as x →+∞.
+Again using dominated convergence, we obtain
+lim
+x→−∞(T π
+cdfFZ)(s, a)(x) = 0,
+lim
+x→+∞(T π
+cdfFZ)(s, a)(x) = 1.
+Hence x 7→(T π
+cdfFZ)(s, a)(x) is a CDF.
+It remains to verify that it belongs to ΓF . For each r and (s′, a′), the change of variable
+y = x −r
+γ
++ α log π(a′ | s′)
+gives
+Z
+R
+ 
+FZ(s′, a′)
+x −r
+γ
++ α log π(a′ | s′)
+
+−1{x ≥0}
+!2
+dx
+≤2
+Z
+R
+ 
+FZ(s′, a′)
+x −r
+γ
++ α log π(a′ | s′)
+
+−1
+nx −r
+γ
++ α log π(a′ | s′) ≥0
+o!2
+dx
++ 2
+Z
+R
+ 
+1
+nx −r
+γ
++ α log π(a′ | s′) ≥0
+o
+−1{x ≥0}
+!2
+dx
+= 2γ
+Z
+R
+ FZ(s′, a′)(y) −1{y ≥0}
+2 dy + 2
+ r −γα log π(a′ | s′)
+.
+Since FZ ∈X cdf, we have
+sup
+(u,v)∈S×A
+dC
+ Z(u, v), δ0
+
+< ∞.
+17
+WANG DENG LYU REDMOND LI
+Hence, taking expectation with respect to r ∼R(s, a) and (s′, a′) ∼Pπ(· | s, a), we obtain
+Z
+R
+
+(T π
+cdfFZ)(s, a)(x) −1{x ≥0}
+2
+dx
+=
+Z
+R
+ 
+Er∼R(s,a), (s′,a′)∼Pπ(·|s,a)
+"
+FZ(s′, a′)
+x −r
+γ
++ α log π(a′ | s′)
+#
+−1{x ≥0}
+!2
+dx
+≤Er∼R(s,a), (s′,a′)∼Pπ(·|s,a)
+"Z
+R
+ 
+FZ(s′, a′)
+x −r
+γ
++ α log π(a′ | s′)
+
+−1{x ≥0}
+!2
+dx
+#
+≤2γ
+sup
+(u,v)∈S×A
+d2
+C
+ Z(u, v), δ0
+
++ 2 Er∼R(s,a), (s′,a′)∼Pπ(·|s,a)
+
+| r −γα log π(a′ | s′) |
+
+.
+By the definition of X cdf and Assumption 1, the right-hand side is bounded uniformly over (s, a) ∈
+S × A. Therefore
+sup
+(s,a)∈S×A
+Z
+R
+
+(T π
+cdfFZ)(s, a)(x) −1{x ≥0}
+2
+dx < ∞.
+In particular,
+(T π
+cdfFZ)(s, a) ∈ΓF
+for all (s, a) ∈S × A.
+Moreover, the required measurability of the map
+(s, a) 7→(T π
+cdfFZ)(s, a)(x)
+for each fixed x ∈R is exactly the content of Assumption 1. Therefore T π
+cdfFZ ∈X cdf, and hence
+T π
+cdf : X cdf →X cdf.
+A.2. Proof of Proposition 6
+Proof Fix (s, a) ∈S × A and x ∈R. By (4),
+(T π
+DSZ)(s, a) = Law
+ R(s, a) + γ
+ Z′ −α log π(a′ | s′)
+
+,
+where (s′, a′) ∼Pπ(· | s, a) and, conditionally on (s′, a′), the random variable Z′ has law Z(s′, a′).
+Therefore
+FT π
+DSZ(s, a)(x) = P
+ R(s, a) + γ
+ Z′ −α log π(a′ | s′)
+
+≤x
+
+= Er∼R(s,a), (s′,a′)∼Pπ(·|s,a)
+"
+P
+
+Z′ ≤x −r
+γ
++ α log π(a′ | s′)
+ (s′, a′)
+#
+.
+Since Z′ | (s′, a′) ∼Z(s′, a′), the inner probability equals
+FZ(s′, a′)
+x −r
+γ
++ α log π(a′ | s′)
+
+.
+Substituting this into the previous expression yields
+FT π
+DSZ(s, a)(x) = Er∼R(s,a), (s′,a′)∼Pπ(·|s,a)
+"
+FZ(s′, a′)
+x −r
+γ
++α log π(a′ | s′)
+#
+= (T π
+cdfFZ)(s, a)(x),
+which proves Proposition 6.
+18
+DISTRIBUTIONAL SOFT BELLMAN OPERATOR UNDER THE CRAM´ER GEOMETRY
+A.3. Proof of Theorem 8
+Proof Fix (s, a) ∈S × A. By Definition 4,
+(T π
+cdfFZ1)(s, a)(x) −(T π
+cdfFZ2)(s, a)(x)
+= Er∼R(s,a), (s′,a′)∼Pπ(·|s,a)
+"
+FZ1(s′, a′)
+x −r
+γ
++ α log π(a′ | s′)
+
+−FZ2(s′, a′)
+x −r
+γ
++ α log π(a′ | s′)
+#
+.
+Therefore,
+d2
+C
+ (T π
+cdfFZ1)(s, a), (T π
+cdfFZ2)(s, a)
+
+=
+Z
+R
+Er∼R(s,a), (s′,a′)∼Pπ(·|s,a)
+"
+FZ1(s′, a′)
+x −r
+γ
++ α log π(a′ | s′)
+
+−FZ2(s′, a′)
+x −r
+γ
++ α log π(a′ | s′)
+#
+2
+dx.
+Applying Jensen’s inequality to the inner expectation yields
+d2
+C
+ (T π
+cdfFZ1)(s, a), (T π
+cdfFZ2)(s, a)
+
+≤Er∼R(s,a), (s′,a′)∼Pπ(·|s,a)
+Z
+R
+FZ1(s′, a′)
+x −r
+γ
++ α log π(a′ | s′)
+
+−FZ2(s′, a′)
+x −r
+γ
++ α log π(a′ | s′)
+
+2
+dx.
+Now fix r and (s′, a′), and make the change of variable
+y = x −r
+γ
++ α log π(a′ | s′),
+dx = γ dy.
+Then
+Z
+R
+FZ1(s′, a′)
+x −r
+γ
++ α log π(a′ | s′)
+
+−FZ2(s′, a′)
+x −r
+γ
++ α log π(a′ | s′)
+
+2
+dx
+= γ
+Z
+R
+FZ1(s′, a′)(y) −FZ2(s′, a′)(y)
+2dy
+= γ d2
+C
+ FZ1(s′, a′), FZ2(s′, a′)
+
+.
+Substituting this into the previous inequality gives
+d2
+C
+ (T π
+cdfFZ1)(s, a), (T π
+cdfFZ2)(s, a)
+
+≤γ Er∼R(s,a), (s′,a′)∼Pπ(·|s,a)d2
+C
+ FZ1(s′, a′), FZ2(s′, a′)
+
+≤γ d2
+Cr(FZ1, FZ2).
+Since (s, a) was arbitrary, taking the supremum over (s, a) ∈S × A and then square roots yields
+dCr
+ T π
+cdfFZ1, T π
+cdfFZ2
+
+≤√γ dCr(FZ1, FZ2),
+which proves dCr
+ T π
+cdfFZ1, T π
+cdfFZ2
+
+≤√γ dCr(FZ1, FZ2).
+A.4. Proof of Proposition 18
+Proof The first claim follows directly from the evaluation theory developed in Sections 4 and 5. For each
+policy πk, this theory provides the evaluation objects Zπk, FZπk, and νπk, together with the induced soft
+critic Qπk. Defining πk+1 by (19) therefore yields the stated distributional soft policy-iteration scheme
+with policy evaluation under the Cram´er geometry.
+The inequality
+Qπk+1(s, a) ≥Qπk(s, a),
+∀(s, a) ∈S × A,
+19
+WANG DENG LYU REDMOND LI
+is exactly the conclusion of Lemma 17.
+Recall the soft state-value function defined in Section 6:
+V πj(s) := Ea∼πj(·|s)
+
+Qπj(s, a) −α log πj(a | s)
+
+,
+j ∈{k, k + 1}.
+For every s ∈S, the defining optimality of πk+1 in (19) gives
+Ea∼πk+1(·|s)
+
+Qπk(s, a) −α log πk+1(a | s)
+
+≥Ea∼πk(·|s)
+
+Qπk(s, a) −α log πk(a | s)
+
+.
+Since Qπk+1(s, a) ≥Qπk(s, a) for all (s, a), we also have
+Ea∼πk+1(·|s)
+
+Qπk+1(s, a) −α log πk+1(a | s)
+
+≥Ea∼πk+1(·|s)
+
+Qπk(s, a) −α log πk+1(a | s)
+
+.
+Combining the last two displays yields
+V πk+1(s) ≥V πk(s),
+∀s ∈S.
+Finally, by (18),
+J(πj; ρ) = ESt∼ρ
+
+V πj(St)
+
+,
+j ∈{k, k + 1}.
+It follows that
+J(πk+1; ρ) = ESt∼ρ
+
+V πk+1(St)
+
+≥ESt∼ρ
+
+V πk(St)
+
+= J(πk; ρ).
+Appendix B. Further direct results on the spectral domain
+The core spectral statements in the main text concern transport of the distributional soft Bellman dynam-
+ics, together with the induced correspondence of fixed points and iterates. For completeness, we record
+here several further consequences of that transport when X adm is equipped with the induced metric edCr.
+These results are direct analogues of the CDF-level contraction, fixed-point, and iterate-convergence
+statements, but are not needed for the main line of analysis.
+B.1. Spectral contraction under the induced metric
+We first note that the CDF-level contraction property transports directly to the spectral domain once the
+induced metric is used.
+Proposition 19 (Spectral contraction under the induced metric) Suppose Assumption 1 holds. Then
+T π is a √γ-contraction on (X adm, edCr). More precisely, for any ν1, ν2 ∈X adm,
+edCr
+ T πν1, T πν2
+
+≤√γ edCr(ν1, ν2).
+(21)
+Proof Let ν1, ν2 ∈X adm. Since V : X cdf →X adm is bijective, there exist unique FZ1, FZ2 ∈X cdf
+such that
+ν1 = VFZ1,
+ν2 = VFZ2.
+By Definition 12,
+V−1(T πν1) = T π
+cdfFZ1,
+V−1(T πν2) = T π
+cdfFZ2.
+Therefore, by the definition of the induced metric edCr,
+edCr
+ T πν1, T πν2
+
+= dCr
+ V−1(T πν1), V−1(T πν2)
+
+= dCr
+ T π
+cdfFZ1, T π
+cdfFZ2
+
+.
+20
+DISTRIBUTIONAL SOFT BELLMAN OPERATOR UNDER THE CRAM´ER GEOMETRY
+Applying Theorem 8, we obtain
+dCr
+ T π
+cdfFZ1, T π
+cdfFZ2
+
+≤√γ dCr(FZ1, FZ2).
+Using again the definition of edCr, this becomes
+edCr
+ T πν1, T πν2
+
+≤√γ edCr(ν1, ν2),
+which proves (21).
+This transported contraction property allows the Banach fixed-point argument to be reproduced on
+the spectral domain, once completeness of the induced metric space is noted.
+B.2. Spectral fixed-point uniqueness under the induced metric
+We next verify that the transported spectral space is complete under edCr, and hence supports the same
+fixed-point argument as at the CDF level.
+Lemma 20 (Completeness of the transported spectral space) The metric space (X adm, edCr) is com-
+plete.
+Proof Let {νn}n≥1 ⊂X adm be a Cauchy sequence with respect to edCr. By definition of the induced
+metric,
+edCr(νn, νm) = dCr(V−1νn, V−1νm)
+for all n, m ≥1.
+Hence {V−1νn}n≥1 ⊂X cdf is a Cauchy sequence in (X cdf, dCr). By Lemma 9, there exists F ∈X cdf
+such that
+dCr(V−1νn, F) →0.
+Define
+ν := VF ∈X adm.
+Then, again by the definition of edCr,
+edCr(νn, ν) = dCr(V−1νn, V−1ν) = dCr(V−1νn, F) →0.
+Thus νn →ν in (X adm, edCr). Therefore (X adm, edCr) is complete.
+Combining completeness with Proposition 19 yields the spectral fixed-point result in Banach form.
+Corollary 21 (Unique spectral fixed point under the induced metric) Suppose Assumption 1 holds.
+Then T π admits a unique fixed point in (X adm, edCr). Equivalently, the element
+νπ = VFZπ
+from Corollary 14 is the unique fixed point of T π on X adm.
+Proof By Proposition 19, T π is a contraction on (X adm, edCr). By Lemma 20, this metric space is
+complete. The Banach fixed-point theorem therefore yields a unique fixed point of T π in X adm. By
+Corollary 14, this fixed point is precisely νπ = VFZπ.
+With the spectral fixed point thus identified, the convergence of spectral iterates follows in the stan-
+dard way.
+21
+WANG DENG LYU REDMOND LI
+B.3. Spectral iterate convergence under the induced metric
+We finally record the corresponding geometric convergence of the spectral soft policy evaluation iterates
+under the induced metric.
+Corollary 22 (Spectral iterate convergence under the induced metric) Suppose Assumption 1 holds.
+Let ν0 ∈X adm be arbitrary, and define the spectral iterates by
+νk+1 = T πνk,
+k ≥0.
+(22)
+Then νk →νπ in (X adm, edCr), where νπ is the unique fixed point from Corollary 21. More precisely,
+for every k ≥0,
+edCr(νk, νπ) ≤(√γ)k edCr(ν0, νπ).
+(23)
+Proof Applying Proposition 19 to νk and νπ gives
+edCr
+ T πνk, T πνπ
+≤√γ edCr(νk, νπ).
+Since νπ is a fixed point and νk+1 = T πνk, this becomes
+edCr(νk+1, νπ) ≤√γ edCr(νk, νπ).
+Iterating this inequality yields (23). In particular,
+edCr(νk, νπ) →0,
+so νk →νπ in (X adm, edCr).
+22

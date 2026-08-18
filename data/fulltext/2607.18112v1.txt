@@ -1,0 +1,976 @@
+Occlusion-Aware Panoptic Segmentation with Joint
+Position Embedding and Occlusion-Level Attention
+Wenbo Wei, Jun Wang, Shan Raza, and Abhir Bhalerao
+Department of Computer Science, University of Warwick, Coventry, UK
+{wenbo.wei, jun.wang.3, shan.raza, abhir.bhalerao}@warwick.ac.uk
+Abstract—Panoptic segmentation in complex scenes remains
+challenging because of occlusions, yet modern approaches often
+neglect occlusion modelling. In this paper, we propose Position
+Embedding Modulation with Occlusion-Level Attention (PE-
+MOLA), a novel occlusion-aware module that can be seamlessly
+integrated into transformer-based panoptic segmentation. To ob-
+tain occlusion cues, we train an occlusion classifier on the COCO-
+OLAC dataset. The classifier derives the occlusion-level attention,
+which serves as spatial guidance, while the occlusion labels
+are encoded into a learnable embedding to produce channel-
+wise weights. Through joint modulation, PEMOLA elegantly
+introduces the occlusion priors into the position embedding,
+thereby improving the occlusion modelling. We further annotate
+the Cityscapes dataset with occlusion levels, termed Cityscapes
+Occlusion Labels for All Computer Vision Tasks (Cityscapes-
+OLAC), following the same labelling protocol as COCO-OLAC,
+to evaluate the cross-dataset generalisation ability of PEMOLA.
+Extensive experiments on COCO-OLAC and Cityscapes-OLAC
+demonstrate that PEMOLA consistently improves panoptic seg-
+mentation quality while introducing minimal computational
+overhead. These results highlight the importance of occlusion
+modelling, where incorporating occlusion-level attention helps
+deliver robust panoptic segmentation under occlusion.1
+Index Terms—Panoptic Segmentation, Occlusion Modelling,
+Position Embedding
+I. INTRODUCTION
+Panoptic segmentation aims to achieve holistic scene under-
+standing by jointly assigning both semantic and instance labels
+to every pixel [1]–[9]. It shows a wide range of real-world
+applications, such as autonomous driving and robotics. In
+these scenarios, objects commonly appear in close proximity,
+leading to frequent occlusions. The human visual system
+can infer the identity and boundaries of occluded objects by
+leveraging prior experience and contextual cues [10]. However,
+modern panoptic segmentation methods [5]–[7] still suffer per-
+formance degradation in occluded scenes [11]. As illustrated in
+Figure 1, instances subject to occlusion are prone to boundary
+confusion or complete omission in the segmentation results
+from the representative model Mask2Former [6].
+This challenge arises mainly for two reasons: 1) Most
+vision benchmarks [12]–[14] provide annotations only for the
+visible parts of each object, ignoring fine-grained occlusion
+details, such as depth order [15], amodal mask [16], and
+occlusion ratio [17], which results in limited supervision for
+learning occlusion-aware features. 2) State-of-the-art panoptic
+segmentation methods [5]–[7] are typically transformer-based
+1Code and dataset are available at https://github.com/wenbo-wei/PEMOLA.
+(a) Input
+(b) Prediction (Instance Merge)
+(c) Input
+(d) Prediction (Instance Missing)
+Fig. 1.
+Examples of occlusion-induced segmentation failures from COCO
+val2017 [12] using Mask2Former [6]. The left column shows the original
+input images, and the right column shows the segmentation predictions. In
+the top row, the brown chair in the center is actually two chairs, but the rear
+one is heavily occluded and is mistakenly merged with the front one in the
+prediction. In the bottom row, the person to the right of the blue baseball bat
+is missed due to severe occlusion, leaving only a dark region visible.
+architectures that rely on the combination of an attention
+mechanism and position embedding to model global context
+with spatial priors. The attention mechanism infers pixel rela-
+tionships by computing pairwise similarities, but in occluded
+scenes, incomplete context hinders its effectiveness. Similarly,
+widely used position embedding approaches [18]–[20] nor-
+mally encode content-agnostic spatial locations, preventing
+them from dynamically adapting to visual contexts.
+In this paper, we propose PEMOLA, a novel occlusion-
+aware module designed for transformer-based panoptic seg-
+mentation. The key idea is to adapt position embedding to
+varying occlusions by integrating occlusion priors into the
+encoding process. To obtain these priors, we train an image-
+level occlusion classifier on the COCO-OLAC dataset [11],
+which includes occlusion severity annotations (low, medium,
+and high) for each image. The classifier produces occlusion-
+level attention, serving as an occlusion prior that highlights the
+image regions most indicative of occlusion. All training images
+are preprocessed by blackening non-object regions, thereby
+guiding the classifier to focus more on foreground features and
+reducing interference from complex backgrounds. To substan-
+tiate the robustness of PEMOLA and promote occlusion-aware
+© 2026 IEEE. Personal use of this material is permitted. Permission from IEEE must be obtained for all other uses, in any current or future media,
+including reprinting/republishing this material for advertising or promotional purposes, creating new collective works, for resale or redistribution to
+servers or lists, or reuse of any copyrighted component of this work in other works.
+arXiv:2607.18112v1  [cs.CV]  20 Jul 2026
+learning in the community, we further annotate the Cityscapes
+dataset [14] following the same occlusion labelling rules as
+COCO-OLAC, which we term Cityscapes-OLAC, and validate
+the efficacy of PEMOLA on it.
+PEMOLA leverages both occlusion priors in a complemen-
+tary manner. The occlusion-level attention provides global
+spatial modulation, whereas the occlusion label is mapped
+to a learnable embedding vector to distribute the modulation
+across channels, ensuring that each channel captures occlusion
+in a distinct way. The combined occlusion-aware signals
+are applied to the position embedding via residual scaling,
+preserving the base structure while adaptively aligning with
+both the severity and distribution of occlusion. The overall
+approach is conceptually simple and lightweight, introducing
+only negligible computational overhead. Moreover, it can be
+seamlessly integrated into existing transformer-based panoptic
+segmentation methods without altering their architectures.
+Our contributions can be summarised as follows:
+• We train an occlusion classifier on the COCO-OLAC
+dataset to generate occlusion-level attention and support
+occlusion prediction in other datasets.
+• We propose PEMOLA (Position Embedding Modulation
+with Occlusion-Level Attention), a lightweight module
+that incorporates occlusion priors into position embed-
+ding, achieving robust panoptic segmentation under vary-
+ing occlusion conditions.
+• We manually annotate the Cityscapes dataset with image-
+level occlusion labels, termed Cityscapes-OLAC, using
+the same annotation protocol as COCO-OLAC. This
+provides a foundation for evaluating the cross-dataset
+generalization of PEMOLA and fosters future research
+on occlusion modelling.
+II. RELATED WORK
+A. Panoptic Segmentation
+In early work, panoptic segmentation is formulated as a two-
+branch pipeline [1], [2], with one branch predicting semantic
+categories and the other detecting instance identities. The
+outputs of both branches are combined using heuristic algo-
+rithms to produce the final result. Although effective, the non-
+learnable nature of heuristic algorithms can result in subopti-
+mal segmentation performance. Following DETR [21], recent
+panoptic segmentation methods [5]–[7] have shifted towards
+transformer-based architectures, wherein the backbone extracts
+multi-scale features, the pixel decoder aggregates them, and
+the transformer decoder interacts with query embeddings to
+produce results. For example, MaskFormer [5] formulates both
+semantic and instance segmentation as a mask classification
+problem. Mask2Former [6] proposes mask attention to con-
+strain each query to attend only to the region within its
+prediction. Mask DINO [7] extends Mask2Former to object
+detection by incorporating denoising training [22], achieving
+a unified framework for both detection and segmentation.
+However, these methods focus solely on modelling visible
+features, failing to capture explicit occlusion reasoning.
+B. Occlusion Modelling
+Occlusion is common but challenging. Numerous stud-
+ies have explored occlusion modelling in different vision
+tasks. Bilayer Convolutional Network (BCNet) [23] separates
+overlapping objects by modelling the image as an occluder
+layer and an occludee layer. Compositional Convolutional
+Networks (CompositionalNets) [24] enhance convolutional
+neural networks with a compositional model that distinguishes
+object parts. Beyond modelling approaches, datasets have also
+been developed to benchmark occlusion handling. OVIS [25],
+MOSE [26], and MOSEv2 [27] provide large-scale video
+datasets with densely annotated instances for video instance
+segmentation. COCOA [16] extends COCO [12] with amodal
+annotations covering both visible and occluded regions for
+amodal segmentation. These annotations are all instance-level,
+focusing on object masks and boundaries. In contrast, COCO-
+OLAC [11] introduces image-level occlusion labels, avoiding
+the need for fine-grained annotations. This enables us to train
+an occlusion classifier that learns discriminative features and
+generalises the occlusion labelling scheme to other datasets.
+III. METHOD
+We introduce PEMOLA, a position embedding modulation
+module that enhances panoptic segmentation under occlusion.
+To better understand the motivation, we first revisit the concept
+of position embedding. Next, we present the implementation of
+the occlusion classifier. We then describe how occlusion priors
+are utilised by PEMOLA to modulate position embedding.
+Finally, we introduce the Cityscapes-OLAC dataset, which
+supports the cross-dataset evaluation of PEMOLA.
+A. Preliminaries: Position Embedding
+A self-attention mechanism computes pairwise dependen-
+cies in a symmetric manner, which makes it inherently
+permutation-invariant. To this end, the vanilla transformer [18]
+introduced the 1D sinusoidal positional encoding to encode
+positional relations as:
+PE(p,2i) = sin
+
+p/10000
+2i
+d
+
+,
+PE(p,2i+1) = cos
+
+p/10000
+2i
+d
+
+,
+(1)
+where p is a token index, d is the embedding dimension, and
+i is the dimension index.
+DETR [21] extends the 1D position embedding to a 2D
+formulation that aligns with the spatial grid of the image:
+PE(x, y) = PE(x) ⊕PE(y),
+(2)
+where (x, y) are the spatial coordinates, and ⊕is the concate-
+nation operation. However, such positional encoding is fixed,
+limiting its flexibility under diverse visual conditions.
+Subsequent works have developed various position embed-
+ding variants, including learnable [21], relative [28], and rotary
+forms [29]. Nevertheless, these approaches mainly refine the
+structural formulation of position embedding without incorpo-
+rating image features, such as occlusion.
+Backbone
+Layer Embedding
+⊕
+PEMOLA
+⊕
+Flatten 
+& Concat
+Occlusion-Level
+Attention
+Occlusion
+Label
+Position
+Embedding
+Embedding
+Down Sample
+⊗
+𝐶dim
+⊙
+⊕
+Position Embedding
+Occlusion-Level Attention
+Occlusion Label
+𝐶dim
+Pixel Decoder
+Transformer Decoder
+Class
+Mask
+PEMOLA
+Modulated
+Position Embedding
+No connection
+Input Image
+Element-wise multiplication
+⊙
+⊕
+⊗Tensor product
+Element-wise addition
+Fig. 2. Overview of the proposed PEMOLA module. PEMOLA modulates position embedding using two occlusion priors: the occlusion-level attention extracted
+from the occlusion classifier highlights spatial regions affected by occlusion, while the learnable occlusion label embeddings encode global occlusion-level
+semantics to guide modulation. These two priors jointly adjust the positional representation in a residual manner, allowing the model to preserve spatial
+consistency while adaptively enhancing representations in occluded regions.
+B. Occlusion Classifier
+Most segmentation datasets do not provide occlusion anno-
+tations, leaving the model without direct supervision to under-
+stand spatial relationships among objects. To enable occlusion
+analysis, the COCO-OLAC dataset [11] was introduced as an
+extension of the COCO dataset [12], in which each image
+is manually labelled with a low, medium, or high level of
+occlusion. Although these annotations are relatively coarse, we
+argue that training an occlusion classifier is sufficient to learn
+discriminative features (See the attention map in Figure 3.).
+Given an input image I ∈RH×W ×3 with a corresponding
+occlusion label L ∈{0, 1, 2} (low, medium, and high), the
+classifier Z predicts P ∈[0, 1]3, where P
+i Pi = 1, indicating
+the confidence for each occlusion category. As the occlusion
+labels are annotated solely based on the instances, all training
+images are preprocessed by blackening non-object regions.
+The training is optimised using a standard binary-cross-
+entropy loss Lcls. We conduct comprehensive evaluations using
+both ResNet [30] and Swin Transformer [28] with different
+variants. On the black-background validation set, our classifier
+consistently achieves strong performance, demonstrating that
+even a simple classification network can effectively learn
+complex occlusion representations. Note that we finally adopt
+the Swin-L model [28] as our occlusion classifier.
+C. PEMOLA
+Current transformer-based panoptic segmentation methods
+rely on position embedding to encode positional relationships.
+However, position embedding is content-independent, which
+limits its adaptability to complex scene conditions. To alleviate
+this issue, we propose PEMOLA, a lightweight module that
+modulates position embedding through the incorporation of
+both occlusion-level attention and the occlusion label embed-
+ding, thereby enhancing spatial awareness under occlusion, as
+shown in Figure 2.
+Occlusion-Level Attention aims to capture the spatial distri-
+bution of occlusion within an image. It is extracted from the
+occlusion classifier Z using Grad-CAM (Gradient-weighted
+Class Activation Mapping) [31], which computes the gradients
+of the prediction Pt with respect to the feature layer Fk (we
+select the last normalization output in the final block of Z) to
+highlight the regions that are most relevant to the occlusion-
+level decision. This process can be formulated in two steps.
+First, Grad-CAM averages the gradients of the target pre-
+diction Pt over all spatial locations.
+Wt
+k =
+1
+hw
+h
+X
+i=1
+w
+X
+j=1
+∂Pt
+∂Fk
+ij
+,
+(3)
+where Wt
+k denotes the importance weight of feature layer Fk
+for class t. h and w denote the height and width of the feature
+map. i and j denote the spatial location.
+Next, the occlusion-level attention Oa ∈Rh×w is produced
+by combining all weighted feature maps, followed by ReLU
+to retain only the positive regions.
+Oa = ReLU
+ X
+k
+Wt
+kFk
+!
+.
+(4)
+Occlusion Label Embedding serves as a learnable representa-
+tion of occlusion levels to modulate the channel-wise weights
+of the position embedding. It is generated by an embedding
+function E : {0, 1, 2} →RC, which maps each occlusion label
+L ∈{0, 1, 2} (low, medium, and high) to a C-dimensional
+vector through E(L).
+Occlusion-Aware Position Embedding is obtained by com-
+bining the two occlusion priors into a unified modulation
+signal, as shown on the right in Figure 2. The occlusion-
+level attention Oa is first interpolated to match the spatial
+resolution (h, w) of the position embedding and then expanded
+to the shape (b, 1, h, w). The occlusion label embedding Ol is
+expanded to (b, C, 1, 1) to align with the channel dimension.
+Finally, the original position embedding is modulated via
+Em
+pos = Epos ⊙(1 + Oa ⊗Ol),
+(5)
+TABLE I
+OCCLUSION CLASSIFIER ON THE SPLIT COCO-OLAC DATASET [11].
+BLACK DENOTE BACKGROUND BLACKENING. ACC@1 INDICATES THE
+TOP-1 CLASSIFICATION ACCURACY.
+Model
+Image
+Size
+val
+acc@1
+test
+acc@1
+valblack
+acc@1
+testblack
+acc@1
+R-50 [30]
+2242
+53.6
+51.9
+72.2
+70.3
+R-101
+2242
+55.4
+53.2
+72.7
+70.8
+Swin-T [28]
+2242
+61.7
+60.8
+72.1
+71.6
+Swin-S
+2242
+63.5
+62.3
+73.5
+71.4
+Swin-B
+2242
+61.8
+59.9
+73.9
+71.7
+Swin-L
+2242
+62.8
+62.1
+74.3
+73.0
+Swin-B
+3842
+63.1
+62.6
+77.7
+75.3
+Swin-L
+3842
+65.2
+63.6
+78.2
+75.3
+TABLE II
+OCCLUSION CLASSIFER ON THE NEWLY ANNOTATED CITYSCAPES
+DATASET [14]. BLACK DENOTE BACKGROUND BLACKENING. ACC@1
+INDICATES THE TOP-1 CLASSIFICATION ACCURACY.
+Model
+Image
+Size
+train
+acc@1
+val
+acc@1
+trainblack
+acc@1
+valblack
+acc@1
+Swin-L [28]
+3842
+68.5
+71.5
+84.8
+86.2
+where Em
+pos ∈Rb×C×h×w denotes the modulated position
+embedding, Epos ∈Rb×C×h×w denotes the original position
+embedding, ⊗denotes broadcast multiplication, and ⊙denotes
+element-wise multiplication. This formulation preserves the
+structural integrity of the position embedding and enables
+adaptive modulation under different occlusion conditions.
+We incorporate the modulated position embedding only into
+the pixel decoder rather than the transformer decoder. This is
+because the transformer decoder operates on deeper and more
+abstract features, whose representation space is less aligned
+with that of the occlusion classifier. The qualitative analysis
+presented in Table VIII further confirms this design choice.
+D. Cityscapes-OLAC Dataset
+To evaluate the cross-dataset generalisation ability of PE-
+MOLA, we manually annotated the Cityscapes dataset, fol-
+lowing the same occlusion labelling protocol as COCO-
+OLAC [11], which we refer to as Cityscapes-OLAC. This
+dataset contains 2,975 training images, with 2,521 labelled as
+high occlusion, 343 as medium, and 111 as low. The validation
+set contains 500 images, with 428 labelled as high occlusion,
+53 as medium, and 19 as low. Compared with COCO-OLAC,
+Cityscapes-OLAC exhibits a highly imbalanced distribution
+of occlusion levels, along with distinct scene layouts and
+occlusion patterns. For instance, because Cityscapes-OLAC
+consists exclusively of urban street scene images, occlusions
+primarily result from vehicles, pedestrians, and various road-
+side elements, such as poles and traffic lights.
+IV. EXPERIMENTS
+We conduct extensive experiments following the same set-
+tings as previous works [6], [7], [28], [30] for a fair compar-
+ison. The learning rate is adjusted for the occlusion classifier
+TABLE III
+QUANTITATIVE COMPARISONS ACROSS LOW, MID, AND HIGH OCCLUSION
+LEVELS ON THE COCO-OLAC DATASET [11].
+Model
+Level
+PQ
+PQTh
+PQSt
+APTh
+pan
+mIoUpan
+Mask2Former [6]
+Base
+low
+46.9
+53.1
+37.8
+45.5
+52.1
++PEMOLA (ours)
+47.5
+53.1
+39.2
+47.9
+55.1
+Base
+mid
+42.1
+46.9
+35.0
+32.7
+54.5
++PEMOLA (ours)
+42.9
+47.6
+35.9
+32.9
+54.3
+Base
+high
+35.2
+37.9
+31.5
+24.0
+50.4
++PEMOLA (ours)
+35.7
+38.1
+32.2
+24.0
+49.6
+Mask DINO [7]
+Base
+low
+48.6
+54.6
+39.6
+48.2
+51.3
++PEMOLA (ours)
+51.9
+58.8
+41.6
+50.0
+55.3
+Base
+mid
+45.5
+50.7
+37.6
+36.1
+53.4
++PEMOLA (ours)
+45.5
+50.7
+37.7
+36.2
+54.2
+Base
+high
+38.4
+41.4
+33.8
+27.4
+49.7
++PEMOLA (ours)
+39.4
+42.9
+34.2
+28.3
+51.6
+TABLE IV
+PANOPTIC SEGMENTATION COMPARISON ON THE COCO-OLAC
+DATASET [11]. † DENOTES THE RETRAINED MODEL.
+Model
+PQ
+PQTh
+PQSt
+APTh
+pan
+mIoUpan
+Panoptic FPN [2]
+33.3
+39.1
+24.6
+26.9
+36.6
+Panoptic FCN [4]
+33.0
+37.7
+26.0
+23.1
+34.8
+Panoptic-DeepLab [3]
+27.5
+28.9
+25.3
+13.8
+-
+YOSO [8]
+37.1
+40.6
+31.9
+-
+-
+Mask2Former† [6]
+40.7
+44.5
+35.0
+30.0
+54.2
++ PEMOLA (ours)
+41.5
+45.2
+35.9
+30.4
+54.8
+Mask DINO† [7]
+44.0
+48.5
+37.3
+33.5
+53.4
++ PEMOLA (ours)
+44.8
+49.4
+37.8
+34.2
+55.3
+TABLE V
+PANOPTIC SEGMENTATION COMPARISON ON THE NEWLY ANNOTATED
+CITYSCAPES-OLAC DATASET. † DENOTES THE RETRAINED MODEL.
+Model
+PQ
+PQTh
+PQSt
+APTh
+pan
+mIoUpan
+Panoptic FPN [2]
+58.1
+52.0
+62.5
+33.0
+75.7
+Panoptic FCN [4]
+59.6
+52.1
+65.1
+-
+-
+Panoptic-DeepLab [3]
+60.3
+51.1
+67.0
+32.2
+78.2
+YOSO [8]
+59.7
+51.0
+66.1
+-
+-
+Mask2Former† [6]
+61.5
+54.0
+66.9
+35.2
+76.1
++ PEMOLA (ours)
+62.3
+55.4
+67.2
+38.5
+77.4
+to achieve optimal performance. All models adopt ResNet-
+50 [30] as the backbone, excluding the occlusion classifier.
+A. Datasets and Evaluation Metrics
+We evaluate PEMOLA on Panoptic Segmentation using two
+challenging datasets: COCO-OLAC [11] and the newly anno-
+tated Cityscapes-OLAC. For training the occlusion classifier,
+we randomly split the COCO-OLAC training set into 90% for
+training and 10% for validation. The original COCO-OLAC
+validation set is used as the test set.
+Image
+Attention
+PE-1st
+PE-last
+Mod-1st
+Mod-last
+PM-1st
+PM-last
+Fig. 3.
+Visualisation of position embedding before and after PEMOLA.
+From top to bottom, every two rows show low-, medium-, and high-occlusion
+samples, respectively. PE denotes the original position embedding. Mod de-
+notes the modulation map generated by PEMOLA. PM denotes the modulated
+position embedding. 1st and last denote the first and last channels. PM-1st and
+PM-last reveal that the modulated position embedding incorporate occlusion
+priors, with each channel emphasizing distinct spatial representations.
+For panoptic segmentation, we adopt standard evaluation
+metrics, including PQ, PQTh, and PQSt, which measure the
+overall, “thing”, and “stuff” segmentation quality, respectively.
+In addition, we report APTh
+pan for instance segmentation and
+mIoUpan for semantic segmentation, both computed using
+panoptic segmentation annotations.
+B. Main Results
+Occlusion Classifier. We compare various backbones for
+occlusion classifiers on the split COCO-OLAC dataset. As
+shown in Table I, the Swin Transformer [28] consistently
+outperforms CNN-based methods (ResNet-50 and ResNet-
+101). Increasing the model size and input resolution further
+improves accuracy. Moreover, models evaluated on black-
+background images yield higher accuracies, with the Swin-L
+achieving the best performance of 78.2% on the validation set.
+This indicates that the background context can interfere with
+occlusion reasoning. We also evaluate the occlusion classifier
+on the Cityscapes-OLAC dataset in Table II. The Swin-L
+reaches 86.2% accuracy on the black-background validation
+set, demonstrating strong cross-dataset generalisation.
+Comparison under Different Occlusion Levels. We evaluate
+the impact of integrating PEMOLA into Mask2Former [6]
+and Mask DINO [7] on the COCO-OLAC dataset [11] under
+different occlusion levels in Table III. For Mask2Former, PE-
+MOLA yields steady improvements across all occlusion levels,
+showing notable gains of +1.4 PQSt, +2.4 APTh
+pan, +3.0 mIoUpan
+under low occlusion and +0.9 PQ under mid occlusion. For
+Mask DINO, the improvement is more pronounced, showing
+substantial increases of +3.3 PQ, +4.2 PQTh, +2.0 PQSt under
+low occlusion and +1.0 PQ, +1.5 PQTh, +1.9 mIoUpan under
+high occlusion. This improvement suggests that incorporating
+TABLE VI
+ABLATION STUDY ON THE PROPOSED OCCLUSION PRIORS.
+PQ
+PQTh
+PQSt
+APTh
+pan
+mIoUpan
+Ours
+41.5
+45.2
+35.9
+30.4
+54.8
+- occlusion label embedding
+41.0
+44.8
+35.3
+30.4
+54.7
+- occlusion-level attention
+40.9
+44.6
+35.3
+30.2
+54.2
+- remove all the above
+40.7
+44.5
+35.0
+30.0
+54.2
+TABLE VII
+ABLATION STUDY ON THE GRAD-CAM SMOOTHING.
+PQ
+PQTh
+PQSt
+APTh
+pan
+mIoUpan
+Base
+40.7
+44.5
+35.0
+30.0
+54.2
+w/o smooth
+41.0
+44.7
+35.4
+30.3
+54.4
+w smooth (ours)
+41.5
+45.2
+35.9
+30.4
+54.8
+TABLE VIII
+ABLATION STUDY ON THE INSERTION LOCATION OF PEMOLA.
+PQ
+PQTh
+PQSt
+APTh
+pan
+mIoUpan
+Base
+40.7
+44.5
+35.0
+30.0
+54.2
+transformer decoder
+40.7
+44.2
+35.2
+30.3
+54.2
+pixel decoder (ours)
+41.5
+45.2
+35.9
+30.4
+54.8
+occlusion priors helps the models to learn discriminative
+representations for different occlusion conditions.
+Comparison
+with
+SOTA
+Methods. We compare both
+Mask2Former and Mask DINO with PEMOLA against SOTA
+methods on the COCO-OLAC dataset in Table IV. PEMOLA
+improves Mask2Former by +0.8 PQ and Mask DINO by +0.8
+PQ, with consistent gains in all other metrics. Beyond quantita-
+tive improvement, we also provide qualitative visualisation to
+illustrate why PEMOLA enhances segmentation performance.
+As shown in Figure 3, the modulated position embedding
+effectively captures occlusion patterns, thereby enabling the
+model to distinguish objects in complex scenes.
+We further evaluate Mask2Former with PEMOLA on the
+Cityscapes-OLAC dataset in Table V. PEMOLA brings a +0.8
+PQ improvement over Mask2Former, along with additional
+gains of +1.4 PQTh, +3.3 APTh
+pan, and +1.3 mIoUpan. This
+confirms that PEMOLA maintains robustness across datasets
+with distinct data distributions.
+C. Ablation Study
+We conduct a series of ablation studies to evaluate the con-
+tribution of each component in PEMOLA using Mask2Former
+on the COCO-OLAC dataset.
+Occlusion Priors. We evaluate the effectiveness of the pro-
+posed occlusion priors in Table VI. Removing the occlusion
+label embedding or the occlusion-level attention leads to a
+PQ drop of 0.5 and 0.6, respectively, indicating that both
+components contribute to the overall improvement.
+Grad-CAM Smoothing. Grad-CAM includes two smooth-
+ing strategies, eigen smoothing and augmentation smoothing,
+which help reduce gradient noise and stabilise the atten-
+tion maps. As shown in Table VII, applying these methods
+marginally improves PQ from 41.0 to 41.5.
+Insertion Location.
+We analyse the effect of the insertion
+location of PEMOLA in Table VIII. The results show that
+PEMOLA is effective only when applied to the pixel decoder.
+We hypothesise that the difference arises because the occlusion
+attention is consistent with the feature representations in the
+pixel decoder, where the spatial layout and occlusion patterns
+remain closely aligned. In contrast, the transformer decoder
+operates on task-orientated embeddings with different feature
+distributions, making the modulation less compatible.
+ACKNOWLEDGMENTS
+Calculations were performed using the University of War-
+wick’s SCRPT Sulis Tier 2 HPC platform, funded by EPSRC
+Grant EP/T022108/1 and the HPC Midlands+ consortium.
+V. CONCLUSIONS
+In this paper, we propose PEMOLA, a novel occlusion-
+aware module that enhances transformer-based panoptic seg-
+mentation by integrating occlusion priors into position embed-
+ding. PEMOLA jointly leverages spatial occlusion-level atten-
+tion and channel-wise occlusion label embedding to adaptively
+modulate positional representations under varying occlusion
+conditions. To support cross-dataset evaluation, we also intro-
+duce Cityscapes-OLAC as an occlusion-annotated extension
+of Cityscapes. Extensive experiments on the COCO-OLAC
+and Cityscapes-OLAC datasets demonstrate that PEMOLA
+consistently improves segmentation quality with minimal com-
+putational overhead. The results highlight that incorporating
+occlusion priors into the representation learning is an effective
+way to improve reliability in complex scenes. Future work
+will extend this framework to video panoptic segmentation and
+explore dynamic occlusion reasoning in temporal contexts.
+REFERENCES
+[1] Alexander Kirillov, Kaiming He, Ross Girshick, Carsten Rother, and
+Piotr Doll´ar, “Panoptic segmentation,” in CVPR, 2019, pp. 9404–9413.
+[2] Alexander Kirillov, Ross Girshick, Kaiming He, and Piotr Doll´ar,
+“Panoptic feature pyramid networks,” in CVPR, 2019, pp. 6399–6408.
+[3] Bowen Cheng, Maxwell D Collins, Yukun Zhu, Ting Liu, Thomas S
+Huang, Hartwig Adam, and Liang-Chieh Chen, “Panoptic-deeplab: A
+simple, strong, and fast baseline for bottom-up panoptic segmentation,”
+in CVPR, 2020, pp. 12475–12485.
+[4] Yanwei Li, Hengshuang Zhao, Xiaojuan Qi, Liwei Wang, Zeming Li,
+Jian Sun, and Jiaya Jia,
+“Fully convolutional networks for panoptic
+segmentation,” in CVPR, 2021, pp. 214–223.
+[5] Bowen Cheng, Alex Schwing, and Alexander Kirillov,
+“Per-pixel
+classification is not all you need for semantic segmentation,” NeurIPS,
+vol. 34, pp. 17864–17875, 2021.
+[6] Bowen Cheng, Ishan Misra, Alexander G Schwing, Alexander Kirillov,
+and Rohit Girdhar, “Masked-attention mask transformer for universal
+image segmentation,” in CVPR, 2022, pp. 1290–1299.
+[7] Feng Li, Hao Zhang, Huaizhe Xu, Shilong Liu, Lei Zhang, Lionel M Ni,
+and Heung-Yeung Shum, “Mask dino: Towards a unified transformer-
+based framework for object detection and segmentation,”
+in CVPR,
+2023, pp. 3041–3050.
+[8] Jie Hu, Linyan Huang, Tianhe Ren, Shengchuan Zhang, Rongrong Ji,
+and Liujuan Cao, “You only segment once: Towards real-time panoptic
+segmentation,” in CVPR, 2023, pp. 17819–17829.
+[9] Abdullah Rashwan, Jiageng Zhang, Ali Taalimi, Fan Yang, Xingyi
+Zhou, Chaochao Yan, Liang-Chieh Chen, and Yeqing Li, “Maskconver:
+Revisiting pure convolution model for panoptic segmentation,” in WACV,
+2024, pp. 851–861.
+[10] Shimon Ullman,
+High-level vision: Object recognition and visual
+cognition, MIT press, 2000.
+[11] Wenbo Wei, Jun Wang, and Abhir Bhalerao, “Coco-olac: A benchmark
+for occluded panoptic segmentation and image understanding,”
+in
+ICASSP. IEEE, 2025, pp. 1–5.
+[12] Tsung-Yi Lin, Michael Maire, Serge Belongie, James Hays, Pietro Per-
+ona, Deva Ramanan, Piotr Doll´ar, and C Lawrence Zitnick, “Microsoft
+coco: Common objects in context,” in ECCV. Springer, 2014, pp. 740–
+755.
+[13] Jia Deng, Wei Dong, Richard Socher, Li-Jia Li, Kai Li, and Li Fei-Fei,
+“Imagenet: A large-scale hierarchical image database,” in CVPR. Ieee,
+2009, pp. 248–255.
+[14] Marius Cordts, Mohamed Omran, Sebastian Ramos, Timo Rehfeld,
+Markus Enzweiler, Rodrigo Benenson, Uwe Franke, Stefan Roth, and
+Bernt Schiele,
+“The cityscapes dataset for semantic urban scene
+understanding,” in CVPR, 2016, pp. 3213–3223.
+[15] Lu Qi, Li Jiang, Shu Liu, Xiaoyong Shen, and Jiaya Jia,
+“Amodal
+instance segmentation with kins dataset,” in CVPR, 2019, pp. 3014–
+3023.
+[16] Yan Zhu, Yuandong Tian, Dimitris Metaxas, and Piotr Doll´ar, “Semantic
+amodal segmentation,” in CVPR, 2017, pp. 1464–1472.
+[17] Anton Milan, Laura Leal-Taix´e, Ian Reid, Stefan Roth, and Konrad
+Schindler,
+“Mot16: A benchmark for multi-object tracking,”
+arXiv
+preprint arXiv:1603.00831, 2016.
+[18] Ashish Vaswani, Noam Shazeer, Niki Parmar, Jakob Uszkoreit, Llion
+Jones, Aidan N Gomez, Łukasz Kaiser, and Illia Polosukhin, “Attention
+is all you need,” NeurIPS, vol. 30, 2017.
+[19] Peter Shaw, Jakob Uszkoreit, and Ashish Vaswani, “Self-attention with
+relative position representations,”
+arXiv preprint arXiv:1803.02155,
+2018.
+[20] Alexey Dosovitskiy, “An image is worth 16x16 words: Transformers for
+image recognition at scale,” arXiv preprint arXiv:2010.11929, 2020.
+[21] Nicolas Carion, Francisco Massa, Gabriel Synnaeve, Nicolas Usunier,
+Alexander Kirillov, and Sergey Zagoruyko, “End-to-end object detection
+with transformers,” in ECCV. Springer, 2020, pp. 213–229.
+[22] Hao Zhang, Feng Li, Shilong Liu, Lei Zhang, Hang Su, Jun Zhu,
+Lionel M Ni, and Heung-Yeung Shum,
+“Dino: Detr with improved
+denoising anchor boxes for end-to-end object detection,” arXiv preprint
+arXiv:2203.03605, 2022.
+[23] Lei Ke, Yu-Wing Tai, and Chi-Keung Tang,
+“Deep occlusion-aware
+instance segmentation with overlapping bilayers,” in CVPR, 2021, pp.
+4019–4028.
+[24] Adam Kortylewski, Qing Liu, Angtian Wang, Yihong Sun, and Alan
+Yuille,
+“Compositional convolutional neural networks: A robust and
+interpretable model for object recognition under occlusion,” IJCV, vol.
+129, pp. 736–760, 2021.
+[25] Jiyang Qi, Yan Gao, Yao Hu, Xinggang Wang, Xiaoyu Liu, Xiang Bai,
+Serge Belongie, Alan Yuille, Philip HS Torr, and Song Bai, “Occluded
+video instance segmentation: A benchmark,” IJCV, vol. 130, no. 8, pp.
+2022–2039, 2022.
+[26] Henghui Ding, Chang Liu, Shuting He, Xudong Jiang, Philip HS Torr,
+and Song Bai, “Mose: A new dataset for video object segmentation in
+complex scenes,” in ICCV, 2023, pp. 20224–20234.
+[27] Henghui Ding, Kaining Ying, Chang Liu, Shuting He, Xudong Jiang,
+Yu-Gang Jiang, Philip HS Torr, and Song Bai,
+“Mosev2: A more
+challenging dataset for video object segmentation in complex scenes,”
+arXiv preprint arXiv:2508.05630, 2025.
+[28] Ze Liu, Yutong Lin, Yue Cao, Han Hu, Yixuan Wei, Zheng Zhang,
+Stephen Lin, and Baining Guo, “Swin transformer: Hierarchical vision
+transformer using shifted windows,” in ICCV, 2021, pp. 10012–10022.
+[29] Jianlin Su, Murtadha Ahmed, Yu Lu, Shengfeng Pan, Wen Bo, and
+Yunfeng Liu,
+“Roformer: Enhanced transformer with rotary position
+embedding,” Neurocomputing, vol. 568, pp. 127063, 2024.
+[30] Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun,
+“Deep
+residual learning for image recognition,” in CVPR, 2016, pp. 770–778.
+[31] Ramprasaath R Selvaraju, Michael Cogswell, Abhishek Das, Ramakr-
+ishna Vedantam, Devi Parikh, and Dhruv Batra,
+“Grad-cam: Visual
+explanations from deep networks via gradient-based localization,” in
+ICCV, 2017, pp. 618–626.

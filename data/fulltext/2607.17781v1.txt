@@ -1,0 +1,1323 @@
+1
+Geometric Projection Particle Filtering under Model
+Uncertainty
+Surya Ratna Prakash D Soumyendu Raha
+Abstract—Nonlinear state estimation under structural model
+uncertainty remains a central challenge in autonomous Guidance,
+Navigation, and Control (GNC) systems. Classical estimators
+propagate states using assumed dynamics and incorporate mea-
+surements through posterior correction, which under mismatch
+leads to biased innovations, estimator inconsistency, and particle
+degeneracy due to proposal–likelihood mismatch.
+This paper presents the Geometric Projection Particle Filter
+(GPF), a measurement-informed framework in which observation
+geometry directly influences state propagation. The method
+projects nominal drift dynamics onto the measurement-consistent
+subspace, enforcing local compatibility between dynamics and ob-
+servations. This yields a geometry-consistent proposal process that
+reduces effective mismatch prior to weighting while preserving
+the Bayesian posterior via a change-of-measure formulation.
+A continuous-time formulation is developed, introducing a
+geometric co-state variable that characterizes mismatch-induced
+inconsistency and has zero conditional mean under correct
+modeling. It is shown that filtering error is governed by the
+component of mismatch orthogonal to the measurement-consistent
+subspace, and particle consistency is established with convergence
+at the standard Monte Carlo rate.
+The approach is evaluated on lunar descent navigation scenarios
+with partial observability and persistent mismatch. Results
+demonstrate significant reduction in particle degeneracy, sustained
+effective sample size, and bounded estimation error in regimes
+where standard particle filters diverge, achieving up to an order-
+of-magnitude improvement in accuracy.
+These findings show that enforcing geometric compatibility dur-
+ing propagation provides a principled mechanism for improving
+robustness and consistency in nonlinear particle filtering under
+model uncertainty.
+Keywords: nonlinear filtering; particle filtering; geometric
+projection; change of measure; model uncertainty; estimator
+integrity; partial observability; autonomous navigation.
+I. INTRODUCTION
+Reliable nonlinear state estimation is essential in safety-
+critical Guidance, Navigation, and Control (GNC) systems,
+including spacecraft, planetary landers, and autonomous vehi-
+cles. In such settings, estimators must operate under persistent
+structural model uncertainty, nonlinear sensing, and partial or
+time-varying observability. Maintaining statistical consistency
+of the estimated state distribution under these conditions
+remains a central challenge.
+Classical estimation architectures, including the Extended
+Kalman Filter (EKF) and bootstrap Particle Filter (SPF), adopt a
+two-stage structure in which state propagation uses an assumed
+dynamical model, followed by measurement-based posterior
+U R Rao Satellite Centre, ISRO, Bengaluru, India and Computational and
+Data Sciences, Indian Institute of Science. Email: dsrp@ursc.gov.in
+Computational and Data Sciences, Indian Institute of Science, Bengaluru.
+correction. While this separation is computationally convenient,
+it introduces a fundamental limitation: under model mismatch,
+the propagated state distribution is generally inconsistent with
+the geometry induced by the observation model. In EKF-
+type methods, this manifests as biased innovations and loss
+of statistical consistency, whereas in particle filtering, the
+mismatch is absorbed into the likelihood, leading to rapid
+weight degeneracy and collapse of the effective sample size
+[1]–[9].
+A substantial body of work has addressed particle degen-
+eracy and proposal mismatch within the sequential Monte
+Carlo (SMC) framework. Foundational formulations based on
+Feynman–Kac representations and interacting particle systems
+are well established [10], [11], and fundamental limitations
+in high-dimensional settings have been extensively analyzed
+[12]–[15].
+Numerous approaches have been proposed to mitigate
+degeneracy, including optimal and auxiliary proposals [16],
+[17], implicit sampling [18], [19], particle flow methods
+[20], transport and ensemble-based approaches [21]–[23], and
+feedback particle filters [24]. More recent developments include
+score-based and diffusion-driven methods [25], as well as robust
+and learning-based approaches for model uncertainty [26]–[28].
+Despite these advances, however, existing methods primarily
+operate at the level of global proposal design, ensemble
+transport, or density evolution, and do not explicitly en-
+force local measurement–dynamics compatibility at the level
+of infinitesimal state evolution. As a result, under model
+mismatch, inconsistency between dynamics and observations
+is not corrected during propagation but accumulates in the
+likelihood, inducing intrinsic proposal–likelihood mismatch.
+This mechanism is a primary driver of particle degeneracy
+and estimator degradation in high-uncertainty regimes such as
+planetary descent and autonomous navigation [29].
+Contribution and approach. To address proposal–likelihood
+mismatch, we introduce the Geometric Projection Particle
+Filter (GPF), a measurement-informed proposal that modifies
+the drift of the assumed dynamics at the infinitesimal level.
+The approach enforces first-order compatibility between state
+evolution and the measurement map by projecting the nominal
+drift onto the tangent space defined by the instantaneous
+measurement Jacobian.
+This yields a locally geometry-consistent proposal in which
+particles evolve along measurement-compatible directions while
+retaining stochastic excitation through the diffusion term. The
+modification acts at the level of the proposal measure, and the
+posterior under the physical measure is recovered via a standard
+arXiv:2607.17781v1  [math.DS]  20 Jul 2026
+2
+change-of-measure construction, preserving consistency with
+Bayesian filtering.
+In contrast to transport-based, optimization-based, and
+feedback-driven methods, the proposed approach applies
+a closed-form, particle-wise projection that enforces local
+measurement–dynamics compatibility directly within state
+propagation.
+A central outcome is a geometric co-state variable that
+quantifies instantaneous incompatibility between the assumed
+dynamics and the measurement-induced geometry. This variable
+has zero conditional mean under correct modeling and provides
+a model-based indicator of structural mismatch. It provides a
+direct link between model mismatch, weight dispersion, and
+estimation error growth.
+Main contributions.
+1) Geometry-consistent proposal dynamics: A particle-wise
+projection of the nominal drift onto the measurement-
+consistent tangent space, yielding a locally compatible
+proposal that reduces intrinsic proposal–likelihood mis-
+match.
+2) Measure-theoretic consistency: A change-of-measure for-
+mulation showing that the modified proposal preserves the
+Bayesian posterior under standard importance sampling.
+3) Co-state inconsistency: A geometric co-state variable
+that quantifies dynamics–measurement incompatibility and
+links model mismatch to weight dispersion and estimation
+error.
+4) Robustness under model mismatch: A characterization
+showing that estimation error is governed by the com-
+ponent of mismatch orthogonal to the measurement-
+consistent subspace.
+5) Empirical validation: Numerical results in lunar descent
+scenarios demonstrating reduced degeneracy and improved
+estimation stability under model mismatch and partial
+observability.
+Unlike existing particle filtering approaches that modify propos-
+als at the distribution or transport level, the proposed method
+enforces compatibility directly at the level of infinitesimal
+state dynamics. Scope and positioning. The proposed method
+modifies the proposal within the standard sequential Monte
+Carlo framework to reduce mismatch at the level of state
+propagation, while preserving the theoretical guarantees of
+importance sampling.
+The remainder of the paper develops the geometric projection
+framework, establishes its theoretical properties, and evaluates
+its performance in representative nonlinear estimation scenarios.
+II. PROBLEM FORMULATION
+Consider a nonlinear stochastic dynamical system defined
+on a filtered probability space (Ω, F, {Ft}t≥0, P), where {Ft}
+denotes the natural filtration generated by the initial condition
+and the driving noise processes, augmented to satisfy the usual
+conditions.
+The system dynamics are governed by the Itô stochastic
+differential equation
+dxt = f(xt, t) dt + G(xt, t) dBt,
+(1)
+and the observation process is given by
+yt = h(xt, t) + Wt,
+(2)
+where xt ∈Rn denotes the system state, yt ∈Rm the
+measurement process, and Bt and Wt are independent Wiener
+processes of appropriate dimensions adapted to {Ft}. The
+initial condition x0 is assumed to be F0–measurable with a
+known prior distribution.
+Equations (1)–(2) describe the assumed signal and observa-
+tion models used by the estimator; the true physical system
+may differ structurally.
+The following assumptions ensure well-posedness of the
+stochastic dynamics and the geometric constructions introduced
+in this work.
+Assumption 1 (Regularity). The functions f : Rn × R+ →
+Rn, G : Rn × R+ →Rn×r, and h : Rn × R+ →Rm are
+continuously differentiable in x, jointly locally Lipschitz in
+(x, t), and satisfy linear growth conditions ensuring existence
+and uniqueness of strong solutions to (1).
+Assumption 2 (Measurement Regularity). The measurement
+Jacobian
+Ht := ∂h
+∂x(xt, t)
+along the trajectory is progressively measurable and locally
+bounded on compact time intervals.
+Assumption 3 (Pseudoinverse Regularity). The matrix HtH⊤
+t
+admits a regularized Moore–Penrose pseudoinverse (HtH⊤
+t )†
+that remains locally bounded on compact time intervals.
+Remark 1 (Partial Observability). The formulation allows
+for partial and time-varying observability. When HtH⊤
+t
+is
+full rank, the pseudoinverse reduces to the standard inverse;
+otherwise, it is interpreted in the regularized sense.
+Remark 2 (Projection Scope). Geometric projection is applied
+only to the drift component f(xt, t) of the assumed dynamics,
+while the diffusion term G(xt, t) dBt is left unchanged. This
+preserves stochastic consistency and absolute continuity of
+the proposal measure, while enforcing measurement–dynamics
+compatibility at the level of nominal state evolution.
+The objective is to approximate the conditional distribution
+of xt given the observation history
+Fy
+t := σ{ys : s ≤t},
+in a manner that maintains estimator consistency and robustness
+under structural model mismatch and partial observability.
+III. GEOMETRIC PROJECTION DYNAMICS
+This section develops a local geometric mechanism that incor-
+porates measurement information directly into state propagation.
+The construction enforces first-order compatibility between
+state evolution and measurements in the tangent space induced
+by the measurement map, without imposing hard constraints
+on the measurement manifold. The resulting dynamics define a
+measurement-informed proposal process for Bayesian filtering
+and do not represent posterior dynamics.
+3
+A. Reference Innovation Increment
+Definition 1 (Reference Innovation Increment). We define the
+measurement drift term
+ηt := Htf(xt, t) + ∂th(xt, t),
+(3)
+and the reference innovation increment
+dνt := dyt −ηt dt.
+(4)
+Under the observation model, dνt = dWt in the ideal case,
+and thus represents the measurement noise increment.
+B. Local Compatibility Condition
+A first-order expansion of the measurement function yields
+h(xt + dxt, t + dt) ≈h(xt, t) + Ht dxt + ∂th(xt, t) dt.
+Definition 2 (Compatibility Condition). Local compatibility
+between state evolution and measurements is expressed as
+Ht dxt + ∂th(xt, t) dt = dyt −dWt.
+(5)
+This condition enforces first-order consistency between state
+evolution and the observed measurement increment. Higher-
+order Itô correction terms are absorbed within the diffusion
+component.
+C. Projected Dynamics
+We introduce an intermediate modified drift representation
+of the form
+dxt = f(xt, t) dt + H⊤
+t λt dt.
+(6)
+The diffusion term G(xt, t) dBt is preserved.
+Substituting (6) into (5) yields
+HtH⊤
+t λt dt = dyt −Htf(xt, t) dt −∂th(xt, t) dt −dWt,
+solving which in the minimum-norm sense yields an explicit
+representation for the co-state.
+Definition 3 (Co-State). The co-state is represented as
+λt dt
+=
+(HtH⊤
+t )† dyt −Htf(xt, t) dt −
+∂th(xt, t) dt −dWt
+
+.
+(7)
+Proposition 1 (Projected Dynamics). Eliminating the co-state
+variable λt yields the projected dynamics
+dxt = f(xt, t) dt
++ P∥
+ dyt −Htf(xt, t) dt −∂th(xt, t) dt
+
++ G(xt, t) dBt,
+(8)
+where
+P∥:= H⊤
+t (HtH⊤
+t )†Ht
+Proof. Substituting (6) into (5) gives
+HtH⊤
+t λt dt = dyt −Htf(xt, t) dt −∂th(xt, t) dt.
+Applying the Moore–Penrose pseudoinverse yields
+λt dt = (HtH⊤
+t )† dyt −Htf(xt, t) dt −∂th(xt, t) dt
+
+.
+Substituting into (6) gives
+H⊤
+t λt dt = P∥
+ dyt −Htf(xt, t) dt −∂th(xt, t) dt
+
+,
+which yields (8).
+Remark 3 (Regularized Pseudoinverse). In practice, (HtH⊤
+t )†
+is implemented using a Tikhonov-regularized approximation of
+the pseudoinverse,
+(HtH⊤
+t + ϵI)−1,
+(9)
+where ϵ > 0 ensures numerical stability in rank-deficient or
+ill-conditioned regimes.
+D. Well-Posedness
+Theorem 1 (Existence and Uniqueness). Assume that f(x, t)
+and G(x, t) are globally Lipschitz in x and satisfy linear growth
+conditions, and that h(x, t) is continuously differentiable with
+respect to x. Assume further that the projection operator P∥is
+locally Lipschitz in x (e.g., under boundedness or regularization
+of the pseudoinverse). Then the projected system (8) admits a
+unique strong solution on any finite time interval.
+Proof. Under the stated assumptions, the drift term is locally
+Lipschitz in x and satisfies linear growth. The diffusion
+term G(xt, t) is also Lipschitz with linear growth. Therefore,
+standard results for Itô stochastic differential equations ensure
+existence and uniqueness of a strong solution.
+E. Co-State Inconsistency Variable
+Theorem 2 (Zero-Mean Co-State). Under correct model
+specification,
+E[dyt | Fy
+t ] = η(xt, t) dt,
+which implies
+E[λt | Fy
+t ] = 0.
+Proof. From (7), the co-state is proportional to the innovation
+term dyt −η(xt, t) dt, which is a martingale increment under
+Fy
+t . Taking conditional expectation yields zero.
+Remark 4 (Discrete-Time Approximation). The discrete-time
+approximation corresponding to (7) is
+λt ≈(HtH⊤
+t )† (∆yt −Htf(xt, t) ∆t −∂th(xt, t) ∆t) .
+F. Robustness Under Model Mismatch
+Let πGP F
+t
+and πtrue
+t
+denote the filtering distributions under
+the projected and true dynamics, respectively.
+Let the true dynamics be
+dxt =
+ f(xt, t) + ∆f(xt, t)
+
+dt + G(xt, t) dBt.
+(10)
+Assumption 4 (Bounded Model Mismatch).
+∥∆f(x, t)∥≤ϵ(t).
+Theorem 3 (Robustness Under Model Mismatch). For any
+bounded Lipschitz function u, there exists C > 0 such that
+πGP F
+t
+(u) −πtrue
+t
+(u)
+ ≤C
+Z t
+0
+∥(I−P∥(xGP F
+s
+))∆f(xGP F
+s
+, s)∥ds.
+4
+Moreover,
+∥λt∥≤Cλ∥(I −P∥(xGP F
+t
+))∆f(xGP F
+t
+, t)∥,
+which follows directly from the expression of λt in (7).
+Consequently,
+πGP F
+t
+(u) −πtrue
+t
+(u)
+ ≤C′
+Z t
+0
+∥λs∥ds.
+Proof. Assume that f, P∥, and ∆f are locally Lipschitz in x.
+Let et := xGP F
+t
+−xtrue
+t
+.
+Subtracting the projected dynamics from the true dynamics
+and linearizing yields
+det = −(I −P∥(xGP F
+t
+))∆f(xGP F
+t
+, t) dt + Rt dt,
+where ∥Rt∥≤C1∥et∥.
+Applying Grönwall inequality gives
+∥et∥≤C2
+Z t
+0
+∥(I −P∥(xGP F
+s
+))∆f(xGP F
+s
+, s)∥ds.
+By Lipschitz continuity of u,
+|u(xGP F
+t
+) −u(xtrue
+t
+)| ≤L∥et∥.
+Taking expectation under the respective laws and using
+πGP F
+t
+(u) = E[u(xGP F
+t
+)] and πtrue
+t
+(u) = E[u(xtrue
+t
+)] yields
+the stated bound.
+Corollary 1 (Zero-Residual Condition). If (I −P∥)∆f = 0,
+then
+πGP F
+t
+(u) = πtrue
+t
+(u).
+Interpretation.: The filtering error depends only on the
+mismatch component orthogonal to the measurement-consistent
+subspace. The co-state λt quantifies this residual mismatch and
+links geometric inconsistency to estimation error.
+Comparison with Standard Particle Filtering.: In standard
+particle filtering, model mismatch directly impacts importance
+weights, leading to degeneracy. In contrast, the projected
+dynamics modify the propagation step, reducing proposal–
+likelihood mismatch and improving weight stability.
+IV. CONNECTION TO NONLINEAR FILTERING
+The projected dynamics developed in Section III define a
+measurement-informed proposal process for Bayesian state
+estimation. In this section, we establish how this proposal can
+be embedded within the continuous-time nonlinear filtering
+framework via a change-of-measure construction.
+The projected dynamics do not represent the posterior
+filtering equation; instead, they define a guided sampling
+mechanism. The posterior distribution is recovered through
+likelihood-based reweighting under the physical measure.
+A. Measurement-Informed Proposal Dynamics
+The projected dynamics (8) define a measurement-informed
+state process in which propagation is guided by observation
+increments while remaining adapted to the observation filtra-
+tion Fy
+t . Consequently, the process is non-anticipative and
+admissible for use within a change-of-measure framework.
+B. Change of Measure
+Let P denote the physical probability measure under which
+the observation process satisfies (2). Define the likelihood
+process
+Lt = exp
+Z t
+0
+η(xs, s)⊤dys −1
+2
+Z t
+0
+∥η(xs, s)∥2ds
+
+. (11)
+where η(x, t) is progressively measurable and adapted, and is
+defined as in (3). The innovation structure defined in (4) is
+consistent with the likelihood drift η(x, t) used here.
+Under P, the observation process satisfies
+dyt = η(xt, t) dt + dWt,
+which defines the standard exponential martingale associated
+with Girsanov’s theorem.
+Assumption 5 (Novikov Condition).
+EP
+"
+exp
+ 
+1
+2
+Z T
+0
+∥η(xs, s)∥2ds
+!#
+< ∞.
+Under this condition, Lt defines a Radon–Nikodym deriva-
+tive inducing a probability measure Q equivalent to P. Under
+Q, the process
+˜Wt := yt −
+Z t
+0
+η(xs, s) ds
+(12)
+is a standard Wiener process.
+Theorem 4 (Measure-Consistent Proposal Construction). Un-
+der the Novikov condition and standard Lipschitz continuity
+and linear growth assumptions on f, G, and h, the projected
+dynamics (8) define a well-posed Itô process adapted to the
+filtration Ft generated by the state and noise processes. More-
+over, the posterior distribution conditioned on the observation
+filtration Fy
+t satisfies
+EP[u(xt) | Fy
+t ] = EQ[u(xt) Lt]
+EQ[Lt]
+.
+(13)
+Proof. The Novikov condition ensures that Lt is a martingale.
+Since η(x, t) is adapted and square-integrable, Girsanov’s
+theorem applies. The projected dynamics are adapted to Ft
+and satisfy standard Lipschitz continuity and linear growth
+conditions, ensuring well-posedness. The result then follows
+from the Kallianpur–Striebel formula.
+C. Particle Approximation
+Let {x(i)
+t }N
+i=1 be particles evolving according to (8). Define
+the empirical measure
+πN
+t := 1
+N
+N
+X
+i=1
+δx(i)
+t .
+(14)
+The weighted approximation is
+ΠN
+t (u) =
+PN
+i=1 u(x(i)
+t ) w(i)
+t
+PN
+i=1 w(i)
+t
+,
+w(i)
+t
+∝L(i)
+t .
+(15)
+5
+where L(i)
+t
+denotes the likelihood process evaluated along the
+particle trajectory x(i).
+Theorem 5 (Particle Consistency). Under standard moment
+and non-degeneracy conditions,
+ΠN
+t (u)
+P−→EP[u(xt) | Fy
+t ],
+with mean-square error O(N −1/2).
+Proof. The result follows from standard self-normalized im-
+portance sampling and propagation of chaos arguments for
+interacting particle systems [10].
+Weight Stability.: The projected dynamics reduce the
+mismatch between propagation and likelihood evaluation, which
+empirically limits dispersion in importance weights. This effect
+is supported by the analysis in Section III-F and validated
+experimentally in Section VIII.
+D. Error Decomposition Under Model Mismatch
+The estimation error admits the following decomposition
+(up to higher-order terms)
+ΠN
+t (u) −πtrue
+t
+(u) =
+Z t
+0
+(I −P∥(xs))∆f(xs, s) ds
++
+Z t
+0
+λs ds + O(N −1/2).
+(16)
+Theorem 6 (Error Decomposition Under Model Mismatch).
+Under Assumptions 1–4, there exists a decomposition of the
+form of Section III, there exists C > 0 such that
+ΠN
+t (u) −πtrue
+t
+(u)
+ ≤C
+Z t
+0
+∥(I −P∥(xs))∆f(xs, s)∥ds
++ C
+Z t
+0
+∥λs∥ds
++ O(N −1/2).
+(17)
+Proof. The result follows by combining the robustness bound
+from Theorem 3 with standard Monte Carlo error estimates
+for particle approximations.
+Interpretation.: The first term represents the component
+of model mismatch orthogonal to the measurement-consistent
+subspace. The second term, captured by the co-state λt,
+quantifies residual incompatibility between dynamics and
+measurement geometry. The third term corresponds to finite-
+sample approximation error.
+Together, these terms show that estimation error is governed
+by the projected mismatch component and its propagation
+through the proposal dynamics, linking geometric inconsistency
+to particle degeneracy and estimation performance.
+V. STANDARD VS. GEOMETRIC PARTICLE FILTERING
+This section contrasts the proposed Geometric Projection
+Particle Filter (GPF) with the standard bootstrap Particle Filter
+(SPF), with particular emphasis on the effect of structural model
+mismatch on proposal quality and importance weight stability.
+The comparison is made relative to the classical bootstrap
+PF baseline, which uses the prior dynamics as the proposal
+distribution; no auxiliary, transport-based, or optimization-based
+proposals are considered in this baseline comparison.
+A. Standard Particle Filter (SPF)
+In the classical bootstrap particle filter, particles are propa-
+gated according to the assumed state dynamics,
+dx(i)
+t
+= f(x(i)
+t , t) dt + G(x(i)
+t , t) dB(i)
+t ,
+(18)
+and measurement information enters exclusively through im-
+portance weights derived from the observation likelihood. In
+continuous-time form, this corresponds formally to
+w(i)
+t
+∝exp
+Z t
+0
+η(x(i)
+s , s)⊤dys −1
+2
+Z t
+0
+∥η(x(i)
+s , s)∥2ds
+
+,
+(19)
+assuming
+unit
+covariance
+observation
+noise
+consistent
+with (11).
+This corresponds to using the prior dynamics as the proposal
+distribution. When the assumed drift f differs systematically
+from the true dynamics, particles evolve in regions of the state
+space that are increasingly incompatible with the observed
+measurements. This mismatch accumulates in the likelihood,
+leading to weight collapse and loss of particle diversity.
+B. Time Discretization and Numerical Implementation
+The proposed geometric projection framework is formulated
+in continuous time through the projected dynamics (8). For
+numerical implementation, these dynamics are discretized over
+a time grid {tk}K
+k=0 with step size ∆t = tk+1 −tk using an
+Euler–Maruyama scheme:
+xk+1 = xk + fproj(xk, tk) ∆t + G(xk, tk) ∆Wk,
+(20)
+where fproj denotes the projected drift defined in (8), and
+∆Wk ∼N(0, ∆t I).
+Consistency with Continuous-Time Filtering.:
+Under
+standard Lipschitz continuity and linear growth conditions
+on f, G, and h, the Euler–Maruyama scheme converges
+weakly to the continuous-time process as ∆t →0. Since
+the projection operator depends smoothly on the state through
+the measurement Jacobian, the projected dynamics inherit these
+convergence properties.
+Posterior Consistency.: The geometric projection modifies
+only the proposal dynamics, while posterior expectations are
+recovered through importance weighting under the change-
+of-measure formulation. Therefore, the discrete-time approx-
+imation does not introduce additional structural bias beyond
+discretization effects.
+Practical Considerations.: In practice, the time step ∆t
+is selected to balance numerical stability and computational
+cost. Smaller step sizes improve approximation accuracy and
+reduce projection-induced linearization error, while larger step
+sizes may introduce discretization bias. All simulations in this
+work use sufficiently small ∆t to ensure stable propagation
+and consistent estimation performance.
+6
+C. Weight Stability and Degeneracy
+A central limitation of standard particle filtering is the rapid
+growth of importance weight variance under model mismatch
+and partial observability, leading to particle degeneracy.
+Weight Update Structure.: In discrete time, particle
+weights evolve according to
+w(i)
+k+1 ∝w(i)
+k · p(yk+1 | x(i)
+k+1) p(x(i)
+k+1 | x(i)
+k )
+q(x(i)
+k+1 | x(i)
+k , yk+1)
+.
+(21)
+Effect of Geometric Projection.: Under the GPF, the
+proposal aligns with the measurement-consistent subspace,
+reducing mismatch between predicted and observed measure-
+ments.
+Variance Mechanism.: Let ˜y(i)
+k+1 denote predicted mea-
+surements. Then, heuristically,
+Var(log wk+1) ∝Var
+ ∥yk+1 −˜yk+1∥2
+.
+(22)
+Projection reduces the mismatch between predicted and ob-
+served measurements, resulting in lower weight dispersion
+relative to SPF. Consequently, in typical regimes under model
+mismatch,
+∥yk+1 −˜yGPF
+k+1∥≲∥yk+1 −˜ySPF
+k+1∥.
+(23)
+Co-State Link.: The function η(x, t) reflects mismatch
+between predicted and observed measurements, while the
+co-state λt captures residual incompatibility. Accordingly,
+heuristically,
+Var(log wGPF
+t
+) ≲Var(log wSPF
+t
+),
+(24)
+with residual variance governed by ∥λt∥.
+Implication for Degeneracy.: Reduced weight variance
+leads to improved effective sample size
+ESS(t) =
+1
+PN
+i=1( ¯w(i)
+t )2 ,
+(25)
+thereby mitigating particle degeneracy.
+D. Geometric Projection Particle Filter (GPF)
+In contrast, the proposed GPF modifies the proposal distri-
+bution by incorporating measurement information directly into
+state propagation. Particles evolve according to the projected
+dynamics (8), applied independently to each particle.
+The Bayesian update is performed using the same likelihood-
+based weighting mechanism as in SPF. The proposal remains
+compatible with the change-of-measure formulation in Sec-
+tion IV.
+By enforcing local compatibility between state evolution
+and measurements in the tangent space of the measurement
+map, the proposal is steered toward regions of higher posterior
+likelihood prior to weighting. This reduces proposal–likelihood
+mismatch under structural model uncertainty without altering
+the underlying Bayesian filtering formulation.
+E. Comparative Weight Stability and ESS
+Let ¯w(i)
+t
+:= w(i)
+t / PN
+j=1 w(j)
+t
+denote normalized weights.
+The effective sample size (ESS) is defined in (25).
+Proposition 2 (Comparative Weight Stability under Projected
+Proposal). Assume that the co-state process satisfies
+sup
+t∈[0,T ]
+E[∥λt∥2] < ∞.
+Then, over any finite interval [0, T], the dispersion of nor-
+malized weights under the GPF is governed by the residual
+mismatch captured by λt. Relative to SPF, the expected growth
+of
+Var( ¯w(i)
+t )
+is attenuated in regimes where E[∥λt∥2] remains bounded.
+Proof. The log-weights satisfy
+log w(i)
+t
+=
+Z t
+0
+η(x(i)
+s , s)⊤dys −1
+2
+Z t
+0
+∥η(x(i)
+s , s)∥2ds.
+Using dys = η(xs, s) ds + dWs and Itô isometry,
+E
+"Z t
+0
+η⊤dWs
+2#
+= E
+Z t
+0
+∥η∥2ds
+
+.
+In SPF, mismatch accumulates entirely in η, leading to
+increasing dispersion. Under GPF, projection reduces this
+mismatch at the propagation stage, leaving residual variability
+governed by λt. When E[∥λt∥2] is bounded, the growth of
+dispersion is correspondingly attenuated.
+Remark 5 (Failure-Mode Transformation). In SPF, persistent
+model mismatch leads to repeated weight collapse due to
+likelihood penalization of dynamically inconsistent particles.
+In GPF, a significant portion of this mismatch is removed
+during propagation, so that only the residual inconsistency
+contributes to weight variability. This effectively transforms the
+dominant failure mode from collapse to bounded dispersion in
+typical regimes.
+Remark 6 (Relation to Other Guided Proposals). Unlike
+transport-based, implicit, or score-driven particle filtering meth-
+ods that require solving global optimization or flow construction
+problems, the GPF applies a closed-form local projection
+independently to each particle. This yields a computationally
+efficient, geometry-driven proposal mechanism suitable for
+real-time applications.
+VI. CONSISTENCY METRICS
+Estimator integrity under model uncertainty is assessed using
+diagnostic metrics that quantify the internal consistency of
+the particle representation. In particular, effective sample size
+(ESS) and the co-state magnitude ∥λt∥are used to characterize
+particle degeneracy and model–measurement inconsistency,
+respectively.
+Large values of ESS(t) indicate well-distributed weights,
+while small values reflect degeneracy and loss of posterior di-
+versity. Sustained degradation of ESS(t) is therefore indicative
+of proposal–likelihood mismatch.
+7
+Additional diagnostics include weight entropy and innovation
+consistency,
+zt :=
+Σ−1/2
+t
+ dyt −ˆηt dt
+ ,
+(26)
+as well as temporal stability of posterior moments, which
+provide complementary indicators of estimator degradation
+under model mismatch.
+These metrics serve as practical indicators of estimator health
+and are used in the experimental evaluation to characterize
+performance across operating regimes. These indicators may
+also support higher-level decision-making in autonomous
+systems.
+VII. ALGORITHMIC REALIZATION
+This section presents a discrete-time implementation of the
+Geometric Projection Particle Filter (GPF) that approximates
+the continuous-time formulation developed in Sections III
+and IV. The algorithm is intended as a practical realization
+suitable for real-time navigation systems, rather than an exact
+pathwise simulation of the underlying stochastic differential
+equations.
+Let {tk}k≥0 denote a uniform discretization of time with step
+size ∆t, and let ∆yk := ytk+1 −ytk denote the discrete-time
+measurement increment. All stochastic integrals are interpreted
+in the Itô sense. Measurement Jacobians are evaluated at particle
+states at time tk.
+The implementation employs a split-step discretization of
+the projected dynamics, separating propagation and projection
+operations. The diffusion component is retained through
+Gaussian increments consistent with the continuous-time term
+G(x, t) dBt, ensuring stochastic consistency and sufficient
+exploration of the state space.
+The Moore–Penrose pseudoinverse is evaluated using numer-
+ically stable methods, with optional Tikhonov regularization
+when H(i)
+tk H(i)⊤
+tk
+is ill-conditioned. This ensures robustness
+under partial observability and near-singular measurement
+configurations commonly encountered in spacecraft navigation.
+The computational complexity of the GPF is comparable
+to that of the standard bootstrap particle filter, with additional
+overhead arising primarily from Jacobian evaluation and pro-
+jection operations. No iterative optimization, auxiliary partial
+differential equations, or global coupling between particles is
+required.
+The co-state variable λt is computed per particle and
+aggregated at the ensemble level to form diagnostic statistics
+used for estimator integrity monitoring. It does not explicitly
+enter the discretized propagation or weighting steps, but
+serves as a diagnostic variable derived from the measurement-
+consistency condition.
+Discretization Scheme.: The split-step formulation sepa-
+rates propagation and projection operations:
+x−
+k = xk−1 + f(xk−1, tk−1) ∆t,
+(27)
+xk = x−
+k + P∥(x−
+k , tk)
+ ∆yk −η(x−
+k , tk)∆t
+
+.
+(28)
+This separation reduces potential correlation effects between
+process noise and measurement increments while preserving
+the geometric structure of the projection. Under standard
+Algorithm 1 Geometric Projection Particle Filter (GPF)
+1: Initialize particles {x(i)
+0 }N
+i=1 from the prior distribution
+2: Initialize weights w(i)
+0
+= 1/N
+3: for each time step tk do
+4:
+for each particle i do
+5:
+Compute measurement Jacobian H(i)
+tk
+6:
+Form projection operators
+P (i)
+∥
+= H(i)⊤
+tk
+ H(i)
+tk H(i)⊤
+tk
+†H(i)
+tk
+7:
+Prediction:
+x(i),−
+tk
+= x(i)
+tk−1 + f(x(i)
+tk−1, tk−1) ∆t
+8:
+Compute co-state
+λ(i)
+tk = (H(i)
+tk H(i)⊤
+tk
+)† 
+∆yk −η(x(i),−
+tk
+, tk) ∆t
+
+9:
+Projection:
+x(i)
+tk = x(i),−
+tk
++P (i)
+∥
+ ∆yk−η(x(i),−
+tk
+, tk) ∆t
+
++
+√
+∆t G(x(i),−
+tk
+, tk) ξ(i)
+k
+10:
+Update weights:
+log w(i)
+k+1 = log w(i)
+k +η(x(i)
+tk , tk)⊤∆yk−1
+2∥η(x(i)
+tk , tk)∥2∆t
+11:
+end for
+12:
+Normalize weights ¯w(i)
+tk
+13:
+Compute effective sample size (ESS) as defined in (25)
+14:
+if ESS(tk) < τN then
+15:
+Resample particle set
+16:
+end if
+17:
+Compute ensemble statistics of {λ(i)
+tk }
+18: end for
+Fig. 1. Estimation error over time for Case-1 (full observability, left) and
+Case-2 (partial observability, right). SPF exhibits rapid divergence, while EKF,
+UKF, and EnKF degrade under model mismatch. GPF maintains bounded
+error in both cases.
+Lipschitz continuity and linear growth conditions, the scheme
+is consistent with the weak convergence of the underlying
+continuous-time formulation.
+VIII. APPLICATION FRAMEWORK AND RESULTS
+This section evaluates the proposed Geometric Projection
+Particle Filter (GPF) using high-fidelity lunar descent navigation
+data under structural model mismatch, varying observability
+conditions, and measurement noise.
+The analysis examines estimator stability, consistency, and
+failure mechanisms, with emphasis on the role of proposal–
+likelihood mismatch in driving particle degeneracy and error
+growth.
+The proposed framework enforces measurement-consistent
+state propagation through geometric projection, thereby mod-
+8
+Fig. 2. Estimation error versus model mismatch magnitude for Case-1 and
+Case-2. Classical filters degrade significantly as mismatch increases, whereas
+GPF remains stable.
+Fig. 3. Estimation error versus measurement noise level for Case-1 and Case-2.
+Classical filters degrade with increasing noise, while GPF remains robust.
+ifying the proposal dynamics without altering the likelihood.
+This enables a direct characterization of the interplay between
+model mismatch, particle degeneracy, and estimation accuracy.
+GPF is compared against the bootstrap Particle Filter (SPF),
+Extended Kalman Filter (EKF), Unscented Kalman Filter
+(UKF), and Ensemble Kalman Filter (EnKF), representing
+standard sampling-based and Gaussian filtering approaches.
+A. Theoretical–Empirical Consistency
+The theoretical results in Sections V-C and VIII-G establish
+that estimation error under model mismatch is governed by the
+component of the dynamics orthogonal to the measurement-
+consistent subspace. In particular, Theorem 3 shows that the
+filtering error depends on the projected mismatch magnitude,
+characterized by the geometric co-state variable λt.
+This induces the cascade
+∥λt∥−→weight variance −→ESS −→estimation error.
+(29)
+Large values of ∥λt∥correspond to increased deviation
+from the measurement-consistent subspace, leading to higher
+variance in importance weights and reduced effective sample
+size (ESS). Conversely, small ∥λt∥indicates alignment between
+propagation dynamics and measurement geometry, resulting in
+stable weights and controlled estimation error. This reflects the
+propagation of model mismatch into likelihood inconsistency
+through innovation error.
+The experiments are designed to evaluate this mechanism
+through complementary analyses:
+• co-state–degeneracy phase analysis,
+• ESS evolution and error trajectories,
+• regression of degeneracy against error growth.
+The results consistently support this relationship, indicating
+that λt serves as a structural indicator of mismatch and a
+predictor of filter performance.
+Fig. 4. Normalized effective sample size (ESS) for Case-1 and Case-2. SPF
+exhibits rapid degeneracy, while GPF maintains high ESS, indicating improved
+weight stability.
+Fig. 5. Relationship between co-state magnitude and particle degeneracy for
+Case-1 and Case-2. SPF exhibits strong coupling between degeneracy and
+error growth, whereas GPF remains in low-degeneracy regimes.
+B. Experimental Setup
+The system state is defined as
+x(t) =
+r(t)
+v(t)
+
+= [x y z vx vy vz]⊤,
+where r(t) ∈R3 denotes position and v(t) ∈R3 denotes
+velocity.
+The nominal dynamics are
+˙r = v,
+˙v = −µ
+r
+∥r∥3 ,
+with gravitational parameter µ = 4902.8 km3/s2.
+Structural model mismatch is introduced as
+˙v = −µ(1 + ϵdyn)
+r
+∥r∥3 ,
+ϵdyn = 0.09,
+representing a persistent relative error in the assumed dynamics.
+All particle-based methods employ N = 500 particles, with
+resampling triggered when ESS < N/2. Measurement noise is
+9
+TABLE I
+MONTE CARLO ESTIMATION PERFORMANCE (RMSE IN KM, MEAN ±
+STANDARD DEVIATION).
+Method
+Case-1 (Full Obs.)
+Case-2 (Partial Obs.)
+SPF
+331.19 ± 1.25
+250.40 ± 3.60
+GPF
+4.52 ± 0.00
+5.28 ± 0.22
+EKF
+15.36 ± 2.88
+111.22 ± 43.70
+UKF
+15.31 ± 0.00
+105.01 ± 0.28
+EnKF
+12.11 ± 0.45
+92.31 ± 4.09
+Gaussian with standard deviation σ = 0.03 km. Performance
+is assessed via Monte Carlo simulations.
+Two representative trajectories are considered: (i) a failure
+trajectory corresponding to a mismatch-dominated regime, and
+(ii) a nominal trajectory corresponding to stable estimation. This
+setup enables evaluation across distinct regimes of observability
+and estimator stability.
+C. Estimation Error Evolution
+Figure 1 compares the evolution of position estimation error
+under full and partial observability.
+In Case-1 (full observability), SPF diverges following an
+initial transient, with error exceeding 300 km, indicating severe
+weight collapse and loss of posterior representation. EKF, UKF,
+and EnKF remain numerically stable but exhibit increasing
+bias due to model mismatch. In contrast, GPF maintains low
+estimation error, remaining near zero under nominal conditions
+and within approximately 1–5 km under perturbations.
+In Case-2 (partial observability), SPF divergence is further
+accelerated and Gaussian filters degrade significantly. GPF
+continues to maintain low and stable estimation error despite
+reduced observability.
+These results are consistent with the mechanism described
+in Section VIII-A, where model mismatch induces degeneracy
+through proposal–likelihood inconsistency.
+D. Monte Carlo Estimation Performance
+Monte Carlo simulations are used to evaluate statistical esti-
+mation accuracy under both observability conditions. Results
+are reported in Table I.
+In Case-1, GPF achieves the lowest RMSE (4.52 km) with
+negligible variance, substantially outperforming all baselines.
+SPF exhibits severe degradation (RMSE > 300 km), while
+EKF, UKF, and EnKF attain moderate accuracy but remain
+biased.
+In Case-2, GPF maintains low RMSE (5.28 km) with small
+variance, whereas EKF, UKF, and EnKF degrade significantly
+and SPF exhibits large error.
+Overall, GPF reduces estimation error by approximately
+one order of magnitude relative to SPF and by a factor of
+2–20 compared to EKF, UKF, and EnKF, while maintaining
+consistent performance across Monte Carlo runs.
+E. Particle Degeneracy and Effective Sample Size
+Figure 4 shows the evolution of normalized effective sample
+size (ESS), defined as ESS/N. In the failure trajectory, SPF
+exhibits rapid degeneracy, with ESS dropping below 0.1 within
+∼200 s and remaining near zero thereafter. In contrast, GPF
+maintains high ESS (above 0.7) with mild oscillations due
+to resampling. Time-averaged values are ESSSPF
+N
+≈0.12 and
+ESSGPF
+N
+≈0.79, indicating substantially improved particle
+diversity.
+These results are consistent with Section V-C, where reduced
+weight dispersion arises from attenuation of mismatch compo-
+nents orthogonal to the measurement-consistent subspace.
+F. Co-State, Degeneracy, and Error Growth Coupling
+Figure 5 illustrates the relationship between co-state magni-
+tude, particle degeneracy, and estimation error growth under
+full and partial observability.
+Subplots (a) and (c) compare ∥λt∥with degeneracy. For
+SPF, the relationship is weak and highly dispersed, indicating
+that degeneracy is primarily driven by stochastic weight
+collapse rather than instantaneous mismatch. In contrast, GPF
+maintains bounded ∥λt∥and operates predominantly in low-
+degeneracy regimes, limiting the propagation of mismatch into
+the weighting stage.
+Subplots (b) and (d) show degeneracy versus error growth.
+SPF exhibits a strong positive correlation (ρ ≈0.8–0.9),
+indicating significant error amplification under weight collapse.
+In contrast, GPF maintains near-zero error growth across
+degeneracy levels, demonstrating effective suppression of
+instability.
+These results confirm that model mismatch, quantified by λt,
+induces particle degeneracy, which in turn governs error growth.
+By reducing effective mismatch during propagation, GPF
+weakens this coupling and yields stable estimation behavior.
+G. Robustness to Model Mismatch
+Figure 2 compares estimation error as a function of model
+mismatch magnitude. SPF exhibits strong sensitivity to mis-
+match, with error increasing rapidly as the mismatch grows.
+EKF, UKF, and EnKF also degrade due to bias accumulation.
+In contrast, GPF demonstrates robust performance, with
+only modest degradation (typically within 10–15%) across the
+tested range. This behavior is consistent with attenuation of
+the effective mismatch component (I −P∥)∆f, as predicted
+by the theoretical analysis.
+H. Robustness to Measurement Noise
+Figure 3 compares estimation error as a function of mea-
+surement noise level.
+SPF, EKF, UKF, and EnKF exhibit increasing error with
+higher noise levels, reflecting sensitivity to noise in innovation-
+based correction. In contrast, GPF maintains low and stable
+estimation error across the tested range.
+This behavior arises from incorporating measurement in-
+formation directly into the propagation dynamics, which
+distributes the effect of measurement noise over time rather
+than amplifying it during discrete correction steps.
+10
+I. Discussion of Results
+The empirical results corroborate the theoretical framework.
+In conventional particle filtering, model mismatch induces
+weight dispersion, particle degeneracy, and subsequent error
+growth. In contrast, the proposed GPF mitigates this mechanism
+by enforcing measurement-consistent propagation, thereby
+preserving particle diversity and maintaining low estimation
+error.
+Across all scenarios, degeneracy emerges as a primary driver
+of instability. However, its coupling with error growth is signif-
+icantly weakened under GPF, leading to improved robustness
+and stability. These results demonstrate that modifying proposal
+dynamics through geometric projection provides a principled
+approach for addressing model mismatch in nonlinear filtering.
+Extensions to higher-level autonomy and decision-making
+frameworks are left for future work.
+IX. CONCLUSION
+This paper introduced the Geometric Projection Particle
+Filter (GPF) for nonlinear state estimation under structural
+model uncertainty and partial observability. The approach
+embeds measurement geometry directly into state propagation,
+enforcing local compatibility between dynamics and observa-
+tions.
+The main contributions are as follows:
+• Geometry-consistent proposal dynamics: A projection-
+based
+propagation
+that
+decomposes
+the
+drift
+into
+measurement-consistent and orthogonal components, re-
+ducing proposal–likelihood mismatch while preserving the
+Bayesian posterior via a change-of-measure formulation.
+• Robustness under model mismatch: A characterization
+showing that filtering error is governed by the component
+of mismatch orthogonal to the measurement-consistent
+subspace, with projection attenuating its impact.
+• Particle consistency: Convergence of the empirical mea-
+sure to the limiting distribution with standard Monte Carlo
+rate.
+• Co-state inconsistency: A geometric co-state variable
+that quantifies mismatch-induced inconsistency and links
+model mismatch to degeneracy and error growth.
+• Empirical validation: Numerical results demonstrating
+reduced degeneracy, improved effective sample size, and
+bounded estimation error under model mismatch and
+partial observability.
+Overall, enforcing measurement consistency during propaga-
+tion provides a principled mechanism for improving robustness
+in nonlinear filtering by reducing effective mismatch prior to
+weighting.
+Future work will address degeneracy dynamics, integration
+with control architectures, and extension to high-dimensional
+estimation problems.
+REFERENCES
+[1] R. E. Kalman, “A new approach to linear filtering and prediction
+problems,” Journal of Basic Engineering, vol. 82, no. 1, pp. 35–45,
+1960.
+[2] R. E. Kalman and R. S. Bucy, “New results in linear filtering and
+prediction theory,” Journal of Basic Engineering, vol. 83, no. 1, pp.
+95–108, 1961.
+[3] P. S. Maybeck, Stochastic Models, Estimation, and Control.
+Academic
+Press, 1979.
+[4] J. L. Crassidis and J. L. Junkins, Optimal Estimation of Dynamic Systems.
+CRC Press, 2012.
+[5] A. Doucet, N. de Freitas, and N. Gordon, Sequential Monte Carlo
+Methods in Practice.
+Springer, 2001.
+[6] M. S. e. a. Arulampalam, “A tutorial on particle filters,” IEEE Transac-
+tions on Signal Processing, vol. 50, no. 2, pp. 174–188, 2002.
+[7] A. Kong, J. S. Liu, and W. H. Wong, “Sequential imputations and
+bayesian missing data problems,” Journal of the American Statistical
+Association, vol. 89, no. 425, pp. 278–288, 1994.
+[8] R. Douc and O. Capp’e, “Comparison of resampling schemes for particle
+filtering,” Proceedings of ISPA, 2005.
+[9] C. Snyder, T. Bengtsson, P. Bickel, and J. Anderson, “Obstacles to high-
+dimensional particle filtering,” Monthly Weather Review, vol. 136, no. 12,
+pp. 4629–4640, 2008.
+[10] P. Del Moral, Feynman-Kac Formulae: Genealogical and Interacting
+Particle Systems with Applications.
+Springer, 2004.
+[11] A. Doucet and A. M. Johansen, “A tutorial on particle filtering and
+smoothing,” Handbook of Nonlinear Filtering, 2009.
+[12] N. Whiteley, “Stability properties of some particle filters,” Annals of
+Applied Probability, 2013.
+[13] A. Beskos et al., “Stability of sequential monte carlo methods in high
+dimensions,” Annals of Applied Probability, 2016.
+[14] C. Snyder and T. Bengtsson, “Obstacles to high-dimensional particle
+filtering,” Monthly Weather Review, 2008.
+[15] P. Bickel et al., “Sharp failure rates for the bootstrap particle filter,”
+Annals of Statistics, 2008.
+[16] M. K. Pitt and N. Shephard, “Filtering via simulation: Auxiliary particle
+filters,” Journal of the American Statistical Association, vol. 94, no. 446,
+pp. 590–599, 1999.
+[17] A. Doucet, S. Godsill, and C. Andrieu, “On sequential monte carlo
+sampling methods for bayesian filtering,” Statistics and Computing,
+vol. 10, pp. 197–208, 2000.
+[18] A. J. e. a. Chorin, “Implicit particle filters,” Communications in Applied
+Mathematics, 2010.
+[19] A. J. Chorin and X. Tu, “Implicit sampling,” PNAS, 2015.
+[20] F. Daum and J. Huang, “Particle flow for nonlinear filters,” Proceedings
+of SPIE, 2011.
+[21] S. Reich, “A nonparametric ensemble transform method for bayesian
+inference,” SIAM Journal on Scientific Computing, vol. 35, no. 4, pp.
+A2013–A2024, 2013.
+[22] P. Bunch and S. Godsill, “Particle filters for continuous time stochas-
+tic processes using forward transport,” IEEE Transactions on Signal
+Processing, vol. 64, no. 8, pp. 1937–1950, 2016.
+[23] P. J. e. a. van Leeuwen, “Particle filters for high-dimensional systems,”
+Quarterly Journal of the Royal Meteorological Society, 2019.
+[24] P. G. Mehta and S. P. Meyn, “Feedback particle filter,” IEEE Transactions
+on Automatic Control, vol. 57, no. 10, pp. 2665–2671, 2012.
+[25] Y. Song et al., “Score-based generative modeling through stochastic
+differential equations,” ICLR, 2021.
+[26] B. Levy, “Robust bayesian filtering under model uncertainty,” IEEE TAC,
+2017.
+[27] S. Procope-Mamert, N. Chopin, and M. Delattre, “A forward-only scheme
+for online learning of proposal distributions in particle filters,” Journal
+of Computational and Graphical Statistics, 2026.
+[28] L. Zhang et al., “State estimation with model uncertainty using structure
+variational bayesian and transfer learning,” IEEE/CAA Journal of
+Automatica Sinica, vol. 12, no. 3, 2025.
+[29] J. Heng et al., “Controlled sequential monte carlo: Convergence and
+applications,” Annals of Statistics, 2024.

@@ -1,0 +1,1020 @@
+CUBATURE FROM RATIONAL APPROXIMATION
+GENTIAN ZAVALANI∗
+Abstract. We present a numerical construction of cubature rules for area integrals of analytic
+functions over planar domains with rectifiable Jordan boundary. The starting point is the Cauchy–
+Green identity. Given a weight w, we choose a ¯∂-antiderivative W and reduce the area integral to
+a contour integral involving the boundary values of W. These values are then approximated by a
+rational function with free poles, computed by the AAA algorithm. The poles inside the domain
+become cubature nodes, the corresponding residues become weights, and the boundary residual
+controls the error through an a posteriori estimate, rigorous once the continuous boundary residual
+is bounded. The same rule admits a dual reading, as the exact integral of a rational interpolant
+to the integrand, the area analogue of the one-dimensional interpolatory viewpoint. The numerical
+examples recover the disk mean-value rule and the focal-segment rule of the ellipse to machine
+precision, reproduce the exact finite quadrature identities of quadrature domains with both separated
+and confluent nodes, and evaluate logarithmic and Cauchy volume potentials from boundary data
+alone. The interior poles trace analytic skeletons that we identify tentatively with the mother bodies
+of potential theory, along with image points that appear without being imposed; for the square the
+observed convergence is root-exponential.
+Key words.
+cubature, rational approximation, AAA algorithm, Cauchy–Green formula,
+Schwarz function, quadrature domains, mother body, lightning approximation, volume potentials
+MSC codes. 65D32, 41A20, 30E10, 31A05
+1. Introduction. In a recent paper, Horning and Trefethen showed how a great
+variety of quadrature formulas in one dimension can be generated from rational ap-
+proximations of the Cauchy transform of a weight function [10]. The poles of the
+rational function become the quadrature nodes and the residues become the weights,
+and the whole construction lives on arcs and contours in the complex plane. This pa-
+per asks the corresponding two-dimensional question. Can quadrature rules for area
+integrals,
+(1.1)
+I =
+ZZ
+Ω
+f(z) w(z, ¯z) dA,
+over a domain Ω⊂C with rectifiable Jordan boundary γ = ∂Ω, be generated in the
+same spirit? Throughout, we assume that f is analytic in a neighbourhood of ¯Ω.
+Remarkably, no new transform is required. A classical identity already converts
+(1.1) into a problem of approximation on the boundary. Suppose W(z, ¯z) satisfies
+∂W/∂¯z = w. Then the Cauchy–Green identity, which underlies the Cauchy–Pompeiu
+formula [13], gives, for f analytic in a neighbourhood of ¯Ω,
+(1.2)
+ZZ
+Ω
+f(z) w(z, ¯z) dA =
+1
+2i
+I
+γ
+f(z) W(z, ¯z) dz.
+The restriction of W to γ is known boundary data. In the simplest case of a pure area
+integral we have w ≡1 and W = ¯z, so the data is nothing but the complex conjugate
+of the boundary parametrization. Now let ρ be a rational function with simple poles
+zk that approximates this data on γ. The poles inside Ωcontribute residues, while the
+poles outside Ω, together with any polynomial part, integrate to zero against analytic
+∗Technische Universit¨at Dresden, Institute of Numerical Mathematics, 01062 Dresden, Germany
+(gentian.zavalani@tu-dresden.de).
+1
+arXiv:2607.17851v1  [math.NA]  20 Jul 2026
+2
+G. ZAVALANI
+f. Residue calculus thus turns (1.2) into a cubature rule,
+(1.3)
+In = π
+X
+zk∈Ω
+ck f(zk),
+whose nodes are the interior poles and whose error is controlled entirely by the quality
+of the fit on the boundary (Theorem 2.1).
+We compute the poles with the AAA
+algorithm [11, 12, 19] and the coefficients by a linear least-squares fit on the boundary
+samples. We call (1.3) the AAA cubature rule.
+As in the one-dimensional case, the nodes and weights depend only on W and
+not on the integrand. Once W|γ has been approximated, the same rule applies to
+every analytic f for which (1.2) holds. The antiderivative is not unique: W +h serves
+equally well for any analytic h, since
+H
+γ f(z)h(z) dz = 0 leaves the exact contour
+integral unchanged. At a finite rational degree, however, different choices of W lead
+to different numerical fits and hence to different computed rules, and in each example
+below we simply use the natural choice, stated explicitly.
+We make no claim to
+a general-purpose formula for nonanalytic integrands, and the weights need not be
+positive or even real.
+It is worth emphasizing that the quantity entering the rigorous bound lives entirely
+on the boundary: the residual in Theorem 2.1 is ∥ρ −W∥γ,∞, and nowhere do we
+assume anything about W in the interior of Ω. The sampled validation residual used in
+the computations is an a posteriori indicator of this quantity; it becomes a certificate
+only once the continuous boundary supremum has been bounded.
+Where do the nodes end up? Their location is governed by the analytic con-
+tinuation of the boundary data into Ω. When w ≡1 and γ is real-analytic, that
+continuation is the Schwarz function S(z) of the curve, the analytic function that
+matches ¯z on γ [3]. One therefore expects the near-best poles to delineate the sin-
+gularities of S inside Ω, tracing out what potential theorists call a mother body, an
+analytic skeleton of the domain [21, 5, 7]. Domains whose Schwarz function is actually
+meromorphic in Ωare the quadrature domains of Aharonov and Shapiro [1, 14, 9];
+these are the domains that satisfy exact finite quadrature identities. Read in this
+light, the construction is a direct numerical route from boundary data to approxi-
+mate quadrature identities. The inverse problem, that of reconstructing a domain
+from its moments, has a substantial literature [6, 8], and one may regard what we do
+here as its forward counterpart.
+The work closest to ours is Trefethen’s numerical computation of the Schwarz
+function [18], which applies AAA to ¯z on a curve and reads off branch cuts from the
+strings of poles that appear. Horning and Trefethen [10], as already noted, obtain
+one-dimensional quadrature from rational approximation of a Cauchy transform. The
+present paper joins these two ideas through the Cauchy–Green identity: rational
+approximation of a ¯∂-antiderivative on the boundary produces a weighted cubature
+rule whose error is controlled by the boundary residual.
+Boundary reduction is of course not new. It underlies Gauss–Green cubature [17],
+which applies product Gauss rules along the boundary, and connections between ap-
+proximation and analytic skeletons appear both in the zeros of Bergman polynomials
+[8] and in explicit constructions of mother bodies for special geometries [5, 15]. What
+rational approximation adds is a direct numerical construction that attaches weights
+to the interior poles.
+Throughout, we test the construction against exact identities, independent re-
+ductions, adaptive area integration, and two-resolution reference computations. Sec-
+tion 3 treats the classical examples: it recovers the disk mean-value rule and the
+CUBATURE FROM RATIONAL APPROXIMATION
+3
+focal-segment reduction of an ellipse, and it exhibits a candidate five-armed skeleton
+for a starfish domain. Section 4 turns to quadrature domains, where two examples
+separate the well-conditioned case of distinct nodes from a confluent pair that repre-
+sents a derivative functional. Section 5 takes up the square, with its corner clustering
+and root-exponential convergence. Finally, section 6 shows how the very same bound-
+ary construction handles logarithmic and Cauchy volume potentials, for targets both
+inside the domain and just outside it.
+2. The construction. We parametrize γ by z(t), t ∈[0, 2π), positively oriented,
+and write ω(t) = W(z(t), z(t)) for the boundary data. We sample γ at M parameter
+values, taking care that the grid resolves ω; a near-boundary feature of scale δ, in
+particular, calls for spacing below δ. Run to a prescribed maximal degree with the
+sign-blended weight choice of [19], the option we use in all computations reported
+here, AAA supplies a set of candidate poles.
+We discard the nonfinite ones, and
+any pole within 10−8dM of a boundary sample, where dM = maxj,k |zj −zk| is the
+sampled boundary diameter. The remaining poles are classified as interior or exterior
+with respect to the sampled boundary, and we then solve the least-squares problem
+(2.1)
+min
+c, d, p
+M
+X
+j=1
+
+X
+zk∈Ω
+ck
+zj −zk
++
+X
+zk /∈Ω
+dk
+zj −zk
++
+L
+X
+ℓ=0
+pℓzℓ
+j −ωj
+
+2
+,
+for a modest polynomial degree L. Although (2.1) is displayed in an unscaled basis,
+the code works with (zj/s)ℓ, s = maxj |zj|, and rescales every column of the matrix
+to unit 2-norm. Writing σ1 ≥· · · for the singular values of this scaled matrix, the
+rank-revealing solve keeps those with
+σj > τ,
+τ = max{M, N} eps(σ1),
+where N is the number of columns and eps has its usual MATLAB meaning, and the
+coefficients are returned in the original partial-fraction basis. The exterior poles and
+the polynomial improve the fit but integrate to zero against analytic integrands, so
+only the interior coefficients survive into In = π P ckf(zk). A pleasant side benefit
+of fitting directly in this way is that we never have to convert a clustered barycentric
+approximant into pole–residue form.
+When a separate validation grid is available, we write εval for its maximum resid-
+ual.
+A convenient global measure of the cancellation in the resulting rule is the
+quantity
+Λn =
+P
+k |λk|
+area(Ω),
+λk = πck.
+For a positive rule that reproduces the area we have Λn = 1, whereas large values warn
+of sensitivity to perturbations and of cancellation. We stress that this is a diagnostic,
+not a stability theorem.
+In practice, when the exact integral is unknown, we raise the AAA degree until
+εval reaches the requested tolerance and stays there as the validation grid is refined.
+For a given integrand,
+1
+2|γ|εval maxγ |f| is then an a posteriori error indicator, but
+not a rigorous bound, unless the continuous residual itself has been bounded. We
+refine the fitting grid whenever the fitting and validation residuals begin to separate,
+or a near-boundary feature is left unresolved. And if Λn grows rapidly, or a confluent
+cluster appears, we take that as a signal that the rule should be evaluated through the
+local moments of section 4; we claim no universal threshold for when this happens.
+4
+G. ZAVALANI
+Theorem 2.1. Let Ωbe a bounded domain whose boundary γ is a rectifiable Jor-
+dan curve, positively oriented, let f be analytic in a neighbourhood of ¯Ω, and let W
+be a ¯∂-antiderivative of w for which the complex Green identity (1.2) holds. Let
+ρ(z) =
+X
+zk∈Ω
+ck
+z −zk
++
+X
+zk /∈Ω
+dk
+z −zk
++ p(z)
+be a rational approximant to W on γ, where all poles are simple, no pole lies on
+γ, and p is a polynomial.
+Set ε = maxz∈γ |ρ(z) −W(z, ¯z)|.
+Then the rule In =
+π P
+zk∈Ωckf(zk) satisfies
+|I −In| ≤
+1
+2 |γ| ε max
+z∈γ |f(z)|,
+where |γ| is the length of γ.
+Proof. On a rectifiable Jordan curve, Cauchy’s theorem applies to functions an-
+alytic in Ωand continuous on ¯Ω[20], and the residue formula used next follows on
+subtracting from fρ its principal parts at the poles in Ω. Since f is analytic in a
+neighbourhood of ¯Ωand the poles of ρ avoid γ, residue calculus gives
+1
+2i
+H
+γ fρ dz =
+π P
+zk∈Ωckf(zk) = In: each interior pole contributes 2πi ckf(zk)/2i, and the exterior
+poles and the polynomial part contribute zero. Subtracting this from (1.2),
+I −In = 1
+2i
+I
+γ
+f(z)
+ W(z, ¯z) −ρ(z)
+
+dz.
+Therefore
+|I −In| ≤1
+2
+Z
+γ
+|f(z)| |W(z, ¯z) −ρ(z)| |dz| ≤1
+2|γ| ε max
+z∈γ |f(z)|,
+which proves the estimate.
+Notice that Theorem 2.1 calls for the continuous supremum of the residual on
+γ, which a finite sample does not deliver. A fully rigorous certificate would require
+something more, such as an adaptive or interval-based maximization along the bound-
+ary. What we can say is that the independent validation-grid checks return residuals
+consistent with those on the fitting grid. In fact the cubature error is often much
+smaller than the indicator suggests, because the contour-error integral enjoys a good
+deal of cancellation.
+A dual interpolatory interpretation. For pure area integrals there is a second way
+to look at the rule, through the exterior area Cauchy transform
+H(ξ) = 1
+π
+ZZ
+Ω
+dA(z)
+ξ −z ,
+ξ ∈C \ ¯Ω.
+This function is analytic outside ¯Ωand behaves like H(ξ) = area(Ω)/(πξ) + O(ξ−2)
+at infinity. The part of the fitted rational function that matters here is
+rn(z) =
+X
+zk∈Ω
+ck
+z −zk
+.
+Taking the Cauchy-kernel integrand fξ(z) = 1/(z −ξ) with ξ outside ¯Ω, the definition
+of H and a direct evaluation of the rule give
+(2.2) I(fξ) = −πH(ξ),
+In(fξ) = −πrn(ξ),
+I(fξ)−In(fξ) = π{rn(ξ)−H(ξ)}.
+CUBATURE FROM RATIONAL APPROXIMATION
+5
+In other words, the interior cubature rule is at the same time a rational approximation
+to the exterior area Cauchy transform. For the ellipse, where H is known in closed
+form, one can check this identity by hand.
+The next statement makes this interpolatory reading precise. It is the area ana-
+logue of the result in [10, Section 11].
+Proposition 2.2 (Conditional rational exactness). Let z1, . . . , zn be the distinct
+interior cubature nodes, where n is their number, and set
+rn(z) =
+n
+X
+k=1
+ck
+z −zk
+,
+D(z) = rn(z) −H(z).
+Suppose that D has distinct zeros s1, . . . , sn in C \ ¯Ωand that the Cauchy matrix
+Ckj =
+1
+zk −sj
+is nonsingular. For any f analytic in a neighbourhood of ¯Ω, let
+q(z) =
+n
+X
+j=1
+αj
+z −sj
+be the unique rational function of this form satisfying q(zk) = f(zk). Then
+I(q) = In(q) = In(f).
+Proof. Since the poles of q lie outside ¯Ω, Fubini’s theorem and the Cauchy formula
+give
+1
+2i
+I
+γ
+q(ξ)H(ξ) dξ =
+1
+2πi
+ZZ
+Ω
+I
+γ
+q(ξ)
+ξ −z dξ dA(z) =
+ZZ
+Ω
+q(z) dA(z).
+Residue calculus also gives In(q) = (2i)−1 H
+γ q(z)rn(z) dz. Hence
+I(q) −In(q) = −1
+2i
+I
+γ
+q(z)D(z) dz.
+The exterior poles of q are cancelled by the zeros of D, so qD is analytic in the exterior
+of γ. Moreover,
+q(z) = O(z−1),
+D(z) = O(z−1),
+and therefore q(z)D(z) = O(z−2).
+Deforming γ to a large circle in the exterior
+shows that the large-contour contribution vanishes. Thus I(q) = In(q), while the
+interpolation conditions give In(q) = In(f).
+The reading applies only when the effective residual happens to have enough
+suitable exterior zeros and the associated Cauchy matrix is nonsingular.
+Neither
+condition is guaranteed by the least-squares construction, and in practice we identify
+the zeros a posteriori. The exterior-pole and polynomial terms in (2.1) are auxiliary
+— they leave In unchanged for analytic integrands — which is why the proposition
+works with rn alone; were one to use the full boundary fit in an exterior deformation,
+the interpolant would have to cancel these auxiliary poles as well. Expanding (2.2)
+at infinity, finally, gives
+D(z) =
+P
+k ck −area(Ω)/π
+z
++ O(z−2),
+6
+G. ZAVALANI
+Table 1
+The smooth, quadrature-domain, and polygonal examples: the number n of nodes carrying the
+rule and the best relative error (worst case over the test integrands, where several are used), at the
+degrees used in the corresponding experiments.
+example
+n
+rel. err.
+disk, mean-value rule
+1
+3.6 × 10−15
+ellipse, focal Gauss–Gegenbauer
+38
+8.0 × 10−16
+starfish, adaptive two-dimensional reference
+55
+4.1 × 10−16
+quadrature domain, confluent pair
+2
+8.6 × 10−11
+Neumann’s oval, separated nodes
+2
+8.8 × 10−15
+square, closed form / tensor Gauss
+159
+1.6 × 10−11
+so that exact reproduction of the area improves D to O(z−2) and allows broader nor-
+malizations at infinity. This is not needed for the strictly proper q of Proposition 2.2,
+for which qD = O(z−2) already holds. The whole conditional interpretation carries
+over to other weights, with H replaced by the exterior Cauchy transform of w dA.
+In our experience the results are insensitive to modest changes in the polynomial
+degree L. The full auxiliary basis can nonetheless be numerically redundant: a remote
+exterior pole, for instance, is effectively a pole at infinity, and its column may duplicate
+part of the polynomial span. The rank-revealing solve removes such redundancy while
+leaving the interior-pole rule untouched, and so the conditioning of the auxiliary fit
+need not say anything about the conditioning of the cubature rule itself.
+There are two practical points worth stating explicitly. First, the identity (1.2)
+needs W to be single-valued on ¯Ωand smooth apart from integrable singularities; the
+antiderivatives of section 6 are chosen to be single-valued and bounded at the target,
+so that no correction terms are needed whether the target lies inside or outside Ω.
+Second, with γ positively oriented the factor π in (1.3) is just 2πi/(2i), and the rule
+reproduces area(Ω) when f ≡1 — a convenient check to run at execution time. One
+must still watch for Froissart-type pole–zero pairs. A spurious interior pole with a
+small least-squares coefficient may do no harm, though this is not guaranteed in an
+ill-conditioned basis; a confluent pair with large opposite weights, on the other hand,
+can be entirely genuine and is best handled through the local moments of section 4.
+Beyond the ability to evaluate W on the boundary, nothing else in the construction
+depends on the weight at all; section 6 makes use of two different ¯∂-antiderivatives
+for potential kernels.
+3. Classical examples. Unless we say otherwise, relative error means |In −
+I|/|I|. When a maximum is taken over several integrands, we switch to the scaled
+error |In −I|/ max(1, |I|), so that a zero or very small reference value cannot distort
+the comparison.
+Table 1 collects the smooth, quadrature-domain, and polygonal
+examples of this and the next two sections; the volume potentials of section 6 have
+their own tables.
+Disk. On a circle of radius R centered at zc the boundary data is already rational,
+since ¯z = ¯zc+R2/(z−zc) on γ. The only non-negligible interior contribution collapses
+onto the center, with weight πR2, while whatever additional poles the algorithm
+produces carry negligible weight. Rational approximation of the boundary data thus
+reproduces the classical mean value property, exactly as one would hope.
+Ellipse. Take the ellipse with semiaxes (a, b) = (1, 0.6) and c2 = a2 −b2. Here
+the Schwarz function has a branch cut along the focal segment [−c, c], and shrinking
+CUBATURE FROM RATIONAL APPROXIMATION
+7
+-1
+-0.5
+0
+0.5
+1
+Re z
+-0.6
+-0.4
+-0.2
+0
+0.2
+0.4
+0.6
+Im z
+0
+5
+10
+15
+20
+25
+30
+35
+40
+number of nodes n
+10!15
+10!10
+10!5
+100
+relative error
+AAA cubature
+Gauss{Gegenbauer
+Fig. 1. Ellipse with semiaxes (1, 0.6). Left: the AAA cubature nodes (dots) cluster near the
+focal segment; open circles are the Gauss–Gegenbauer points of the exact reduced rule; crosses mark
+the foci.
+Right: relative error of the AAA cubature rule and of Gauss–Gegenbauer on the focal
+segment, for f = ez.
+the contour of (1.2) down onto that cut gives the exact reduction
+(3.1)
+ZZ
+E
+f dA = 2ab
+c2
+Z c
+−c
+f(x)
+p
+c2 −x2 dx,
+a Gegenbauer (Chebyshev second-kind) weight on the focal segment. We verified (3.1)
+independently. As Figure 1 shows, the AAA nodes cluster near the focal segment even
+though the algorithm is never told where that segment is, and the figure compares
+their convergence with Gauss–Gegenbauer quadrature.
+This comparison deserves a word of interpretation. Gauss–Gegenbauer converges
+faster, as one would expect; its rate is set by analyticity relative to the focal segment
+and is superexponential for ez. The AAA nodes and weights, by contrast, are built
+with no knowledge of f, and their residual-controlled worst-case behavior reflects
+rational approximation of the boundary data. The error for any one integrand depends
+further on its size on the boundary and on its analytic continuation, and can be far
+smaller than the worst case thanks to cancellation in the contour-error integral. It is
+worth recalling that in the one-dimensional near-best setting of [10], Gauss-type rules
+carry twice the exponent of the corresponding rational construction — the Gauss-
+quadrature factor of two. So when the exact reduction (3.1) happens to be known,
+the classical rule holds the advantage.
+But what if the geometric information is imperfect? Figure 2 shows the answer.
+Gauss–Gegenbauer on the focal segment of the unperturbed ellipse stalls at the level
+O(p) of the geometry error, whereas the AAA rule, working from the true boundary
+data, drives on down to machine precision. The classical rule is only as accurate as
+its geometric model; the AAA rule adapts to the perturbed boundary as it actually
+is.
+Starfish. For the domain r(t) = 1 + 0.3 cos 5t the Schwarz function is no longer
+elementary, and its interior singularities weave a more intricate skeleton. The outcome
+is shown in Figure 3: the nodes trace a five-armed star inside the domain, a candidate
+mother-body-like skeleton of Ω[21, 5], and the rule converges geometrically all the
+way to machine precision. As an independent check, the boundary reference agrees
+with two-dimensional adaptive integration over Ω, carried out separately on the real
+and imaginary parts.
+8
+G. ZAVALANI
+0
+5
+10
+15
+20
+25
+30
+35
+40
+number of nodes n
+10!15
+10!10
+10!5
+100
+relative error
+Gauss{Gegenbauer
+AAA cubature
+p = 10!2
+0
+5
+10
+15
+20
+25
+30
+35
+40
+number of nodes n
+10!15
+10!10
+10!5
+100
+p = 10!4
+Fig. 2. The ellipse perturbed by p e3it, with p = 10−2 (left) and p = 10−4 (right); function
+f = ez. Gauss–Gegenbauer on the focal segment of the underlying ellipse floors at the geometry
+error O(p) (dotted line at height p); the AAA cubature rule, built from the true boundary data,
+converges to machine precision.
+-1
+-0.5
+0
+0.5
+1
+1.5
+Re z
+-1
+-0.5
+0
+0.5
+1
+Im z
+0
+10
+20
+30
+40
+50
+60
+70
+number of nodes n
+10!15
+10!10
+10!5
+100
+relative error
+f = ez
+f = 1=(1:6 ! z)
+Fig. 3.
+Starfish domain r(t) = 1 + 0.3 cos 5t.
+Left: the cubature nodes trace a five-armed
+mother-body-like analytic skeleton of the domain. Right: relative error of the AAA cubature rule
+for an entire integrand and for an integrand with a pole at z = 1.6.
+4. Quadrature domains. Recall that a domain Ωis a quadrature domain if
+there are finitely many points aj ∈Ωand coefficients cjk, only finitely many of them
+nonzero, for which
+ZZ
+Ω
+f dA =
+X
+j
+X
+k≥0
+cjkf (k)(aj)
+for all integrable analytic f,
+or, equivalently, if its Schwarz function is meromorphic in Ω[1, 14, 9]. The simplest
+nontrivial example is Ω= ϕ(D) with ϕ(ζ) = ζ + aζ2, 0 < a < 1/2, whose Schwarz
+function has a single double pole at 0 and therefore obeys the exact identity
+(4.1)
+ZZ
+Ω
+f dA = π
+
+(1 + 2a2) f(0) + a f ′(0)
+
+.
+We confirmed (4.1) against an independent boundary reference.
+How does a rule with simple poles reproduce a derivative functional? The AAA
+rule recovers (4.1) through what we call a confluent pair: since the fit uses only
+CUBATURE FROM RATIONAL APPROXIMATION
+9
+-1
+-0.5
+0
+0.5
+1
+1.5
+Re z
+-1
+-0.8
+-0.6
+-0.4
+-0.2
+0
+0.2
+0.4
+0.6
+0.8
+1
+Im z
+con.uent pair
+2
+4
+6
+8
+10
+12
+14
+16
+18
+20
+AAA degree
+10!15
+10!10
+10!5
+100
+relative error
+Fig. 4. The quadrature domain ϕ(D), ϕ(ζ) = ζ + 0.3ζ2. Left: the discovered rule consists of
+two nodes 1.4 × 10−5 apart with large opposite weights, a confluent pair representing the node of
+order two at the origin in (4.1). Right: relative error against AAA degree; the dominant two-node
+confluent structure first appears at degree 2 and persists across the displayed range; the right panel
+shows the corresponding integration error.
+simple poles, the double pole of the Schwarz function is mimicked by two nearby
+nodes carrying large, nearly opposite weights. It is the zeroth and first local moments
+that recover the two coefficients of the exact identity; the individual nodes and weights
+are not the stable quantities.
+The representation is accurate, if less stable than a rule with well-separated nodes,
+and the large opposite weights are nothing but a finite-difference stand-in for the
+derivative functional in (4.1). For a cluster C with center zC, the quantities that are
+actually stable are the local moments
+µj =
+X
+k∈C
+λk(zk −zC)j,
+not the individual weights. Expanding f about zC,
+X
+k∈C
+λkf(zk) =
+r−1
+X
+j=0
+µj
+j! f (j)(zC) + O
+ 
+max
+z∈C |f (r)(z)|
+X
+k∈C
+|λk| |zk −zC|r
+!
+,
+one sees that a nearly confluent simple-pole rule ought to be interpreted, and where
+possible evaluated, in this derivative-node basis. A practical, if heuristic, compression
+rests on the two scale-invariant diagnostics
+ηsep(C) = maxj,k∈C |zj −zk|
+diam(Ω)
+,
+ηcancel(C) = | P
+k∈C λk|
+P
+k∈C |λk| .
+We flag a cluster when both of these are small and its share of Λn is large.
+A
+production code would need to fix and test thresholds for the diagnostics; here they
+serve only to guide interpretation. Once a cluster has been spotted we set
+zC =
+P
+k∈C |λk|zk
+P
+k∈C |λk| ,
+and evaluate it through the moments µj rather than by summing the raw weights
+directly. For a general smooth domain the same computation returns an approximate
+10
+G. ZAVALANI
+-1
+-0.5
+0
+0.5
+1
+Re z
+-1
+-0.8
+-0.6
+-0.4
+-0.2
+0
+0.2
+0.4
+0.6
+0.8
+1
+Im z
+0
+5
+10
+15
+20
+25
+AAA degree
+10!15
+10!10
+10!5
+100
+max scaled error
+Fig. 5. Neumann’s oval, ϕ(ζ) = ζ/(1 −0.25ζ2). Left: the two computed nodes (dots) and the
+exact nodes ±8/15 of (4.2) (crosses). Right: maximal scaled error over five integrands against the
+AAA degree; the number of poles placed inside Ωis exactly two at every degree.
+quadrature identity together with a validation residual, a forward complement to the
+inverse shape-from-moments problem [6].
+A quadrature domain with separated simple nodes behaves better still.
+Neu-
+mann’s oval is Ω= ϕ(D) with ϕ(ζ) = ζ/(1 −q2ζ2) and 0 < q < 1 [9]. This map is
+univalent on D, its Schwarz function has two simple poles, and residue calculus on
+the unit circle yields the exact identity
+(4.2)
+ZZ
+Ω
+f dA = πc
+
+f(x∗) + f(−x∗)
+
+,
+x∗=
+q
+1 −q4 ,
+c =
+1 + q4
+2 (1 −q4)2 ,
+with both nodes ±x∗lying interior to Ω. Figure 5 treats the case q = 1/2, for which
+x∗= 8/15 and c = 136/225.
+The two nodes come out correctly at every degree
+shown, and raising the degree merely sharpens the exterior approximation, driving
+the integration error to machine precision. This separated rule is both more accurate
+and better conditioned than the confluent one above.
+5. A domain with corners. The error theorem holds for any rectifiable Jordan
+curve, and the experiments in this paper all use smooth or piecewise-analytic bound-
+aries, with parametrizations and sampling grids fine enough to resolve the boundary
+data.
+At a corner, though, the character of the approximation problem changes. Along
+a straight edge through a in the direction eiθ we have ¯z = ¯a + e−2iθ(z −a), but two
+adjacent edges continue to different functions. The singularities thrown up at the
+corners bring exponential clustering of the poles and root-exponential convergence
+O(e−C√n) [4] — the familiar signature of lightning approximation. For the square the
+observed nodes line up along the two diagonals, just as a mother-body configuration
+would suggest [5].
+Figure 6 shows the computation for the square [−1, 1]2, with the boundary sam-
+pling graded toward the corners. The nodes cluster at the corners and hug the diago-
+nals, while the exterior poles run off along the corresponding corner rays. The closed-
+form reference for ez and an independent tensor Gauss–Legendre reference agree to
+machine precision. As the figure shows, the cubature error falls root-exponentially,
+exactly as lightning approximation predicts.
+CUBATURE FROM RATIONAL APPROXIMATION
+11
+-2
+-1
+0
+1
+2
+Re z
+-2
+-1.5
+-1
+-0.5
+0
+0.5
+1
+1.5
+2
+Im z
+2
+4
+6
+8
+10
+12
+14
+pn
+10!15
+10!10
+10!5
+100
+relative error
+f = ez
+f = 1=(1:6 ! z)
+Fig. 6. The square [−1, 1]2. Left: cubature nodes (dots) align with the two diagonal candidate
+mother-body segments, with exponential clustering toward the corners; the gray dots are exterior
+poles, which also line up on the corner rays of the exterior skeleton. Right: relative error against
+√n for two integrands; the dashed line is the least-squares fit ∝e−1.90√n, the root-exponential
+regime of lightning approximation.
+Table 2
+Volume potential (6.1) over the starfish body: best relative errors for four targets, with M = 800
+boundary samples.
+target
+rel. err.
+n
+interior, central
+2.2 × 10−16
+67
+interior, near boundary
+6.5 × 10−16
+64
+exterior, δ = 0.05
+8.5 × 10−16
+61
+exterior, δ = 0.01
+6.2 × 10−10
+68
+6. Nearly singular volume potentials. As a last application, consider the
+two-dimensional Newtonian potential of an analytic integrand f over Ω,
+(6.1)
+Φ(z0) =
+ZZ
+Ω
+f(z) log |z −z0| dA,
+which is singular when z0 ∈Ωand nearly singular when z0 sits close to γ. For general
+densities one commonly resorts to volume meshes with local corrections, or to density
+interpolation [2, 16]; for analytic f, however, the present construction again needs the
+boundary data alone. The ¯∂-antiderivative
+(6.2)
+W(z, ¯z) = (¯z −¯z0)
+ log |z −z0| −1
+2
+
+is single-valued and continuous for z0 inside or outside Ω, provided only that z0 /∈γ,
+and it treats interior and exterior targets on the same footing. Near γ the sampling
+must of course resolve a boundary feature on the scale of the target distance. For z0 ∈
+Ωwe apply (1.2) after excising a disk of radius ϵ about z0; since |W| = O(ϵ log ϵ) on
+the small circle, its contribution is O(ϵ2 log ϵ) and disappears as ϵ →0, the logarithmic
+kernel being locally integrable. The same argument takes care of the bounded Cauchy
+antiderivative introduced below.
+Figure 7 and Tables 2 and 3 collect the results. Every well-resolved target reaches
+machine precision, and for the closest exterior target, refining the boundary grid
+removes what at first looks like an accuracy floor.
+12
+G. ZAVALANI
+-1
+-0.5
+0
+0.5
+1
+1.5
+Re z
+-1
+-0.5
+0
+0.5
+1
+Im z
+0
+10
+20
+30
+40
+50
+60
+70
+number of nodes n
+10!15
+10!10
+10!5
+100
+relative error
+interior, central
+interior, near boundary
+exterior, delta = 0.05
+exterior, delta = 0.01
+Fig. 7.
+Newtonian potential over the starfish body.
+Left: nodes for an interior target near
+the boundary (red star: the nodes cluster at the target) and for an exterior target at distance 0.05
+(black star: the nodes cluster at a candidate reflected point inside the body); both node sets also
+trace the mother-body-like analytic skeleton. Right: relative error against the number of nodes for
+four targets; the exterior case at distance 0.01 is limited here by the M = 800 boundary sampling
+(see Table 3).
+Table 3
+The exterior target at distance δ = 0.01 as the boundary sampling is refined: the accuracy floor
+belongs to the sampling, not to the method.
+M
+rel. err.
+n
+800
+6.2 × 10−10
+68
+1600
+3.0 × 10−14
+68
+3200
+2.2 × 10−16
+63
+The geometry of the nodes is itself informative. For an interior target the bound-
+ary data (6.2) continues inward with a branch point at z0, and the nodes duly cluster
+at the target. For an exterior target they cluster instead near a point consistent with
+a solution of S(z) = ¯z0 — the relevant reflected branch in this experiment — which
+for a circle is exactly the classical inverse point of Kelvin. So the left panel of Figure 7
+offers numerical evidence of an image-point structure that was in no way imposed in
+advance.
+The construction is kernel-independent in a precise sense: only the boundary
+antiderivative changes. Replacing (6.2) by W = (¯z −¯z0)/(z −z0), which is bounded
+at z0, produces the area Cauchy integral
+RR
+Ωf(z)/(z −z0) dA. Nothing else in the
+construction is altered, and once more the numerical check comes in near machine
+precision.
+This same area Cauchy integral delivers a derivative of the potential.
+For z0
+outside ¯Ω, ordinary differentiation under the integral sign applies. For z0 ∈Ω, one
+may split off a disk centered at z0 and pass to the limit, since (z −z0)−1 is locally
+integrable. As
+∂
+∂z0
+log |z −z0| = −
+1
+2(z −z0),
+we obtain
+ZZ
+Ω
+f(z)
+z −z0
+dA = −2 ∂Φ
+∂z0
+,
+CUBATURE FROM RATIONAL APPROXIMATION
+13
+where ∂/∂z0 = 1
+2(∂/∂x0 −i ∂/∂y0). For a real-valued potential this reproduces the
+usual gradient components; for complex f it is to be read componentwise.
+7. Discussion. We have followed a single chain of reasoning from the Cauchy–
+Green identity to boundary rational approximation, to interior poles and residues,
+and finally to cubature. The error theorem covers analytic integrands and a fixed
+admissible ¯∂-antiderivative; it says nothing about general continuous integrands. The
+weights may be complex or signed, the sampled residuals stay mere indicators until
+the continuous residual has been bounded, and confluent clusters have to be evaluated
+through their moments.
+The main open questions all concern the geometry of the nodes. Our starfish
+and potential experiments give numerical evidence of a candidate mother-body-like
+skeleton and of reflected image points, but they do not prove that the displayed sets
+are the exact objects of potential theory. On the square the measured rate is consistent
+with the root-exponential behavior of lightning approximation [4], yet a proof in this
+setting is another matter.
+For the derivative identities, a backward-error analysis
+of the moment compression is still missing. And although in the dual experiment a
+rank-revealing solve strips away a redundant auxiliary direction without disturbing
+the interior-pole rule, this is encouraging evidence rather than a uniform stability
+theorem. Each of these is an invitation for further work.
+Several extensions suggest themselves.
+The boundary identity carries over di-
+rectly to domains with several boundary components, though we have not tested the
+resulting pole classification here. General polygons and curved corners will demand
+the same care with graded sampling as the square did. Other kernels will call for
+their own ¯∂-antiderivatives, and families of targets for a set-valued AAA approxi-
+mation with shared poles. A genuinely three-dimensional analog would need some
+replacement for the planar residue calculus, and that lies well beyond the present
+paper.
+All results were generated using MATLAB based on Chebfun’s aaa. The scripts
+are publicly available at https://github.com/zavala92/cubature aaa.
+Acknowledgments. We are grateful to Nick Trefethen for helpful comments on
+an earlier draft, particularly concerning the analyticity assumptions and the role of
+boundary approximation, and to Andrew Horning for discussions of the dual inter-
+pretation and numerical stability.
+REFERENCES
+[1] D. Aharonov and H. S. Shapiro, Domains on which analytic functions satisfy quadrature iden-
+tities, J. Analyse Math., 30 (1976), pp. 39–73.
+[2] T. G. Anderson, M. Bonnet, L. M. Faria, and C. P´erez-Arancibia, Fast, high-order numerical
+evaluation of volume potentials via polynomial density interpolation, J. Comput. Phys.,
+511 (2024), 113161.
+[3] P. J. Davis, The Schwarz Function and its Applications, Carus Mathematical Monographs 17,
+Mathematical Association of America, 1974.
+[4] A. Gopal and L. N. Trefethen, Solving Laplace problems with corner singularities via rational
+functions, SIAM J. Numer. Anal., 57 (2019), pp. 2074–2094.
+[5] B. Gustafsson, On mother bodies of convex polyhedra, SIAM J. Math. Anal., 29 (1998),
+pp. 1106–1117.
+[6] B. Gustafsson, C. He, P. Milanfar, and M. Putinar, Reconstructing planar domains from their
+moments, Inverse Problems, 16 (2000), pp. 1053–1070.
+[7] B. Gustafsson and M. Putinar, Hyponormal Quantization of Planar Domains, Lecture Notes
+in Mathematics 2199, Springer, 2017.
+14
+G. ZAVALANI
+[8] B. Gustafsson, M. Putinar, E. B. Saff, and N. Stylianopoulos, Bergman polynomials on an
+archipelago: estimates, zeros and shape reconstruction, Adv. Math., 222 (2009), pp. 1405–
+1460.
+[9] B. Gustafsson and H. S. Shapiro, What is a quadrature domain?, in Quadrature Domains and
+Their Applications, Oper. Theory Adv. Appl. 156, Birkh¨auser, 2005, pp. 1–25.
+[10] A. Horning and L. N. Trefethen, Quadrature formulas from rational approximations, IMA J.
+Numer. Anal. (2026), doi:10.1093/imanum/draf138.
+[11] Y. Nakatsukasa, O. S`ete, and L. N. Trefethen, The AAA algorithm for rational approximation,
+SIAM J. Sci. Comput., 40 (2018), pp. A1494–A1522.
+[12] Y. Nakatsukasa and L. N. Trefethen, Applications of AAA rational approximation, Acta Nu-
+merica, 35 (2026), pp. 459–601.
+[13] D. Pompeiu, Sur une classe de fonctions d’une variable complexe, Rend. Circ. Mat. Palermo,
+33 (1912), pp. 108–113.
+[14] M. Sakai, Quadrature Domains, Lecture Notes in Mathematics 934, Springer, 1982.
+[15] T. V. Savina, B. Yu. Sternin, and V. E. Shatalov, On a minimal element for a family of bodies
+producing the same external gravitational field, Appl. Anal., 84 (2005), pp. 649–668.
+[16] Z. Shen and K. Serkh, Rapid evaluation of Newtonian potentials on planar domains, SIAM J.
+Sci. Comput., 46 (2024), pp. A609–A628.
+[17] A. Sommariva and M. Vianello, Gauss–Green cubature and moment computation over arbitrary
+geometries, J. Comput. Appl. Math., 231 (2009), pp. 886–896.
+[18] L. N. Trefethen, Numerical computation of the Schwarz function, Constructive Approximation
+(2025), doi:10.1007/s00365-025-09719-2.
+[19] L. N. Trefethen and H. D. Wilber, Computation of Zolotarev rational functions, SIAM J. Sci.
+Comput., 47 (2025), pp. A2205–A2220.
+[20] J. L. Walsh, The Cauchy–Goursat theorem for rectifiable Jordan curves, Proc. Natl. Acad. Sci.
+USA, 19 (1933), pp. 540–541.
+[21] D. Zidarov, Inverse Gravimetric Problem in Geoprospecting and Geodesy, Elsevier, Amsterdam,
+1990.

@@ -1,0 +1,1483 @@
+Mobile Network Control with a World Model
+Maxime Bouton∗, Ioanna Mitsioni∗, Simon Lindst˚ahl, Jaeseong Jeong
+Ericsson Research, Stockholm, Sweden
+∗Denotes equal contribution
+Abstract—The increasing complexity of mobile networks ne-
+cessitates intelligent and dynamic control strategies for efficient,
+energy-conserving management. We propose a world model-
+based approach for network control that enables adaptive config-
+uration of crucial parameters. The world model is trained from
+historical data and predicts the impact of its actions on future
+network states. Our controller leverages the model’s uncertainty
+estimate to robustly find optimal network configuration changes.
+Furthermore, the optimization objective can be changed dynami-
+cally without model retraining. We demonstrate the effectiveness
+of the approach in simulated closed-loop control of a mobile
+network energy-saving feature. Our results show improved per-
+formance in balancing energy savings with quality of service,
+compared to traditional methods and reinforcement learning
+approaches. Finally, we show the world model performance on
+real network data from, and evaluate counterfactual actions
+proposed by the controller under various throughput constraints.
+I. INTRODUCTION
+Rapid growth in the usage, density, and complexity of
+mobile networks poses significant challenges for operators in
+terms of service assurance and energy efficiency. With rising
+energy costs and sustainability goals, optimizing network con-
+figuration is crucial. Intelligent automated network configura-
+tion solutions can enhance quality of service, save energy, and
+reduce manual intervention and operational costs. However,
+optimal control of network configuration parameters at large
+scale with thousands of Base Stations (BSs) is challenging due
+to hard-to-model, dynamic and noisy factors, such as network
+usage and radio propagation conditions.
+Previous
+works
+address
+this
+problem
+through
+hand-
+engineered strategies, optimization algorithms, and reinforce-
+ment learning (RL) [1]. Hand-engineered strategies consist of
+rule-based methods relying on expert knowledge, and may
+lack adaptability to site-specific information and temporal
+patterns. Optimization methods, with mathematical models of
+the network and user behavior, often resort to simplifying
+assumptions to reduce computational costs. On the other hand,
+RL has shown promise in certain management problems,
+such as antenna tilt configuration [2] and energy efficiency
+optimization [3–5]. However, RL requires extensive training
+using network simulators or offline data and often needs to
+be retrained when changing objectives. In a mobile network,
+different parts of the network may require different behav-
+iors, which can substantially increase the engineering effort
+required for solutions that learn specific policies.
+This work has been accepted for publication in the 2026 IEEE/IFIP Net-
+work Operations and Management Symposium (NOMS). The final published
+version will be available on IEEE Xplore.
+LTE Capacity
+LTE Coverage
+5G Capacity
+LTE Capacity
+On/off
+On/off
+Other 
+control
+Other 
+control
+Radio network controller
+5G capacity
+Hour encoding
+LTE capacity
+LTE capacity
+LTE coverage
+𝑥!
+On/off
+On/off
+𝑢!
+Network Configuration and KPIs
+Fig. 1. Illustration of our capacity cell sleep control problem. Mobile networks
+are composed of different frequency band covering the same area. Here, we
+control the on/off state of one or more LTE frequency bands every hour.
+We propose a model-based controller where a world model
+(WM) learns from available 4G/5G mobile network data. Data-
+driven WMs have been extensively studied in model-based RL
+to increase sample efficiency and planning horizon in robotics
+and game environments [6, 7]. However, direct application to
+network data can be challenging since their accuracy relies
+heavily on datasets with good coverage of the feature and
+action spaces. In a live network, exploratory and diverse ac-
+tions may be unsafe, resulting in datasets with poor coverage,
+which can in turn lead to models insensitive to actions. This
+is exacerbated by the tabular nature of network data, which
+often lack obvious structure and consist of continuous, binary,
+and semi-continuous features. As a consequence, existing WM
+formulations do not directly apply to Radio Access Network
+(RAN) control, since they cannot capture the complex inter-
+actions of the features and effectively model the effect of
+different actions. Additionally, network data can be noisy and
+partially observable. For some network metrics, such as user
+throughput, external factors and unobserved configurations can
+influence the measurements, making them difficult to model.
+To mitigate these effects, we propose an architecture with
+improved feature modeling that can model uncertainty and
+study how it impacts the resulting control strategy.
+This work makes three key contributions. First, we propose
+a novel feature modeling architecture that improves the action
+sensitivity of WMs or tabular, heterogeneous, and partially
+observable mobile network data. Second, we formulate RAN
+optimization as a model-based control problem, decoupling
+model learning from the policy to enhance its flexibility.
+Lastly, we incorporate uncertainty modeling to handle noisy
+and partial observability and analyze its effect on control
+performance. We demonstrate our approach on the use case
+of controlling the sleep state of capacity cells in a 5G net-
+work that requires balancing hardware deactivation for energy
+savings with maintaining sufficient quality of service.
+arXiv:2607.17747v1  [cs.NI]  20 Jul 2026
+We first analyze the performance of the proposed model
+architecture in terms of quality of predictions and show that it
+handles the complex nature of network data. Then, we evaluate
+the closed-loop performance of a WM-based controller in
+a high fidelity simulation environment. We show that the
+proposed method outperforms RL alternatives trained in the
+same simulation environment and a hand-engineered baseline.
+Finally, we analyze the performance of our WM on data from
+a live 5G network. We measure the prediction performance
+of the model and evaluate the impact of actions proposed by
+the controller, thus giving us a coarse estimate of potential
+energy savings. These results establish a first step towards
+introducing the WM-based control paradigm in network au-
+tomation, improving how modern networks are managed for
+optimal service quality and energy efficiency.
+II. RELATED WORK
+In network management, dynamic control of RAN features
+for energy optimization is well-studied, as covered in the
+5G RAN survey [8] and in [1] for ultra-dense networks in
+particular. Typical heuristics-based approaches include pre-
+defining sleep schedules or simple rule-based approaches. Cell
+sleep modes [9] are of particular importance due to their large
+measured energy savings.
+In recent years, there has been a shift in paradigm towards
+data-driven methods for RAN control, with the most prominent
+one being reinforcement learning (RL). For example, in the
+problem of antenna tuning using RL, where an RL agent
+proposes action changes every day [2] and downlink power
+control as in [10]. In [11], RL is used to improve energy
+efficiency by comparing different state representations, in [12]
+multi-agent RL controls both BSs and edge servers. The
+authors in [13] utilize RL in heterogeneous networks (HetNets)
+for multi-level sleep, while in [14] RL is applied for energy
+savings in the Heterogeneous Cloud 5G RAN. Similar to this
+work, the authors in [15] train an agent to activate/deactivate
+Radio Frequency frontends. In contrast to our work, these
+techniques require re-training when the objective needs to be
+tweaked. On the model-based side, [16] use model-based RL
+in a joint sleep mode and power control method to improve
+sample efficiency and convergence compare to model-free RL.
+Another popular approach is predicting future network
+states and combining them with control methods. In [17],
+network cell zooming is modeled through a grey-box frame-
+work and approximately solved as a knapsack problem. The
+work in [18], introduces a coalitional Model Predictive Control
+(MPC) approach with a linear model for energy-efficient
+operations in HetNets. The authors in [19] apply a similar
+logic ours with a data-driven constrained MPC approach,
+however the task is application-level service assurance with
+slicing. On the other hand, the authors in [20] and [21] use
+similar data-driven models to ours to predict user needs for
+the purpose of energy optimization, treating cell sleep and
+resource allocation respectively. However, they employ their
+models only for simple heuristic policies and do not take the
+effect of proposed actions into account for predictions. To the
+best of our knowledge, ours is the first work that relies on
+data-driven model-based optimization for RAN control.
+Data-driven dynamics models are a mature research field
+with applications in system control and finances, but the con-
+cept of world models to enable reasoning in AI was codified in
+the seminal paper [22] and has proven useful in planning for
+diverse domains [7, 23]. An important extension are models
+which can express their own confidence or uncertainty about
+its knowledge by predicting not only a point estimate but
+a distribution of possible outcomes [6]. Compared to these
+approaches, our work is novel in its modeling of RAN-specific
+dynamics and constraints.
+III. CELL SLEEP MODE CONTROL
+Mobile networks comprise multiple BSs, each equipped
+with antennas operating on various carrier frequencies for the
+same sectors, as seen in Fig. 1. This redundancy ensures suf-
+ficient bandwidth and quality of service during high-demand
+periods. During low-demand periods, disabling redundant fre-
+quencies can significantly reduce energy consumption. This
+method is commonly referred to as cell sleep, where a cell
+refers to a specific carrier frequency in a specific sector, and
+is a core part of energy saving techniques in mobile networks.
+However, disabling a frequency leads to users moving to active
+ones, potentially congesting the cell.
+In 4G/5G service management and orchestration (SMO),
+cell sleep can be controlled using a cell sleep mode (CSM)
+feature, with cells divided into always-on coverage or sleep
+candidate capacity cells. CSM operates by comparing physical
+resource block (PRB) utilization of a cell to pre-defined
+“sleep” and “wake-up” thresholds [24]. Whenever the utiliza-
+tion of the considered capacity cell drops below the sleep
+threshold, the cell initiates sleep procedures and is unutilized.
+During sleep, the utilization of the capacity cell remains at
+zero and wake-up is instead triggered when the utilization of
+its associated coverage cell exceeds the wake-up threshold. If
+more fine-grained control is desired, an rApp can reconfigure
+thresholds to match current traffic patterns. The sleep and
+wake-up rules are typically implemented in the BS and operate
+on timescales of seconds or faster, but the rApp can only
+reconfigure thresholds once every quarter-hour or slower.
+The CSM feature benefits from centralized network control
+schemes that tune thresholds for each sector and adapt them
+to slow variations in traffic demand, while letting rule-based
+software in the BS wake-up the cells quickly if needed. Setting
+those thresholds using rule-based methods is practical, but
+for more advanced control schemes, the continuous nature
+of the cell sleep thresholds makes for unwieldy and counter-
+intuitive control actions. Instead, we operate using on/off rules,
+where the capacity cell is controlled to be either fully awake
+(sleep and wake-up thresholds are set to zero) or “near-fully”
+asleep (sleep and wake-up thresholds are set close to their
+maximal value). By doing so, we can exert a high degree of
+control during coarse time granularity (hourly or quarterly)
+while allowing for quick responses to unexpected scenarios at
+finer time granularity enabled by software running in the BSs.
+IV. WORLD MODEL-BASED CONTROL
+In this section, we present our WM-based approach for
+network control, describe the WM design and training, its
+uncertainty estimation, the use of multi-task modeling for
+tabular data, and its integration with planning algorithms to
+form the overall control scheme. More details about the WM
+can also be found in the Appendix.
+A. Data-driven world models
+A world model (WM) represents system dynamics by map-
+ping a current state to a next state and predicting outcomes
+under configuration changes. While it can be physics-based,
+this is not always feasible in telecommunication problems
+where the scale of the network and the uncertainties in the
+environment (e.g., user mobility, radio propagation conditions)
+make it difficult to have a closed-form model that generalizes
+to different conditions. Instead, we can learn a data-driven
+WM from system interactions, either in simulation or online.
+Formally, given a state measurement xt
+∈Rn and a
+configuration change (control input) ut ∈Rk of the system at
+time t, a deterministic WM calculates the next state xt+1 ∈Rn
+based on a function h(x): xt+1 = h(xt, ut). When the model
+is learned from data, we approximate the function h(x) with
+a parametric model fθ(x) (e.g., a neural network) where θ
+represents the parameters of the model:
+xt+1 ∼fθ(xt, ut).
+(1)
+In mobile network control, xt is typically a vector of key
+performance indicators (KPIs) and ut are controllable network
+configurations. In this paper, we model ut ∈{0, 1}k as on/off
+control of capacity cells, where k is the number of capacity
+cells in a given sector. This problem formulation is easily
+extendable to different use cases and network configuration
+parameters, such as transmitted power or antenna tilt angles.
+Stochastic WMs follow the same principles, but learn prob-
+abilistic state transitions. They capture environmental uncer-
+tainty and account for noise, partial observability, and multiple
+plausible futures, making them particularly useful in complex,
+real-world domains. Mathematically, a stochastic WM can be
+described as learning a conditional probability distribution
+p(xt+1 | xt, ut) that is used to predict future states:
+xt+1 ∼fθ( · | xt, ut).
+(2)
+A trained WM can make predictions about the system’s
+evolution based on the desired input using Equations (1) or
+(2). To predicting multiple steps ahead, the model can be
+queried auto-regressively by using the predicted next states
+as inputs. Without loss of generality, we assume that the state
+x comprises sequences of historical data and that the WM is
+a sequence-to-sequence model that performs multi-step ahead
+predictions auto-regressively until horizon H. A loss function
+is then applied to penalize the model for the prediction from
+t + 1 to t = H (Mean Squared Error for deterministic models
+and Negative Log Likelihood for stochastic WMs). In our
+experiments we use different values of H at training time and
+test time as detailed in Sections V and VI.
+Uncertainty estimation and propagation: In data-driven
+modeling, uncertainty is usually decomposed into two parts:
+the inherent stochasticity of the system (aleatoric uncertainty)
+and the uncertainty of the approximation due to insuffi-
+cient data (epistemic uncertainty). Stochastic models capture
+aleatoric uncertainty, while epistemic uncertainty can be es-
+timated by using ensembles [6]. In this work, we construct
+ensembles the same way as Chua et al., resulting in M neural
+networks that are trained independently to model the system
+dynamics. The ensemble’s predictive distribution is then:
+p(xt+1 | xt, ut) ≈1
+M
+M
+X
+m=1
+fθm(xt, ut).
+(3)
+Deterministic
+ensembles
+capture
+epistemic
+uncertainty
+through the disagreement across their members, while stochas-
+tic ensembles additionally reflect aleatoric uncertainty by
+sampling within each model’s distribution. We calculate both
+uncertainty types as variances [25]. At inference time, uncer-
+tainty is propagated, thus preventing overconfident predictions
+and enabling more robust long-term control under uncertainty.
+B. Multi-task model
+In most previous works involving WMs, state features x are
+continuous, making the task a regression problem [6]. How-
+ever, in domains with switching dynamics, such as networks
+with CSM, some features are binary (sleep state) and force
+others to be semi-continuous. For example, the PRB utilization
+and throughput of a cell that is changing to a sleeping state
+will suddenly become discontinuous. Although a rich dataset
+might allow the WM to capture this switching behavior, it is
+a difficult and data-inefficient solution as switching samples
+are more infrequent than steady-state ones.
+To overcome this problem, we propose an approach for
+learning WMs with an architecture that handles continuous,
+binary, and semi-continuous features explicitly, making the
+problem a multi-task one. For the multi-task formulation, we
+model the state xt as a combination of its different features:
+xt =
+
+xc
+t
+xb
+t
+xsc
+t
+T
+where xc
+t ∈Rnc are the continuous features, xb
+t ∈{0, 1}nb are
+the binary features and xsc
+t
+∈Rnsc
++
+are the semi-continuous
+features. The multi-task states and control inputs are embedded
+separately and processed by a sequence-to-sequence backbone
+before being split to task-specific output heads. We then en-
+courage the model to learn the dependency between binary and
+semi-continuous features by applying an activation mask on
+the semi-continuous prediction based on the binary prediction.
+This approach ensures consistency between the two sets of
+variables and makes their dependency explicit while learning.
+The multi-task model is still trained end-to-end like its
+regression counterparts but its optimization criterion encom-
+passes the different feature types and forms a weighted multi-
+task loss function:
+L =
+T +H
+X
+t=1
+[λcLc(xc
+t, ˆxc
+t)+λbLb(xb
+t, ˆxb
+t)+λsLsc(xsc
+t , ˆxsc
+t )] (4)
+where Lc, Lb, and Lsc represent the losses for continuous,
+binary, and semi-continuous features, respectively, and λc, λb,
+and λs are the corresponding weight factors. We empirically
+observed that this loss function and separate action embed-
+dings are key for ensuring control input sensitivity and correct
+predictions of the semi-continuous features, as shown in the
+counterfactual experiments on live network data in Section VI.
+C. Planning and Control
+We propose to formulate the problem of mobile network
+control as a receding horizon control problem [26] and demon-
+strate it in the context of saving energy by maximizing sleep-
+time while maintaining network service requirements. The
+control problem formulation can be expressed as a constraint
+optimization problem with the goal to minimize a cost function
+(energy consumption) over a prediction horizon H subject to a
+constraint (service quality) and subject to satisfying a learned
+system dynamics:
+min
+ut,...,ut+H−1 J =
+H−1
+X
+i=0
+C(xt+i, ut+i)
+(5)
+s.t. xt+i+1 ∼f( · |Xt+i, ut+i), i = 0 . . . H −1 (6)
+P(g(xt+i, ut+i) > 0) < δ,
+i = 1 . . . H,
+(7)
+where C is the cost function, xt is the predicted state of
+the network, Xt = {xt−T +1, ..., xt} is a sequence of input
+network states, ut the control input, g represents a constraint
+function and f is the learned WM. Here δ is a constraint
+tolerance. The constraint is expressed as a probability to cover
+the case where the WM is stochastic. We define g such that
+it is positive (denoting violation) when at least one capacity
+cell is sleeping and the average throughput in the coverage cell
+falls below a threshold (50 Mbit/s or 60 Mbit/s). For our cost
+function, we use C(xt, ut) = ||ut||1 to capture the number of
+times the capacity cell is awake1.
+Note that the formulation in Equations (7) uses an implicit,
+uncertainty aware WM to model the function f. The optimiza-
+tion problem is thus intractable by exact means. Instead, we
+employ the cross-entropy method for optimization (CEM) [6,
+27], in which we iteratively sample potential action sequences
+by using probabilistic priors on [ut, ..., ut+H−1]. At a given
+iteration, the method produces samples of action sequences
+according to a probability distribution and simulates their
+outcome using the world model. Each sequence of action
+yields a trajectory for which we compute a cost equal to J plus
+large penalties for constraint violations. For stochastic WMs,
+we sample multiple trajectories using the TS∞method from
+Chua et al. which yields multiple trajectories for sequences of
+actions and captures both epistemic and aleatoric uncertainty
+from the WM [6]. In this case, the cost is averaged over the
+different trajectories, referred to as particles. Thus, if one of
+the sampled trajectories has a constraint violation, for example
+if low throughput values are within the uncertainty bounds, the
+1Here || · ||1 is the 1-norm, and is calculated for non-negative vectors x as
+||x||1 = Pk
+i=1 xi.
+action sequence yielding that trajectory will get associated to
+a lower overall cost. After this step, the algorithm ranks the
+sequences of actions according to their costs and keeps the top
+fraction of actions. A new probability distribution over action
+sequences is fitted using the selected top actions, which gives
+more resampling weight to the sequences with lower cost. At
+the next iteration, new sequences of actions are sampled from
+this new distribution and evaluated again. After a fixed number
+of iterations, the method returns the best action sequence found
+so far, and the first action of this sequence, u∗
+t is applied to
+the network. The network state then evolves in time, and the
+optimization method is repeated. The full pseudocode of the
+algorithm is provided in the Appendix.
+V. SIMULATION EXPERIMENTS
+In this section, we evaluate the proposed approach in a
+simulated 5G network, which enables safe, closed-loop testing
+and diverse data generation for energy-saving scenarios. We
+describe the simulation setup, assess the world model’s predic-
+tive performance, and analyze its closed-loop control results.
+A. Simulation Environment
+For the simulation experiments, we used a proprietary
+network simulator calibrated using live network data. The
+simulated network consists of a hexagonal deployment of
+7 sites with 3 sectors each. Each sector is equipped with
+multiple frequency bands for LTE (800 MHz, 1800 MHz, and
+2600 MHz), and an NR band (3.5 GHz) refered to as L08,
+L18, L26, N35 respectively. The L26 band is the capacity cell
+being controlled by our algorithm, while the L18 band acts as
+the coverage cell, triggering cell wake-ups. The high frequency
+cell wake-ups that would happen in reality are not modeled
+by the simulator, instead we consider that the cell would stay
+off and we measure eventual throughput constraint violations.
+Given a traffic demand for each user, the simulator estimates
+a snapshot of the network performance. First, it calculates the
+signal gains from each cell to each user using propagation
+models described by Asplund et al. [28]. It then estimates
+PRB utilization as well as user throughput, taking into account
+features like carrier aggregation across LTE cells.
+To make the traffic demand and the simulation data realistic,
+we used a dataset from a live 5G network (described in
+Section VI) to calibrate them. In this setting, 2000 users
+are spread uniformly in the map, but the traffic demand
+distribution is non-uniform across users. Using the work of
+Lee et al. in [29], we fit a Weibull distribution and generate
+different traffic hotzones in the simulator. A given total traffic
+volume is then spread across the hotzones according to their
+relative weights. This modeling creates a spatial diversity in
+traffic that is similar to a real network’s. Finally, for realistic
+temporal traffic variations, we sample traffic volume traces
+from the real network data, and apply a scaling factor such
+that the distribution of PRB utilization in the simulated data
+would match the distribution in the real data.
+B. World Model Predictions
+In this section, we describe the training data and the training
+procedure for our ensemble models. We then evaluate the pre-
+dictive performance of the proposed approach by comparing
+regression-specific models with multi-task ones. We further
+compare deterministic and stochastic models.
+Synthetic Training Data: We generate 100 network scenarios
+corresponding to a random intersite distance between 400 m
+and 1000 m, and a realization of the Weibull distribution. For
+each network, we sample a 9 day traffic volume pattern from
+the real data at 1 h granularity (1 simulation step corresponds
+to 1 h). At each step, a random on/off action is taken for any of
+the 21 capacity cells. This dataset contains a variety of energy
+saving actions as well as realistic traffic variation patterns.
+World Model Training: The state xt comprises key per-
+formance indicators for the different bands and auxiliary
+information about the state of the network. The features we
+use include resource utilization percentage and aggregated
+user throughput for each of the four bands, the sleep state
+of the capacity band and a time of day encoding, for a
+total of 11 features. The control input is a binary variable
+ut ∈{0, 1}n and represents the sleep action of the capacity
+cells (n = 1 in the simulation environment). We normalize
+our data for training and validation and train the ensembles
+on bootstrapped datasets to increase their diversity. The basic
+architecture of the models comprises a transformer backbone
+for sequence handling, normalization layers and linear layers
+for embedding states and actions and for the output heads. The
+training parameters are reported in the Appendix.
+Experiment: First, we evaluate the overall performance of the
+models based on their Mean Squared Error (MSE) as shown
+in Fig. 2. We use MSE for evaluation since, when using the
+world models for predictions, it is often more important to
+avoid large errors than to ensure that the mode of the error
+distribution is small. We compare different model options
+based on whether they follow the multi-task (MT) architecture
+or the regression (REG) one, whether they are stochastic or
+not and finally what horizon they have been trained on. For
+all the models, we use the weights of the epoch with the best
+validation score and the episodes we use for testing have not
+been encountered during training. The model ablations are
+listed in Table I. In this experiment, we calculate the MSE
+per feature for horizons between 1-12 steps ahead. Then, we
+average the results over all features and all horizons and report
+the mean and standard deviation of the error. Since the features
+have different scales, we normalize the MSE errors for every
+feature between [0, 1] to make them comparable.
+From Fig. 2, we see that the multi-task deterministic model
+with a 4-step horizon (gpt-mt-det-h4) is outperforming
+the rest of the models. The regression deterministic models
+do not seem to be improved much by the training horizon
+increase, while the multi-task deterministic model with a 1-
+step horizon is worse than its 4-step counterpart. Lastly, we
+see that the stochastic models have higher validation MSE
+than their deterministic counterparts. This is not completely
+TABLE I
+MODEL ABLATIONS
+Name
+Task
+Stochastic
+Horizon
+gpt-mt-det-h4
+MT
+✗
+4
+gpt-mt-det-h1
+MT
+✗
+1
+gpt-reg-det-h4
+REG
+✗
+4
+gpt-reg-det-h1
+REG
+✗
+1
+gpt-mt-sto-h4
+MT
+✓
+4
+gpt-mt-sto-h1
+MT
+✓
+1
+gpt-reg-sto-h4
+REG
+✓
+4
+gpt-reg-sto-h1
+REG
+✓
+1
+gpt-mt-det-h4
+gpt-reg-det-h4
+gpt-reg-det-h1
+gpt-mt-det-h1
+gpt-mt-sto-h1
+gpt-reg-sto-h1
+gpt-mt-sto-h4
+gpt-reg-sto-h4
+0.0
+0.1
+0.2
+0.3
+Normalized Score
+MSE - Overall Performance (lower is better)
+Fig. 2.
+Overall test time prediction errors (mean and standard deviation)
+averaged over all features and all prediction horizons up to 12.
+unexpected, as stochastic models represent distributions and
+try to model aleatoric noise to balance fit and uncertainty
+calibration. This can reduce overconfidence, but it can also
+introduce noise in the predictive mean. In contrast, determin-
+istic models minimize pointwise errors directly, which yields
+lower MSE scores.
+C. Closed loop experiments
+In this section, we investigate whether WM-based control is
+better than a heuristic baseline and a model-free RL algorithm
+for our network management energy saving use case. We
+examine the closed loop performance when using CEM with
+the trained WM and show that we can vary the cost function
+without a need for retraining. Furthermore, we analyze the
+effect of using a stochastic versus a deterministic model within
+the ensembles and whether the uncertainty quantification pro-
+vides advantages for the closed-loop behavior.
+Experiment: We generate 10 evaluation scenarios by using
+the same procedure we used for generating the training data,
+while ensuring that those episodes are unseen in training. In
+these evaluation scenarios, we compare the performance of
+different energy saving control method that can act on the
+network every hour for a 4 day long episode.
+Baseline: The baseline algorithm is a threshold-based method.
+To turn off the capacity cells, it sets the sleep threshold to 0.1
+so that when their utilizations fall below the threshold, they
+will be turned off. Another wake-up threshold of 0.25 is used
+to turn on the capacity cell on again. Correspondingly, wake-up
+is triggered when the utilization of the coverage cell is above
+the threshold. The baseline is only active between 1 a.m. and
+0
+2
+4
+6
+8
+10
+12
+14
+Sleep Hours/Day
+0.00
+0.02
+0.04
+0.06
+0.08
+0.10
+0.12
+0.14
+0.16
+Probability of Constraint Violation
+CP100
+CP40
+CP60
+50Mbps
+60Mbps
+50Mbps
+60Mbps
+50Mbps
+60Mbps
+Baseline
+SAC
+CEM Deterministic
+CEM Deterministic Ensemble
+CEM Stochastic Ensemble
+Fig.
+3.
+Closed
+loop
+performance
+using
+gpt-mt-sto-h4
+and
+gpt-mt-det-h4 for stochastic (total uncertainty) and deterministic (only
+epistemic) ensembles, respectively. We also test a non-ensemble deterministic
+baseline, “CEM Deterministic”, without uncertainty quantification. All
+baselines are examined across different throughput constraints (50 Mbit/s,
+60 Mbit/s for CEM and CP = 40, 60, 100) for SAC.
+7 a.m. which is a standard deployment in live networks, thus
+it can only achieve a maximum of 6 hours per day.
+Soft-Actor Critic: We trained an RL agent using the soft-
+actor critic (SAC) algorithm [30]. The algorithm was trained
+for approximately 20 000 steps (208 scenarios of 4 days
+each) in the same simulation environment used to generate
+the training data for the WM. For the reward function we
+used a simple scalarization of Eq. (7) where the constraint
+penalty corresponds to a negative reward of CP magnitude
+in case of constraint violation. Varying CP leads to more or
+less aggressive energy saving policies which we showcase in
+our experiments. The policy uses the same input features and
+action space as the one used by the WM-based controller, as
+discussed in Section IV.
+CEM CEM is the optimization basis for our proposed WM-
+based network control approach. We analyze model variants
+that estimate total uncertainty (stochastic ensemble), only epis-
+temic uncertainty (deterministic ensemble) and no uncertainty
+(deterministic), and study the impact of changing the level
+of the constraint in Eq. (7). The constraint levels used for
+the variants are denoted as labels in Fig. 3, e.g. 50 Mbit/s.
+Contrary to the RL approach, the change in objective can
+be directly expressed as a throughput value instead of an
+abstract penalty and can be changed without retraining. The
+optimization problem is also scalarized like in the RL agent
+with CP = 10 and we do not perform any tuning. We use 4
+iterations of CEM with 100 samples, and keep the top 20 %
+of sampled actions across iterations. The execution time is
+several seconds using a GPU. When using the stochastic WM
+we sample 40 particles and modify the CEM logic to aggregate
+costs over particles [6].
+We compare the performance of these controllers in terms of
+average sleep hours per day across episodes and across sectors,
+as well as the percentage of constraint violations in Fig. 3. A
+constraint violation happens when the controller turns off the
+0.0
+0.1
+0.2
+Utilization L18
+4
+6
+8
+Throughput L18
+1e7
+50
+60
+70
+80
+90
+Time Step
+0.0
+2.5
+5.0
+Throughput L26
+1e7
+CEM sto 50Mbps
+CEM sto 50Mbps pred
+Threshold
+CEM det 50Mbps
+CEM det 50Mbps pred
+Violation
+Baseline
+Fig. 4. Example of a closed-loop simulation for a sector. We run the same
+episode using the CEM controller with two different world models, one with
+uncertainty quantification and one without. The crosses indicate constraint
+violations. The shaded area is the variance estimated from 40 different
+particles sampled from the stochastic model.
+capacity cells, and this decision is followed by the average
+user throughput falling below 50 Mbit/s in the L18 coverage
+cells. We purposely avoid reporting energy saving estimates, as
+they highly depend on the power consumption capabilities of
+the different hardware and on operator-specific configurations.
+Instead, we report the increase in sleep time as a proxy which
+is easily measurable and could be used with a specific radio
+hardware power model to estimate actual energy saving.
+Note that the impact of an energy saving action on neigh-
+boring cells is being modeled by the simulator but is not being
+observed by any of the methods, thus some violations may be
+caused by an action happening in neighboring sites. We believe
+that adding neighbor information could greatly improve the
+performance of both the RL agent and the WM based control,
+but this is left as future work.
+Figure 3 shows sleep hours per day each controller achieves,
+and the probability they will violate the performance con-
+straint. The optimal place to be is the bottom right corner,
+with max sleep and zero probability of constraint violation.
+We see that the stochastic models are more conservative than
+the deterministic ones, as they take into the total uncertainty
+and may detect more potential constraint violations when the
+algorithm samples multiple trajectories to evaluate each action.
+Between the deterministic ensembles and single models, we
+see that estimating epistemic uncertainty only leads to also
+more conservative sleeping, but with lower violation potential.
+When tuning the CP parameter for the RL agent’s reward, we
+are able to navigate the trade-off between safety and energy
+saving. However, the RL methods are always Pareto dominated
+by one of the CEM methods. For CEM, we observe the
+same effect of navigating the trade-off by enforcing higher
+throughput thresholds than the ones measured in the datasets.
+We visualize an example of an evaluation episode for the
+CEM controllers and the baseline in Fig. 4. We can see that
+the deterministic model is sleeping more aggressively (L26
+throughput of 0 Mbit/s) but fails to predict the L18 throughput
+violation and only predicts it several steps later, leading to two
+constraint violations. Thanks to the uncertainty estimate, the
+stochastic model is able to capture the throughput decrease
+early on and wake up the capacity cell at the right time.
+As expected, the baseline is only triggering sleep at narrow
+time intervals corresponding to night hours. Although the same
+random seed is used to have the same network scenario, the
+ground truth values for each method are a little different
+due to the difference in actions. In general, throughout our
+experiments we noticed that throughput was one of the most
+difficult feature to predict, possibly because of the lack of
+neighbor information and how much it is affected by them.
+In conclusion, the presented results show that WM-based
+control offers a powerful paradigm for optimally changing
+network configurations and outperforms heuristic baselines
+and even RL methods. Furthermore, we highlighted the benefit
+of uncertainty modeling. In the next section, we will assess the
+performance of our approach on real data.
+VI. LIVE NETWORK DATA EXPERIMENTS
+In this section, we present experiments based on a propri-
+etary dataset from a live 4G/5G network. We first evaluate
+the prediction performance of model ablations. Then, we
+qualitatively illustrate the benefit of the multi-task modeling
+in terms of sensitivity to control actions by showing that
+regression models tend to ignore the effect of actions. Finally,
+since we cannot directly evaluate the controller actions on
+a real network, we provide an estimate of the performance
+based on counterfactual actions. The models are trained as in
+Section V, but for this experiment, we only compare models
+that have been trained for a prediction horizon 4. The key
+hyperparameters are reported in the Appendix.
+The dataset consists of 6 months of data from a small
+live network area with 150 sectors. Each sector is equipped
+with a combination of the following frequency bands for LTE:
+900 MHz, 1800 MHz, 2100 MHz and 2600 MHz, and two NR
+bands 700 MHz, 3.5 GHz referred to as L09, L18, L21, L26,
+N07, N35 respectively. The network state comprises sequences
+of normalized KPIs for resource utilization, throughput, and
+traffic volume for the frequency bands, the time of day, the
+sleep state and the actions of the last 48 hours. For the action,
+we assume that both bands L21 and L26 can be controlled
+through on/off actions. In practice, those actions would be
+converted to CSM thresholds, as explained in Section III.
+In Fig. 5 we present the average MSE over all features
+for different values of the test prediction horizon for the real
+data. For this dataset, the deterministic multi-task model is not
+outperforming the regression one, but rather has comparable
+performance. Consistently with the simulation results, the
+stochastic models have worse performance. This is to be
+expected, given that real-network data are significantly noisier
+than their simulated counterparts.
+gpt-reg-det-h4
+gpt-mt-det-h4
+gpt-mt-sto-h4
+gpt-reg-sto-h4
+0.00
+0.25
+0.50
+0.75
+1.00
+Normalized Score
+MSE Across Horizons (lower is better)
+Testing Horizon
+h=1
+h=4
+h=8
+h=12
+Fig. 5. Test time prediction errors (mean and standard deviation) for the real-
+network data. Errors are averaged over all features.
+00:00
+06:00
+12:00
+18:00
+00:00
+06:00
+12:00
+18:00
+00:00
+Time
+0.0
+0.1
+0.2
+0.3
+0.4
+L26 utilization
+Off
+On
+Counterfactual action
+ground truth
+multi-task model
+regression model
+counterfactual action
+Fig. 6. Example of one sector’s LTE capacity utilization evolution. In purple,
+we visualize a counterfactual action proposed by our WM-based controller.
+The blue line corresponds to the ground truth utilization, while the orange
+and green lines correspond to WM predictions for the counterfactual action.
+A. Counterfactual Actions
+The main advantage of multi-task modeling over standard
+regression for the deterministic WMs becomes more pro-
+nounced when we look at their sensitivity to the control
+input. We compute counterfactual actions using the CEM
+algorithm on data corresponding to one week, by replaying the
+network historical data. The counterfactual actions correspond
+to energy saving actions that would have been applied to the
+network if the CEM algorithm were deployed closed loop.
+In Fig. 6, we show counterfactual actions, that the controller
+would have applied to the network, on the right axis. We
+compare the predictions of the multi-task WM and the ones
+of the regression WM, when using the counterfactual action
+as input instead of the ground truth actions from the dataset
+without changing any of the other input KPIs. The multi-task
+WM is able to correctly predict that given the “off” action, the
+utilization of the capacity carrier would go to zero. However,
+the regression WM is predicting a value close to the ground
+truth and shows little sensitivity to the control action, making
+it a poor candidate for WM-based control.
+B. Open-loop Evaluation
+We extend the analysis of the counterfactual actions by
+estimating the open-loop performance of the controller. We
+first estimate the number of extra sleep hours per day and
+per carrier averaged over all sectors, as if the controller
+were deployed. We do so by assuming that all “off” actions
+recommended by CEM on the L21 and L26 cells would have
+caused them to sleep for an hour.
+TABLE II
+PERFORMANCE COMPARISON OF BASELINE AND CEM ALGORITHMS
+WHEN RUNNING OPEN LOOP ON 1 WEEK OF THE REAL DATASET.
+Algorithm
+Sleep Hours
+(h/day)
+Fraction with
+Util.≥60%
+Switches
+(per day)
+Baseline
+4.5 ± 0.9
+0.004 ± 0.019
+1.9 ± 0.3
+CEM-det-50M
+18.4 ± 6.4
+0.019 ± 0.049
+3.3 ± 2.1
+CEM-det-60M
+13.4 ± 7.8
+0.011 ± 0.038
+3.7 ± 2.2
+CEM-sto-50M
+16.0 ± 6.9
+0.022 ± 0.050
+4.1 ± 2.4
+CEM-sto-60M
+11.0 ± 7.4
+0.015 ± 0.039
+4.3 ± 1.8
+Since the actions are not applied, it is not possible to
+estimate their consequences on user throughput. Instead, we
+consider the worst case estimate in utilization increase for
+L18. When a capacity cell is set to sleep, we read its current
+utilization in the data and assume that the whole utilization
+would be offloaded to the L18 cell of the same sector. This
+PRB transfer is reasonable as the bandwidth is generally the
+same for the mid-band LTE carriers. In reality, users may
+also be offloaded to neighboring sectors, or other available
+coverage bands in the sector. We will consider as constraint
+violation every case where the total utilization in the coverage
+cell would exceed 60% which in practice would trigger a
+wake-up by the CSM software. A baseline algorithm is running
+on all sectors of the dataset, and thus we are able to directly
+compare the effect of CEM on the sleep time as well as its
+effect on increased utilization.
+In Table II, we compare the performance of variants
+of our WM-based controller (using gpt-mt-sto-h4 for
+the stochastic and gpt-reg-det-h4 for the deterministic
+WMs) as we experiment with different throughput constraints
+(50 Mbit/s and 60 Mbit/s). Consistent with the simulation
+results, our WM control method proposes a significant number
+of sleep hours that decreases with stricter throughput con-
+straints, while the stochastic WM provides more conservative
+control strategies with less sleep. The large standard deviation
+in the estimated sleep hours is due to the fact that the dataset
+contains both sectors with very high average utilization (little
+sleep potential) and sectors with low utilization (high sleep
+potential). The fraction of samples with utilization over 60%
+would significantly increase with the CEM methods compared
+to the baseline, which is potentially risky. This number further
+increases with the stochastic WMs, which could be a reflection
+of their poor accuracy or an indication that congestion should
+be considered in the cost function. For further evaluation, the
+full empirical distribution of the utilization and counterfactual
+utilization under different WM controllers can be found in
+the Appendix. Lastly, we see that the CEM controllers lead
+to more “on/off” switches per day, as they lead to multiple
+sleeping windows. In cases where the overhead of switching
+sleep states is significant, a longer control horizon and a
+penalty for switching would be advisable.
+Finally, we visualize actions and predictions from the WM-
+based controller in Fig. 7. The multi-task model is able to
+predict zero utilization when an “off” action is suggested,
+0
+50
+100
+150
+L18
+Throughput
+(Mbps)
+0.0
+0.5
+1.0
+L18
+Utilization
+0.0
+0.5
+L21
+Utilization
+19:00
+07:00
+19:00
+07:00
+19:00
+07:00
+19:00
+07:00
+19:00
+07:00
+19:00
+Time
+0.0
+0.2
+0.4
+L26
+Utilization
+threshold
+ground truth
+CEM
+ground truth + offload
+Fig. 7.
+Example of running the CEM policy with a stochastic model on a
+sample of the real data. In orange, we visualize the prediction by using the
+counterfactual actions as input. The shaded area is the variance estimated from
+40 different particles sampled from the stochastic model. The green dashed
+line represent the offloaded utilization assuming a worst case scenario.
+while predicting the value accurately with an “on” action,
+demonstrating its ability in handling semi-continuous vari-
+ables. Note that the controller is acting on two frequency
+bands here, and it proposes a significant increase in sleep
+time (samples with 0 utilization) compared to the historical
+data. In the second row, we visualize the hypothetical offloaded
+utilization on the coverage layer with a dashed line and see
+that a few events of high utilization would occur.
+In this analysis, we demonstrated the potential of WM-based
+control by training a model and evaluating it on real data.
+Contrary to simulation data, it is more challenging to train
+stochastic WMs and WMs that are sensitive to actions. With
+our proposed multi-task modeling, the controller proposes
+reasonable actions. Our estimation of the offloaded utilization
+suggests that further improvement of the model predictions
+and controller constraints may be needed before a field deploy-
+ment. However, with reasonable safety check in place, such
+as implementing “off” actions with CSM thresholds, the use
+of this method may bring significant increase in sleep times.
+VII. CONCLUSION
+The increasing usage and complexity in mobile metworks,
+is making their intelligent and automated control crucial.
+In this paper, we propose a world model-based approach
+for network control that decouples model learning from the
+controller itself, allowing the same model to be reused for
+different objective functions. The proposed method applies
+to various input feature types, estimates its own uncertainty,
+and eliminates the need for retraining when the optimization
+objective changes. With CEM, we have demonstrated how
+this approach can control network parameters in a receding-
+horizon fashion, exemplified by cell sleep mode control. Our
+experiments showed that the proposed framework Pareto-
+dominates both rule-based baselines and state-of-the-art re-
+inforcement learning benchmarks in closed-loop simulations,
+while also showing strong potential in open loop emulation of
+live network data. Future work will explore the integration of
+network graph topology into the prediction models to provide
+richer neighbor information, the use of network foundation
+models to improve generalization and accuracy, and the eval-
+uation of closed-loop deployments of the world model-based
+control in live network scenarios.
+REFERENCES
+[1]
+F. Salahdine, J. Opadere, Q. Liu, T. Han, N. Zhang, and S. Wu, “A
+survey on sleep mode techniques for ultra-dense networks in 5g and
+beyond,” Computer Networks, vol. 201, p. 108 567, 2021, ISSN: 1389-
+1286.
+[2]
+A. Mendo, J. Outes-Carnero, Y. Ng-Molina, and J. Ramiro-Moreno,
+“Multi-agent reinforcement learning with common policy for antenna
+tilt optimization,” IAENG International Journal of Computer Science,
+2023.
+[3]
+J. Ye and Y.-J. A. Zhang, “Drag: Deep reinforcement learning based
+base station activation in heterogeneous networks,” IEEE Transactions
+on Mobile Computing, vol. 19, no. 9, pp. 2076–2087, 2019.
+[4]
+“Telenor: Autonomous AI agent with Ericsson,” GSMA use case
+library, 2025.
+[5]
+J. S. Pujol-Roigl, S. Wu, Y. Wang, M. Choi, and I. Park, “Deep rein-
+forcement learning for cell on/off energy saving on wireless networks,”
+in 2021 IEEE Global Communications Conference (GLOBECOM),
+2021.
+[6]
+K. Chua, R. Calandra, R. McAllister, and S. Levine, “Deep rein-
+forcement learning in a handful of trials using probabilistic dynamics
+models,” Advances in neural information processing systems, vol. 31,
+2018.
+[7]
+D. Hafner, J. Pasukonis, J. Ba, and T. Lillicrap, “Mastering diverse
+domains through world models,” arXiv preprint arXiv:2301.04104,
+2023.
+[8]
+D. L´opez-P´erez et al., “A survey on 5g radio access network energy
+efficiency: Massive mimo, lean carrier design, sleep modes, and
+machine learning,” IEEE Communications Surveys & Tutorials, vol. 24,
+no. 1, pp. 653–697, 2022.
+[9]
+F. E. Salem, T. Chahed, Z. Altman, and A. Gati, “Traffic-aware
+advanced sleep modes management in 5g networks,” in 2019 IEEE
+Wireless Communications and Networking Conference (WCNC), 2019.
+[10]
+S. Saeidian, S. Tayamon, and E. Ghadimi, “Downlink power control in
+dense 5g radio access networks through deep reinforcement learning,”
+in ICC 2020-2020 IEEE International Conference on Communications
+(ICC), 2020.
+[11]
+Q. Wang, S. Chetty, A. Al-Tahmeesschi, X. Liang, Y. Chu, and H.
+Ahmadi, “Energy saving in 6g o-ran using dqn-based xapp,” in 2024
+IEEE 29th International Workshop on Computer Aided Modeling and
+Design of Communication Links and Networks (CAMAD), 2024.
+[12]
+J. Gui and X. Zhang, “Energy efficient sleep mode strategies for
+communication and computing devices in cellular networks with edge
+computing,” Ad Hoc Networks, vol. 179, p. 104 027, 2025, ISSN: 1570-
+8705.
+[13]
+A. El Amine, J.-P. Chaiban, H. A. H. Hassan, P. Dini, L. Nuaymi,
+and R. Achkar, “Energy optimization with multi-sleeping control
+in 5g heterogeneous networks using reinforcement learning,” IEEE
+Transactions on Network and Service Management, vol. 19, no. 4,
+pp. 4310–4322, 2022.
+[14]
+H. Fourati, R. Maaloul, N. Trabelsi, L. Chaari, and M. Jmaiel, “An
+efficient energy saving scheme using reinforcement learning for 5g and
+beyond in h-cran,” Ad Hoc Networks, vol. 155, p. 103 406, 2024, ISSN:
+1570-8705.
+[15]
+M. Bordin et al., “Design and evaluation of deep reinforcement
+learning for energy saving in open ran,” in 2025 IEEE 22nd Consumer
+Communications and Networking Conference (CCNC), 2025.
+[16]
+T. Pan and X. Wu, “Model-based reinforcement learning for energy
+efficiency optimization in small-cell networks,” in 2025 IEEE Wireless
+Communications and Networking Conference (WCNC), 2025.
+[17]
+H. Jiang et al., “Data-driven cell zooming for large-scale mobile
+networks,” IEEE Transactions on Network and Service Management,
+vol. 15, no. 1, pp. 156–168, 2018.
+[18]
+E. Masero, L. A. Fletscher, and J. M. Maestre, “A coalitional model
+predictive control approach for heterogeneous cellular networks,” in
+2020 European Control Conference (ECC), 2020.
+[19]
+A. Balasingam, M. Kotaru, and P. Bahl, “Application-level service
+assurance with 5g ran slicing,” in Proceedings of the 21st USENIX
+Symposium on Networked Systems Design and Implementation, 2024,
+ISBN: 978-1-939133-39-7.
+[20]
+G. Vallero, D. Renga, M. Meo, and M. A. Marsan, “Greener ran
+operation through machine learning,” IEEE Transactions on Network
+and Service Management, vol. 16, no. 3, pp. 896–908, 2019.
+[21]
+X. Yao and A. P´erez Yuste, “A ml-based resource allocation scheme
+for energy optimization in 5g nr,” Sensors, vol. 25, no. 16, 2025, ISSN:
+1424-8220.
+[22]
+D.
+Ha
+and
+J.
+Schmidhuber,
+“World
+models,”
+arXiv
+preprint
+arXiv:1803.10122, vol. 2, no. 3, 2018.
+[23]
+N. Hansen, H. Su, and X. Wang, “Td-mpc2: Scalable, robust world
+models for continuous control,” arXiv preprint arXiv:2310.16828,
+2023.
+[24]
+3rd Generation Partnership Project (3GPP), “Potential solutions for
+energy saving for E-UTRAN,” 3GPP, Technical Report TR 36.927,
+2025, Version 19.0.0.
+[25]
+C. B¨ulte, Y. Sale, T. L¨ohr, P. Hofman, G. Kutyniok, and E. H¨ullermeier,
+“An axiomatic assessment of entropy-and variance-based uncertainty
+quantification in regression,” arXiv preprint arXiv:2504.18433, 2025.
+[26]
+J. Mattingley, Y. Wang, and S. Boyd, “Receding horizon control,” IEEE
+Control Systems Magazine, vol. 31, no. 3, pp. 52–65, 2011.
+[27]
+M. J. Kochenderfer and T. A. Wheeler, Algorithms for Optimization.
+MIT Press, 2019.
+[28]
+H. Asplund, M. Johansson, M. Lundevall, and N. Jald´en, “A set of
+propagation models for site-specific predictions,” in 12th European
+Conference on Antennas and Propagation (EuCAP 2018), 2018.
+[29]
+D. Lee, S. Zhou, X. Zhong, Z. Niu, X. Zhou, and H. Zhang, “Spatial
+modeling of the traffic density in cellular networks,” IEEE Wireless
+Communications, vol. 21, no. 1, pp. 80–88, 2014.
+[30]
+T. Haarnoja, A. Zhou, P. Abbeel, and S. Levine, “Soft actor-critic: Off-
+policy maximum entropy deep reinforcement learning with a stochastic
+actor,” in Proceedings of the 35th International Conference on Machine
+Learning, ICML 2018, Stockholmsm¨assan, Stockholm, Sweden, July
+10-15, 2018, 2018.
+[31]
+R. J. Williams and D. Zipser, “A learning algorithm for continually
+running fully recurrent neural networks,” Neural Computation, vol. 1,
+no. 2, pp. 270–280, Jun. 1989, ISSN: 0899-7667. eprint: https://direct.
+mit.edu/neco/article-pdf/1/2/270/811849/neco.1989.1.2.270.pdf.
+[32]
+T. Kim, J. Kim, Y. Tae, C. Park, J. Choi, and J. Choo, “Reversible
+instance normalization for accurate time-series forecasting against
+distribution shift,” in International Conference on Learning Represen-
+tations, 2022.
+[33]
+J. L. Ba, J. R. Kiros, and G. E. Hinton, Layer normalization, 2016.
+arXiv: 1607.06450 [stat.ML].
+APPENDIX
+In this appendix, we provide further training details on the
+world model for reproducibility and an extra evaluation of the
+model ablations. Furthermore, we describe how CEM works in
+pseudocode and present the empirical cumulative distribution
+function of utilization for the real-world, open-loop evaluation.
+A. World-model Details
+Auto-regressive training All the models that have been used
+in this work are sequence to sequence models. Namely, given
+input sequence Xt = {xt−T +1, ..., xt} and action sequence
+Ut = {ut−T +1, ..., ut+T +H−1}, where T is the input history
+length and H is the prediction horizon, our models predict
+ˆYt = {ˆxt−T +2, ..., ˆxt+H}, with auto-regressive predictions for
+steps t+2 to t+H. To improve training stability, all the models
+are trained with teacher forcing [31].
+Model architecture The basic architecture of the models
+comprises the following layers: a RevIn layer [32], linear
+layers for embedding the states and actions separately, a layer
+norm layer [33], a GPT-2 model for handling the sequences of
+data and linear output heads. A RevIn layer normalizes the data
+within their own part of the timeseries, addressing potential
+distribution shift problems where different segments may have
+varying scales and statistical properties. We used separate
+linear layers for embedding the states and actions as a way of
+learning feature representations that preserve the importance of
+the control input. These are followed by a layer normalization
+layer, which stabilize training when working with transformer-
+based architectures that are sensitive to gradient flow. We
+chose a GPT-2 transformer as the sequence handling backbone,
+due to its proven ability to capture long-range dependencies
+and complex temporal patterns through its self-attention mech-
+anism. We also experimented with an LSTM backbone, but the
+transformer model seemed to outperform it.
+Linear output heads provide the final mapping from the
+transformer’s learned representations to the target prediction
+space. The specific structure of the linear heads depends on
+whether the model is stochastic or deterministic, and whether it
+is used for regression or as a multi-task model. The stochastic
+models have twice the output neurons as they output the mean
+prediction and its uncertainty, while the multi-task models
+have specific “task” heads for every feature category. Finally,
+the predictions are denormalized through the RevIn layer, so
+the outputs are in the original data scale, while maintaining the
+benefits gained from normalized training. Fig. 8 illustrates the
+above architecture for the case of the deterministic multi-task
+model.
+Uncertainty propagation In Section IV, we described the
+basics of uncertainty modeling with stochastic and determin-
+istic ensembles. Here, we provide more details about how the
+total uncertainty is modelled in each case, starting from the
+stochastic regression models. In this case, we assume that
+the predictive distribution of the (continuous) variables is a
+Gaussian, so the output of the ensemble is also a Gaussian
+Fig. 8. The architecture for the gpt-mt-det model.
+whose mean and variance is the result of the equally weighted
+predictions from the M ensemble members:
+¯µ = 1
+M
+M
+X
+i=1
+µi
+(8)
+σ2
+ensemble =
+1
+M
+M
+X
+i=1
+σ2
+i
+|
+{z
+}
+Aleatoric uncertainty
++
+1
+M
+M
+X
+i=1
+(µi −¯µ)2.
+|
+{z
+}
+Epistemic uncertainty
+(9)
+In practice, to propagate the uncertainty during the predic-
+tions, for every step we create a Gaussian distribution around
+the models’ predicted mean and variance and sample from
+it using the reparametrization trick. The sampled prediction
+is then used as the auto-regressive input for the next step.
+Note that for numerical stability during training, we actually
+predict the log variance (clipped to the range [−10, 10]) and
+then transform it as needed to variance or standard deviation.
+In the case of deterministic regression models, the predic-
+tions are single points instead of Gaussians and their variances
+are zero, so the ensemble estimates only the epistemic part
+of Eq. (9). During the auto-regressive predictions, we do not
+sample any points, we just propagate the point estimate of the
+mean.
+Special care should be taken for the case of uncertainty
+propagation with the stochastic multi-task models, as only
+some features are continuous and can be modelled by Gaus-
+sians the same way as described above. For the binary features,
+we instead assume a Bernoulli distribution and model its
+variance as σ = p(1 −p), where p is the predicted probability
+that the binary task head outputs. In the instantiations of the
+models we compare in the experiment section, we do not
+further sample around the binary prediction. Lastly, the semi-
+continuous features are treated like the continuous ones, but
+the sampled predictions are masked according to the binary
+predictions.
+Prediction Errors Per Horizon: In Fig. 9 we visualize
+model prediction errors for different test horizons, averaged
+over all features. The performance of most models is not
+TABLE III
+TRAINING PARAMETERS FOR THE WORLD MODEL EXPERIMENTS.
+Parameter
+Simulated data
+Real data
+State input length
+48 timesteps
+48 timesteps
+Train–test split
+90–10%
+95-5%
+Number of training episodes
+900 days
+157 days
+Training prediction horizon
+1 or 4 steps
+4 steps
+Test prediction horizon
+12 steps
+12 steps
+Number of ensemble members
+5
+5
+Optimizer
+Adam
+Adam
+Learning rate
+1 × 10−4
+1 × 10−4
+Epochs
+30
+50
+Training time (GPU)
+2–8 hours
+6–16 hours
+gpt-mt-det-h4
+gpt-reg-det-h4
+gpt-reg-det-h1
+gpt-mt-det-h1
+gpt-mt-sto-h1
+gpt-reg-sto-h1
+gpt-mt-sto-h4
+gpt-reg-sto-h4
+0.0
+0.2
+0.4
+0.6
+Normalized Score
+MSE Across Horizons (lower is better)
+Testing Horizon
+h=1
+h=4
+h=8
+h=12
+Fig. 9.
+Test time prediction errors (mean and standard deviation) averaged
+over all features for different test prediction horizons.
+very consistent across features, which leads to large error-
+bars over the mean MSE. It is still possible to draw high-
+level conclusions about how the MSE scales with the test
+prediction horizon, however to choose a model for specific
+applications it is recommended to study individual features
+according to their importance. Nevertheless, the results per test
+prediction horizon are consistent with that of Fig. 2 but we
+additionally see that for the deterministic models, extending
+the training prediction horizon to 4, improves performance for
+training horizon 1 as well. For the multi-task stochastic models
+(gpt-mt-sto-h1, gpt-mt-sto-h4), we see that the
+horizon 4 model has worse performance for horizon 1 but
+slightly better, and more consistent, behavior for the other
+horizons underlying the usefulness of training with a longer
+horizon. It should be noted that extending the training pre-
+diction horizon affects the training time as well. On average,
+we observed that increasing the horizon from 1 to 4, almost
+doubles the training time.
+B. Planning with the Cross Entropy Method
+Here we provide a pseudo-code of the cross entropy method
+we use to solve Eq. (7). We sample different trajectories per
+action sequences when the WM is a stochastic ensemble.
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+L18 Utilization
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+CDF
+Fraction of samples > 60%:
+Ground Truth: 0.4%
+CEM det 50Mbps: 1.9%
+CEM det 60Mbps: 1.1%
+CEM sto 50Mbps: 1.3%
+CEM sto 60Mbps: 1.5%
+Ground Truth
+CEM det 50Mbps
+CEM det 60Mbps
+CEM sto 50Mbps
+CEM sto 60Mbps
+60% threshold
+Fig. 10.
+Estimated increase in utilization if the counterfactual actions
+proposed by CEM were applied in the real system, assuming the worst case
+scenario where all traffic is offloaded to the L18 layer.
+Algorithm 1 CEM Planning with Discrete Actions and En-
+semble WM
+1: Input: state xt, horizon H, discrete actions U, cost C,
+constraint g, ensemble {fm}M
+m=1
+2: Hyperparams: samples N, elites Ne, iterations L, parti-
+cles P, penalty CP
+3: Initialize distribution over action sequences
+4: for ℓ= 1 to L do
+5:
+for n = 1 to N do
+6:
+Sample action sequence ˜u(n) from current distribu-
+tion
+7:
+S(n) ←0
+8:
+for p = 1 to P do
+9:
+Sample model mp from ensemble
+10:
+Roll out using ˜u(n) and fmp
+11:
+S(n)
++=
+1
+P
+PH−1
+i=0
+
+C(xt+i, ˜u(n)
+t+i)
++
+CP 1{g(xt+i, ˜u(n)
+t+i) > 0}
+
+12:
+end for
+13:
+end for
+14:
+Select Ne sequences with lowest S(n)
+15:
+Update distribution parameters using elite sequences
+16: end for
+17: Return: first action of best sequence
+C. Open-loop Evaluation
+In Fig. 10, we show the empirical cumulative distribution
+function of the utilization over all the samples in the 1 week
+of data used for the open loop analysis with real data. We can
+see that the CEM method would cause a big shift of utilization
+but that the majority of sample would still be below the 60%
+and thus hints that a majority of the sleep actions could be
+valid.

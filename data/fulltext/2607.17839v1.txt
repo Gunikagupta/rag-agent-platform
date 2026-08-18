@@ -1,0 +1,829 @@
+Preprint version. This paper has been accepted for publication in the Springer Proceedings in Advanced Robotics as part of the proceedings of the 19th
+International Workshop on Human-Friendly Robotics (HFR 2026), Trento, Italy, July 16–17, 2026. The ﬁnal authenticated version will be available online at
+Springer Nature Link.
+Receiver-Centered Robot-to-Human Handover
+with Grasp-Aware Object Orientation
+Federico Biagi, Dario Onﬁani, Simone Silenzi, and Luigi Biagiotti
+Department of Engineering "Enzo Ferrari", University of Modena and Reggio Emilia,
+Italy. {federico.biagi, dario.onfiani, simone.silenzi,
+luigi.biagiotti}@unimore.it
+Abstract. Collaborative robots are increasingly sharing workspaces with
+human operators, making tool handover a frequent and safety-critical
+micro-interaction. However, traditional static handovers often lead to
+awkward grasps when handling asymmetric industrial tools. This paper
+presents a receiver-centered voice-driven adaptive handover system for
+mechanical tools, built on a Franka cobot. Using an LLM for intention
+recognition and MediaPipe for real-time 3D hand tracking, the frame-
+work dynamically adjusts the end-eﬀector’s orientation to present tools
+in an ergonomically optimal, handle-ﬁrst pose. A within-subjects study
+compared this adaptive approach with an object-agnostic static baseline.
+The results demonstrate that the adaptive system reduces the grasp delay
+for asymmetric tools, improving the ﬂuency of the interaction. Further-
+more, the adaptive strategy improved speciﬁc trust-related perceptions,
+particularly motion predictability and perceived task simplicity.
+Keywords: Robot-to-Human Handover · Adaptive Handover · Human-
+Robot Interaction
+1
+Introduction
+In contemporary manufacturing, the shared workspace between human opera-
+tors and cobots makes the handover of mechanical tools a highly common and
+safety-critical procedure. Fluent exchange reduces cycle time and prevents the
+need for repeated awkward reaches; conversely, a poorly executed handover dis-
+rupts cognitive ﬂow and may pose a risk of injury, particularly when handling
+tools such as hammers or screwdrivers. Owing to the functional asymmetry of
+industrial tools (e.g., handle versus head, shaft versus sharp end), eﬀective han-
+dover requires the robot to present the correct functional part of the object, with
+an appropriate orientation, at the right location and at the right moment.
+Object handover is commonly framed as a joint action comprising pre-handover
+communication, approach, and a physical exchange regulated by coupled grip
+and load forces [1, 2]. Adaptive givers synchronize spatial and temporal deci-
+sions with the receiver, selecting conﬁgurations that human partners reliably
+accept [3]. Recent contributions moved from hand-designed controllers to con-
+tinuous adaptation via contextual policy search [4] and reactive grasp-prediction
+arXiv:2607.17839v1  [cs.RO]  20 Jul 2026
+pipelines [5,6]. For the Franka Panda, hand-tracked adaptation via MediaPipe [7]
+is consistently preferred over static baselines [8].
+An active research area has focused on the analysis and synthesis of approach
+trajectories to the handover position. Two classical families dominate handover
+motion design. Minimum-jerk proﬁles model natural human reaching with bell-
+shaped velocity curves [9,10], a pattern conﬁrmed by human-human approach-
+and-handover studies in which transfer occurs near the midpoint between part-
+ners [11]. Demonstration-based Dynamic Movement Primitives [12, 13] oﬀer a
+second family, while strictly geometric Bézier paths [14] allow trivial online re-
+parameterization and represent our choice for approach trajectory. Because leg-
+ibility and predictability can conﬂict [15], we deliberately prioritize predictable
+motion: orientation alignment is engaged only once the user’s hand enters the
+handover area, keeping the robot’s spatial target and functional intent unam-
+biguous.
+1.1
+Evaluation framework and positioning of our work
+Mixed-methods evaluation combining objective signals with validated self-reports
+is standard in handover research [16]. Handover time serves as a dominant be-
+havioral proxy for user hesitancy and ergonomic comfort. For cognitive load,
+physiological signals are widely utilized; speciﬁcally, spontaneous blink rate is
+an unobtrusive, validated attentional index [17,18] recently conﬁrmed in cobot-
+assisted assembly [19], though its real-time use to discriminate handover strate-
+gies remains unexplored. To capture the user’s subjective experience, we employ
+the NASA Task Load Index (NASA-TLX) [20] and the Human-Robot Trust
+Scale [21].
+Against this landscape, our framework advances the state of the art along three
+axes. First, we extend adaptation [4,5] to mechanical tools via a uniﬁed handle-
+ﬁrst strategy. Second, we integrate a hands-free Large-Language-Model (LLM)
+voice interface. To guarantee deterministic safety in collaborative cells, the LLM
+is strictly bounded to a narrow classiﬁcation role [22, 23], selecting an object
+label from a ﬁxed set, while motion planning remains controller-based. Third,
+we uniquely triangulate the aforementioned objective and subjective metrics to
+comprehensively assess interaction ﬂuency, attentional engagement, and rela-
+tional trust. A video demonstration of the proposed framework can be viewed
+at https://youtube.com/shorts/EC_4DCmi4XA
+2
+Study Description
+2.1
+Participants
+A total of 15 right-handed volunteers (12 male, 3 female; majority under 35 years
+of age) took part in the experiment. The group was evenly divided regarding
+prior exposure to robotics, with approximately half of the subjects reporting
+previous experience. All experimental procedures were approved by the local
+Fig. 1: Schematic of the proposed Adaptive handover framework. The system is di-
+vided into three blocks: Hand & Intention Detection: extracts 3D hand position and
+orientation using MediaPipe, the user request is classiﬁed through an LLM into one
+of the available objects; Orchestration and Validation implements the handover Finite
+State Machine (FSM) and computes the object-oriented pose alignment taking both
+the hand pose and the target grasp frame as input, it then validates the trajectory;
+Franka Controller executes the safe and smooth trajectory
+institutional ethics board and conducted in strict adherence to the principles of
+the Declaration of Helsinki. Written informed consent was obtained from every
+individual prior to their involvement in the study.
+2.2
+Robotic setup
+As depicted in Fig. 1, the handover framework consists of a Franka Emika Panda
+cobot and an Intel RealSense D435i camera. The hand detection block merges
+2D keypoints and depth data via MediaPipe Hands [7] for 3D hand pose detec-
+tion. An LLM classiﬁes the user request to make the cobot gather the correct
+object. The extracted data enables a dynamical alignment of the end-eﬀector
+to the user’s hand. Finally, the target trajectory is validated through an inverse
+kinematics solver to prevent singularities and joint limit violations.
+2.3
+Kinematics and Hand Target Computation
+The employed architecture fuses distinct data sources to robustly estimate the
+human receiver’s pose. The system deﬁnes four primary coordinate frames: the
+Camera frame (FC), the Grasp frame (FG), the Robot Base frame (FB) and the
+w
+t
+i
+m
+r
+p
+xh
+yh
+zh
+Fig. 2: Hand landmarks and hand reference frame.
+Hand frame (FH). To represent poses and compute spatial relationships con-
+cisely, we adopt homogeneous transformation matrices T ∈SE(3). To extract
+the hand pose in the camera frame,
+CTH, we propose a hybrid analytical ap-
+proach that mitigates the intrinsic noise of depth sensors. First, the hand’s spatial
+position CpH ∈R3 is obtained by back-projecting the 2D MediaPipe landmarks
+using the camera’s aligned depth map and intrinsic parameters. Speciﬁcally, let
+CpW and CpM be the 3D coordinates of the wrist and the middle ﬁnger metacar-
+pophalangeal (MCP) joint, respectively. An Exponential Moving Average (EMA)
+ﬁlter is applied to these 3D points to eliminate spatial jitter. The center of the
+hand frame is deﬁned as a point along the line connecting the wrist and the base
+of the middle ﬁnger, i.e.,
+CpH =
+CpW + λ(
+CpM −
+CpW)
+where λ ∈[0, 1] is a tunable parameter controlling the palm ratio.
+To compute the hand’s orientation
+CRH without relying on the noisy 3D
+point cloud, we leverage MediaPipe Hand Landmarks, which provide a scale-
+normalized kinematic model of the hand; see Fig. 2. Let w, i, m, r, p ∈R3 denote
+the local 3D coordinates of the wrist, index MCP, middle MCP, ring MCP, and
+pinky MCP, respectively. We construct a local orthonormal basis corresponding
+to the hand’s attitude. The dorsal axis (ˆy) is deﬁned as the unit normal to the
+plane spanned by the wrist, index, and pinky joints:
+ˆy =
+(p −w) × (i −w)
+∥(p −w) × (i −w)∥
+(1)
+The longitudinal axis (ˆx), pointing towards the wrist, is computed orthogonally
+to both ˆy and the transversal vector connecting the ring and middle MCPs:
+ˆx =
+ˆy × (m −r)
+∥ˆy × (m −r)∥
+(2)
+Finally, the lateral axis (ˆz) completes the right-handed reference frame:
+ˆz =
+ˆx × ˆy
+∥ˆx × ˆy∥
+(3)
+The resulting rotation matrix CRH =
+ˆx ˆy ˆz
+and the position vector CpH are
+embedded into a single homogeneous transformation matrix representing the
+hand pose in the camera frame:
+CTH =
+
+CRH
+CpH
+01×3
+1
+
+(4)
+Utilizing a static hand-eye calibration matrix BTC, which describes the transfor-
+mation from the camera to the robot base, the hand’s spatial pose is transformed
+into the robot’s base frame through a direct matrix multiplication:
+BTH =
+BTC
+CTH
+(5)
+For each object, the grasp reference frame (coinciding with the object frame dur-
+ing handover) is deﬁned with respect to the hand frame to ensure task-dependent
+ergonomic optimization. This is achieved by combining a displacement along the
+palm axis with a task-speciﬁc orientation.
+These eﬀects are encoded in a constant homogeneous transformation HTG (spe-
+ciﬁc to each scenario), as illustrated in Fig. 3, which captures both the ergonomic
+oﬀset and the desired grasp orientation to ensure a seamless grasp. The param-
+eters of HTG are constant for each tool class and were empirically derived prior
+to the main experiment during an informal pilot phase. In this phase, a small
+group of users brieﬂy held each tool to demonstrate their natural receiving grip.
+The optimal grasping pose in the robot base frame, BTG, is then computed as:
+BTG =
+BTH
+HTG
+Finally, the target pose for the object required to execute the handover is
+obtained as:
+ˆ
+BTO =
+BTG.
+(6)
+During the physical execution of the task, the robot’s control system aims to align
+the actual object pose, denoted as BTO, with this estimated target
+ˆ
+BTO. The
+actual pose BTO is continuously computed by combining the forward kinematics
+of the robot arm with the constant transformation that deﬁnes the relative pose
+between the gripper and the grasped object.
+2.4
+Robot Control and Trajectory Generation
+The robot’s control architecture is developed in ROS2. The main script evaluates
+a Finite State Machine (FSM) at a ﬁxed loop rate to autonomously manage both
+the handover and pick up of objects. The system operates in two main modalities:
+– Baseline Handover: The robot tracks the user’s hand position but employs
+a constant, task-agnostic relative transformation HTG for all objects. As a
+result, while the spatial position adapts to the user’s hand, the object is
+always presented with the same default orientation relative to the palm,
+regardless of its shape or intended use.
+Fig. 3: Representation of the grasping poses for diﬀerent handover tasks. Each image
+illustrates the eﬀect of the constant homogeneous transformation HTG speciﬁc to the
+scenario.
+– Adaptive Handover: The robot reaches the user’s hand with the optimal
+target pose
+ˆ
+BTO deﬁned in (6). Here, the transformation
+HTG is actively
+modulated based on the speciﬁc downstream task, ensuring the object is
+presented with an ergonomically optimal orientation for seamless use.
+While the user’s hand pose is monitored continuously via the RGB-D stream,
+the controller commits to a target only when the detected hand remains spatially
+stable (translation < 5 cm, rotation < 0.26 rad) within the handover workspace
+for at least 2 s. At this instant, a single target pose is published and held ﬁxed
+for the entire approach. The object pose trajectory is derived by decoupling the
+geometric path (for both position and orientation) from the motion law:
+BTO(s) =
+
+BRO(s) BpO(s)
+01×3
+1
+
+with s(t) ∈[0, 1].
+To generate a smooth and ergonomically predictable handover motion, the po-
+sition BpO(s) is deﬁned as a cubic Bézier curve in Cartesian space [24]:
+BpO(s) =
+3
+X
+i=0
+3
+i
+
+(1 −s)3−isipi.
+Here, p0 and p3 correspond to the current object position and the ﬁnal target
+grasp position, respectively. The intermediate control points shape the approach:
+p1 is deﬁned along the initial object X-axis (xO) to enforce a smooth tangent
+departure along the initial direction ds, while p2 is obtained by retracting from
+p3 along the desired approach direction da, oriented outward from the user’s
+p0
+p1
+p2
+p3
+p3
+p3
+p3
+p3
+p3
+p3
+p3
+p3
+p3
+p3
+FO(0)
+FO(s(t))
+FO(1) = FG
+da
+ds
+Fig. 4: Schematic representation of the cubic Bézier trajectory generated for the han-
+dover task of an hammer. The geometric path is shaped by four control points
+(p0,p1,p2,p3), imposing the start (ds) and approach (da) directions to ensure a smooth,
+natural motion toward the ﬁnal grasp frame (FG).
+palm to ensure a natural approach. Formally,
+p1 = p0 + αsds
+and
+p2 = p3 −αada
+where αs and αa are tunable scaling factors; the resulting position path is shown
+in Fig. 4.
+The orientation of the object
+BRO(s) is interpolated by Spherical Linear
+Interpolation (SLERP) between the initial and target quaternions. To make
+sure that the orientation stabilizes before reaching the ﬁnal position, a tunable
+orientation-lock factor compresses the rotational interpolation within a fraction
+of the total trajectory duration. This guaranties that the object reaches the de-
+sired task-oriented attitude as it approaches the user’s hand.
+Finally, the motion law along the geometric path is deﬁned by a ﬁfth-order
+polynomial s(t), designed to limit the maximum jerk and ensure a smooth and
+comfortable motion for the human receiver.
+Before motion execution, the candidate trajectory is validated. The intended
+cubic Bézier path is discretized into 50 samples and evaluated with a Pinocchio-
+based inverse-kinematics solver [25]. A path is accepted only if all samples sat-
+isfy the joint-limit margins, a minimum-manipulability bound, and a minimum
+singular-value bound on the end-eﬀector Jacobian. If the nominal path fails val-
+idation, the planner does not alter the target. Instead, it progressively reduces
+the scaling factors αs, αa ∈1.0, 0.75, 0.5, 0.25, 0.0 that multiply the oﬀsets
+of the intermediate control points p1 and p2 from the path endpoints, respec-
+tively; in the present implementation both factors are reduced jointly along this
+schedule, though they can be tuned independently. Because the endpoints, the
+total motion duration, and the minimum-jerk time parameterization are held
+constant, shrinking the α values ﬂattens the approach curvature without chang-
+ing the trajectory timing or the normalized velocity proﬁle. The ﬁrst trajectory
+that passes validation is executed. If no scaling factor yields a safe path, the
+target is rejected, and the system reverts to waiting for a new stable hand pose.
+2.5
+Experimental Setup and Task Design
+The experimental workspace is organized to facilitate repeatable human-robot
+interactions. The setup features four industrial tools (screwdriver, wrench, screw,
+and hammer) positioned on the robot’s left side, a deposit table, and a prede-
+ﬁned handover volume monitored continuously by the Intel RealSense camera
+to enable real-time hand pose estimation. To streamline the interaction, the
+handover sequence is actively initiated by the user via a clip-on microphone. A
+speech-to-text model converts the voice command, which is then sent to an LLM
+(gpt-5-mini) restricted to classifying the request into one of the four available
+tools. Once chosen, the robot delivers the object. Participants were instructed to
+place their right hand in the handover volume and receive the tool using a task-
+speciﬁc grasp consistent with its intended use (see Fig. 3). After the exchange,
+they must place the object on the deposit table. The procedure was evaluated
+under both the Baseline and Adaptive conditions detailed in Section 2.4.
+2.6
+Procedure and Metrics
+We employed a counterbalanced within-subjects design to mitigate ordering ef-
+fects, exposing all participants to both the Baseline and Adaptive handover
+modalities. Before the experimental sessions, users received a safety brieﬁng
+and completed two baseline surveys: the Edinburgh Handedness Inventory of
+10-items [26] to conﬁrm right-hand dominance and a 9-item Ethical Accept-
+ability Scale [27] (5-point Likert) to assess their a priori disposition toward
+robotics. The evaluation framework combined objective behavioral and physio-
+logical data with subjective questionnaires. During the interaction, participants
+wore NEON Pupil Labs eye-tracking glasses, from which we extracted the blink
+rate (blinks/min) to monitor real-time variations in cognitive workload and trust
+regarding the robot’s predictability. Additionally, we measured the grasping de-
+lay, deﬁned as the elapsed time between the robot’s end eﬀector reaching the
+target handover pose and the user successfully grasping the object. This tempo-
+ral metric served as an objective proxy for user comfort and interaction ﬂuency,
+where prolonged delays indicate increased hesitancy or ergonomic discomfort.
+Subjective perceptions were gathered immediately after each condition. The per-
+ceived workload was measured using the NASA-TLX, where participants rated
+six dimensions on a 20-point scale and made 15 pairwise comparisons to compute
+a weighted overall score. Finally, interaction safety and reliability were evaluated
+through a modiﬁed 10-item Human-Robot Trust Scale, scored on a 5-point Likert
+scale (further detailed in Section 3.3, Table 4).
+3
+Results
+The analysis combined participants’ pre-interaction attitudes toward robotic
+handover with post-interaction subjective ratings and objective behavioral/phys-
+iological measures. The signiﬁcance threshold was set at p ≤.05.
+Table 1: Ethical Acceptability Scale Items: Descriptive Statistics and One-Sample
+Wilcoxon Test Results
+Ethical Acceptability Statement
+Mean SD SE CV
+V
+p
+1. Cobots handing over objects to workers in
+industrial settings.
+4.53
+0.64 0.17 0.14 105.00 < .001*
+2. Cobots assisting people in domestic
+environments with everyday objects.
+4.20
+0.86 0.22 0.21 100.50 < .001*
+3. System using cameras and AI models to
+extract environment info.
+3.40
+1.30 0.34 0.38 25.00
+.152
+4. Handover robots partially replacing human
+workers in logistics/assembly.
+4.13
+0.64 0.17 0.15 91.00 < .001*
+5. Robots reducing the need for human
+caregivers in domestic assistance.
+3.33
+1.11 0.29 0.33 38.00
+.133
+6. Human pace of work/life inﬂuenced by the
+robot’s reaction times.
+2.73
+0.88 0.23 0.32 13.50
+.876
+7. Delegating physical safety to hardware limits
+and control algorithms.
+3.00
+1.31 0.34 0.44 37.50
+.549
+8. Programming robot movements to appear
+“human” or “natural” for trust.
+3.80
+1.01 0.26 0.27 67.50
+.010*
+9. Designing the robotic arm with a
+friendly/organic appearance.
+3.40
+1.18 0.31 0.35 39.50
+.104
+Note. N = 15. One-sample Wilcoxon signed-rank tests evaluated the alternative hy-
+pothesis that the median acceptability score was greater than the neutral value of 3.
+Asymptotic p-values are reported. * indicates statistical signiﬁcance (p ≤.05).
+3.1
+Pre-study Ethical Acceptability
+Responses to the Ethical Acceptability Scale were analyzed through one-sample
+Wilcoxon signed-rank tests against the neutral midpoint of 3. As shown in Ta-
+ble 1, participants entered the study with an overall favorable attitude toward
+robot-mediated handover. Ratings were signiﬁcantly above the neutral value
+for the use of cobots in industrial handover scenarios (M = 4.53, SD = 0.64,
+p < .001), for domestic object assistance (M = 4.20, SD = 0.86, p < .001),
+for the partial replacement of human workers in logistics or assembly tasks
+(M = 4.13, SD = 0.64, p < .001), and for the use of deliberately natural-looking
+motion to increase acceptance and trust (M = 3.80, SD = 1.01, p = .010). By
+contrast, the remaining items did not diﬀer signiﬁcantly from neutrality. Overall,
+the responses suggest that participants were broadly receptive to the adoption
+of robotic handover systems, while remaining more cautious on issues involving
+autonomy, responsibility, and socially persuasive design.
+3.2
+Interaction Fluency, Physiological Response and Workload
+The clearest eﬀect of the adaptive strategy emerged in the behavioral timing
+measure. Grasp delay was shorter in the Adaptive condition than in the Base-
+line condition (Table 2). Participants grasped the object more quickly with the
+Adaptive handover (M = 2.72 s, SD = 0.64) than with the Baseline handover
+(M = 3.16 s, SD = 0.91), t(14) = −2.80, p = .014. Since longer delays are
+interpreted as a proxy for hesitancy or reduced ergonomic comfort, this result
+indicates that aligning the end-eﬀector orientation to the user’s hand improved
+the ﬂuency of the transfer phase. Complementary exploratory analysis by object
+type is reported in Table 3. As portrayed in Fig 5a, the most pronounced advan-
+tage of the Adaptive system was observed for the wrench, for which grasp delay
+was substantially reduced (M = 2.55 s, SD = 0.73) relative to the Baseline con-
+dition (M = 3.51 s, SD = 1.22), t(14) = −3.64, p = .003. Screwdriver handovers
+showed a descriptively similar tendency in favor of the Adaptive condition (2.97
+s vs. 3.57 s), although this eﬀect did not reach signiﬁcance (p = .108). No reli-
+able diﬀerences emerged for the hammer or screw. Taken together, this pattern
+demonstrates that orientation adaptation is highly beneﬁcial for tools whose af-
+fordances require a strict, directional grip for applying torque. When these tools
+are handed over at unaligned angles, users are forced to make awkward wrist ad-
+justments that cause measurable hesitation. Aligning the robot’s end-eﬀector to
+the user’s natural hand orientation eliminates this ergonomic bottleneck, yield-
+ing signiﬁcantly faster handovers.
+By contrast, the global measures of workload and physiological response did
+not show statistically reliable diﬀerences between conditions. Weighted NASA-
+TLX scores were descriptively lower for the Adaptive handover (M = 28.22,
+SD = 8.85) than for the Baseline handover (M = 32.78, SD = 9.14), but the
+paired Wilcoxon test did not reach signiﬁcance, W = 33.00, z = −1.22, p = .221.
+Similarly, spontaneous blink rate remained comparable across conditions, with
+M = 18.44 blinks/min (SD = 7.81) for the Adaptive system and M = 17.42
+blinks/min (SD = 8.39) for the Baseline system, t(14) = 1.20, p = .249. Since the
+reduction in cumulative task load observed for the Adaptive system relative to
+the Baseline constitutes a ﬁrst indication of the superiority of the proposed han-
+dover policy, we further investigated whether the subjective workload co-varied
+with an objective measure of interaction ﬂuency. To this end, we investigated
+how subjective workload visually correlates with objective grasp delay. Fig. 5
+b) suggests that per-user weighted NASA-TLX scores and mean grasp delays
+co-varied coherently: for most participants, the shift from the Adaptive to the
+Baseline system pairs longer grasp delays with higher perceived eﬀort. Although
+isolated within-subject inversions exist, likely due to individual diﬀerences in
+prior robot expertise, the dominant group-level trend (N = 15) supports the
+ergonomic and cognitive superiority of the Adaptive handover policy.
+3.3
+Human–Robot Trust
+Post-study trust ratings were compared item by item using paired Wilcoxon
+signed-rank tests (Table 4). The overall proﬁle was descriptively more favorable
+for the Adaptive condition. Two item-level diﬀerences reached signiﬁcance in the
+analysis. Participants reported greater agreement with the statement that they
+were not worried because the robot moved as expected when interacting with
+the Adaptive system (M = 4.20, SD = 0.56) than with the Baseline system
+Table 2: Normality and Paired Comparisons for Workload and Physiological Metrics
+Metric
+Adaptive
+Baseline
+Shapiro-Wilk
+Test
+Statistic
+p-value
+Mean (SD)
+Mean (SD)
+W (diﬀ.)
+Blink Rate
+18.44 (7.81)
+17.42 (8.39)
+0.91
+Paired t-test
+t(14) = 1.20
+.249
+Weighted TLX
+28.22 (8.85)
+32.78 (9.14)
+0.80
+Wilcoxon
+W = 33.0, z = −1.22
+.221
+Grasp Delay (s)
+2.72 (0.64)
+3.16 (0.91)
+0.93
+Paired t-test
+t(14) = −2.80
+.014*
+Note. N = 15. Shapiro-Wilk tests were applied to the paired-diﬀerence distributions.
+Blink rate and grasp delay satisﬁed the normality assumption suﬃciently for paired t-
+tests, whereas weighted TLX did not and was therefore analyzed with a paired Wilcoxon
+signed-rank test. Grasp delay was computed as each participant’s mean over matched
+object pairs. * indicates statistical signiﬁcance (p ≤.05).
+Hammer
+Screw
+Screwdriver
+Wrench
+Overall
+Object Type
+0
+1
+2
+3
+4
+5
+6
+Mean Grasp Delay (s)
+**
+*
+(a)
+2.0
+2.5
+3.0
+3.5
+4.0
+4.5
+5.0
+5.5
+Mean grasp delay (s)
+10
+15
+20
+25
+30
+35
+40
+45
+50
+Weighted NASA-TLX
+(b)
+Fig. 5: Grasp delay across object types and its relationship with perceived task load.
+(a) Mean grasp delay per user, divided by object type and overall. (b) Per-participant
+correlation between mean grasp delay and weighted NASA-TLX score; circles denote
+the Adaptive system, squares the Baseline.
+(M = 3.40, SD = 1.18), W = 57.00, z = 2.23, p = .026. In addition, they
+reported lower discomfort due to task complexity in the Adaptive condition
+(M = 1.20, SD = 0.41) than in the Baseline condition (M = 1.60, SD = 0.83),
+W = 0.00, z = −2.12, p = .034. These ﬁndings indicate that the adaptive orien-
+tation strategy made the robot’s behavior easier to interpret and the handover
+easier to manage from the user’s perspective. The remaining trust items did not
+reach the signiﬁcance threshold, although several of them showed descriptively
+more favorable scores for the Adaptive condition. Overall, the results identify an
+advantage for the Adaptive handover. Coherent adaptation of the end-eﬀector
+orientation to the receiver’s hand did not signiﬁcantly alter blink rate or global
+workload, but it reduced grasp delay and selectively improved trust dimensions
+linked to motion expectancy and interaction simplicity. In practical terms, this
+suggests that the adaptive policy improves how users commit to the grasp once
+the robot reaches the handover pose.
+Table 3: Exploratory Paired Comparisons for Grasp Delay by Object
+Object
+N
+Adaptive Mean (SD)
+Baseline Mean (SD)
+Paired t-test
+p-value
+Hammer
+15
+2.35 (0.74)
+2.33 (0.93)
+t(14) = 0.08
+.937
+Screw
+15
+3.01 (0.92)
+3.22 (1.14)
+t(14) = −0.49
+.628
+Screwdriver
+15
+2.97 (1.01)
+3.57 (1.49)
+t(14) = −1.72
+.108
+Wrench
+15
+2.55 (0.73)
+3.51 (1.22)
+t(14) = −3.64
+.003*
+Note. * indicates statistical signiﬁcance (p ≤.05).
+Table 4: Descriptive Statistics and Wilcoxon Signed-Rank Test Results for the Human–
+Robot Trust Scale
+Trust Scale Item
+Adaptive
+Baseline
+Wilcoxon Test
+Mean
+SD
+Mean
+SD
+W
+z
+p
+The way the robot moved made me
+uncomfortable
+1.47
+0.74
+1.87
+1.13
+2.50
+-1.73
+.084
+I wasn’t worried because the robot
+moved as I expected
+4.20
+0.56
+3.40
+1.18
+57.00
+2.23
+.026*
+The robot’s speed made me
+uncomfortable
+1.27
+0.59
+1.53
+1.06
+0.00
+-1.63
+.102
+Speed of gripper picking/releasing
+made me uneasy
+1.60
+0.99
+1.60
+1.12
+5.00
+0.00
+1.000
+I felt I could rely on the robot to
+perform its tasks
+4.07
+0.59
+3.73
+0.88
+24.00
+1.89
+.059
+I knew the gripper wouldn’t drop
+the objects
+4.07
+0.70
+3.73
+1.10
+18.00
+1.67
+.096
+I felt safe interacting with the robot
+4.40
+0.63
+3.87
+0.99
+19.00
+1.81
+.071
+I felt conﬁdent cooperating with the
+robot
+4.33
+0.62
+3.93
+1.03
+18.50
+1.73
+.084
+I felt uncomfortable cooperating
+due to task complexity
+1.20
+0.41
+1.60
+0.83
+0.00
+-2.12
+.034*
+If the task was more complicated,
+I’d be more worried
+2.40
+1.12
+2.87
+1.06
+10.50
+-1.47
+.142
+Note. N = 15. Two-sided paired Wilcoxon signed-rank tests compare Adaptive and
+Baseline scores for each item. W denotes the positive-rank sum. Asymptotic p-values
+are reported. No multiple-comparison correction was applied. * indicates statistical
+signiﬁcance (p ≤.05). Responses were recorded on a 5-point Likert scale.
+4
+Conclusion
+This study presented an adaptive, voice-driven handover system for mechan-
+ical tools built on a Franka Panda robot setup. By integrating real-time 3D
+hand pose detection via MediaPipe with an LLM to classify user voice requests,
+the framework modulates the end-eﬀector orientation to present the tool in an
+ergonomically optimal pose for the receiver. Experimental results demonstrate
+that this adaptive strategy improves interaction ﬂuency for speciﬁc orientation-
+sensitive tools compared to a static, task-agnostic baseline. Behavioral metrics
+revealed a signiﬁcant reduction in grasp delay, with the most pronounced advan-
+tage observed for tools like the wrench that require a strict, directional grip for
+applying torque. By presenting tools in an optimal, handle-ﬁrst orientation, the
+framework eliminates ergonomic bottlenecks and the resulting hesitancy. Partic-
+ipants reported that the adaptive system’s movements were more aligned with
+their expectations and reduced discomfort related to task complexity, selectively
+improving dimensions of human-robot trust. This work highlights the potential
+of combining intent recognition with reactive kinematic control and adaptation
+in collaborative manufacturing cells. Implementing adaptive handover policies
+may eﬀectively resolve ergonomic bottlenecks and reduce grasping delays, paving
+the way for safer, more eﬃcient, and highly ﬂuent shared autonomy in indus-
+trial environments. Future work will focus on expanding the user study with
+more candidates, employing a multi-camera setup to achieve a more robust and
+accurate view of the handover area. Additionally, we plan to integrate hand-
+tracking gloves to directly assess ergonomic comfort and physical fatigue during
+the exchange phase. In order to ehnahce the framework, we aim to incorporate
+an artiﬁcial intelligence model capable of dynamically estimating the optimal
+grasping frame based on the speciﬁc object requested, further extending the sys-
+tem’s adaptability. Finally, future investigations will explore the robot’s capacity
+to predict human intent in inherently ambiguous, complex collaborative scenar-
+ios, during shared assembly tasks where the robot must proactively select its
+role and synchronize force and timing with the operator.
+Acknowledgments. This work was partially supported by the Italian National Re-
+covery and Resilience Plan (PNRR), Mission 4 “Education and Research”, Compo-
+nent C2, Investment 1.1 “PRIN – Projects of Relevant National Interest”, Project
+I-SHARM: Intelligent SHared Autonomy for Robotic Manipulation Systems, Project
+ID 2022NTZRFM, CUP E53C24002600006 and by the University of Modena and Reg-
+gio Emilia under the FAR (Fondo di Ateneo per la Ricerca – Linea Fomo) project
+titled ROBIN3: a ROBotic INTelligent, INTuitive, and INTeractive platform for NAO-
+Mediated Autistic Healthcare.
+Disclosure of Interests. The authors have no competing interests to declare.
+References
+1. K. W. Strabala, M. K. Lee, A. D. Dragan, J. L. Forlizzi, S. Srinivasa, M. Cakmak,
+and V. Micelli, “Towards seamless human-robot handovers,” Journal of Human-
+Robot Interaction, vol. 2, no. 1, pp. 112–132, 2013.
+2. V. Ortenzi, A. Cosgun, T. Pardi, W. P. Chan, E. Croft, and D. Kulić, “Object
+handovers: a review for robotics,” IEEE Transactions on Robotics, vol. 37, no. 6,
+pp. 1855–1873, 2021.
+3. M. Cakmak, S. S. Srinivasa, M. K. Lee, J. Forlizzi, and S. Kiesler, “Human prefer-
+ences for robot-human hand-over conﬁgurations,” in 2011 IEEE/RSJ International
+Conference on Intelligent Robots and Systems.
+IEEE, 2011, pp. 1986–1993.
+4. A. Kupcsik, D. Hsu, and W. S. Lee, “Learning dynamic robot-to-human object
+handover from human feedback,” in Robotics Research: Volume 1.
+Springer, 2017,
+pp. 161–176.
+5. W. Yang, C. Paxton, A. Mousavian, Y.-W. Chao, M. Cakmak, and D. Fox, “Reac-
+tive human-to-robot handovers of arbitrary objects,” in 2021 IEEE International
+Conference on Robotics and Automation (ICRA).
+IEEE, 2021, pp. 3118–3124.
+6. Z. Wang, Z. Liu, N. Ouporov, and S. Song, “Contacthandover: Contact-guided
+robot-to-human object handover,” in 2024 IEEE/RSJ International Conference
+on Intelligent Robots and Systems (IROS).
+IEEE, 2024, pp. 9916–9923.
+7. F. Zhang, V. Bazarevsky, A. Vakunov, A. Tkachenka, G. Sung, C.-L. Chang, and
+M. Grundmann, “Mediapipe hands: On-device real-time hand tracking,” 2020.
+8. M. Käppler, I. Mamaev, H. Alagi, T. Stein, and B. Deml, “Optimizing human-robot
+handovers: the impact of adaptive transport methods,” Frontiers in Robotics and
+AI, vol. 10, p. 1155143, 2023.
+9. T. Flash and N. Hogan, “The coordination of arm movements: an experimentally
+conﬁrmed mathematical model,” Journal of neuroscience, vol. 5, no. 7, pp. 1688–
+1703, 1985.
+10. M. K. Pan, E. Knoop, M. Bächer, and G. Niemeyer, “Fast handovers with a
+robot character: Small sensorimotor delays improve perceived qualities,” in 2019
+IEEE/RSJ international conference on intelligent robots and systems (IROS).
+IEEE, 2019, pp. 6735–6741.
+11. P. Basili, M. Huber, T. Brandt, S. Hirche, and S. Glasauer, “Investigating human-
+human approach and hand-over,” in Human centered robot systems: Cognition,
+interaction, technology.
+Springer, 2009, pp. 151–160.
+12. A. J. Ijspeert, J. Nakanishi, H. Hoﬀmann, P. Pastor, and S. Schaal, “Dynami-
+cal movement primitives: learning attractor models for motor behaviors,” Neural
+computation, vol. 25, no. 2, pp. 328–373, 2013.
+13. G. Braglia, D. Tebaldi, and L. Biagiotti, “Phase-independent dynamic movement
+primitives with applications to human–robot co-manipulation and time optimal
+planning,” Robotics and Autonomous Systems, vol. 194, p. 105120, 2025.
+14. K. R. Simba, N. Uchiyama, M. Aldibaja, and S. Sano, “Vision-based smooth ob-
+stacle avoidance motion trajectory generation for autonomous mobile robots using
+bézier curves,” Proceedings of the Institution of Mechanical Engineers, Part C:
+Journal of Mechanical Engineering Science, vol. 231, no. 3, pp. 541–554, 2017.
+15. A. D. Dragan, K. C. Lee, and S. S. Srinivasa, “Legibility and predictability of
+robot motion,” in 2013 8th ACM/IEEE International Conference on Human-Robot
+Interaction (HRI).
+IEEE, 2013, pp. 301–308.
+16. G. Hoﬀman, “Evaluating ﬂuency in human–robot collaboration,” IEEE Transac-
+tions on Human-Machine Systems, vol. 49, no. 3, pp. 209–218, 2019.
+17. J. A. Stern, L. C. Walrath, and R. Goldstein, “The endogenous eyeblink,” Psy-
+chophysiology, vol. 21, no. 1, pp. 22–33, 1984.
+18. S. Chen and J. Epps, “Using task-induced pupil diameter and blink rate to infer
+cognitive load,” Human–Computer Interaction, vol. 29, no. 4, pp. 390–413, 2014.
+19. P. Pluchino, G. F. Pernice, F. Nenna, M. Mingardi, A. Bettelli, D. Bacchin,
+A. Spagnolli, G. Jacucci, A. Ragazzon, L. Miglioranzi et al., “Advanced worksta-
+tions and collaborative robots: exploiting eye-tracking and cardiac activity indices
+to unveil senior workers’ mental workload in assembly tasks,” Frontiers in Robotics
+and AI, vol. 10, p. 1275572, 2023.
+20. S. G. Hart, “Nasa-task load index (nasa-tlx); 20 years later,” in Proceedings of the
+human factors and ergonomics society annual meeting, vol. 50.
+Sage publications
+Sage CA: Los Angeles, CA, 2006, pp. 904–908.
+21. G. Charalambous, S. Fletcher, and P. Webb, “The development of a scale to evalu-
+ate trust in industrial human-robot collaboration,” International Journal of Social
+Robotics, vol. 8, no. 2, Nov. 2015.
+22. A. Brohan, Y. Chebotar, C. Finn, K. Hausman, A. Herzog, D. Ho, J. Ibarz, A. Ir-
+pan, E. Jang, R. Julian et al., “Do as i can, not as i say: Grounding language in
+robotic aﬀordances,” in Conference on robot learning.
+PMLR, 2023, pp. 287–318.
+23. J. Ao, Y. Wu, F. Wu, and S. Haddadin, “Behavior tree generation using large
+language models for sequential manipulation planning with human instructions
+and feedback,” arXiv preprint arXiv:2409.09435, 2024.
+24. L. Biagiotti and C. Melchiorri, B B-spline, Nurbs and Bézier curves.
+Berlin,
+Heidelberg: Springer Berlin Heidelberg, 2008, pp. 467–487.
+25. J. Carpentier, G. Saurel, G. Buondonno, J. Mirabel, F. Lamiraux, O. Stasse, and
+N. Mansard, “The Pinocchio C++ library – A fast and ﬂexible implementation
+of rigid body dynamics algorithms and their analytical derivatives,” in SII 2019 -
+International Symposium on System Integrations, Paris, France, Jan. 2019.
+26. R. Oldﬁeld, “The assessment and analysis of handedness: The edinburgh inven-
+tory,” Neuropsychologia, vol. 9, no. 1, Mar. 1971.
+27. A. Peca, M. Coeckelbergh, R. Simut Vanderborght, C. Pop, S. Pintea, D. David,
+and B. Vanderborght, “A scale measuring ethical acceptability of robot enhanced
+therapy for children with autism spectrum disorders,” IEEE Technology And So-
+ciety Magazine, vol. 35, no. 2, Jun. 2016.

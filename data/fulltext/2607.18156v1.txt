@@ -1,0 +1,2898 @@
+Contact-based inverse analysis for nonlinear material
+identification in spatially heterogeneous solids
+Bartłomiej Łazorczyka,b and Roger A. Sauerb,a,c∗
+aDepartment of Structural Mechanics, Gdańsk University of Technology, Gdańsk, Poland
+bInstitute for Structural Mechanics, Ruhr University Bochum, Bochum, Germany
+cDepartment of Mechanical Engineering, Indian Institute of Technology Guwahati, Assam, India
+Abstract
+This study presents a contact-based isogeometric Finite Element Model Updating (FEMU)
+framework for identifying spatially varying constitutive parameters of nonlinear solids. The
+formulation considers large quasi-static deformations of hyperelastic 3D solids and thin shells
+due to mechanical contact. The proposed inverse approach utilizes full-field displacement mea-
+surements available at least on the free surface and, in the case of pure Dirichlet boundary
+conditions, the resultant contact forces as well.
+The nonuniform material parameter fields
+are discretized using low-order Lagrange interpolation independent of the isogeometric analy-
+sis mesh, providing control over the inverse problem size and potential discontinuities in the
+material. The FEMU least-squares objective is minimized using a trust-region reflective algo-
+rithm – a local gradient-based optimization approach. Computational eﬀiciency is enhanced
+through the analytical derivatives of the objective and a material continuation strategy. The
+proposed framework is evaluated through three numerical examples based on synthetically gen-
+erated data: a Canham shell strip on a rigid foundation, indentation of a Koiter shell model
+of the human abdominal wall, and indentation of a Neo-Hookean block. The examples ver-
+ify the ability of the proposed method to reconstruct inhomogeneous material via mechanical
+contact. Analytical derivatives improve the computational eﬀiciency and facilitate conducting
+sensitivity and identifiability analyses of the material parameters. The presented approach is
+non-destructive and can be used for various inverse problems, such as in-vivo biomechanics of
+soft tissues and laboratory material characterization.
+Keywords: inverse problems, parameter identification, full-field measurements, heterogeneous
+materials, isogeometric analysis, mechanical contact
+1
+Introduction
+Full-field measurement techniques, such as Digital Image Correlation (DIC) (Sutton et al., 2009)
+and Digital Volume Correlation (DVC) (Buljac et al., 2018), have become well-established mea-
+surement methods in the past few decades, leading to a substantial development in material
+testing procedures (Pierron and Grédiac, 2021; Hild and Roux, 2025). These advances have
+accelerated the development of several classical inverse approaches for material identification,
+including the Finite Element Model Updating (FEMU) method (Kavanagh and Clough, 1971),
+Virtual Fields Method (VFM) (Pierron and Grédiac, 2012; Avril, 2026), Constitutive Equa-
+tion Gap Method (Latourte et al., 2008; Florentin and Lubineau, 2010), and Equilibrium Gap
+Method (Haustrate et al., 2025). Over the years, these classical methods have been system-
+atically reviewed and revisited, gradually revealing connections among them (Avril and Pier-
+ron, 2007; Avril et al., 2008; Martins et al., 2018; Roux and Hild, 2020; Römer et al., 2025).
+∗corresponding author, email: roger.sauer@pg.edu.pl, roger.sauer@rub.de
+1
+arXiv:2607.18156v1  [cs.CE]  20 Jul 2026
+With the rapid progress in machine learning, many novel frameworks for material identifica-
+tion have emerged. While some are based on the classical approaches mentioned above, others
+introduce fundamentally new directions. Notable contributions include data-driven material
+modeling (Leygue et al., 2018), constitutive model discovery (see e.g. EUCLID (Flaschel et al.,
+2021)), and Physics-Informed Neural Networks (PINNs) (Haghighat et al., 2021).
+Material identification is an inverse problem, a class of inherently ill-posed problems for which
+the existence, uniqueness, and stability of the solution cannot be guaranteed (Nelles, 2020). The
+lack of stability renders inverse problems particularly susceptible to inaccuracies in experimental
+data, such as measurement noise. Furthermore, parameters often exhibit poor identifiability
+due to the insensitivity of the mathematical model to parameter variations or to compensating
+interactions between them (Hartmann and Gilbert, 2018; Zhang et al., 2022). When spatially
+heterogeneous material fields are identified, their discretization often yields a high-dimensional
+parameter space. For iterative methods such as FEMU, the high dimensionality of the parameter
+space not only amplifies issues related to uniqueness and stability but also poses a computational
+challenge, requiring eﬀicient optimization algorithms and practically prohibiting the use of finite
+differences to evaluate objective function derivatives.
+The aforementioned challenges make the identification of spatially varying material fields par-
+ticularly diﬀicult. Although most studies focus on homogeneous materials, the reconstruction of
+inhomogeneous material fields has recently received increasing attention. Beyond the classical
+approaches discussed above, Integrated-DIC (Kirchhoff et al., 2024) treats image registration
+and material identification as a single inverse problem.
+Bayesian inference (Koutsourelakis,
+2009; Thananjayan et al., 2023) also provides a powerful framework for reconstructing spatially
+varying material properties; however, its high computational cost requires using specialized
+techniques or surrogate models. Recently, PINNs have become a promising tool for identifying
+material fields in solids; see, for example, Kamali et al. (2023); Srikitrungruang et al. (2025);
+Bouclier et al. (2026); Xu et al. (2026).
+FEMU and VFM are the most widely used classical techniques for reconstructing heteroge-
+neous material fields in solids. The main concept of FEMU is to minimize the discrepancy
+between measurements and the Finite Element (FE) model response. This discrepancy is typi-
+cally formulated in a global least-squares sense. FEMU is straightforward to implement and is
+a well-established technique known for its robustness and low sensitivity to noise (Chen et al.,
+2024). Moreover, FEMU provides a calibrated FE model of the body and can operate on partial
+experimental data. However, the iterative nature of FEMU, together with the frequent need for
+objective function derivatives, makes it computationally costly. This limitation is often allevi-
+ated by deriving analytical derivatives (Avril and Pierron, 2007; Gokhale et al., 2008; Goenezen
+et al., 2011). Over the years, FEMU has been employed to identify heterogeneous parameters in
+constitutive models including isotropic (Khalil et al., 2006) and anisotropic (Liu et al., 2005) lin-
+ear elasticity, isotropic (Goenezen et al., 2012; Simón-Allué et al., 2017) and anisotropic (Kroon
+and Holzapfel, 2009) hyperelasticity, elastoplasticity (Andrade-Campos et al., 2020), and dam-
+age (Liu et al., 2019). Recently, Łazorczyk and Sauer (2026) proposed an elastodynamic FEMU
+framework for identifying unknown stiffness and density fields in Bernoulli–Euler beams. In Ła-
+zorczyk and Sauer (2025), this approach was further extended to the simultaneous identification
+of elasticity parameters and prestressing force. Mei et al. (2026) introduced a sequential inverse
+approach for identification of heterogeneous shear modulus and stress-free configuration in pre-
+stressed incompressible Neo-Hookean solids. Touminet et al. (2025) proposed a Bayesian exten-
+sion of FEMU based on random fields for representing material inhomogeneity. By combining
+the adjoint method with automatic differentiation, the authors’ approach enables an eﬀicient
+identification of spatially varying material fields from full-field data.
+Selecting a representation of inhomogeneous material fields is a fundamental task for their suc-
+2
+cessful reconstruction.
+Prior knowledge of material heterogeneity, e.g. by visual inspection,
+enables partitioning of the solid into regions with approximately homogeneous characteristics.
+However, such a priori knowledge is rarely available; thus, the identification problem also in-
+volves model selection, characterized by the bias/variance trade-off (Nelles, 2020).
+Several
+representation strategies have been proposed. In FEMU, a common approach is to define the
+unknown material parameters element-wise; however, this rapidly leads to very large inverse
+problems. A straightforward remedy is to use a coarser mesh or subdomain-based representation
+for the material field, as proposed, e.g., in Kroon and Holzapfel (2008) and Borzeszkowski et al.
+(2022). Alternatively, Haustrate et al. (2025) proposed a covariance-weighted Equilibrium Gap
+method, treating material inhomogeneity as a random field represented by a Karhunen–Loève
+expansion. More recently, Li et al. (2026) introduced a FEMU framework that represents mate-
+rial heterogeneity via a neural network, enabling a flexible, self-regularized inverse formulation.
+In state-of-the-art material testing, specimen geometry and loading are optimized to generate
+heterogeneous strain fields, enabling identification of complex constitutive laws from a single
+load experiment (Pierron and Grédiac, 2021; Chen et al., 2024). However, the geometry of
+inhomogeneous structures, such as the human abdominal wall or breast, cannot be modified;
+thus, boundary conditions, such as loading or physiological movements, remain the primary
+design variable. Using multiple load cases has been shown to facilitate material field identifi-
+cation (Borzeszkowski et al., 2022; Łazorczyk and Sauer, 2026). In experimental biomechanics,
+pressure is regularly applied to induce deformation (Song et al., 2006; Lubowiecka et al., 2022)
+and has shown some success in inverse analyses (Simón-Allué et al., 2017; Borzeszkowski et al.,
+2022). Nevertheless, as a scalar quantity, it provides limited information. On the other hand,
+contact forces are 3D vectors that act at multiple locations and in multiple directions. Contact
+loading, for instance, through macro-indentation with a rigid probe, can generate much richer
+data. For example, probing at 10 locations and in 10 different directions gives 100 load cases.
+Varying the size of the contact probe enables even more combinations.
+Mechanical contact is inherent to many medical procedures and therapies.
+An example is
+ultrasonography, where an ultrasound-emitting probe is brought into close contact with the
+skin.
+The probe contact can easily induce large deformation of the tissue without causing
+damage. Other examples of this kind include mammography, angioplasty, and cell probing. In
+all of these examples, the contact information is used to a limited degree. Basic quantities such
+as the contact force might be recorded, but the rich 3D deformation field induced by contact
+is usually not measured. Medical diagnosis, surgery, and therapy require knowledge about the
+properties and state of biological materials under in vivo conditions. Since standard testing of
+soft tissues can be inconvenient due to fragility, physiological conditions, and ethical and formal
+constraints (Evans, 2017; Navindaran et al., 2023), non-invasive probing becomes particularly
+appealing.
+Indentation techniques are widely used for assessing material properties. For example, sur-
+face measurements obtained from indentation were used to reconstruct heterogeneous material
+properties in porcine tissue and the human abdominal wall by Pierrat et al. (2018) and Remus
+et al. (2024), respectively. The identifiability of hyperelastic constitutive parameters in homo-
+geneous samples subjected to macro-indentation was investigated in Oddes and Solav (2023)
+and Ashkenazi et al. (2026). However, these studies assumed local material homogeneity. Stud-
+ies on global identification of material fields using contact remain limited. Hartmann and Gilbert
+(2018) demonstrated that force measurements and surface deformation from indentation are suf-
+ficient to identify material properties of a two-layer Neo-Hookean block. Fougeron et al. (2024)
+further investigated the identifiability of hyperelastic parameters in bi-layer soft tissues under
+macro-indentation, showing that it strongly depends on the selected constitutive law and that
+combining different experimental data types may deteriorate identification quality. Further-
+3
+more, Lavigne et al. (2023) identified hyperelastic properties and frictionless contact traction
+fields from two deformed configurations without knowledge of a stress-free configuration. Re-
+cently, Chen et al. (2026a) and Chen et al. (2026b) employed neural operators to reconstruct
+spatially varying elastic properties in small-deformation contact. To the best of our knowledge,
+these are the only studies that use contact for the identification of heterogeneous material fields.
+Every FEMU approach calls a corresponding finite element (FE) solver several times during
+the analysis, covering a broad range of design parameters; thus, it requires an eﬀicient and
+robust FE formulation. Isogeometric analysis (IGA), pioneered by Hughes et al. (2005), has
+become a well-established tool for various computational tasks in solid mechanics. Regarding
+mechanical contact, IGA provides arbitrary smoothness across elements boundaries, which im-
+proves accuracy and robustness (De Lorenzis et al., 2014). IGA was successfully used in various
+inverse problems, including material identification (Dufour et al., 2015; Borzeszkowski et al.,
+2022; Łazorczyk and Sauer, 2026) and load reconstruction (Vu-Bac et al., 2018, 2019).
+This study demonstrates that simple contact probing can generate data with very high in-
+formation content, enabling accurate identification of heterogeneous materials. In particular,
+the proposed approach facilitates a detailed characterization of complex material behavior. To
+this end, a Contact-based Inverse Analysis (CBIA) approach is proposed for reconstructing
+spatially heterogeneous constitutive parameters in nonlinear solids using isogeometric FEMU.
+The present work extends the study in Borzeszkowski et al. (2022) by incorporating mechanical
+contact and substantially improving the reconstruction performance. The formulation consid-
+ers large quasi-static deformations, which are commonly encountered in the modeling of soft
+biological tissues. While this study is restricted to isotropic constitutive models, its extension
+to anisotropy is straightforward. Spatially varying material properties are represented with a
+low-order Lagrange interpolation independent of the finite element (FE) mesh, following the ap-
+proach of Borzeszkowski et al. (2022). To the best of our knowledge, this is the first time such a
+contact-based FEMU framework is proposed for identifying spatially heterogeneous constitutive
+models in nonlinear solids and thin shells. In summary, the proposed method is characterized
+by the following features:
+• A general contact-based FEMU framework for identifying spatially distributed material
+properties.
+• A FEMU objective function based on displacements and resultant contact forces, with
+optional Tikhonov regularization.
+• Gradient-based minimization of the objective function using analytical derivatives, a
+Newton–Raphson scheme with material incrementation, and a precomputed initial guess.
+• Discretization of the unknown material fields with a low-order Lagrange mesh.
+• An isogeometric finite element formulation for nonlinear solids and thin shells.
+• A rigid, frictionless, and adhesionless mechanical contact formulation.
+• A feasibility study of 2D inclusion reconstruction in a heterogeneous solid from surface
+data only.
+Key to the proposed identification approach are simple, minimally invasive, and nondestructive
+contact tests that generate information-rich data, enabling much more accurate inverse analyses
+than existing techniques. The proposed approach can be particularly suitable for soft tissues,
+such as the abdominal wall and blood vessels.
+The remainder of this paper is organized as follows: Sec. 2 introduces the forward problem
+considered here, including the finite element formulation and the discretization of the unknown
+material fields. Sec. 3 presents the proposed inverse framework, which is followed by a set of
+numerical experiments shown in Sec. 4. The paper concludes with Sec. 5.
+4
+2
+Forward problem
+This section presents the forward problem that is used in the subsequent inverse analysis. The
+employed constitutive laws, contact formulation, and weak forms are introduced, followed by the
+finite element discretization and parametrization of the unknown material fields. For brevity,
+the general theory of nonlinear solids is omitted, and only the necessary kinematics is introduced
+for thin shells. In the following, the 3D quantities are denoted by tilde, e.g. ˜J, while their 2D or
+surface-related counterparts are written without any accents. Similarly, quantities associated
+with the reference configuration are indicated by uppercase symbols or the subscript “0”, e.g.
+S0, while lowercase symbols refer to the deformed configuration.
+2.1
+Curvilinear surface description for shells
+A point on the shell mid-surface1 S is described by the mapping
+x = x(ξα) ,
+α = 1, 2 ,
+(1)
+where ξα are curvilinear coordinates associated with a 2D parametric domain P. The surface
+parametrization defines the covariant tangent vectors aα := ∂a/∂ξα, the covariant metric com-
+ponents aαβ := aα · aβ, the surface unit normal n := (a1 × a2)/Ja, and the area element
+da := Ja dξ1dξ2, where Ja := ∥a1 × a2∥. The dual basis vectors are defined as aα := aαβaβ,
+satisfying aα · aβ = δα
+β, where [aαβ] := [aαβ]−1, and δα
+β is the Kronecker delta. Repeated Greek
+indices imply summation over {1, 2} throughout the paper.
+The curvature tensor b = bαβ aα ⊗aβ is characterized by the Gauss–Weingarten formula
+bαβ := n · aα,β = −n,β · aα ,
+(2)
+where a comma denotes the parametric derivative aα,β = ∂aα/∂ξβ. Its invariants
+H := 1
+2 bα
+α = 1
+2 aαβbαβ ,
+κ := det [bαβ]
+det [aαβ] ,
+(3)
+represent the mean and Gaussian curvature, respectively. Analogous quantities are defined for
+a point X(ξα) in the undeformed shell configuration S0, including Aα, Aα, Aαβ, Aαβ, JA, N,
+and B.
+The mapping between S0 and S, represented by x = φ(X), is described by the surface defor-
+mation gradient
+F := aα ⊗Aβ ,
+(4)
+and the area change da = J dA, where J is the surface stretch given by J = Ja/JA. The
+right surface Cauchy–Green tensor is defined by C := F TF = aαβ Aα ⊗Aβ with invariants
+I1 = Aαβ aαβ and det C = J2. A more detailed description of thin shell kinematics and its
+variation can be found, e.g. in Sauer (2018).
+2.2
+Constitution
+2.2.1
+3D solids
+For heterogeneous hyperelastic solids, the constitutive law follows from the strain-energy density
+function
+˜W = ˜W( ˜C, ˜
+X) ,
+(5)
+1Or equivalently on the boundary of a solid body ∂B
+5
+from which the second Piola–Kirchoff and Cauchy stress tensors are obtained as
+˜S = 2∂˜W( ˜C, ˜
+X)
+∂˜C
+and
+˜σ = 2 ˜J−1 ˜F ∂˜W( ˜C, ˜
+X)
+∂˜C
+˜F T ,
+(6)
+respectively, where ˜F denotes the 3D deformation gradient, ˜C is the right Cauchy–Green tensor
+in 3D, ˜J = det ˜F . For 3D solids, this work employs an isotropic Neo-Hookean material model
+of the form
+˜W( ˜
+X, ˜I1, ˜J) = ˜µ( ˜
+X)
+2
+
+˜I1 −3 −2 ln ˜J
+
++
+˜Λ( ˜
+X)
+2
+(ln ˜J)2 ,
+(7)
+which, after using Eq. (6), yields
+˜σ =
+˜Λ( ˜
+X)
+˜J
+ln ˜JI + ˜µ( ˜
+X)
+˜J
+
+˜F ˜F T −I
+
+,
+(8)
+where I is the standard identity in 3D and ˜I1 is the first invariant of ˜C, i.e., ˜I1 = tr ˜C. The
+parameters, ˜Λ( ˜
+X) and ˜µ( ˜
+X) denote the spatially varying Lamé parameters in 3D elasticity.
+Remark 1: For 2D solid models, as considered in Sec. 4.3, the strain-energy density in (7) reduces to
+W(X, I1, J) = µ(X)
+2
+(I1 −2 −2 ln J) + Λ(X)
+2
+(ln J)2 ,
+(9)
+which leads to an analogous expression for the Cauchy stress tensor as in Eq. (8).
+2.2.2
+Shells directly derived in surface form
+Shell models can be derived using two different approaches: (1) the projection approach, in
+which the shell is treated as a 3D continuum and the stress resultants are usually evaluated
+via numerical integration through the thickness; (2) the direct surface approach adopted here,
+where the shell is defined with respect to its mid-surface, and the stresses and moments follow
+from the surface strain energy density function, see e.g. Roohbakhshan and Sauer (2017). For
+shells, the strain energy density can be split into membrane and bending contributions
+W(X, aαβ, bαβ) = Wm(X, aαβ) + Wb(X, aαβ, bαβ) ,
+(10)
+where Wb typically depends only marginally on aαβ. The stress and bending moment compo-
+nents are then
+τ αβ = 2 ∂W
+∂aαβ
+,
+(11)
+Mαβ
+0
+= ∂W
+∂bαβ
+.
+(12)
+Initially planar shells
+For initially planar shells, here, Wb is based on the Canham (1970)
+model
+Wb(X, J, H, κ) = c(X) J (2H2 −κ) ,
+(13)
+where c(X) denotes the Canham bending stiffness. Substitution of Eq. (13) into Eq. (12) gives
+Mαβ
+0
+= c(X) J bαβ .
+(14)
+The membrane part, here, Wm follows from the incompressible Neo-Hookean model
+Wm(X, ˜I1, ˜J) = T ˜WNH = µ(X)
+2
+(˜I1 −3) + p(1 −˜J) .
+(15)
+6
+where T is the initial shell thickness, ˜WNH is the 3D Neo-Hookean strain energy density, µ = T ˜µ,
+and p is the Lagrange multiplier enforcing the incompressibility constraint ˜g = 1 −˜J, which
+equals p = µ/J2 for plain strain (Sauer, 2016). Substituting Eq. (15) into Eq. (11) then yields2
+τ αβ = µ(X)
+
+Aαβ −aαβ
+J2
+
+.
+(16)
+The corresponding material tangents can be found in Sauer and Duong (2017).
+Initially curved shells
+Here, the Koiter shell model (Ciarlet, 2005; Steigmann, 2013) is
+considered
+W(X, aαβ, bαβ) = 1
+8 (aαβ −Aαβ) cαβγδ (aγδ −Aγδ) + T 2
+24 (bαβ −Bαβ) cαβγδ (bγδ −Bγδ) ,
+(17)
+where
+cαβγδ = Λ(X) Iαβγδ
+dil
++ 2 µ(X) Iαβγδ
+dev
+,
+Iαβγδ
+dil
+= Aαβ Aγδ
+Iαβγδ
+dev
+= 1
+2
+
+AαγAβδ + AαδAβγ
+,
+(18)
+which, upon substitution into Eq. (11) and (12) leads to
+τ αβ = 1
+2cαβγδ (aαβ −Aαβ) ,
+(19)
+and
+Mαβ
+0
+= T 2
+12 cαβγδ (bαβ −Bαβ) .
+(20)
+Remark 2: Λ and µ can be obtained by analytical integration of the 3D Saint Venant–Kirchhoff material
+model, resulting in
+µ = T ˜µ ,
+Λ = T 2 ˜Λ˜µ
+˜Λ + 2˜µ
+,
+(21)
+which are related to Young’s modulus E and Poisson ratio ν through
+˜µ =
+E
+2(ν + 1) ,
+˜Λ = 2 ˜µ ν
+1 −2ν .
+(22)
+2.3
+Contact formulation
+This work considers frictionless and adhesionless quasi-static contact.
+This simplification is
+justified because lubricants effectively eliminate dry friction in many medical procedures, such
+as ultrasonography. Furthermore, one of the contacting bodies is assumed to be rigid, which
+provides a suﬀicient preliminary model for a soft, deformable body (e.g., biological tissue)
+interacting with a much stiffer counterpart, such as a medical instrument. Normal contact is
+enforced through the impenetrability constraint
+gn ≤0 ,
+(23)
+where
+gn := (xs −xp) · np ,
+(24)
+2The contribution to τ αβ resulting from (13) is negligible for thin shells.
+7
+denotes the normal gap between a generic point3 xs on the contact surface of the deformable
+body ∂Bc1 (or Sc1 ⊂S for shells) and the rigid obstacle surface ∂Bc2. Here, np is the surface
+normal of ∂Bc2 at xp, and xp is the closest-point projection of xs ∈∂Bc1 onto ∂Bc2, obtained
+from the minimum distance problem
+xp(xs) =
+
+y :
+min
+∀y∈∂Bc2 ∥xs −y∥∀xs ∈∂Bc1
+
+.
+(25)
+This minimization problem may become significantly challenging for complex contact surface
+geometries (Wriggers, 2006). The impenetrability constraint (23) is enforced in the weak form
+(see Sec. 2.4) using the penalty method, which defines the normal contact traction as
+tc =
+−ϵngn nn ,
+gn < 0 ,
+0 ,
+gn ≥0 ,
+(26)
+where ϵn is the penalty parameter.
+2.4
+Weak form
+For quasi-static problems, the weak form (or principle of virtual work) reads
+Gint + Gc −Gext = 0
+∀δ˜x ∈V ,
+(27)
+where δ˜x ∈V is a kinematically admissible variation of ˜x (or δx ∈V for shells). Since only
+rigid contact is considered, the weak form of a two-body contact problem is reduced to a single
+deformable body. For a 3D solid, the internal virtual work is given by
+Gint =
+Z
+B
+˜σ : grad (δ˜x) dv ,
+(28)
+whereas, for Kirchhoff–Love (KL) thin shells, it takes the form
+Gint =
+Z
+S0
+1
+2δaαβ τ αβdA +
+Z
+S0
+δbαβ Mαβ
+0 dA ,
+(29)
+where δaαβ and δbαβ denote the variations of aαβ and bαβ, respectively, while ˜σ, τ αβ, and Mαβ
+0
+follows from the constitutive relations (8), (16), (19), (14), and (20). The contact contribution
+associated with the normal traction is written as
+Gc = −
+Z
+∂Bc1
+δx · tc da ,
+(30)
+where tc is defined in Eq. (26). The corresponding linearizations of the weak form, and the
+expressions for the external virtual work Gext, can be found in Holzapfel (2000) for solids and
+in Sauer and Duong (2017) for shells.
+2.5
+Finite element discretization
+2.5.1
+FE approximation
+The body B (or shell S) is discretized using the isogeometric analysis (IGA) framework proposed
+by Hughes et al. (2005). To recover the standard FEM structure for IGA shape function, the
+3Representing a surface quadrature point in the discrete setting.
+8
+Bézier extraction operator is used (Borden et al., 2011). Consequently, the geometry within an
+undeformed element Ωe
+0 and deformed element Ωe is approximated as
+X ≈Xh =
+ne
+X
+I=1
+NIXI = N Xe ,
+x ≈xh =
+ne
+X
+I=1
+NIxI = N xe ,
+(31)
+where Xe and xe are the positions of the control points of Ωe
+0 and Ωe, respectively. Further,
+N(ξ) := [N11, N21, . . . , Nne1] is the matrix of ne NURBS-based shape functions {NI(ξ)}ne
+I=1,
+and 1 is the d-dimensional identity. The displacement field within the element is approximated
+similarly,
+u ≈uh =
+ne
+X
+I=1
+NI uI = N ue ,
+(32)
+where ue = xe −Xe. Discretization of the weak form (27) then gives
+nel
+X
+e=1
+(Ge
+int + Ge
+c −Ge
+ext) = 0 ∀δx ∈Vh ,
+(33)
+where nel is the number of finite elements. The elemental contribution to the internal virtual
+work is written as
+Ge
+int = δxT
+e f e
+int .
+(34)
+For 3D solids, substituting Eq. (31) into Eq. (28) gives
+fe
+int =
+Z
+Ω
+BT
+e ˜σ dv ,
+(35)
+where BT
+e is the discrete strain-displacement matrix of an element in the current configura-
+tion (Wriggers, 2008). For KL shells, the internal force vector can be decomposed into mem-
+brane and bending parts
+f e
+int = f e
+intτ + f e
+intM .
+(36)
+Using Eqs. (31) and (29), these parts become
+f e
+intτ =
+Z
+Ωe
+0
+τ αβ NT
+,α aβ dA ,
+(37)
+and
+f e
+intM =
+Z
+Ωe
+0
+Mαβ
+0
+NT
+;αβ n dA ,
+(38)
+where N;αβ := N,αβ −Γγ
+αβN,γ. Here, N,γ and N,αβ denote the first and the second derivatives
+of N w.r.t. ξα, while Γγ
+αβ := aα,β · aγ are the Christoffel symbols. Discretization of the contact
+virtual work in Eq. (30) gives
+f e
+c = −
+Z
+∂Be
+c1
+NTtc da .
+(39)
+Remark 3: The impenetrability constraint (23) is incorporated into the FE weak form through the
+standard active set strategy. The active set A consists of all quadrature points on Bh
+c1 for which contact
+is detected.
+Since changes in A render the contact force vector fc non-differentiable, the objective
+function introduced in Sec. 3.1 becomes non-differentiable as well.
+Consequently, the weak form (33) reads
+δxT (fint + fc −fext) = 0 ∀δx ∈V ,
+(40)
+9
+where fint, fc, and fext are the global FE vectors assembled from their elemental contributions.
+The kinematically admissible set Vh contains all nodal variations satisfying the Dirichlet bound-
+ary conditions on ∂uBh (or ∂uSh for shells). Thus, for the remaining degrees-of-freedom (dofs),
+Eq. (40) implies
+f(u) = fint + fc −fext = 0 ,
+(41)
+which represents the discretized equilibrium equation. Its solution
+u =
+
+
+u1
+u2
+...
+unno
+
+,
+(42)
+is the global nodal displacement vector of size d nno × 1. The elemental external force vectors
+f e
+ext, together with the elemental stiffness matrices resulting from the linearization of Ge
+int, Ge
+c,
+and Ge
+ext can be found in Wriggers (2006) for solids and in Duong et al. (2017) and Sauer et al.
+(2014) for the considered shell models.
+2.5.2
+Discretization of the material parameters
+Each unknown field of material parameters is defined over the body B0 (or shell S0) as a scalar
+field q(ξ). Following Borzeszkowski et al. (2022), q(ξ) is approximated within a material element
+(ME), ¯Ω¯e, using ¯ne nodal values and corresponding interpolation functions ¯NI as
+q = q(ξ) ≈qh =
+¯ne
+X
+I=1
+¯NI(ξ)qI = ¯N¯e q¯e ,
+(43)
+where ¯N¯e := [ ¯N1, ¯N2, . . . , ¯N¯ne] and q¯e := [q1, q2, . . . , q¯ne]T collect the material shape functions
+and the nodal values, respectively. The material elements collectively form the material mesh,
+an example of which is shown in Fig. 1. Herein, the material mesh consists of 1-node constant
+or 4-node bilinear Lagrange elements, which eﬀiciently represent discontinuous and non-smooth
+fields.
+For higher-order material elements, a B-spline material mesh is recommended, since
+higher-order Lagrange interpolation may result in negative inter-nodal values. A comparison of
+Lagrange and B-spline material meshes in one dimension can be found in Łazorczyk and Sauer
+(2026). For simplicity, all material fields are discretized using a common material mesh, leading
+to the global design vector
+q =
+
+
+q1
+q2
+...
+q¯nno
+
+,
+(44)
+with nvar = ¯d ¯nno components, where ¯nno is the number of material nodes and ¯d is the number
+of unknown parameters per material node. Each nodal vector qI contains all parameters values
+(e.g., [ΛI, µI]T). An extension to multiple material meshes is straightforward. To incorporate
+the material mesh into the FE analysis, a mapping between the material and FE meshes is
+required. Both meshes are defined in the parameter domain P(ξα) using conforming rectangular
+elements, which satisfy the relation Ω□
+e ⊂¯Ω□
+¯e . Here, Ω□
+e and ¯Ω□
+¯e are the element domains in P
+for the FE mesh and material mesh, respectively. Further details on the mapping can be found
+in Borzeszkowski et al. (2022).
+10
+Figure 1: An example of a uniform material mesh consisting of four 4-node bilinear material elements
+¯Ω¯e for a two-dimensional body B0.
+3
+Inverse analysis
+This section formulates the material identification as a constrained nonlinear least-squares
+(NLSQ) problem, followed by an overview of the proposed CBIA framework.
+To avoid the
+computational cost of finite differences, the identification procedure is accelerated using analyt-
+ical derivatives of the objective function. For brevity, these are presented in Appendices A and
+B.
+3.1
+Objective function
+Following Borzeszkowski et al. (2022) and Łazorczyk and Sauer (2026), the considered FEMU
+inverse problem is formulated as a PDE-constrained minimization of the function
+min
+q f(u(q), q) ,
+(45)
+such that the FE equilibrium (41) and box constraints on the design vector components q are
+satisfied, i.e.,
+f(u(q), q) = 0 ,
+0 < qmin ≤qI ≤qmax .
+(46)
+The objective function f(q) quantifies the discrepancy between the experimental data and their
+numerical counterparts, with an optional regularization on q. It depends on the nvar = ¯d ¯nno
+nodal values of ¯d constitutive parameters q(ξα), discretized following Eq. (43). Here, f(q) takes
+the least-squares form
+f(q) =
+nlc
+X
+i=1
+"
+wU
+∥Uexp i −UFE i(q)∥2
+∥Uexp i∥2
++ wF
+∥Fexp i −FFE i(q)∥2
+∥Fexp i∥2
+#
++ α2∥L(q −c)∥2 ,
+(47)
+where nlc is the number of independent load cases and wU, wF are weights associated with the
+displacements and the contact force contributions, respectively. For each load case, the vector
+Uexp =
+
+
+uexp
+1
+uexp
+2...
+uexp
+nexp
+
+
+(48)
+11
+contains nexp experimental measurements uexp
+I
+, I = 1, 2, . . . , nexp, at location xexp
+I
+∈B (or
+xexp
+I
+∈S for shells) and
+UFE(q) =
+
+
+uh(xexp
+1
+, q)
+uh(xexp
+2
+, q)
+...
+uh(xexp
+nexp, q)
+
+
+(49)
+is a vector containing the corresponding FE displacements at xexp
+I
+, which follow from Eq. (32)
+as
+uh(xexp
+I
+, q) = N(xexp
+I
+) ue(q) .
+(50)
+To assign the same importance to all nlc experiments all terms in the residual part of f(q) are
+normalized w.r.t. the Euclidean norm of the corresponding experimental vector. The weights are
+selected heuristically in the examples presented in Sec. 4, and their optimization is beyond the
+scope of this paper. The last part of Eq. (47) corresponds to generalized Tikhonov regularization,
+where α is the regularization parameter, c is an approximation of the solution, and L is a
+penalty matrix4. The objective function includes the resultant of contact forces to ensure a
+determinable solution when pure Dirichlet boundary conditions are used, i.e., when the lack of
+force information allows one to identify q only up to an additive constant. This happens in
+Sec. 4.2 and 4.3, where the displacements of a rigid probe are prescribed5. Furthermore, all
+parts of Eq. (47) can be concatenated into a single vector, resulting in f(q) reduced to a scalar
+product of two vectors, as shown in Appendix A.
+3.2
+Overview of the inverse framework
+To minimize the objective function (47), the proposed inverse framework employs the lsqnon-
+lin solver from the MATLAB Optimization ToolboxTM, which uses the Trust-region reflective
+(TRR) approach (Coleman and Li, 1996). TRR is a gradient-based optimization method that
+iteratively constructs a local approximation of f(q) within a trust-region around the current
+iterate qk and computes its minimum (Conn et al., 2000). The algorithm terminates when the
+series f(qk) and qk converge, satisfying both
+∥qk −qk−1∥≤ϵ ,
+(51)
+|f(qk) −f(qk−1)| ≤ϵ (1 + |f(qk−1)|) ,
+(52)
+for a given small tolerance ϵ.
+Fig. 2 presents the flowchart of the proposed inverse framework. The inverse analysis starts
+with a given IGA mesh, material mesh, and experimental grid. Provided the experimental data
+and the constitutive law, the algorithm computes the optimal6 material parameters qopt for a
+selected initial guess q0 and hyperparameters wU, wF, and α. Thanks to the material iteration
+strategy, described in Sec. 3.3, the FE model iterates on load level λ only at the k = 0 iteration.
+For k ≥1, the model updates solely the material increment η, while successively saving the last
+equilibrated configuration. The initial guess q0 may come from a preliminary inverse analysis
+with a homogeneous material distribution (see Sec. 4.3). Here, this approach is referred to
+as homogeneous preconditioning. It provides a reasonable initial guess based on the averaged
+response of the FE model; thus, it may filter out a potential non-physical solution to the inverse
+4For example a 2D finite difference Laplace operator, or any other approximate differential operator.
+5The presence of the contact forces in f(q) may be alleviated by applying a known force to the probe instead
+of prescribing its displacements.
+6The inverse solution qopt is optimal with respect to the mathematical objective in Eq. (47).
+12
+Figure 2: Flowchart of the proposed identification algorithm: provided the experimental data, the
+constitutive law, and the initial guess q0, the algorithm determines the optimal solution qopt for a
+prescribed FE mesh, material mesh, and hyperparameters α, wU, wF
+.
+problem. Further, this strategy may serve as a basis for a future automatic adaptive material
+mesh scheme.
+Remark 4: A similar strategy, referred to as element partition, was used in Kroon and Holzapfel
+(2008) and succeeding papers. There, the inverse procedure refined the representation of the unknown
+material distributions a predefined number of times. For the numerical examples discussed in this work,
+precomputing the initial guess is suﬀicient, and no intermediate material mesh is needed.
+Analytically derived Jacobian of residuals, J, is transferred from the FE model to the opti-
+mization algorithm in an explicit matrix form, or as a function computing the Jacobian-vector
+product (see Appendix. A). Along with qopt, the algorithm returns J(qopt), enabling uncertainty
+quantification of q (Roux and Hild, 2020).
+Since the mechanical contact introduces physical and numerical discontinuities (Duong et al.,
+2019), the objective function becomes non-differentiable at any point corresponding to a change
+in the active set.
+This is illustrated in Sec. 4.1.
+However, the risk of landing at a non-
+differentiable point is very low in practice. Furthermore, for forward problems where the active
+set is not sensitive to the material parameters, such as indentation with a probe, this issue is
+marginalized. A potential remedy is to use a smooth contact formulation.
+The material mesh regularizes the inverse problem itself. Consequently, no additional regular-
+ization is required in most of the examples considered. Nevertheless, for dense material meshes
+or high noise levels, additional control over q becomes necessary7. The same holds when only
+partial experimental data are available. Furthermore, the initial estimate obtained from homo-
+geneous preconditioning may serve as an approximation c of the solution q, in which case the
+regularization penalizes deviations from the homogeneous initial guess.
+7Additional regularization may also be justified when prior information about the sought material distribution
+is available.
+13
+A risk of landing at a local minimum poses a significant threat to NLSQ problems, as they
+often have multiple solutions. To mitigate this, design variables are bounded, and the solution
+sensitivity to the initial guess is examined. In addition, the homogeneous preconditioning may
+reduce the risk of finding an undesired solution as discussed above. If multimodality of f(q) is
+confirmed, one may use a multistart approach. However, the preliminary studies conducted on
+the numerical examples in Sec. 4 indicate that they converge to the same solution for different
+initial guesses.
+3.3
+Material iteration strategy
+In a standard procedure for solving Eq. (41), the Newton–Raphson (NR) method is applied at
+each increment of the load parameter λ. Neglecting higher-order terms, the expansion of (41)
+at the ith NR iteration gives
+f(ui + ∆u, λ) = f(ui, λ) + K(ui, λ)∆u = 0 ,
+(53)
+where K denotes the tangent stiffness matrix, see, e.g., Wriggers (2008).
+From an alter-
+native perspective (Gokhale et al., 2008), the parameter λ may be replaced by η ∈[0, 1],
+which interpolates between the converged material state qk and the updated one qk+1, i.e.,
+q(η) = qk + η(qk+1 −qk). Analogous to Eq. (53), one obtains
+f(ui + ∆u, η) = f(ui, η) + K(ui, η)∆u = 0 ,
+(54)
+which preserves the same structure. The adopted computational strategy (see Fig. 2) is as
+follows: (1) at the initial optimization iteration the NR solver performs load incrementation on
+λ and stores the converges state; (2) for the following iterations, the solver loads the previous
+state with fixed λ, solves (41) for the material parameter η and stores the converged state.
+If necessary, the interval η ∈[0, 1] can be divided into multiple material steps. However, in
+most cases η = 1 is suﬀicient, in contrast to the typically more computationally demanding
+load incrementation. A limitation of the adopted approach is that it cannot be applied in the
+presence of path-dependent forces, such as friction.
+Moreover, as the number of load steps
+increases in the inverse analysis, the eﬀiciency advantage gradually diminishes. Nevertheless,
+for all the considered examples in Sec. 4, the adopted strategy achieves significant reduction in
+computational time.
+Note that using homogeneous preconditioning as described in Sec. 3.2 does not interrupt the
+material iteration strategy. The forward solver only needs to update the material mesh and
+recalculate the sensitivities (see Appendix B), while the last converged state at the end of
+homogeneous preconditioning can be passed to the target identification run with computed
+initial guess q0. Thus, the forward solver still needs to iterate on the load level λ only once.
+3.4
+Experimental grid and data generation
+Since NURBS do not interpolate the control points, a direct comparison between FE nodal
+quantities and experimental measurements is not possible. Therefore, the control-point dis-
+placements are projected onto the experimental grid according to Eqs. (50) and (79). Examples
+of the experimental grids employed in Sec. 4 are shown in Fig. 3.
+The quasi-experimental data used in Sec. 4 are generated synthetically using independent FE
+models. To avoid an obvious inverse crime (Kaipio and Somersalo, 2005), these models differ
+from those employed in the inversion.
+In this work, three main discrepancies between the
+forward and inverse solvers are introduced, representing sources of a systematic errors:
+14
+Figure 3: Illustration of experimental grids for the abdominal wall and block probing problems consid-
+ered in Secs. 4.2 and 4.3, respectively.
+• Finite element discretization error; The synthetic data are generated using a significantly
+finer IGA mesh than that used in the inversion. This constitutes the primary source of
+systematic error, particularly in contact problems exhibiting strong local deformations.
+• Penalty parameter induced error; The penalty method only approximates the exact contact
+conditions, allowing small penetrations. A higher value of penalty parameter ϵn is used
+for data generation to minimize penetration errors in the data.
+• Material element discretization error; The inverse procedure uses low-order Lagrange ap-
+proximations for the material fields, while the synthetic data are generated using analytical
+material distributions.
+In addition to these systematic errors, random noise is added to mimic measurement inaccu-
+racies. Since systematic and random errors are of fundamentally different nature, they should
+be treated separately. A description of these error sources is provided in Sec. 4, including FE
+mesh convergence studies and known material distributions. Other error sources occurring in
+practice are not considered here. Among them are:
+• Constitutive error; The same constitutive law is assumed in both data generation and
+inversion.
+• Kinematical simplification error; For shells, synthetic data should originate from 3D con-
+tinuum simulations; however, this is often impractical. As shown in Łazorczyk and Sauer
+(2026) for 1D structures, the additional error is small as long as the considered kinematical
+assumptions are valid.
+• Measurement error; Inaccuracies associated with optical measurements are here reduced
+to Gaussian noise.
+The investigation of these additional error sources is left for future work.
+4
+Numerical examples
+This section presents three numerical examples of increasing complexity, focusing on various
+aspects of the proposed CBIA framework. As the fundamental elements of the procedure have
+been presented in Borzeszkowski et al. (2022) and Łazorczyk and Sauer (2026), the discussion
+here is restricted to contact-related aspects. Firstly, a 1D cantilever shell strip deflecting onto
+a rigid foundation is examined in Sec. 4.1. In this simple inverse problem, the contact active
+set strongly depends on the material distribution; thus, it allows one to graphically study the
+effect of non-differentiability on the f(q) landscape. Secondly, Sec. 4.2 extends the abdominal
+wall example from Borzeszkowski et al. (2022) to contact-based synthetic experimental data.
+Finally, the reconstruction accuracy using only experimental surface data is investigated for a
+block made of rubber-like material in Sec. 4.3. While in the first example, only a single material
+15
+field is identified, in the other two, two coupled material fields are reconstructed. All FE models
+utilize quadratic NURBS elements. For the FE convergence study, the discrete L2-error of the
+displacements
+eu := ∥uexact −uFE∥
+∥uexact∥
+(55)
+is examined, where uexact is a reference FE solution for a highly refined mesh. In Eq. (55),
+both displacement vectors are evaluated on the example-specific experimental grid. In order to
+account for measurement inaccuracies, component-wise absolute noise is considered according
+to
+uexp
+Ii
+= uexact i(xexp
+I
+) + unoise i(xexp
+I
+) ,
+unoise i ∈N(0, γ2
+Ii) ,
+(56)
+where i = 1, 2, 3 are the Cartesian components, uexact i is the reference solution, and N(0, γ2
+Ii)
+is a normal distribution with zero mean and standard derivation γIi, later simply referred to as
+noise. Resultant contact forces are always considered noise-free. All cases with random noise
+are repeated to obtain statistical estimates. The resulting errors in the following tables are
+presented as mean values with standard deviations in the form mean ± std. The results in the
+subsequent examples report three indicators of the identification error: (1) the nodal relative
+error δI, given by
+δI :=
+
+qI,ref −qI,opt
+qI,ref
+ ,
+I = 1, . . . , nvar ,
+(57)
+where qI,ref are the reference values of the material parameters and qI,opt are the components
+of qopt; (2) maximum nodal error δmax := max(δI); and L2-error, defined, e.g., for the Canham
+bending stiffness by
+δL2 := ∥copt −cref∥L2
+∥cref∥L2
+,
+∥c∥L2 :=
+sZ
+S0
+|c(X)|2 dA ,
+(58)
+where c(X) follows from Eq. (43). The integration is computed element-wise and then summed.
+For the remaining material properties, δL2 follows accordingly.
+All examples utilize the material iteration approach, as presented in Sec. 3.2. The size of the
+examined inverse problems varies from nvar = 2 material unknowns in Sec. 4.1 to nvar = 6498
+in Fig. 14 of Sec. 4.2. For inverse problems with more than 400 unknowns (Fig. 14 and entire
+Sec. 4.3), it is more eﬀicient to supply the TRR optimization algorithm with the Jacobian-vector
+product (see Appendix A.2) instead of the full Jacobian. The stopping criteria tolerance in (51)
+and (52) is ϵ = 10−6. A smaller ϵ usually does not improve the identification. The number of
+load levels nll always matches nlc in (47).
+4.1
+Bending of a shell strip with contact constraint
+The first example aims at presenting a low-dimensional inverse problem, which can be easily
+visualized, yet provides interesting insights into the identification problem. The example consists
+of an undeformed straight shell strip with length Lx = 10L, width Ly = 1L, and surface
+density ρ = 10−5 m/L2, see Fig. 4a. The strip is clamped on the left side, while its deflection is
+constrained by a rigid, frictionless foundation at Z = −1L. To accurately capture tip contact at
+the right end, separate line contact elements are used in addition to the surface contact elements.
+Fig. 4b presents the deformation of the strip under a dead load. The boundary conditions are
+chosen such that the contact active set strongly depends on the material distribution; thus
+allowing one to study the performance of the inverse framework for non-differentiable problems.
+16
+a.
+c.
+b.
+d.
+[L−1]
+Figure 4: Bending of a shell strip: a. undeformed configuration with boundary conditions; b. the strip
+deformed by a uniform dead load, colored by curvature κ11, ranging from −0.137/L to 0.066/L (to avoid
+visible penetration, the strip is shifted by 0.01L upward); c. material mesh with the reference distribution
+of the bending stiffness c; d. FE convergence of the discrete L2-error w.r.t. the FE solution for 40960
+elements.
+The membrane response of the shell follows the incompressible Neo-Hookean model (15) with
+constant µ = 1FL. Here, F, L, and m are normalization constants and need not be speci-
+fied. The bending response is described by the Canham model (13) with the bending stiffness
+distribution
+cref(X) =
+
+c0
+for
+X ∈[0, 5L] ,
+0.5c0
+for
+X ∈(5L, 10L] , ,
+(59)
+where c0 = 10−3 FL, see Fig. 4c. For the basic material mesh, two constant ME are selected
+as Fig. 4c depicts. During the inverse analysis, only c(X) is identified, while µ(X) is assumed
+to be known. Since the strip primarily bends, the influence of µ is marginal. Note that the
+material mesh matches the reference distribution perfectly, which is an example of an inverse
+crime. However, for the sake of this simple example, it is acceptable. The box constraints for
+cI are cmin = 0.01c0 and cmax = 10c0. For the cases without noise, the constant initial guess is
+5.005c0. Otherwise, it is picked randomly from within the bounds.
+A convergence study in Fig. 4d is performed to select a FE mesh for the quasi-experimental
+data generation. Following this study, the synthetic experimental data is generated using a
+mesh with 160×16 FE. For simplicity, the same ϵn = 10−1 F/L is used for both data generation
+and identification. All cases use the same uniform experimental grid with 101 and 11 points in
+X and Y - directions, respectively. Note that noise is applied along all directions in 3D.
+The first five cases in Tab. 1 study the effect of FE mesh density on the identification results.
+In the absence of noise, the forward and inverse solvers differ only in the FE mesh.
+The
+identification errors decrease monotonically, reaching values around 0.01% in Case 1.5, where
+both solvers are identical. These remaining values are likely due to numerical errors. Fig. 5
+17
+Case
+FE
+mat.
+exp.
+load
+noise
+δmax
+δL2
+nel
+¯nel
+nexp/nll
+nll
+[L]
+[%]
+[%]
+1.1
+10 × 1
+2 × 1
+101 × 11
+1
+0
+19.26
+17.23
+1.2
+20 × 2
+2 × 1
+101 × 11
+1
+0
+2.29
+2.05
+1.3
+40 × 4
+2 × 1
+101 × 11
+1
+0
+0.39
+0.35
+1.4
+80 × 8
+2 × 1
+101 × 11
+1
+0
+0.069
+0.063
+1.5
+160 × 16
+2 × 1
+101 × 11
+1
+0
+0.012
+0.0056
+1.6
+20 × 2
+4 × 1
+101 × 11
+3
+0
+2.96
+1.88
+1.7
+20 × 2
+10 × 1
+101 × 11
+3
+0
+15.56
+3.86
+1.8
+20 × 2
+20 × 1
+101 × 11
+3
+0
+42.86
+6.78
+1.9
+20 × 2
+2 × 1
+101 × 11
+3
+0.01
+1.53 ± 0.41
+1.23 ± 0.18
+1.10
+20 × 2
+2 × 1
+101 × 11
+3
+0.02
+1.89 ± 0.86
+1.40 ± 0.40
+1.11
+20 × 2
+2 × 1
+101 × 11
+3
+0.04
+2.83 ± 1.77
+1.80 ± 0.80
+Table 1: Bending of a shell strip: Cases of bending stiffness identification with their FE and material
+meshes, experimental grid density, no. of load levels, std. of noise, and identification errors δmax and δL2.
+shows the landscape of f(q) for Case 1.2. The non-differentiability of f(q) due to contact is
+clearly visible. This can also be seen from the mean curvature graphs in Fig. 6. Each curve
+in Fig. 6 represents a fold in the f(q) landscape; hence, a change in the active contact set.
+These folds can be divided into two categories: physical and artificial. The latter may occur
+due to discretization and contact formulation, while the former are independent of them (Duong
+et al., 2019). An example of the former is the onset of the tip contact, corresponding to the
+most prominent quarter-round fold in Fig. 5a. Examples of the latter are the smaller folds
+corresponding to individual quadrature points entering the active set, shown in Fig. 5b and
+Fig. 6b.
+Alternative contact strategies, such as the popular mortar method, may partially
+alleviate the issue of artificial folds but do not eliminate it. Nevertheless, the objective function
+seems to have a unique minimum in the examined range of parameters.
+a.
+b.
+Figure 5: Bending of a shell strip: a. graph of f(q) for Case 1.2 in Tab. 1 over the range [0.001, 30] ×
+[0.001, 10]; b. zoom of the same graph over the range [0.4, 2] × [0.001, 1]. The optimal solution qopt and
+reference values are highlighted on the right surface.
+Cases 1.2 and 1.6–1.8 in Tab. 1 study the refinement of the material mesh in X- direction using
+a fixed FE mesh. Using only a single load case with 100% of the load (see Fig. 4b) would
+inevitably lead to an indeterminacy of the material unknowns at the right end of the strip.
+To avoid this, the subsequent cases in Tab. 1 use three (nll = 3) load cases with 10%, 50%,
+18
+a.
+b.
+Figure 6: Bending of a shell strip: mean curvature maps for ranges [0.001, 30] × [0.001, 10] (a.) and
+[0.4, 2]×[0.001, 1] (b.), corresponding to the f(q) landscapes from Fig. 5. The mean curvature is computed
+based on the finite difference derivatives of the f(q). The red cross in b. indicates the optimal solution.
+a.
+b.
+Figure 7: Bending of a shell strip: a. identified nodal values of the bending stiffness c for Case 1.8 in
+Tab. 1; b. average value and std. of the nodal identification error of Case 1.11 in Tab. 1.
+a.
+b.
+Figure 8: Bending of a shell strip: Histograms of the identified bending stiffness c1 (a.) and c2 (b.) for
+Cases 1.9–1.11 in Tab. 1. Each histogram is based on 1000 separate identification runs.
+19
+and 100% of the original load level, where 10% corresponds to contact initialization at the tip.
+As expected, the identification errors are consistently increasing with more ME. Refining the
+optimal [2 × 1] material mesh increases the flexibility of the spatial material representation,
+allowing it to compensate for discrepancies between the forward and inverse solvers. Fig. 7a
+shows that the identification error is particularly large at the right strip end. This is expected,
+since the material distribution at the tip affects the displacement only locally.
+The last three examples in Tab. 1 investigate the effect of noise on the identification results,
+with γIi in Eq. (56) varying from 0.01L to 0.04L. The identification errors and their standard
+deviations increase consistently with the noise level.
+Fig. 7b shows that c2 dominates the
+identification error.
+As shown in Fig. 5, the deflection of the strip is less sensitive to c2,
+which agrees with intuition. The histograms in Fig. 8 and Tab. 1 reveal that increasing noise
+significantly affects the statistical dispersion of the identified values, while the mean values are
+affected less. The histograms exhibit an approximately normal distribution.
+In all cases with 2 × 1 material mesh, the inverse solution is found in 7–8 iterations, while for
+denser material meshes it increases up to a maximum of 43 iterations.
+4.2
+Abdominal wall
+a.
+c.
+b.
+d.
+Figure 9: Abdominal wall: a. Undeformed configuration with an exemplary position of the contact
+probe; b. Top view of the indentation layout.
+The rigid probe indents the abdominal wall at nine
+positions, enumerated from a to i; c. Deformed geometry of the abdominal wall under uniform pressure
+pintra = 1.6 kPa, without any contact. Colors represent the surface stretch J; d. FE convergence of the
+discrete L2-error w.r.t. the FE solution for 28224 elements. The nine red dashed lines correspond to the
+nine indentation cases.
+The second example features the identification of Young’s modulus and thickness distributions
+E(X) and T(X) in a shell model of the human abdominal wall, shown in Fig. 9a. The model
+20
+of Lubowiecka et al. (2018) represents a real abdominal wall geometry, acquired using the mea-
+surement methodology of Szymczak et al. (2012), and discretized with a single-patch NURBS
+following Borzeszkowski et al. (2021). The shell is pinned along its entire boundary and loaded
+through frictionless contact with a rigid probe of radius 2 cm. Additionally, to approximate
+physiological conditions, the volume below the abdominal wall is constrained using the La-
+grange multiplier method, with the uniform pressure pintra acting beneath the shell chosen as
+the Lagrange multiplier. Consequently, the model behaves like a water-filled balloon8. In the
+initial contactless configuration, pintra = 0. Details of the volume constraint are given in Sauer
+et al. (2014). The active work of muscles is not considered here.
+This study extends the numerical example presented in Borzeszkowski et al. (2022), referred
+here to as Pressure-based Inverse Analysis (PBIA), where a nearly identical model was subjected
+to uniform pressure (see Fig. 9c).
+That example was shown to have potential for material
+reconstruction. However, the pressurization of the abdominal wall requires invasive medical
+treatment, unlike the simple contact probing proposed here, which is noninvasive and does not
+require intra-abdominal pressure measurements. The model geometry used in Borzeszkowski
+et al. (2022) is modified to avoid high identification errors in corners9. Hence, the PBIA is
+repeated here, now featuring absolute noise. The new results are summarized in Tab. 2.
+a.
+b.
+c.
+d.
+e.
+f.
+g.
+h.
+i.
+Figure 10: Abdominal wall: Deformed geometry under the nine contact indentation cases corresponding
+to Fig. 9c. For cases b, e, and h, the probe is pushed 5 cm into the abdominal wall, whereas in the
+remaining cases it is pushed 4 cm. Colors represent the surface stretch J.
+Fig. 9b shows the nine chosen contact probe positions in the abdominal top view. The associated
+nine deformed configurations are presented in Fig. 10. For Cases b, e, and h, four load steps
+8Neglecting the hydrostatic water pressure.
+9The modifications include extending the model corners to obtain approximately right angles there.
+21
+are generated, corresponding to 2 cm, 3 cm, 4 cm, and 5 cm of indentation. The remaining cases
+involve three load steps with 2 cm, 3 cm, and 4 cm of indentation. The synthetic experimental
+data is generated using a model with 168×168 FE. A convergence study is conducted in Fig. 9d
+to ensure comparable FE error levels for both PBIA and CBIA. Consequently, PBIA and CBIA
+employ 28 × 28 and 56 × 56 FE meshes, respectively. Note that the pressure and contact load
+cases exhibit similar convergence rates, but the contact load cases show higher initial FE error.
+The experimental data generation uses the contact penalty parameter ϵn = 104 F/L, while
+for the inverse analysis ϵn = 103 F/L. To mimic optical surface measurements, regions of the
+abdominal wall that are in contact with the probe are excluded from the data, as shown, for
+example, in Fig. 12d.
+The given material distributions, shown in Fig. 11, are defined on the parametric domain ξ and
+mapped onto the surface S0. For the constitution, the Koiter shell model (17) is selected. The
+shell is assumed to be incompressible; thus, ν = 0.5, and the Poisson ratio is not identified.
+For shell formulations directly derived on the mid-surface, ν = 0.5 does not introduce any
+numerical diﬀiculties. The reference distribution of Young’s modulus is constant along ξ2 7→Y
+and changes along ξ1 7→X according to
+Eref(ξ1) =
+
+
+
+
+
+
+
+
+
+
+
+E1
+for
+ξ1 ≤1
+7 ∨ξ1 ≥6
+7 ,
+E1 + 1
+2(E2 −E1) · (7ξ1 −1)
+for
+1
+7 < ξ1 < 3
+7 ,
+E2
+for
+3
+7 ≤ξ1 ≤4
+7 ,
+E2 −1
+2(E2 −E1) · (7ξ1 −4)
+for
+4
+7 < ξ1 < 6
+7 ,
+ξ1 ∈[0, 1],
+(60)
+while the thickness distribution is constant along ξ1 7→X and varies along ξ2 7→Y as
+Tref(ξ2) = T2 −(T2 −T1)(2 ξ2 −1)2 ,
+ξ2 ∈[0, 1],
+(61)
+where E1 = 20 kPa, E2 = 40 kPa, T1 = 1 cm, and T2 = 1.5 cm, see Fig. 11a. The majority
+of the following cases use a 7 × 7 material mesh (see Fig. 11b) consisting of bilinear Lagrange
+elements, resulting in nvar = 128 discrete unknowns. Note that the material mesh is defined in
+ξ domain, meaning that the corresponding physical material elements are non-rectangular.
+a.
+b.
+Figure 11: Abdominal wall: a. reference distributions for Young’s modulus E and thickness T; b. ma-
+terial mesh. Adapted from (Borzeszkowski et al., 2022).
+The rigid probe, whose displacement is prescribed, induces contact pressure on the abdominal
+wall. As discussed in Sec. 3, the use of full Dirichlet boundary conditions requires the force data
+to be supplied in an alternative manner. Accordingly, the resultant contact force acting on the
+probe enters into the objective function. Its components are chosen to be unaffected by noise.
+22
+The selected weights in Eq. (47) are wu = 1 and wc = 0.001.
+Additional regularization is
+omitted. All cases utilize the same 167 × 167 uniform experimental grid. The box constraints
+on the material parameters are EI ∈[10 kPa, 50 kPa] and TI ∈[0.5 cm, 2.0 cm], and the constant
+initial guess E0 = 30 kPa, T0 = 1.25 cm is used for the cases without noise. Otherwise, it is
+picked randomly within the box constraints.
+Case
+FE
+mat.
+exp.
+load
+noise
+q(X)
+δmax/∆δmax
+δL2/∆δL2
+nel
+¯nel
+nexp/nll
+nll
+[L]
+[%]
+[%]
+2.p1
+28 × 28
+7 × 7
+1672
+4
+0
+E
+6.10
+1.67
+T
+6.22
+1.54
+2.p2
+28 × 28
+7 × 7
+1672
+4
+0.02
+E
++ 5.46 ± 3.14
++ 0.48 ± 0.26
+T
++ 3.62 ± 2.29
++ 0.37 ± 0.19
+2.p3
+28 × 28
+7 × 7
+1672
+4
+0.04
+E
++ 15.15 ± 6.21
++ 1.57 ± 0.41
+T
++ 11.48 ± 4.80
++ 1.24 ± 0.33
+2.p4
+28 × 28
+7 × 7
+1672
+4
+0.08
+E
++ 32.91 ± 11.02
++ 4.15 ± 0.83
+T
++ 25.85 ± 7.90
++ 3.26 ± 0.56
+Table 2: Abdominal wall: Results of identifying E(ξ1, ξ2) and T(ξ1, ξ2) from PBIA, including: FE and
+material meshes, experimental grid resolution, no. of load levels, std. of noise, and identification errors.
+For Case 2.p1, the total identification errors δmax and δL2 are reported, while the cases with noise show
+only the corresponding identification error increases ∆δmax and ∆δL2 w.r.t. Case 2.p1. All cases utilize
+the material mesh from Fig. 11b and four load cases corresponding to 25%, 50%, 75%, and 100% of pintra
+shown in Fig. 9c. Cases 2.p2–2.p4 are repeated 99 times for statistical analysis.
+Tab. 3 presents the identification results of all nine CBIA cases performed separately, denoted
+as Cases 2.1a–i, without noise. A comparison of Tabs. 2 and 3 shows that PBIA and CBIA
+yield comparable identification L2-errors δL2. This is achieved by selecting a finer FE mesh for
+CBIA, as motivated by the FE convergence study in Fig. 9d and discussed above. Nevertheless,
+the maximum identification errors, δE
+max, obtained with CBIA are up to three times larger than
+those with PBIA, whereas for δT
+max, both increases and decreases are observed. The last column
+of Tab. 3 contains the results for all indentation cases simultaneously supplied to f(q), referred
+to as Case 2.1all. This increases the number of load steps available from 4 (or 3) to 30. While
+δmax is almost always reduced for both E and T, δL2 is a coarse average of the values for Cases
+2.1a–i, particularly for E. For further analysis, Cases 2.1e and 2.1all are studied in more detail.
+Nevertheless, similar conclusions can be drawn from analyzing the remaining cases separately.
+Case from Fig. 9c
+Identification
+q(X)
+a
+b
+c
+d
+e
+f
+g
+h
+i
+all
+error [%]
+δmax
+E
+13.10
+9.56
+19.76
+9.51
+16.79
+10.26
+7.54
+7.36
+17.72
+6.63
+T
+12.82
+9.02
+7.88
+8.50
+7.14
+5.46
+8.39
+3.55
+6.37
+4.70
+δL2
+E
+1.36
+1.88
+1.87
+1.01
+2.20
+1.23
+0.81
+0.66
+1.29
+1.31
+T
+1.27
+1.08
+1.15
+1.11
+0.95
+0.92
+0.74
+0.42
+0.83
+0.76
+Table 3: Abdominal wall: Results of identifying E(ξ1, ξ2) and T(ξ1, ξ2) from CBIA without noise. All
+cases utilize 56 × 56 FE mesh, 7 × 7 material mesh, and 167 × 167 experimental grid. For all cases, the
+optimal solution is found in 12–15 iterations.
+Figs. 12a, c, and e compare the nodal identification errors δI for PBIA (Case 2.p1), single
+contact load case (Case 2.1e), and a set of contact load cases (Case 2.1all).
+As seen, δmax
+23
+a.
+b.
+c.
+d.
+e.
+f.
+Figure 12: Abdominal wall: A comparison of the identification results for Case 2.p1 (a. and b.), Case
+2.1e (c. and d.), and Case 2.1all (e. and f.): a., c., and e.,
+show the nodal identification errors for E
+and T; b., d., and f., show maps of the objective function residuals. The plotted residuals are root mean
+square (RMS) values of ¯UR from all load cases mapped on the experimental grid. The characteristic
+holes visible in d. and f. correspond to the contact zones excluded from the experimental data. Note
+that the vertical axes have different scales across the bar plots.
+24
+dominates in the case of CBIA. Fig. 12c shows that the high δmax values reported in Tab. 3
+for Case 2.1e are caused by error peaks at the corners and edges of the material mesh. For
+Case 2.p1, the distribution of δI is more regular. Corresponding residual maps are presented in
+Figs. 12b, d, and f. The residual maps for Case 2.p1 reveal patterns corresponding to FE and
+ME meshes, and their values are generally smaller than those of CBIA. For both CBIA cases,
+the residuals are higher near the contact areas, illustrating the concentration of FE errors there.
+a.
+b.
+Figure 13: Abdominal wall: Results of CBIA for the probe in position e from Fig. 9b. The convergence
+of the nodal identification error δI for Young’s modulus (a.) and thickness (b.) with a uniform FE mesh
+refinement. The cases shown here extend Case 2.1e from Tab. 3, but do not appear explicitly there.
+Note that the vertical axes have different scales across the bar plots.
+a.
+b.
+Figure 14: Abdominal wall: Results of CBIA for the probe in position e from Fig. 9b. The evolution
+of the nodal identification error δI for Young’s modulus (a.) and thickness (b.) with a uniform material
+mesh refinement. The cases shown here extend Case 2.1e from Tab. 3, but do not appear explicitly there.
+All cases employ 56 × 56 FE mesh. Note that the vertical axes have different scales across the bar plots.
+The convergence of the inverse solution for Case 2.1e w.r.t. the FE mesh refinement is shown
+25
+in Fig. 13. The maximum nodal identification errors tend to occur at the edges of the material
+mesh or in the contact area. The results for the last two FE meshes do not differ much. As
+the FE mesh approaches the one used for data generation (168 × 168 FE), the last two cases
+illustrate the combined effects of material approximation and ϵn. In turn, Fig. 14 shows how
+the inverse solution of Case 2.1e evolves with a refinement of the material mesh. As expected,
+the identification error increases with the addition of more material nodes, as the model can
+better fit the inaccurate experimental data (affected only by the systematic error), resulting in
+larger errors at the edges and in contact areas.
+The observations above raise a question: what measures can be taken to improve CBIA for noise-
+free data? First, CBIA requires a finer FE mesh than PBIA to achieve comparable accuracy.
+Since contact induces local deformation, higher FE errors are expected, especially when CBIA
+employs a uniform FE mesh.
+Therefore, an adaptive, nonuniform FE mesh would improve
+CBIA results with minimal computational overhead. Analogously, CBIA is more susceptible to
+material approximation errors, as the results for 168 × 168 FE mesh in Fig. 13 show. Thus,
+a finer ME mesh is also justified. Note that using the same ϵn for both inversion and data
+generation does not improve the results significantly in this case.
+Case
+FE
+mat.
+exp.
+load
+noise
+q(X)
+∆δmax
+∆δL2
+nel
+¯nel
+nexp/nll
+nll
+[L]
+[%]
+[%]
+2.2all
+56 × 56
+7 × 7
+1672
+30
+0.02
+E
+4.62 ± 3.67
+0.17 ± 0.20
+T
+1.28 ± 1.93
+0.077 ± 0.074
+2.3all
+56 × 56
+7 × 7
+1672
+30
+0.04
+E
+11.19 ± 6.78
+0.59 ± 0.35
+T
+4.53 ± 2.65
+0.29 ± 0.14
+2.4all
+56 × 56
+7 × 7
+1672
+30
+0.08
+E
+25.75 ± 12.87
+1.57 ± 0.36
+T
+11.84 ± 4.63
+0.79 ± 0.19
+Table 4: Abdominal wall: Results of identifying E(ξ1, ξ2) and T(ξ1, ξ2) from all contact load cases
+shown in Fig. 9c and simultaneously provided to f(q). The last two columns show the increases in the
+identification errors, ∆δmax and ∆δL2, w.r.t. Case 2.1all due to noise in the synthetic experimental data.
+For all cases, the optimal solution is found in 13–29 iterations (average 15.7).
+a.
+b.
+Figure 15: Abdominal wall: Distributions of the average increase in the nodal identification error,
+∆δave
+I
+, w.r.t. Case 2.1all, for Young’s modulus (a.) and thickness (b.) in Case 2.4all from Tab. 4. The
+corresponding standard deviations of the increases, δstd
+I
+, show a similar distribution, with pronounced
+errors at the edges and corners. Note that the vertical axes have different scales across the bar plots.
+To assess the effect of random noise on the identification, Case 2.1all is repeated 99 times for
+each of the three noise levels considered for PBIA in Tab. 2. The results are summarized in
+26
+Tab. 4. Owing to an over sevenfold increase in the amount of experimental data, CBIA exhibits
+remarkably smaller increases in δL2. A reduction in ∆δmax is also observed for CBIA; however,
+the maximum identification errors remain high. Further, for CBIA, the shell thickness T is
+less affected by noise than the Young’s modulus E. A similar, but much weaker, effect can
+be observed for the results of PBIA in Tab. 2. Fig. 15 presents the averaged increases in the
+nodal identification error w.r.t. Case 2.1all for Case 2.4all. The largest errors tend to occur
+at the edges and corners, where the sensitivity of the FE solution to q is particularly low.
+Conversely, the smallest errors occur, on average, in the contact areas and the central zone.
+Similar observations can be made for Cases 2.1a–i with added noise. These results are not
+shown here.
+4.3
+Block probing
+The last example considers a 3D block in plane strain as shown in Fig. 16a. The block has
+width Lx = 2L and height Lz = L, and is made of compressible Neo-Hookean solid according
+to Eq. (8), with Λ and µ as material parameters. Consequently, the example couples stretching
+a.
+b.
+Figure 16: Block probing: a. The undeformed configuration with boundary conditions and an exemplary
+position of the contact probe; b. FE convergence of the discrete L2 error for the load cases shown in
+Figs. 18 and 19 w.r.t. the FE solution for 8192 elements. The seven red dashed lines correspond to seven
+indentation cases.
+and shearing deformations. The reference µ(X, Y ) is given by
+µref(X, Y ) =
+
+
+
+
+
+µ0
+for
+R ≥R0 ,
+µ0 + ∆µ1
+2
+
+1 + cos
+
+π R
+R0
+
+for
+R ≤R0 ,
+(62)
+where R2 = (X −1.2L)2 + (Z −0.4L)2, and R0 = 0.3L. The reference Λ(X, Y ) follows analo-
+gously. Two values of ∆µ1 and ∆Λ1 are considered: ∆µ1 = µ0 and ∆µ1 = −0.8µ0 (respectively
+∆Λ1 = Λ0 and ∆Λ1 = −0.8Λ0), which correspond to hard and soft inclusions in the material.
+Both are illustrated in Fig. 17 together with the selected material mesh. Quantities L, µ0, and
+Λ0 are used for normalization and do not need to be specified.
+Displacements of the block are fixed on the bottom (Z = 0), and periodic boundary conditions
+are imposed on the sides, so that ui(X = 2L) = ui(X = 0).
+The periodic boundary conditions
+are used to reduce insensitivity of the FE model to material parameters on the sides for dense
+material meshes. A rigid probe of radius 0.25L is pushed into the top of the block at seven
+different positions up to an indentation of 0.25L. The displacements are recorded every 0.05L
+27
+a.
+b.
+Figure 17: Block probing: Reference distributions of µ in the case of hard (a.) and soft (b.) inclusions
+overlayed with a 20 × 10 uniform bilinear material mesh. Distributions of Λ follows analogically.
+of indentation, giving five load levels per load case. Figs. 18 and 19 show the deformation maps
+for all considered load cases at an indentation depth of 0.25L, for hard and soft inclusions,
+respectively.
+The synthetic experimental data is generated using a 128 × 64 FE mesh. Based on the separate
+convergence study in Fig. 16b, the inverse analysis employs a 40 × 20 FE mesh. The contact
+penalty parameter depends on the number of finite elements as ϵn = 12.5F/L × nel.
+All
+identification cases simultaneously utilize experimental data from the seven probe locations,
+giving 7×5 = 35 load levels. Since the considered FE problem is purely Dirichlet, the resultant
+contact forces are included in f(q) to ensure a determinable inverse solution. After preliminary
+studies, the weights in (47) are selected as wu = 1 and wc = 0.1. The parameter’s box constraints
+are [0.01Λ0, 10Λ0] and [0.01µ0, 10µ0]. The use of regularization is described separately for the
+two subsequent cases. The homogeneous preconditioning strategy from Sec. 3.2 is always used,
+with initial homogenous guess picked randomly between the parameter’s box constraints.
+4.3.1
+Full-field experimental data
+As a first step, the performance of the proposed inverse framework is evaluated with full-field
+data.
+All cases below utilize the same uniform experimental grid with 201 and 101 points
+in X- and Z- directions, respectively. Unlike in Sec. 4.2, the contact zone is included in the
+experimental data. No additional regularization is used.
+Tab. 5 summarizes four identification cases with noise level ranging from 0 to 0.002L. Each
+case presents the identification errors for the hard and soft inclusions. The results indicate that
+both inclusion types are reconstructed with comparable accuracy across all cases. Fig. 20 shows
+the identified nodal values for Case 3.1 in the absence of noise. Overall, the reconstruction is
+highly accurate, except at the contact region located in the upper part of the model (Z = 1L).
+As a uniform FE mesh is employed, the FE-based discrepancy between the forward and inverse
+solvers is concentrated primarily near the contact surface. Refining the FE mesh of the inverse
+solver in the contact zones would eliminate this inaccuracy.
+Fig. 21 presents the identification results for two representative samples from Case 3.4. Despite
+the high noise level, the hard and soft inclusions in µ(X, Y ) are accurately captured. In contrast,
+for Λ(X, Y ), the inverse solution oscillates, and the inclusions become hardly visible, especially
+the hard inclusion. Regardless of the case and the noise level, the largest identification errors
+occur on the boundary of the material mesh.
+28
+a.
+b.
+c.
+d.
+e.
+f.
+g.
+Figure 18: Block probing: Deformed geometry of the block with a hard inclusion for seven load cases
+corresponding to the probe positions: a. X = 0.25L, b. X = 0.50L, c. X = 0.75L, d. X = 1.00L,
+e. X = 1.25L, f. X = 1.50L, and g. X = 1.75L. Colors represent the local volume change ˜J.
+a.
+b.
+c.
+d.
+e.
+f.
+g.
+Figure 19: Block probing: Deformed geometry of the block with a soft inclusion for seven load cases
+corresponding to the probe positions: a. X = 0.25L, b. X = 0.50L, c. X = 0.75L, d. X = 1.00L,
+e. X = 1.25L, f. X = 1.50L, and g. X = 1.75L. Colors represent the local volume change ˜J.
+29
+a.
+c.
+b.
+d.
+Figure 20:
+Block probing, Case 3.1: distributions of identified nodal values of Λ and µ for hard
+(a. and b.) and soft (c. and d.) inclusions. The top surface, where contact occurs, (Z = 1L) corresponds
+to I2 = 11.
+c.
+d.
+a.
+b.
+Figure 21: Block probing: a. and b. exemplary sample from Case 3.4 with hard inclusion: distributions
+of identified nodal values of Λ (a.)
+and µ (b.).
+The top surface, where contact occurs, (Z = 1L)
+corresponds to I2 = 11.
+30
+Case
+noise
+q(X)
+δmax/∆δmax [%]
+δL2/∆δL2 [%]
+[L]
+hard
+soft
+hard
+soft
+3.1
+0
+Λ
+66.54
+57.31
+2.97
+3.36
+µ
+14.02
+31.08
+1.42
+1.81
+3.2
+0.0005
+Λ
++ 8.48 ± 22.89
++ 0.62 ± 11.30
++ 1.12 ± 0.36
++ 0.90 ± 0.24
+µ
++ 2.76 ± 5.56
++ 1.50 ± 2.75
++ 0.29 ± 0.33
++ 0.22 ± 0.065
+3.3
+0.001
+Λ
++ 30.66 ± 33.64
++ 13.87 ± 17.75
++ 3.24 ± 0.42
++ 2.93 ± 0.37
+µ
++ 11.48 ± 8.38
++ 5.33 ± 6.00
++ 0.86 ± 0.13
++ 0.77 ± 0.16
+3.4
+0.002
+Λ
++ 61.88 ± 44.72
++ 50.43 ± 26.66
++ 7.59 ± 0.74
++ 7.20 ± 0.62
+µ
++ 32.92 ± 15.17
++ 18.79 ± 11.63
++ 2.26 ± 0.24
++ 2.15 ± 0.28
+Table 5: Block probing: results of identifying Λ(ξ1, ξ2) and µ(ξ1, ξ2) for the hard and soft inclusions.
+All cases employ 40 × 20 FE mesh, 20 × 10 material mesh, 201 × 101 experimental grid, and 7 load
+cases of 5 load steps. For Case 3.1, the total identification errors δmax and δL2 are reported, while the
+subsequent cases with noise show only the corresponding identification error increases ∆δmax and ∆δL2
+w.r.t. Case 3.1. All cases with noise are repeated at least 96 times for statistical analysis.
+The results indicate that Λ is significantly more sensitive to noise. One possible explanation is
+that displacement noise induces local volume fluctuations, to which Λ, as a parameter describing
+the compressibility of the material, is particularly sensitive. To address this issue further, Fig. 22
+presents the sensitivity measure (Brun et al., 2001), defined for each material node as
+δmsqr
+I
+:=
+v
+u
+u
+t
+1
+3nexp
+3nexp
+X
+i=1
+J2
+iI ,
+(63)
+where JiI are the components of the Jacobian (see Appendix A)10. This measure quantifies the
+effect of a small perturbation in the material parameter qI on the model response (Zhang et al.,
+2022). Hence, parameters with larger values of δmsqr are expected to be the more identifiable.
+As shown in Fig. 22, the values of δmsqr associated with Λ are typically three to six times smaller
+than those corresponding to µ.
+All cases in Tab. 5 exhibit large maximum identification errors, most of which are concentrated
+near the model boundaries. As discussed above, the identification errors at the top edge originate
+from the FE difference between the forward and inverse solvers. The remaining boundaries are
+characterized by remarkably lower values of δmsqr, making the corresponding qI more susceptible
+to noise, see Fig. 22.
+High δmsqr is not suﬀicient for a parameter to be identifiable, as it does not account for possible
+interactions between parameters. For a subset K of the set of nvar material parameters, the
+collinearity index is defined as
+γK :=
+1
+√λmin
+,
+(64)
+where λmin is the smallest eigenvalue of ¯JT
+K¯JK, and ¯JK is obtained by normalizing the columns
+of J (see Appendix A) corresponding to the subset K, i.e., ¯JI = JI/∥JI∥.
+The collinearity index quantifies the extent to which the effect of a change of a parameter
+qI ∈K on the model response can be compensated by appropriate changes in the remaining
+parameters in K.
+In particular, such compensation may be up to a level of 1/γK × 100%.
+10Since both f(q) and q are normalized, the components of J are dimensionless and δmsqr requires no further
+normalization.
+31
+a.
+c.
+b.
+d.
+Figure 22: Block probing: distributions of the sensitivity measures δmsqr evaluated at the optimal
+solution qopt for Λ (left) and µ (right) in Case 3.1 with hard (a. and b.) and soft (c. and d.) inclusions.
+The top surface, where contact occurs, (Z = 1L) corresponds to I2 = 11.
+Therefore, high γK indicates that the parameter subset K is poorly identifiable, even if all
+parameters in K have high δmsqr (Brun et al., 2001; Gábor et al., 2017). In general, γK can be
+evaluated at different positions in the design space to assess parameter identifiability, especially
+for nonlinear problems.
+Here, γK is calculated for the whole parameter set for simplicity. At the optimal solution qopt
+of Case 3.1, γK = 14.56 and γK = 15.30 for the hard and soft inclusions, respectively. These
+values will be used in the following section.
+4.3.2
+Surface experimental data
+In the last example, the experimental data are restricted to the surface at Z = 1L. Preliminary
+studies indicated that 7×5 = 35 load steps are not suﬀicient to ensure reliable reconstruction as
+before. Therefore, the overall number of load cases is increased substantially. Now, the model
+in Fig. 16a is indented in 31 positions, starting from X = 0.25L and ending at X = 1.75L, with
+an increment of 0.05L. Moreover, the indentation depth is increased from 0.25L to 0.40L, and
+the displacements are recorded every 0.05L of indentation as before. The new setting therefore
+yields 31 × 8 = 248 load steps in CBIA. For brevity, the new deformation maps are not shown.
+Since the experimental data is limited to the surface, poor identifiability of the material pa-
+rameters is expected. For only surface data, the noise-free Case 3.1 in Tab. 5 fails to converge,
+leading to γK of the order of 1016. To obtain a stable solution, additional regularization is
+introduced. The regularization term in Eq. (47) is selected as
+R(α, q) = α2∥q −q0,HP∥2 ,
+(65)
+where q0,HP is the initial guess from the homogeneous preconditioning strategy. Consequently,
+deviations from the homogeneous inverse solution are penalized.
+32
+a.
+b.
+Figure 23: Block probing using only surface data: Collinearity index at the optimal solution qopt, as
+a function of the regularization parameter α for hard (a.) and soft (b.) inclusions in CBIA based solely
+on surface data.
+a.
+c.
+b.
+d.
+Figure 24: Block probing using only surface data: Distributions of nodal values of Λ(ξ1, ξ2) and µ(ξ1, ξ2)
+identified using CBIA based solely on noise-free surface data for hard (a. and b.) and soft (c. and d.)
+inclusions. Both CBIA cases are regularized with α values corresponding to Fig. 23. Peak error values
+denote the relative identification error of the peak value of the material parameter within the inclusion;
+negative values indicate overestimation, and positive values underestimation. The top surface, where
+contact occurs, (Z = 1L) corresponds to I2 = 11.
+33
+The parameter α in Eq. (65) is selected to match the same level of γK as the corresponding
+full-field cases from Tab. 5 without noise, see Fig. 23. Here, this criterion is preferred since a
+popular L-curve method (Hansen and O’Leary, 1993) promotes overregularized solutions.
+Fig. 24 presents the CBIA solutions obtained from noise-free surface data. As expected, the
+reconstruction accuracy is much lower than that achieved with full-field data (see Fig. 20),
+and all cases exhibit high identification errors.
+Although both hard and soft inclusions are
+captured in µ(ξ1, ξ2), the inclusions in Λ(ξ1, ξ2) are oversmoothed and deteriorate in shape. For
+different values of α, CBIA either oversmooths the inclusions or permits spurious oscillations
+to dominate qopt. The soft inclusion is reconstructed more accurately than the hard one for
+both Λ and µ, as it has a stronger effect on the model response. For all identified material
+fields, Λ and µ are overestimated in the surface layer (I2 = 11). Interestingly, despite the strong
+smoothing effect of Tikhonov regularization, CBIA predicts a lower value of µ at the center of
+the soft inclusion (0.01µ0) than the reference value (0.2µ0). As shown, despite the substantial
+increase in the number of load cases, using surface data alone remains challenging for qualitative
+reconstruction with CBIA.
+On the other hand, a quantitative assessment of the identified material field may be more
+relevant than its absolute values.
+It remains to be investigated whether CBIA can reliably
+identify the presence of an inclusion using solely surface data. To this end, the reconstructed
+material fields are segmented into inclusion and surrounding regions, as shown in Fig. 25.
+Subsequently, the similarity between the reference and the identified fields is quantified using
+the Dice similarity coeﬀicient
+DSC :=
+2Area(Sref ∩Sopt)
+Area(Sref) + Area(Sopt) ,
+(66)
+where Sref and Sopt denote the reference and identified inclusions, respectively. DSC takes values
+between 0 (no alignment) and 1 (perfect alignment). The regions of inclusions are obtained via
+simple thresholding
+S• := {x ∈B : |qopt(x) −qref(x)| > t} ,
+(67)
+where t is the segmentation threshold. Note that in Eq. (67), positive and negative inclusions
+are detected equivalently due to the absolute value.
+Fig. 25 compares segmentations of the reference material fields with noise-free CBIA results for
+both full-field and surface data. As seen, CBIA successfully identifies the inclusion for full-field
+data, achieving almost perfect overlap for µ and approximately 90% agreement for Λ. However,
+oscillations at the contact surface are still visible, particularly in Λ. The remaining mismatch
+between CBIA and the reference is attributed to bilinear interpolation of the material mesh.
+For surface data (Figs. 25 g–j), the inclusions are smeared in the Z- direction towards the base
+of the block, leading to reduced DSC, especially for Λ. In all surface-data-based cases, artifacts
+at the contact surface are observed, likely due to FE discretization errors concentrated there.
+Note that the segmentation results are sensitive to the choice of the threshold t in Eq. (67). For
+larger t, the soft inclusions yield higher DSC, which follows from Fig. 24.
+To investigate the effect of noise on CBIA using solely surface data, the surface displacements
+are perturbed with noise. Subsequently, the computations are repeated 10 times for statistical
+analysis. The regularization parameter α is kept identical to that determined in Fig. 23. Owing
+to regularization, the influence of noise on the results is marginal, yielding DSCΛ = 62.76±0.48%
+and DSCµ = 71.08 ± 0.88% for the hard inclusion, and DSCΛ = 48.21 ± 0.45% and DSCµ =
+69.84 ± 0.58% for the soft inclusion. Fig. 26 shows the segmentations of the Λ and µ fields
+corresponding to the worst-case scenarios in terms of DSC. Compared with Figs. 25g–j, the
+inclusions do not differ significantly from those reconstructed with noise-free data. Noticeable
+changes are observed only in Fig. 26d.
+34
+0
+0.5
+1
+1.5
+2
+X=L
+0
+0.2
+0.4
+0.6
+0.8
+1
+Z=L
+Hard inclusion: ground truth
+a.
+0
+0.5
+1
+1.5
+2
+X=L
+0
+0.2
+0.4
+0.6
+0.8
+1
+Z=L
+Soft inclusion: ground truth
+b.
+0
+0.5
+1
+1.5
+2
+X=L
+0
+0.2
+0.4
+0.6
+0.8
+1
+Z=L
+Hard inclusion, full--eld data: $
+DSC$ = 0:892
+c.
+0
+0.5
+1
+1.5
+2
+X=L
+0
+0.2
+0.4
+0.6
+0.8
+1
+Z=L
+Soft inclusion, full--eld data: $
+DSC$ = 0:876
+d.
+0
+0.5
+1
+1.5
+2
+X=L
+0
+0.2
+0.4
+0.6
+0.8
+1
+Z=L
+Hard inclusion, full--eld data: 7
+DSC7 = 0:978
+e.
+0
+0.5
+1
+1.5
+2
+X=L
+0
+0.2
+0.4
+0.6
+0.8
+1
+Z=L
+Soft inclusion, full--eld data: 7
+DSC7 = 0:964
+f.
+0
+0.5
+1
+1.5
+2
+X=L
+0
+0.2
+0.4
+0.6
+0.8
+1
+Z=L
+Hard inclusion, surface data: $
+DSC$ = 0:617
+g.
+0
+0.5
+1
+1.5
+2
+X=L
+0
+0.2
+0.4
+0.6
+0.8
+1
+Z=L
+Soft inclusion, surface data: $
+DSC$ = 0:488
+h.
+0
+0.5
+1
+1.5
+2
+X=L
+0
+0.2
+0.4
+0.6
+0.8
+1
+Z=L
+Hard inclusion, surface data: 7
+DSC7 = 0:706
+i.
+0
+0.5
+1
+1.5
+2
+X=L
+0
+0.2
+0.4
+0.6
+0.8
+1
+Z=L
+Soft inclusion, surface data: 7
+DSC7 = 0:696
+j.
+Figure 25: Block probing using only surface data: Segmented images of the identified material fields
+for the reference distribution in Fig. 17 (a. and b.) using noise-free full-field data in Fig. 20 (c–f), and
+noise-free surface data in Fig. 24 (g–j). The selected threshold in Eq. (67) is t = 0.1.
+35
+0
+0.5
+1
+1.5
+2
+X=L
+0
+0.2
+0.4
+0.6
+0.8
+1
+Z=L
+Hard inclusion, surface data: $
+DSC = 0:620
+a.
+0
+0.5
+1
+1.5
+2
+X=L
+0
+0.2
+0.4
+0.6
+0.8
+1
+Z=L
+Soft inclusion, surface data: $
+DSC$ = 0:476
+b.
+0
+0.5
+1
+1.5
+2
+X=L
+0
+0.2
+0.4
+0.6
+0.8
+1
+Z=L
+Hard inclusion, surface data: 7
+DSC7 = 0:697
+c.
+0
+0.5
+1
+1.5
+2
+X=L
+0
+0.2
+0.4
+0.6
+0.8
+1
+Z=L
+Soft inclusion, surface data: 7
+DSC7 = 0:684
+d.
+Figure 26: Block probing using only surface data: Segmented images of the material fields identified
+with CBIA based solely on surface data corrupted by noise with γIi = 0.001L. The selected threshold
+in Eq. (67) is t = 0.1.
+5
+Conclusion
+This paper proposes a Finite Element Model Updating (FEMU) framework for identifying spa-
+tially heterogeneous material properties in nonlinear solids subjected to mechanical contact
+under quasi-static conditions. The approach employs isogeometric analysis (IGA) as a robust
+discretization method, particularly advantageous for contact computations, and covers both
+solids and thin shells. Material fields are reconstructed using experimentally measured resul-
+tant contact forces and full-field displacements measured at least on the free surface.
+The
+theoretical framework is based on a versatile hyperelastic material formulation that can rep-
+resent a variety of materials.
+Material heterogeneity is described using low-order Lagrange
+interpolation independent of the IGA mesh, enabling the representation of non-smooth mate-
+rial fields and flexible adjustment of the inverse problem size to avoid under- and overfitting.
+The FEMU least-squares objective is minimized using a gradient-based trust-region reflective
+algorithm. The computational eﬀiciency of FEMU is improved by using analytical derivatives of
+the objective and incrementing material parameters instead of load levels between consecutive
+optimization iterations. The inverse analysis is initiated by assuming homogeneous material
+properties to obtain a reliable starting point for identifying spatially varying material fields.
+Several numerical examples based on synthetically generated experimental data contaminated
+with both systematic and random errors investigate various aspects of the proposed framework
+and demonstrate the potential of mechanical contact for reconstructing heterogeneous material
+properties. The key findings of this study are:
+• Due to its ability to generate more data, contact-based inverse analysis (CBIA) outper-
+forms its pressure-based counterpart for noisy quasi-experimental data, as demonstrated
+by the abdominal wall example in Sec. 4.2. However, CBIA requires a finer FE mesh than
+pressure-based analysis due to the localized deformations induced by contact.
+• Accordingly, high identification errors are observed in the contact regions for the CBIA
+examples in Secs. 4.2 and 4.3. Since these errors originate from the concentration of FE
+discretization errors in the contact regions, the use of an adaptive nonuniform IGA mesh
+36
+is a natural direction for future work.
+• The results for the Neo-Hookean block presented in Sec. 4.3 show that parameters related
+to material compressibility, such as Λ, are particularly sensitive to noise in the exper-
+imental data. This observation appears to be characteristic of indentation tests and is
+consistent with the findings of Hartmann and Gilbert (2018).
+• Full-field surface displacements and resultant contact forces are suﬀicient to identify the
+fields of Neo-Hookean model parameters in the bulk of the solid. However, the resulting
+inverse problem is severely ill-conditioned, deteriorating identifiability of material param-
+eters and requiring regularization. Although the presence of an inclusion can be detected,
+the reconstructed peak values of the material parameters are subject to large errors, as
+shown in Sec. 4.3.2.
+• Analytical derivatives of the objective and the material iteration strategy provide a sub-
+stantial speed-up for FEMU, enabling the solution of inverse problems with nvar = 462
+material unknowns in Sec. 4.3 and up to nvar = 6498 material unknowns in Sec. 4.2, see
+Fig. 14. However, for nvar = 462, the optimization algorithm becomes the computational
+bottleneck, even when Jacobian-vector products (see Appendix A.2) are used.
+The presented method applies to a broad range of identification problems involving mechanical
+contact and full-field measurements, including in-vivo biomechanics, in-situ structural engi-
+neering, and laboratory material testing.
+As in-silico simulations for medical diagnosis and
+treatment are expected to become increasingly common, there is a growing demand for robust
+and eﬀicient inverse methods for identifying inhomogeneous material properties.
+The proposed framework can be extended in several ways. Extending the framework to fric-
+tional contact is a natural next step. However, as the material iteration strategy is limited to
+conservative systems, this is nontrivial. More reliable and eﬀicient contact computations require
+adaptive nonuniform IGA discretizations. Nevertheless, the most relevant direction is the devel-
+opment of a robust material mesh selection strategy that mitigates both under- and overfitting.
+For large inverse problems, more eﬀicient optimization algorithms, such as L-BFGS, may pro-
+vide further improvements. Realistic modeling of soft tissues requires extending the formulation
+beyond isotropic hyperelasticity to more complex material behaviors, including viscoelasticity
+and prestrain. Moreover, since the stress-free geometry is generally unavailable for soft bodies,
+future studies should investigate the simultaneous reconstruction of spatially varying material
+properties, stress-free geometry, and prestrain-inducing loading.
+Acknowledgments
+The authors thank Prof. Izabela Lubowiecka for her comments and gratefully acknowledge
+financial support from the Research School of Ruhr University Bochum through their PhD
+Exchange Program and from the Doctoral School at Gdańsk University of Technology.
+A
+Derivatives of the objective function
+This appendix presents two alternative approaches for computing the derivatives of f(q) w.r.t.
+the design variable vector q, required by the TRR optimization algorithm. As usual in NLSQ
+problems, the derivatives are expressed in terms of the Jacobian of the residual. The stan-
+dard approach computes the Jacobian explicitly and is well-suited for relatively small inverse
+problems. The approach based on Jacobian-vector products avoids explicit formation of the
+Jacobian, and is hence suitable for larger inverse problems. It is important to note that all
+37
+derivatives shown below are derived assuming a fixed contact active set A, i.e.,
+∂(•)
+∂q = ∂(•)
+∂q
+
+A=const.
+.
+(68)
+A.1
+Standard formulation
+Given the residuals
+¯Ur i := ¯Uexp i −¯UFE i(q) ,
+qreg := αL(q −c) ,
+(69)
+with
+¯Uexp i :=
+" √wU Uexp i/∥Uexp i∥
+√wF Fexp i/∥Fexp i∥
+#
+,
+¯UFE i(q) :=
+" √wU UFE i/∥Uexp i∥
+√wF FFE i/∥Fexp i∥
+#
+,
+(70)
+the objective function in (47) can be written in compact form as
+f(q) =
+nlc
+X
+i=1
+¯UT
+r i ¯Ur i + qT
+reg qreg .
+(71)
+The derivatives of f(q) are decomposed into residual and regularization parts. First, the con-
+tribution of a single load case to the residual part is considered. Accordingly, the subscript i is
+dropped here for clarity. The gradient of f(q) is given by
+g(q) =
+∂f(q)
+∂q
+T
+= 2 J(q)T ¯Ur(q) ,
+(72)
+where
+J(q) = ∂¯Ur(q)
+∂q
+=
+JU
+JF
+
+,
+(73)
+is the Jacobian of the residual that consists of blocks
+JU = −
+√wU
+∥Uexp∥
+∂UFE
+∂q
+,
+(74)
+and
+JF = −
+√wF
+∥Fexp∥
+∂FFE
+∂q
+.
+(75)
+The Hessian is given by
+H(q) = ∂2f(q)
+∂q2
+= 2 JT J + 2
+nexp
+X
+i=1
+[ ¯Ur]i
+∂2[ ¯Ur]i
+∂q2
+≈2 JT J ,
+(76)
+where the second term is neglected; thus, the Hessian is computed based only on the Jacobian.
+This simplification is common among algorithms solving NLSQ problems (see, e.g., Hansen
+et al. (2013)).
+Remark 5: A common strategy is to scale the design variables to improve the conditioning of the opti-
+mization problem, i.e., q := D ¯q with D := diag [q1/q0 , q2/q0 , . . . , qnvar/q0]. Consequently, f becomes
+a function of the normalized design vector ¯q, and its derivatives are
+∂(•)
+∂¯q = ∂(•)
+∂q
+∂q
+∂¯q = ∂(•)
+∂q D ,
+(77)
+38
+e.q., J(¯q) = J(q) D.
+To compute (74), one needs to expand
+∂UFE
+∂q
+= ∂UFE
+∂u
+∂u
+∂q ,
+(78)
+where u is given in Eq. (42), and ∂UFE/∂u can be found in Borzeszkowski et al. (2022).
+Remark 6: It is worth noting that due to the linear structure of Eq. (50), the matrix ∂UFE/∂u can
+be used to conveniently project kinematic quantities from the FE mesh onto the experimental grid, for
+example
+UFE = ∂UFE
+∂u
+u ,
+xexp = ∂UFE
+∂u
+x .
+(79)
+The derivative ∂u/∂q follows from differentiating the equilibrium equation (41)
+df(u(q), q)
+dq
+= d
+dq (fint(u(q), q) + fc(u(q)) −fexp(u(q))) = 0 ,
+(80)
+which leads to a set of linear systems
+K∂u
+∂q = −∂fint
+∂q = −S ,
+(81)
+where K is the tangent stiffness matrix, given by
+K = ∂fint
+∂u + ∂fc
+∂u −∂fext
+∂u ,
+(82)
+and S = ∂fint/∂q is the global sensitivity matrix, see Borzeszkowski et al. (2022) for further
+details. The sensitivities must be derived for each identified constitutive model, which is detailed
+in Appendix. B. The influence of the global volume constraint gV = V0 −V = 0, employed in
+Sec. 4.2, is taken into account implicitly in K.
+As the resultant contact force vector FFE = Pcfc depends on q only through u(q), expanding
+(75) yields
+∂FFE(q)
+∂q
+= Pc
+∂fc
+∂u
+∂u
+∂q = Pc Kc
+∂u
+∂q = KPc
+∂u
+∂q ,
+(83)
+where Pc := [1, 1, . . . , 1] is a matrix consisting of nno blocks that sums nodal contact forces
+over all Euclidean directions in the d-dimensional space, Kc is the contact contribution to the
+tangent stiffness matrix, and KPc := Pc Kc.
+Finally, the contributions of the regularization are derived. Differentiating the regularization
+part in Eq. (71) gives
+greg(q) = 2 JT
+regqreg ,
+(84)
+where
+Jreg = α L .
+(85)
+The Hessian becomes
+Hreg(q) = 2 JT
+regJreg = α2 LTL .
+(86)
+In practice, all residuals in (69) are concatenated into a single vector, and Eq. (71) reduces to
+a scalar product. The corresponding Jacobians are concatenated accordingly.
+Remark 7: If projections are applied on the FE or material dofs within the FE solver (e.g., due to
+periodic boundary conditions or reduction of a 2D material mesh to 1D), they can be directly incorporated
+into the tangent stiffness and global sensitivity matrices as follows
+Kred = PFE K PT
+FE ,
+Sred = PFE S PT
+m ,
+(87)
+where PFE and Pm are FE and material projection matrices, respectively.
+39
+A.2
+Jacobian-vector products
+Instead of computing and storing the Jacobian directly, the TRR algorithm can operate on
+Jacobian-vector products, i.e., J ˆq, JT ˆU, and JT(J ˆq). All formulas below are given for a single
+load case contribution. Vectors ˆq and ˆU have length of nvar and nexp, respectively. Combining
+Eqs. (74), (78), and (81) for the displacements part, and Eqs. (75), (81), and (83) for the contact
+part, the J ˆq product becomes
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+JU ˆq =
+√wU
+∥Uexp∥
+∂UFE
+∂u
+λq ,
+JF ˆq =
+√wF
+∥Fexp∥KPc λq ,
+K λq = S ˆq ,
+(88)
+where λq is a vector with d nno components. Correspondingly, using Eqs. (74), (78), and (81),
+the displacements part of JT ˆU is given by
+
+
+
+
+
+
+
+
+
+JT
+U ˆU =
+√wU
+∥Uexp∥ST λUU ,
+KT λUU =
+∂UFE
+∂u
+T
+ˆU ,
+(89)
+while using Eqs. (75), (81), and (83), the contact part of JT ˆU takes the form
+
+
+
+
+
+
+
+JT
+F ˆU =
+√wF
+∥Fexp∥ST λUF ,
+KT λUF = KT
+Pc ˆU ,
+(90)
+where λUU and λUF are vectors of length d nno. Note that in the presence of contact K may
+not be symmetric, especially for friction. The regularization parts are given by
+Jreg ˆq = α Lˆq ,
+JT
+reg ˆU = α LT ˆU .
+(91)
+The mixed product JT(Jˆq) is computed as a composition of the two above.
+Remark 8: In a similar manner, the contribution of a single load case to the gradient of f(q) can be
+eﬀiciently computed via the adjoint formulation
+
+
+
+
+
+gT(q) = λTS ,
+KTλ = −2
+∂¯Ur
+∂u
+T
+¯Ur ,
+(92)
+with
+∂¯Ur
+∂u =
+
+
+−
+√wU
+∥¯Uexp∥
+∂¯UFE
+∂u
+−
+√wU
+∥¯Uexp∥KPc
+
+,
+(93)
+see, e.g., Givoli (2021). These formulas are applicable to optimization algorithms that rely solely on the
+gradient, such as L-BFGS.
+40
+B
+Analytical sensitivities
+Computation of the objective function derivatives in any form requires differentiating the inter-
+nal FE forces vectors in Eqs. (35), (37), and (38) w.r.t. the material unknowns vector q. This
+derivative is referred to as sensitivity matrix, and its elemental contribution is given by
+Se¯e
+int := ∂fe
+int
+∂q¯e
+.
+(94)
+As this formula incorporates both FE and material meshes, a mapping between their elements
+is required, see Sec. 2.5.2. In the case of the compressible Neo-Hookean solid model, by applying
+Eq. (43) to Λ and µ, the change of the internal force vector due to a change in material unknowns
+becomes
+∆fe
+int = ∂fe
+int
+∂Λ¯e ∆Λ¯e + ∂fe
+int
+∂µ¯e ∆µ¯e = Se¯e
+Λ ∆Λ¯e + Se¯e
+µ ∆µ¯e ,
+(95)
+where
+Se¯e
+Λ :=
+Z
+Ωe BeT IΛ ¯N¯e dv
+(96)
+and
+Se¯e
+µ :=
+Z
+Ωe BeT Iµ ¯N¯e dv
+(97)
+are the Neo-Hookean sensitivities for Λ and µ, respectively. The two vectors in (96) and (97)
+are given by
+IΛ := ln ˜J
+˜J
+
+1
+1
+1
+0
+0
+0
+T ,
+Iµ := 1
+˜J
+ ˜B∗
+11
+˜B∗
+22
+˜B∗
+33
+˜B∗
+12
+˜B∗
+13
+˜B∗
+23
+T ,
+(98)
+where ˜
+B∗= ˜F ˜F T −I.
+Following Borzeszkowski et al. (2022), the analytical sensitivities for the Koiter shell model
+follow from
+∆fe
+int = ∂fe
+int
+∂E¯e ∆E¯e + ∂fe
+int
+∂T¯e ∆T¯e = Se¯e
+E ∆E¯e + Se¯e
+T ∆T¯e ,
+(99)
+with
+Se¯e
+E :=
+Z
+Ωe
+0
+
+T
+1 + ν NeT
+,α Iαβγδ
+ν
+εγδ aβ +
+T 3
+12(1 + ν)NeT
+;αβ Iαβγδ
+ν
+κγδ n
+
+¯N¯e dA ,
+(100)
+and
+Se¯e
+T :=
+Z
+Ωe
+0
+
+E
+1 + ν NeT
+,α Iαβγδ
+ν
+εγδ aβ +
+E T 2
+4(1 + ν)NeT
+;αβ Iαβγδ
+ν
+κγδ n
+
+¯N¯e dA ,
+(101)
+where
+Iαβγδ
+ν
+=
+ν
+1 −ν Iαβγδ
+dil
++ Iαβγδ
+dev
+,
+(102)
+and
+εαβ = 1
+2(aαβ −Aαβ) ,
+καβ = bαβ −Bαβ .
+(103)
+Analytical sensitivities for the Canham bending model can be found in Borzeszkowski et al.
+(2022). A convenient implementation of analytical sensitivities can be achieved following the
+approach shown in Duong et al. (2017).
+All Se¯e
+• are of size dne×¯ne and require numerical integration over the element Ωe, followed by the
+local assembly with respect to ¯d unknown material parameters, and the global assembly for all
+41
+e = 1, . . . , nel and ¯e = 1, . . . , ¯nel. This leads to the global sensitivity matrix S with dimensions
+dnno × ¯d¯nno. Since all FEs are mapped to the corresponding ME, the elemental sensitivities can
+be computed within a standard element subroutine; thus, reducing the computational effort.
+Remark 9: In fact, the sensitivities should be calculated in a separate element loop run after the NR
+method converges. However, using S and K from the penultimate NR iteration to evaluate the objective
+function derivatives does not affect their accuracy in the author’s experience.
+References
+Andrade-Campos, A., Thuillier, S., Martins, J., Carlone, P., Tucci, F., Valente, R., Paulo, R.
+M. F., and de Sousa, R. J. A. (2020). Integrated Design in Welding and Incremental Forming:
+Material Model Calibration for Friction Stir Welded Blanks. Procedia Manufacturing, 47:429–
+434.
+Ashkenazi, A., Shultz, A., Jordan, L., and Solav, D. (2026).
+Indentation-based anisotropic
+material parameter identifiability: Validation on a synthetic soft tissue phantom. Journal of
+the Mechanics and Physics of Solids, 208:106417.
+Avril, S. (2026). Recent Advances in the Virtual Fields Method for Evaluating and Identifying
+Tissue Biomechanical Properties and Constitutive Parameters.
+Journal of Biomechanical
+Engineering, 148.
+Avril, S., Bonnet, M., Bretelle, A.-S., Grédiac, M., Hild, F., Ienny, P., Latourte, F., Lemosse,
+D., Pagano, S., Pagnacco, E., and Pierron, F. (2008). Overview of Identification Methods of
+Mechanical Parameters Based on Full-field Measurements. Experimental Mechanics, 48:381–
+402.
+Avril, S. and Pierron, F. (2007). General framework for the identification of constitutive pa-
+rameters from full-field measurements in linear elasticity. International Journal of Solids and
+Structures, 44:4978–5002.
+Borden, M. J., Scott, M. A., Evans, J. A., and Hughes, T. J. R. (2011). Isogeometric finite
+element data structures based on Bézier extraction of NURBS. International Journal for
+Numerical Methods in Engineering, 87:15–47.
+Borzeszkowski, B., Duong, T. X., Sauer, R. A., and Lubowiecka, I. (2021). Isogeometric Shell
+Analysis of the Human Abdominal Wall.
+In Gzik, M., Paszenda, Z., Pietka, E., Tkacz,
+E., and Milewski, K., editors, Innovations in Biomedical Engineering, pages 11–18. Springer
+International Publishing.
+Borzeszkowski, B., Lubowiecka, I., and Sauer, R. A. (2022). Nonlinear material identification of
+heterogeneous isogeometric Kirchhoff–Love shells. Computer Methods in Applied Mechanics
+and Engineering, 390:114442.
+Bouclier, R., Bonnet-Eymard, R., Rabineau, E., and Réthoré, J. (2026). PINN-based identi-
+fication of spatially varying elastic moduli from experimental full-Field displacement data.
+Computer Methods in Applied Mechanics and Engineering, 455:118874.
+Brun, R., Reichert, P., and Künsch, H. R. (2001). Practical identifiability analysis of large
+environmental simulation models. Water Resources Research, 37:1015–1030.
+Buljac, A., Jailin, C., Mendoza, A., Neggers, J., Taillandier-Thomas, T., Bouterf, A., Smaniotto,
+B., Hild, F., and Roux, S. (2018).
+Digital Volume Correlation: Review of Progress and
+Challenges. Experimental Mechanics, 58:661–708.
+42
+Canham, P. B. (1970).
+The minimum energy of bending as a possible explanation of the
+biconcave shape of the human red blood cell. Journal of Theoretical Biology, 26:61–81.
+Chen, B., Starman, B., Halilovič, M., Berglund, L. A., and Coppieters, S. (2024). Finite Element
+Model Updating for Material Model Calibration: A Review and Guide to Practice. Archives
+of Computational Methods in Engineering.
+Chen, L., Zhu, G., Chen, Y., Bao, R., Lim, C. W., and Chen, W. (2026a). Contact-based high-
+throughput material characterization via Kolmogorov–Arnold Transformer neural operator.
+International Journal of Mechanical Sciences, 313:111308.
+Chen, L., Zhu, G., Chen, Y., Lim, C. W., and Chen, W. (2026b). AI-enabled high-throughput
+characterization of material properties based on indentation response. MechanoEngineering,
+1:014301.
+Ciarlet, P. G. (2005). An Introduction to Differential Geometry with Applications to Elasticity.
+Journal of Elasticity, 78:1–215.
+Coleman, T. F. and Li, Y. (1996). An interior Trust Region Approach for Nonlinear Minimiza-
+tion Subject to Bounds. SIAM Journal on Optimization, 6(2):418–445.
+Conn, A. R., Gould, N. I. M., and Toint, P. L. (2000). Trust Region Methods. Society for
+Industrial and Applied Mathematics.
+De Lorenzis, L., Wriggers, P., and Hughes, T. J. R. (2014). Isogeometric contact: a review.
+GAMM-Mitteilungen, 37(1):85–123.
+Dufour, J.-E., Hild, F., and Roux, S. (2015). Shape, displacement and mechanical properties
+from isogeometric multiview stereocorrelation. Journal of Strain Analysis for Engineering
+Design, 50(7):470–487.
+Duong, T. X., Lorenzis, L. D., and Sauer, R. A. (2019).
+A segmentation-free isogeometric
+extended mortar contact method. Computational Mechanics, 63:383–407.
+Duong, T. X., Roohbakhshan, F., and Sauer, R. A. (2017). A new rotation-free isogeometric thin
+shell formulation and a corresponding continuity constraint for patch boundaries. Computer
+Methods in Applied Mechanics and Engineering, 316:43–83.
+Evans, S. (2017). How Can We Measure the Mechanical Properties of Soft Tissues? In Avril,
+S. and Evans, S., editors, Material Parameter Identification and Inverse Problems in Soft
+Tissue Biomechanics, pages 67–83. Springer.
+Flaschel, M., Kumar, S., and De Lorenzis, L. (2021). Unsupervised discovery of interpretable
+hyperelastic constitutive laws. Computer Methods in Applied Mechanics and Engineering,
+381:113852.
+Florentin, E. and Lubineau, G. (2010). Identification of the parameters of an elastic material
+model using the constitutive equation gap method. Computational Mechanics, 46:521–531.
+Fougeron, N., Oddes, Z., Ashkenazi, A., and Solav, D. (2024). Identification of constitutive
+materials of bi-layer soft tissues from multimodal indentations. Journal of the Mechanical
+Behavior of Biomedical Materials, 155:106572.
+Gábor, A., Villaverde, A. F., and Banga, J. R. (2017). Parameter identifiability analysis and
+visualization in large-scale kinetic models of biosystems. BMC Systems Biology, 11:54.
+43
+Givoli, D. (2021). A tutorial on the adjoint method for inverse problems. Computer Methods
+in Applied Mechanics and Engineering, 380:113810.
+Goenezen, S., Barbone, P., and Oberai, A. A. (2011).
+Solution of the nonlinear elasticity
+imaging inverse problem: The incompressible case. Computer Methods in Applied Mechanics
+and Engineering, 200:1406–1420.
+Goenezen, S., Dord, J.-F., Sink, Z., Barbone, P. E., Jiang, J., Hall, T. J., and Oberai, A. A.
+(2012). Linear and Nonlinear Elastic Modulus Imaging: An Application to Breast Cancer
+Diagnosis. IEEE Transactions on Medical Imaging, 31:1628–1637.
+Gokhale, N. H., Barbone, P. E., and Oberai, A. A. (2008). Solution of the nonlinear elasticity
+imaging inverse problem: the compressible case. Inverse Problems, 24:045010.
+Haghighat, E., Raissi, M., Moure, A., Gomez, H., and Juanes, R. (2021). A physics-informed
+deep learning framework for inversion and surrogate modeling in solid mechanics. Computer
+Methods in Applied Mechanics and Engineering, 379:113741.
+Hansen, P. C. and O’Leary, D. P. (1993). The Use of the L-Curve in the Regularization of
+Discrete Ill-Posed Problems. SIAM Journal on Scientific Computing, 14(6):1487–1503.
+Hansen, P. C., Pereyra, V., and Scherer, G. (2013). Least Squares Data Fitting with Applications.
+JHU Press.
+Hartmann, S. and Gilbert, R. R. (2018). Identifiability of material parameters in solid mechan-
+ics. Archive of Applied Mechanics, 88:3–26.
+Haustrate, R., Hild, F., and Fau, A. (2025). Identifying heterogeneous elastic parameters from
+full-field measurements with reduced bases. International Journal of Mechanical Sciences,
+305:110682.
+Hild, F. and Roux, S. (2025). On the future of experimental mechanics in the digital world: An
+eikological perspective. European Journal of Mechanics - A/Solids, 113:105654.
+Holzapfel, G. A. (2000). Nonlinear Solid Mechanics: A Continuum Approach for Engineering.
+John Wiley & Sons.
+Hughes, T. J. R., Cottrell, J. A., and Bazilevs, Y. (2005). Isogeometric analysis: CAD, finite
+elements, NURBS, exact geometry and mesh refinement.
+Computer Methods in Applied
+Mechanics and Engineering, 194:4135–4195.
+Kaipio, J. P. and Somersalo, E. (2005). Statistical and computational inverse problems. Springer.
+Kamali, A., Sarabian, M., and Laksari, K. (2023). Elasticity imaging using physics-informed
+neural networks: Spatial discovery of elastic modulus and Poisson’s ratio. Acta Biomaterialia,
+155:400–409.
+Kavanagh, K. T. and Clough, R. W. (1971). Finite element applications in the characterization
+of elastic solids. International Journal of Solids and Structures, 7:11–23.
+Khalil, A. S., Bouma, B. E., and Mofrad, M. R. K. (2006). A Combined FEM/Genetic Algorithm
+for Vascular Soft tissue Elasticity Estimation. Cardiovascular Engineering, 6:93–102.
+Kirchhoff, J., Luo, D., O’Leary-Roseberry, T., and Ghattas, O. (2024). Inference of Heteroge-
+neous Material Properties via Infinite-Dimensional Integrated DIC. arXiv:2408.10217.
+44
+Koutsourelakis, P.-S. (2009).
+A multi-resolution, non-parametric, Bayesian framework for
+identification of spatially-varying model parameters.
+Journal of Computational Physics,
+228(17):6184–6211.
+Kroon, M. and Holzapfel, G. A. (2008). Estimation of the distributions of anisotropic, elastic
+properties and wall stresses of saccular cerebral aneurysms by inverse analysis. Proceedings
+of the Royal Society A: Mathematical, Physical and Engineering Sciences, 464:807–825.
+Kroon, M. and Holzapfel, G. A. (2009). Elastic properties of anisotropic vascular membranes
+examined by inverse analysis. Computer Methods in Applied Mechanics and Engineering,
+198:3622–3632.
+Latourte, F., Chrysochoos, A., Pagano, S., and Wattrisse, B. (2008). Elastoplastic Behavior
+Identification for Heterogeneous Loadings and Materials. Experimental Mechanics, 48:435–
+449.
+Lavigne, T., Bordas, S. P. A., and Lengiewicz, J. (2023). Identification of material parameters
+and traction field for soft bodies in contact. Computer Methods in Applied Mechanics and
+Engineering, 406:115889.
+Łazorczyk, B. and Sauer, R. A. (2025). Material Identification of Heterogeneous Isogeomet-
+ric Bernoulli–Euler Beams With Pretensioning.
+Proceedings in Applied Mathematics and
+Mechanics, 25:e70046.
+Łazorczyk, B. and Sauer, R. A. (2026).
+Nonlinear elastodynamic material identification of
+heterogeneous isogeometric Bernoulli–Euler beams. Computer Methods in Applied Mechanics
+and Engineering, 448:118415.
+Leygue, A., Coret, M., Réthoré, J., Stainier, L., and Verron, E. (2018). Data-based derivation
+of material response. Computer Methods in Applied Mechanics and Engineering, 331:184–196.
+Li, Z., Pak, D. H., Duncan, J. S., Liang, L., and Liu, M. (2026). An Integrated DNN-FEA
+Approach for Inverse Identification of Passive, Heterogeneous Material Parameters of Left
+Ventricular Myocardium. CMES - Computer Modeling in Engineering and Sciences, 146.
+Liu, G., Wang, L., Yi, Y., Sun, L., Shi, L., and Ma, S. (2019). Inverse identification of graphite
+damage properties under complex stress states. Materials & Design, 183:108135.
+Liu, Y., Sun, L. Z., and Wang, G. (2005). Tomography-based 3-d anisotropic elastography using
+boundary measurements. IEEE Transactions on Medical Imaging, 24:1323–1333.
+Lubowiecka, I., Szepietowska, K., Tomaszewska, A., Bielski, P. M., Chmielewski, M.,
+Lichodziejewska-Niemierko, M., and Szymczak, C. (2022). A novel in vivo approach to assess
+strains of the human abdominal wall under known intraabdominal pressure. Journal of the
+Mechanical Behavior of Biomedical Materials, 125:104902.
+Lubowiecka, I., Tomaszewska, A., Szepietowska, K., Szymczak, C., Lichodziejewska–Niemierko,
+M., and Chmielewski, M. (2018). Membrane model of human abdominal wall. Simulations
+vs. in vivo measurements. In Pietraszkiewicz, R. and Witkowski, J., editors, Shell Structures:
+Theory and Applications, volume 4, pages 503–506. Taylor & Francis Group.
+Martins, J. M. P., Andrade-Campos, A., and Thuillier, S. (2018). Comparison of inverse iden-
+tification strategies for constitutive mechanical models using full-field measurements. Inter-
+national Journal of Mechanical Sciences, 145:330–345.
+45
+Mei, Y., Kang, R., Jin, Y., Deng, J., Ma, Z., and Mao, S. (2026). Characterizing the spa-
+tial heterogeneity of pre-stressed soft solids. Computer Methods in Applied Mechanics and
+Engineering, 460:119089.
+Navindaran, K., Kang, J. S., and Moon, K. (2023). Techniques for characterizing mechani-
+cal properties of soft tissues. Journal of the Mechanical Behavior of Biomedical Materials,
+138:105575.
+Nelles, O. (2020). Nonlinear System Identification: From Classical Approaches to Neural Net-
+works, Fuzzy Models, and Gaussian Processes. Springer International Publishing.
+Oddes, Z. and Solav, D. (2023). Identifiability of soft tissue constitutive parameters from in-vivo
+macro-indentation. Journal of the Mechanical Behavior of Biomedical Materials, 140:105708.
+Pierrat, B., MacManus, D. B., Murphy, J. G., and Gilchrist, M. D. (2018). Indentation of
+heterogeneous soft tissue: Local constitutive parameter mapping using an inverse method
+and an automated rig. Journal of the Mechanical Behavior of Biomedical Materials, 78:515–
+528.
+Pierron, F. and Grédiac, M. (2012). The Virtual Fields Method: Extracting Constitutive Me-
+chanical Parameters from Full-field Deformation Measurements. Springer Science & Business
+Media.
+Pierron, F. and Grédiac, M. (2021). Towards Material Testing 2.0. A review of test design for
+identification of constitutive parameters from full-field measurements. Strain, 57(1):e12370.
+Remus, R., Sure, C., Selkmann, S., Uttich, E., and Bender, B. (2024). Soft tissue material
+properties based on human abdominal in vivo macro-indenter measurements. Frontiers in
+Bioengineering and Biotechnology, Volume 12 - 2024.
+Römer, U., Hartmann, S., Tröger, J.-A., Anton, D., Wessels, H., Flaschel, M., and Lorenzis,
+L. D. (2025). Reduced and All-At-Once Approaches for Model Calibration and Discovery in
+Computational Solid Mechanics. Applied Mechanics Reviews, 77.
+Roohbakhshan, F. and Sauer, R. A. (2017). Eﬀicient isogeometric thin shell formulations for
+soft biological materials. Biomechanics and Modeling in Mechanobiology, 16:1569–1597.
+Roux, S. and Hild, F. (2020). Optimal procedure for the identification of constitutive parame-
+ters from experimentally measured displacement fields. International Journal of Solids and
+Structures, 184:14–23.
+Sauer, R. A. (2016). A contact theory for surface tension driven systems. Mathematics and
+Mechanics of Solids, 21:305–325.
+Sauer, R. A. (2018). On the computational modeling of lipid bilayers using thin-shell theory.
+In Steigmann, D. J., editor, The Role of Mechanics in the Study of Lipid Bilayers, pages
+221–286. Springer.
+Sauer, R. A. and Duong, T. X. (2017). On the theoretical foundations of thin solid and liquid
+shells. Mathematics and Mechanics of Solids, 22:343–371.
+Sauer, R. A., Duong, T. X., and Corbett, C. J. (2014).
+A computational formulation for
+constrained solid and liquid membranes considering isogeometric finite elements. Computer
+Methods in Applied Mechanics and Engineering, 271:48–68.
+46
+Simón-Allué, R., Calvo, B., Oberai, A. A., and Barbone, P. E. (2017). Towards the mechanical
+characterization of abdominal wall by inverse analysis. Journal of the Mechanical Behavior
+of Biomedical Materials, 66:127–137.
+Song, C., Alijani, A., Frank, T., Hanna, G., and Cuschieri, A. (2006). Elasticity of the living
+abdominal wall in laparoscopic surgery. Journal of Biomechanics, 39:587–591.
+Srikitrungruang, T., Fard, S. A. D., Lemon, M., Lee, J., and Zhou, Y. (2025). Robust Physics-
+Informed Neural Network Approach for Estimating Heterogeneous Elastic Properties from
+Noisy Displacement Data. Advanced Science, 12:e08445.
+Steigmann, D. J. (2013).
+Koiter’s Shell Theory from the Perspective of Three-dimensional
+Nonlinear Elasticity. Journal of Elasticity, 111:91–107.
+Sutton, M. A., Orteu, J. J., and Schreier, H. (2009). Image Correlation for Shape, Motion and
+Deformation Measurements. Springer Science & Business Media.
+Szymczak, C., Lubowiecka, I., Tomaszewska, A., and Śmietański, M. (2012). Investigation of
+abdomen surface deformation due to life excitation: Implications for implant selection and
+orientation in laparoscopic ventral hernia repair. Clinical Biomechanics, 27(2):105–110.
+Thananjayan, P., Ramu, P., and Natarajan, S. (2023).
+SBFEM and Bayesian inference for
+eﬀicient multiple flaw detection in structures. Engineering Analysis with Boundary Elements,
+155:226–250.
+Touminet, A., Cantournet, S., Fabre, V., and Kerfriden, P. (2025). A bayesian extension to
+FEMU for identification of spatially varying stochastic elastic properties from digital image
+and volume correlation measurements. Journal of Computational Physics, 531:113946.
+Vu-Bac, N., Duong, T. X., Lahmer, T., Areias, P., Sauer, R. A., Park, H. S., and Rabczuk,
+T. (2019). A NURBS-based inverse analysis of thermal expansion induced morphing of thin
+shells. Computer Methods in Applied Mechanics and Engineering, 350:480–510.
+Vu-Bac, N., Duong, T. X., Lahmer, T., Zhuang, X., Sauer, R. A., Park, H. S., and Rabczuk, T.
+(2018). A NURBS-based inverse analysis for reconstruction of nonlinear deformations of thin
+shell structures. Computer Methods in Applied Mechanics and Engineering, 331:427–455.
+Wriggers, P. (2006). Computational Contact Mechanics. Springer.
+Wriggers, P. (2008). Nonlinear Finite Element Methods. Springer.
+Xu, K., Zhang, N., Yin, Z.-Y., and Li, K.-Q. (2026). Hierarchical physics-guided neural network
+for sparse-data heterogeneous material identification. International Journal of Mechanical
+Sciences, 313:111291.
+Zhang, Y., Van Bael, A., Andrade-Campos, A., and Coppieters, S. (2022). Parameter iden-
+tifiability analysis: Mitigating the non-uniqueness issue in the inverse identification of an
+anisotropic yield function. International Journal of Solids and Structures, 243:111543.
+47

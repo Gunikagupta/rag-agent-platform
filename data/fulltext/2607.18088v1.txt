@@ -1,0 +1,1986 @@
+The Label Complexity of Class Conditional Coverage
+under Distribution Shift
+Weijia Han
+Lisha Qu
+University of Washington
+Abstract
+Standard evaluation of many recognition systems contains distribution shift by construction, since
+benchmarks place disjoint conditions in the training and test splits. Under such a shift, split conformal
+prediction keeps marginal coverage close to the nominal level while per class coverage fails silently. On
+a real cross subject skeleton benchmark the marginal coverage stays near ninety percent, the worst action
+class is covered about seventy percent of the time, and ten of the sixty classes fall below eighty percent
+coverage. Marginal coverage is the wrong safety target in this regime.
+This paper characterizes the cost of restoring per class validity. Our first result is an impossibility.
+Once the shift acts jointly on the covariates and the labels, the target class conditional score law is
+unidentified from source labels and an unlabeled target sample (methods here are label free: they see
+no target labels), so no label free method attains per class coverage that is at once valid and efficient.
+Our second result makes the cost precise. Per class validity alone needs only a handful of target labels
+per class; the per class label count necessary and sufficient for validity together with per class efficiency
+grows as the inverse square of the efficiency tolerance and the logarithm of the number of classes, and
+our upper and lower bounds match. Our third result addresses the natural shortcut. Within the evaluated
+prediction powered inference family, even the most favorable use of the classifier’s own pseudo labels
+on an unbounded unlabeled target pool improves the achievable efficiency by at most a small constant
+factor on the classes where coverage collapses.
+Skeleton action recognition is our real data case study. A per class calibration that uses source
+labels alone recovers a substantial share of the per class gap while the shift preserves marginal coverage,
+and it stops helping exactly when marginal coverage itself breaks. A spectrum of three real shifts of
+increasing severity traces this boundary, and the same collapse and recovery appears on a natural image
+corruption benchmark, which places the phenomenon in conditional coverage under shift beyond any
+single modality.
+1
+Introduction
+Skeleton action recognition benchmarks build distribution shift into their evaluation protocols by design.
+Cross subject and cross view splits train and test on disjoint people and cameras. Split conformal prediction
+gives finite sample distribution free coverage under exchangeability [Vovk et al., 2005, Lei et al., 2018].
+That guarantee is marginal, and it degrades once calibration and test distributions diverge [Tibshirani et al.,
+2019, Barber et al., 2023]. On a real cross subject skeleton benchmark, split conformal prediction keeps
+marginal coverage near ninety percent while per class coverage collapses silently: the worst action class is
+covered about seventy percent of the time, and ten of the sixty classes fall below eighty percent coverage
+(Figure 1). The shift affects classes unevenly, so this collapse stays invisible to any diagnostic that reports
+only the marginal number. Marginal coverage is the wrong safety target in this regime.
+This paper asks a precise question: what is the label cost of restoring per class validity under distribution
+shift? Three theoretical results answer it, and skeleton action recognition serves as the real data case study
+that shows the phenomenon and a partial, label free remedy.
+1
+arXiv:2607.18088v1  [cs.LG]  20 Jul 2026
+Contributions.
+1. Impossibility. Under a shift that acts jointly on covariates and labels, the target class conditional score
+law is unidentified from labeled source data and an unlabeled target sample. No label free method can
+therefore be both valid and efficient per class (Proposition 2).
+2. Tight label complexity. Per class validity alone needs only O(1/α) target labels per class. The per
+class label count necessary and sufficient for validity and per class efficiency grows as the inverse square
+of the efficiency tolerance and the logarithm of the number of classes, and our upper and lower bounds
+match (Theorem 1). To our knowledge this is the first matching label complexity characterization for
+conformal prediction under distribution shift.
+3. Pseudo label ceiling. Within the evaluated prediction powered inference family, even the most favorable
+pseudo label estimator, built on an unbounded unlabeled target pool, raises efficiency by at most a small
+constant factor on the classes where coverage collapses (Section 5.5). Unlabeled target data offers no
+shortcut around this label cost in that family.
+4. Real data case study. On skeleton action recognition, a label free per class calibration on the source
+domain (label free means it requires no target labels; labeled source calibration data is permitted) recov-
+ers a substantial share of the per class gap while marginal coverage holds. A severity spectrum of three
+real shifts marks the boundary where this label free recovery stops. The same phenomenon reproduces
+on natural images (supplementary material). See Figure 2 and Figure 3.
+Scope.
+The per class guarantee behind the real data calibration is exact under within class exchangeabil-
+ity and only approximate under distribution shift, which bounds how much the label free calibration can
+recover. The conformal backbone we evaluate also trails the strongest supervised head [Chen et al., 2021]
+(Section 5.6).
+2
+Related Work
+Conformal prediction and distribution shift.
+When the test distribution shifts away from the split CP
+exchangeability regime [Vovk et al., 2005, Lei et al., 2018], two strands restore guarantees: weighted con-
+formal prediction under covariate shift, which reweights calibration scores by the ratio of the target density
+to the source density [Tibshirani et al., 2019], and non exchangeable conformal prediction, which bounds
+the coverage gap by a total variation style weight discrepancy [Barber et al., 2023]. Both strands take the
+density ratio as input; we estimate it on the manifold of symmetric positive definite (SPD) matrices (Sec-
+tion 3). Adaptive conformal inference [Gibbs and Cand`es, 2021] targets sequential settings; ours is a batch
+setting. The classification scores we compare against are the least ambiguous set valued classifier score
+(LAC) [Sadinle et al., 2019], adaptive prediction sets (APS) [Romano et al., 2020], and regularized APS
+(RAPS) [Angelopoulos et al., 2021].
+Class conditional and Mondrian conformal prediction.
+Mondrian conformal prediction [Vovk et al.,
+2003, 2005] partitions the calibration data by a “taxonomic” criterion, here the true source class label, and
+calibrates a separate quantile per partition. Per class coverage is guaranteed under within class exchange-
+ability. Class conditional CP has been studied by L¨ofstr¨om et al. [2015] and Sadinle et al. [2019], and
+more recently by Ding et al. [2023]. Our case study instantiates Mondrian conformal prediction on the SPD
+feature manifold, using the log Euclidean geometry for per class scoring, and shows it reduces per class
+undercoverage on the real NTU RGB+D 60 skeleton benchmark (NTU-60) [Shahroudy et al., 2016] under
+cross subject shift, label free.
+2
+Selective prediction and conformal risk control.
+Conformal Risk Control (CRC) generalizes conformal
+coverage to any bounded, monotone risk [Angelopoulos et al., 2024]; we instantiate it using a joint accept
+and err loss, so the controlled quantity is the probability of accepting a miscovered point. Treating out
+of distribution (OOD) detection and selective safety as distinct is motivated by evidence that a high OOD
+detection AUROC (area under the ROC curve) can coexist alongside unsafe selective accuracy under severe
+shift [Khanal and Zhou, 2026]; we reproduce this phenomenon under a coverage lens and identify a manifold
+signal that escapes it.
+Geometry of SPD matrices.
+SPD descriptors of joint trajectories are a standard action representation,
+and SPD manifold networks learn on them directly [Huang and Van Gool, 2017]. The two common metrics
+are the affine invariant Riemannian metric, invariant under the full congruence action of the general linear
+group [Pennec, 2006, Bhatia, 2007], and the log Euclidean metric, whose geodesic distance is the Frobenius
+distance between matrix logarithms and which admits a closed form mean and an isometric tangent space
+vectorization [Arsigny et al., 2006]. We use the log Euclidean metric throughout: it gives the closed form
+Karcher means our signals consume and an exact distance preserving flattening (Section 4), at the cost of
+full affine invariance, a trade off we make explicit.
+Conformal prediction on manifolds and prototypes.
+Distance to prototype nonconformity scores are
+known in flat feature space, including categorical and prototype conformal predictors [Caprio, 2025]; con-
+formal inference has also been extended to regression on Riemannian manifolds. Our geodesic to Karcher
+score is the SPD manifold instantiation of this idea; matching the literature and our own ablations, the in
+distribution efficiency gain of geometry over a flat softmax baseline is real but modest. In the case study, the
+load bearing element is label free per class calibration under the benchmark’s own shift, separate from the
+geodesic score considered in isolation.
+Action recognition: accuracy versus reliability.
+Conformal prediction has been applied to human ac-
+tion recognition using vision language models, evaluated in distribution and for RGB set size control [Bary
+et al., 2025]. Skeleton domain adaptation methods (graph based alignment, contrastive view invariance,
+backbones such as the spatial temporal graph convolutional network (ST-GCN) and the channel wise topol-
+ogy refinement graph convolutional network (CTR-GCN)) improve target accuracy [Yan et al., 2018, Chen
+et al., 2021]; none provide coverage guarantees or per class reliability. Our reliability layer is backbone
+agnostic: it consumes descriptors and class means, and it complements these methods without competing
+against them. To our knowledge, the case study is the first report of the per class coverage collapse on real
+NTU-60 cross subject under an SPD and ST-GCN conformal setup, an empirical instance of the impossi-
+bility and label complexity results above that we address in part using label free Mondrian calibration on
+the SPD manifold. Datasets used are NTU-60 and Northwestern-UCLA (N-UCLA) [Wang et al., 2014]
+(Section 5).
+3
+Method
+Setup.
+Each input sequence is summarized by an SPD descriptor, the temporal covariance of joint coordi-
+nates and velocities. A source domain supplies labeled descriptors. A target domain supplies only unlabeled
+descriptors at deployment, and its distribution can differ from the source.
+We study three backbone configurations that jointly vary the SPD representation and its classifier. The
+first is a nearest mean geometric classifier: it scores each class through a log Euclidean nearest class mean
+rule, and it is the weakest of the three, producing the largest prediction sets. The second is a tangent space
+logistic classifier: it flattens each descriptor into a Euclidean tangent space and fits a logistic classifier there,
+3
+giving moderate discriminative power. The third builds on features from ST-GCN [Yan et al., 2018]: per
+frame features from the graph convolutional backbone are summarized into a temporal covariance SPD
+descriptor and classified by the same tangent space logistic classifier; this is the strongest configuration
+we test (accuracies appear in the supplementary material). The ST-GCN feature configuration is evaluated
+under two training regimes of increasing length, detailed in the supplementary material. A gap between the
+graph convolutional network’s own classification head and the conformal backbone built from its features
+is expected: the SPD framework operates on descriptors extracted from the network, using its own separate
+classifier.
+Source data is split into a scorer training subset, which fits the backbone classifier, and a calibration sub-
+set, which estimates conformal quantiles. All four calibration methods described below share one backbone
+and one calibration pool, so their comparison is fair. The geometric classifier and the tangent space classi-
+fiers both build on a log Euclidean Karcher mean per class and an isometric log Euclidean vectorization of
+the SPD descriptor. Both constructions, alongside the descriptor dimensions, the calibration set sizes, and
+the training regimes, are given precisely in the supplementary material.
+Nonconformity score.
+All four calibration methods score a candidate class by one minus the backbone’s
+estimated probability for that class, the LAC nonconformity score [Sadinle et al., 2019]. For the nearest
+mean configuration, this probability is a softmax over negative geodesic distances to the class means. For
+the tangent space configurations, it is the logistic classifier’s own output. The exact score formulas appear
+in the supplementary material.
+3.1
+Split CP baseline
+The split conformal baseline calibrates a single threshold from the source calibration set: the empirical
+quantile of the true class scores at the target coverage level. A test point’s prediction set contains every class
+whose score falls below this one threshold. This preserves marginal coverage in distribution. Under deploy-
+ment shift, marginal coverage can remain near or even above the nominal level while per class coverage
+collapses, and only under severe shift does marginal validity itself break (Section 5).
+3.2
+Source Mondrian (class conditional) calibration
+A single global threshold is too tight for classes whose score distribution the shift distorts adversely. Source
+Mondrian calibration computes a separate conformal quantile for each class, estimated from the source cali-
+bration scores that belong to that class alone. The exact order statistic formula is given in the supplementary
+material. A test point’s prediction set then contains every class whose score falls below that class’s own
+threshold.
+Guarantee and deployment.
+The per class thresholds are estimated entirely on the source calibration
+set, using source labels only to partition calibration scores by class. No target labels are needed. Under
+within class exchangeability, source Mondrian provides per class marginal coverage at least the nominal
+level (Proposition 1). Under deployment shift this guarantee holds only approximately (Remark 1), which
+is why source Mondrian closes part of the oracle gap and leaves the rest open.
+3.3
+Weighted conformal calibration
+Weighted conformal prediction [Tibshirani et al., 2019, Barber et al., 2023] restores marginal coverage under
+covariate shift, given valid density ratio weights, by reweighting calibration scores through an estimated
+source to target density ratio in place of the plain empirical quantile; with a joint shift and estimated weights,
+4
+as here, its use is empirical rather than guaranteed. We use the exact per test point variant of this weighted
+quantile, which normalizes the calibration weights separately for every test point; the plain single threshold
+variant fails to recover coverage on our controlled synthetic study. Both quantiles are stated precisely in the
+supplementary material.
+The density ratio is estimated directly from the SPD descriptors: a regularized logistic discriminator
+separates source from target descriptors on a held out pool and is applied out of sample. Its regularization,
+clipping, and temperature constants are given in the supplementary material. We also evaluate a weighted
+class conditional variant, combining the density ratio weights and the per class quantiles of source Mondrian.
+This combination inflates prediction sets severely: high variance density ratio weights applied to small per
+class subsets drive the per class weighted quantile up.
+3.4
+Margin abstention (negative control)
+We study two geometric per sample abstention signals built from geodesic distances to class means: a
+minimum distance signal that flags points far from every class, and a geodesic margin that flags points
+close to two competing classes at once. Both signals are defined precisely in the supplementary material.
+We threshold the margin signal using Conformal Risk Control [Angelopoulos et al., 2024], which requires a
+labeled target calibration pool to set the threshold (Section 4.4). This requirement makes margin abstention a
+negative control: it cannot serve as a deployable label free rule. Even given target labels, it fails to reduce per
+class undercoverage on the real NTU-60 benchmark, a mechanism detailed in the supplementary material.
+4
+Guarantees and their scope
+4.1
+Marginal versus per class coverage, and the Mondrian guarantee
+Split conformal prediction guarantees marginal coverage
+Pr[y⋆∈ˆC(x⋆)] ≥1 −α
+over a fresh test point (x⋆, y⋆); throughout, such probabilities are over the joint draw of the calibration set
+and the test point, under exchangeability of the two. This marginal guarantee decomposes over classes as
+Pr[y⋆∈ˆC(x⋆)] =
+K
+X
+c=1
+pc Pr[y⋆∈ˆC(x⋆) | y⋆= c],
+pc = Pr[y⋆= c],
+so marginal coverage ≥1 −α allows some classes far below 1 −α, provided higher coverage classes
+compensate. The NTU-60 cross subject shift is uneven across action classes, so a globally calibrated quantile
+creates systematic per class imbalance.
+Proposition 1 (Mondrian per class coverage). Let {(xi, yi) : yi = c}nc
+i=1 be a source calibration set for
+class c, exchangeable with a fresh test point (x⋆, y⋆) with y⋆= c (within class exchangeability). Let ˆqc be
+the conformal quantile, the ⌈(nc +1)(1−α)⌉-th smallest of {s(xi, c) : yi = c} (or +∞if that index exceeds
+nc), and let the Mondrian prediction set be
+ˆC(x) = {c : s(x, c) ≤ˆqc}.
+Then, for every class c,
+1 −α ≤Pr
+
+c ∈ˆC(x⋆) | y⋆= c
+
+≤1 −α +
+1
+nc + 1,
+where the upper bound holds when the class c scores are almost surely distinct (or ties are broken at ran-
+dom).
+5
+This is the standard Mondrian conformal coverage result [Vovk et al., 2003, 2005, L¨ofstr¨om et al., 2015];
+the proof follows by exchangeability within class c [Ding et al., 2023].
+Remark 1 (Approximate validity under deployment shift). Proposition 1 requires within class exchange-
+ability between source calibration and target test scores, which deployment shift violates. Source Mondrian
+corrects the between class component of how the shift distorts nonconformity scores: adversely shifted
+classes get a looser class specific threshold. A full decomposition of within class and between class effects
+is future work. This is why it closes part of the oracle gap (Figure 2) and leaves the rest open; we make the
+approximation explicit.
+4.2
+Label free per class coverage is impossible under joint shift
+Proposition 1 assumes within class exchangeability, a form of label shift. The next result shows such an
+assumption is unavoidable. Call a rule label free if it is a function of the labeled source law PS(X, Y )
+and the unlabeled target covariate law PT (X) alone. Target per class coverage at level 1−α is attained
+most efficiently, within threshold rules, at the (1−α)-quantile q⋆
+c of the target class conditional score law
+F T
+c (t) = PrT [ s(X, c) ≤t | Y = c ], which depends on the unobserved PT (Y | X).
+Proposition 2 (No valid and efficient label free per class coverage under joint shift). Fix a source law PS, a
+fixed score s(·, ·), and a target covariate marginal PT (X) such that for some class c the map x 7→s(x, c) is
+nonconstant on supp PT (X) (K ≥2 classes). Then there exist two target joint laws PT , P ′
+T that share PS
+and have the same covariate marginal PT (X) = P ′
+T (X), hence are indistinguishable from labeled source
+data plus an unlabeled target pool, yet whose class c score quantiles differ by an explicit constant,
+q⋆
+c(P ′
+T ) −q⋆
+c(PT ) ≥δ
+for some δ > 0 depending only on (s, PT (X), α).
+Because the joint law of the observables is identical under PT and P ′
+T , any label free procedure (possibly
+randomized, outputting arbitrary set valued predictors, not only thresholds on s) has the same output dis-
+tribution under both. Let OPT(P) be the smallest expected set size among rules with per class coverage
+≥1 −α under P, and call a rule β-efficient on P if it is per class valid there with expected size at most
+OPT(P) + β. Any label free rule attaining class c coverage ≥1 −α under P ′
+T satisfies
+EPT | ˆC(X)| ≥OPT(PT ) + β,
+β = PT (A)(ε −α)
+ε
+> 0,
+for an event A ⊂supp PT (X) and a level ε ∈(α, 1) exhibited explicitly in the two point construction of
+the supplementary proof; conversely any rule within δ of the PT -oracle threshold undercovers class c under
+P ′
+T . Hence no label free rule is per class valid on every consistent target law and β′-efficient on each for
+β′ < β: validity across the identified set is possible only through conservative set inflation.
+The two point construction and proof are in the supplementary material. Unlike the classical impossibility
+of distribution free conditional coverage [Vovk, 2012, Lei and Wasserman, 2014, Barber et al., 2021], which
+stems from the nonatomicity of X within a single unknown i.i.d. law (class conditional coverage is attain-
+able by Mondrian CP when labels are available), our obstruction is an identification failure across laws:
+(PS, PT (X)) does not identify the target class conditional score law under unrestricted PT (Y | X), and
+the price is an explicit set size inflation, the same quantity that worst case robust conformal methods [Cau-
+chois et al., 2024] pay by design. Recent group conditional generalizations that unify class and covariate
+conditional coverage [Bairaktari et al., 2025] likewise enrich the covering family under a fixed, known law:
+their shift extension assumes the source to target density ratio is known and lies in a prescribed class, so it
+sidesteps the label free identification failure our result isolates, and does not resolve it.
+6
+Corollary 1 (When label free recovery is possible). Valid and efficient target per class coverage label free
+requires an identifying restriction on PT (Y | X): covariate shift (p(y | x) invariant, so class condi-
+tional weighted CP with the covariate ratio is valid given PT (X) ≪PS(X), approximate with estimated
+weights, Tibshirani et al., 2019), or label shift (p(x | y) invariant with πT
+c > 0, so source Mondrian ap-
+plies, Podkopaev and Ramdas, 2021). Under a joint shift satisfying neither restriction, as in the cross sensor
+NTU→N-UCLA shift (Section 5.2), where source thresholds transfer neither marginally nor per class, any
+method valid over the identified set must calibrate to its worst case and hence overcovers on non extremal
+laws (empirically, weighted CP here), while any method matching oracle efficiency on one consistent law
+undercovers on another (the geometric candidate’s failure mode); none matches the target label oracle
+uniformly. The strongest honest guarantee is then assumption conditional, with a slack that is not point
+identified from (PS, PT (X)) (only worst case one sided bounds are available label free). This is the theo-
+retical boundary that the severity spectrum (Figure 3) traces empirically.
+4.3
+The label complexity of per class coverage under joint shift
+Proposition 2 is the m=0 endpoint of a sharper question: how many labeled target examples are necessary
+and sufficient to recover per class coverage? We answer it exactly. Add to the label free setting an audit
+set of m labeled target draws with mc of them in class c, and no restriction on PT (Y | X). Per class
+statements below are conditional on the realized counts mc (under i.i.d. auditing the mc are multinomial and
+the statements hold conditionally on them; a stratified audit fixes the mc by design, and the total label cost
+of hitting a per class budget then depends on the target class prevalences πT
+c ). Audit Mondrian calibrates
+a per class quantile on the audit set: ˆqc is the ⌈(mc + 1)(1 −α)⌉-th order statistic of {s( ˜Xj, c) : ˜Yj = c}
+(+∞if that index exceeds mc), and the prediction set is
+ˆC(x) = {c : s(x, c) ≤ˆqc}.
+Theorem 1 (Label complexity of class conditional coverage). Parts (a,b) hold for any fixed score s, level α,
+source law PS, and target covariate law PT (X) with x 7→s(x, c) nonconstant on supp PT (X) and class
+c target score law F T
+c atomless (or ties broken at random); parts (c) and (d) are existential over the shift
+instance. (a) Validity (assumption free). For every class c with mc ≥⌈1/α⌉−1, audit Mondrian satisfies,
+using no assumption on PT (Y | X),
+1 −α ≤Pr
+T [c ∈ˆC(X) | Y = c] ≤1 −α +
+1
+mc + 1.
+(b) Efficiency. If additionally F T
+c has density ≥f0 near its (1 −α)-quantile and the score marginal under
+PT (X) has density ≤L, then with probability ≥1 −δ the excess expected set size over the target oracle is
+at most
+L
+f0
+X
+c
+s
+log(2K/δ)
+2mc
+.
+So mc = O(ε−2 log(K/δ)) per class bounds every class c term by a constant times ε, giving per class
+ε-efficiency (average per class excess O(ε); the total excess over all K classes is correspondingly O(Kε)).
+(c) Necessity (for a suitable shift instance). There exist a score, source law, and target covariate law with
+x 7→s(x, c) nonconstant, and a constant c0 > 0, so that for all small ε > 0 there are two target laws
+PT , P ′
+T consistent with that same (PS, PT (X)) and with per audit sample squared Hellinger ≤c0ε2, on
+which any procedure (randomized, set valued, using the full source, an unbounded unlabeled target pool,
+and m ≤c0/ε2 audit labels) must, on at least one law, with probability ≥1
+4, either violate per class validity
+or exceed the oracle set size by Ω(ε) (the same high probability efficiency notion the Dvoretzky-Kiefer-
+Wolfowitz (DKW) upper bound attains). (d) The log K is necessary (simultaneous efficiency). There is an
+7
+instance with K foreground classes and one background class (a distinct construction, below) on which any
+procedure that is simultaneously per class valid and ε-efficient on all K foreground classes with probability
+≥3
+4 must use mc labeled target points in class c satisfying, for an absolute C > 0,
+K
+X
+c=1
+e−Cε2mc ≤4 log 4
+3.
+Hence
+X
+c
+mc = Ω(Kε−2 log K),
+at least K/2 classes individually need mc = Ω(ε−2 log K), and a uniform per class budget needs mc =
+Ω(ε−2 log K).
+Thus mc = Θ(ε−2 log K) target labels per class are necessary and sufficient for simultaneous per class
+ε-efficiency, measured as the per class excess set size over the class c oracle (part (b); the total excess over
+all K classes is then O(Kε)). This is a per class metric, distinct from the total expected set size inflation β
+of the m=0 impossibility (Proposition 2); we use ε for the former and β for the latter throughout. Validity
+alone is far cheaper, needing only mc ≥⌈1/α⌉−1 by part (a). Since the hard pair PT , P ′
+T shares PT (X)
+exactly, unlabeled target data cannot improve the minimax rate: it identifies the marginal score law perfectly
+yet says nothing about the conditional tilt that sets F T
+c . Proposition 2 is the ε →0, m=0 corner; Theorem 1
+is the full trade off curve, having upper (DKW, part (b)) and lower (Le Cam two point, parts (c) and (d))
+bounds that match exactly: part (d) shows the log K factor in the simultaneous upper bound is intrinsic
+to the problem, closing the gap left open by part (c)’s single class rate. The construction and proof are in
+the supplementary material. Empirically (Section 5, supplementary audit curve) the sufficiency is benign:
+≈25 labeled target examples per class recover near oracle per class coverage across all three shifts, tracing a
+monotone floor to oracle curve once mc exceeds ⌈1/α⌉. To our knowledge this is the first label complexity
+characterization, including a matching lower bound, in conformal prediction under distribution shift; prior
+labeled target methods [Bairaktari et al., 2025, Podkopaev and Ramdas, 2021] give neither a rate nor a
+necessity companion.
+This zero rate value of unlabeled data conclusion is complemented empirically in Section 5.5: even the
+best case (oracle λ, an infinite unlabeled pool, and the true target quantile) pseudo label estimator from
+prediction powered inference (PPI, and its tuned PPI++ variant) [Angelopoulos et al., 2023] yields a per
+class label efficiency gain of at most 1.08× on the classes whose target coverage collapses under shift, on
+both real shifts we test. This ceiling is specific to the evaluated asymptotic PPI++ family and its control span,
+not a bound on every conceivable estimator. Unlabeled target data, even when augmented by the classifier’s
+own pseudo labels, therefore cannot substitute for labeled target data where the recovery matters most.
+4.4
+Supporting guarantees (statements in the supplement)
+Joint accept and err risk control. The margin abstention negative control (Section 3.4) is governed by a
+Conformal Risk Control guarantee [Angelopoulos et al., 2024] on a marginal joint (accept and err) risk, not
+per class conditional coverage, and it requires a labeled target pool. This is precisely why it leaves per class
+undercoverage unresolved. The LE chart is isometric. The half vectorization Φ(X) = vech√
+2(LogX) is an
+isometry from (SPD(d), dLE) to Euclidean space, so all backbone and abstention computations operate in
+the isometric LE chart without further geometric approximation (lemma, proof, and the inherited invariance
+corollary, which holds under O(d) but not GL(d), in the supplementary material).
+Remark 2 (Honest theoretical status). Weighted CP inherits the guarantees of Tibshirani et al. [2019], Barber
+et al. [2023] only to the extent the covariate shift assumption holds, which is approximate here since the
+8
+0.70
+0.75
+0.80
+0.85
+0.90
+0.95
+1.00
+Per class coverage
+nominal
+marginal
+worst class 0.70
+Figure 1: Per class coverage on the real NTU-60 cross subject skeleton benchmark under split conformal
+prediction. Classes are sorted by coverage. The marginal number sits near the nominal level while a large
+group of classes falls into the unsafe band, the worst near seventy percent.
+shift acts on p(y | x), and this is why it recovers only by over covering. Source Mondrian’s guarantee
+is Proposition 1, approximate under shift (Remark 1); margin abstention’s is the marginal joint risk CRC
+control of Section 4.4. We make no claim of conditional coverage for any method, no GL(d) invariance, and
+no asymptotic optimality of any signal; by Proposition 2, the efficiency limit under joint shift is a boundary
+inherent to the problem, and every method faces it.
+5
+Experiments
+5.1
+Per class coverage collapse and recovery on NTU-60 cross subject
+Setup.
+We use the NTU RGB+D 60 cross subject split [Shahroudy et al., 2016] and an ST-GCN backbone
+[Yan et al., 2018]. We fit the backbone on a scorer training subset of the source domain, calibrate conformal
+quantiles on a disjoint source pool, and deploy on the target domain. The conformal framework uses a
+tangent space logistic classifier on the ST-GCN feature SPD descriptor and the LAC score (Section 3). The
+miscoverage level is ten percent, for a nominal coverage of ninety percent; results are the mean over ten
+seeds and sixty classes. The split sizes and the backbone accuracies are reported in the supplementary
+material. Worst class coverage is noisier across seeds than marginal coverage, since it tracks a single hard
+class, and the ranking among methods stays stable.
+Collapse.
+Split conformal prediction reaches near nominal marginal coverage while a large fraction of
+classes fall below eighty percent per class coverage (Figure 1). The worst action class is covered about
+seventy percent of the time, against a target label oracle near ninety percent (the oracle calibrates per class
+9
+conformal quantiles on labeled target data from the deployment distribution, a finite audit whose construc-
+tion the supplementary material states; it is a ceiling, not a deployable method). Marginal coverage alone
+hides this entirely, since the shift distorts classes unevenly.
+Recovery.
+The recovery frontier (Figure 2) summarizes the comparison. Source Mondrian, using source
+labels alone, closes a substantial share of the oracle gap at a small set size cost, and it does so without
+changing marginal coverage: it gives the smallest sets among the methods that materially raise the worst
+class. Weighted conformal prediction reaches a somewhat higher worst class, and it pays for that in two
+ways at once, a much larger set size and marginal over coverage; the weighted class conditional combination
+reaches a similar worst class only by inflating sets further, since high variance density ratio weights on small
+per class subsets drive its per class quantiles up. In summary, source Mondrian is the efficient label free
+recoverer, the one that keeps sets small and holds marginal coverage on target, while the weighted methods
+buy a higher worst class at the price of efficiency. Margin abstention, even given a labeled target pool for
+threshold selection, fails to reduce per class undercoverage: its guarantee controls only a joint marginal risk
+(supplementary material). Full six method numbers are in the supplementary material.
+Robustness.
+The pattern holds across backbones. Sweeping the three backbone configurations of Sec-
+tion 3, source Mondrian remains the near nominal marginal, label free recoverer at every accuracy level,
+and prediction sets tighten as the backbone grows stronger; the sweep varies representation and classifier
+together, so it traces a trend without isolating either factor (full numbers in the supplementary material).
+The pattern also holds across the coverage level: sweeping the nominal coverage target, the split conformal
+worst class gap to nominal widens as the target tightens, while source Mondrian raises the worst class at
+every level and tracks the split conformal marginal coverage (full numbers in the supplementary material).
+5.2
+Cross dataset shift from NTU to N-UCLA, where marginal coverage itself breaks
+We test a far harsher shift: we calibrate on NTU-60 and deploy on N-UCLA, a different sensor (Kinect
+v1 versus v2), different subjects, and different views. We map NTU’s twenty five joints onto the twenty
+shared Kinect v1 joints and restrict both domains to the five shared actions (drop, pick up, throw, sit down,
+stand up); skeletons are spine normalized so only pose and motion differ, and scale does not. The tangent
+backbone still transfers meaningfully (target top-1 accuracy well above chance; the target oracle recovers
+cleanly, per class coverage near ninety percent), so the shift is severe and it is not degenerate.
+Finding: the shift is severe enough to break marginal coverage.
+Here even marginal coverage collapses
+(full six method breakdown in the supplementary material): split conformal prediction reaches only about
+half the nominal marginal coverage, producing mostly empty prediction sets, and one class is covered none
+of the time. The score distribution shifts globally, so neither the source calibrated global threshold nor the
+per class source thresholds of source Mondrian transfer, and none of the evaluated source only, label free
+methods recover, consistent with, though not implied by, Proposition 2 once the shift acts on both covariates
+and labels. The failure is not attributable to a poorly chosen weight: a geometry aware label free candidate,
+which reweights per class quantiles by log Euclidean geodesic proximity to the target class means, also
+undercovers. Its weights keep a healthy effective sample size on every class, and even so the reweighted
+source quantiles fall well short of every class’s target threshold, since source true class scores concentrate
+too low, exactly the support gap the impossibility result rests on. Recovery requires target information:
+weighted conformal prediction, label free and using the unlabeled target pool, restores marginal coverage
+only by over covering, and it still leaves the worst class below nominal at a large set size cost, and only
+the target label oracle attains a clean ceiling on both marginal and worst class coverage. This bounds the
+10
+case study calibration honestly: source Mondrian’s regime is the one where the shift preserves marginal
+coverage, as in the cross subject case; once that breaks, as in the cross sensor case here, unlabeled target
+reweighting restores at most the marginal by overcovering, and per class recovery requires target labels.
+Marginal coverage itself is thus the regime diagnostic.
+5.3
+Cross view, and the severity spectrum
+Re-partitioning the same NTU-60 samples by camera (train cameras two and three, test camera one) gives
+a milder shift than cross subject. Even here, split conformal prediction overcovers marginally and it still
+leaves the worst class in an unsafe range, so per class undercoverage persists even when marginal coverage
+is above nominal (full per class numbers in the supplementary material). Source Mondrian recovers a
+substantial share of the oracle gap label free while keeping marginal coverage on target at the nominal level,
+at a modest set size cost; the weighted methods over cover, and the weighted class conditional variant inflates
+sets substantially. This mild shift is the left end of the severity spectrum (Figure 3).
+The severity spectrum.
+Across three real NTU based shifts of increasing severity (Figure 3), source
+Mondrian’s label free per class recovery degrades in step, and the failure mode itself changes: marginal
+coverage holds under the mild and moderate shifts, and it collapses only under the severe one (Section 5.2).
+The severe point is a cross dataset stress test on five shared classes, a different task setting from the two
+sixty class NTU shifts, so we read the spectrum qualitatively. The symptoms separating these regimes,
+prediction sets collapsing toward empty and the source and target score distributions diverging, are visible
+label free, so a deployed system can flag from the unlabeled target pool alone whether label free recovery is
+even plausible. Confirming the per class collapse itself requires a labeled audit.
+5.4
+Controlled synthetic study
+A controlled synthetic class conditional SPD shift reproduces the mechanism in isolation and confirms that
+margin abstention fails to address class systematic undercoverage even under a labeled target pool CRC
+threshold; full details, including the signal dichotomy between the out of distribution signal and the margin
+signal, are in the supplementary material.
+5.5
+Can unlabeled target data substitute for labels? The pseudo label efficiency ceiling
+Question.
+Theorem 1 proves that unlabeled target data cannot improve the minimax rate of per class
+coverage recovery. The classifier under evaluation also emits free pseudo labels on the unlabeled target
+pool, so we ask whether the best possible estimator built from those pseudo labels recovers any of the
+missing efficiency in practice. We test this using PPI [Angelopoulos et al., 2023], which uses pseudo label
+statistics on the unlabeled pool as control variates and a handful of true target labels to debias the per class
+quantile estimate. We report the oracle ceiling on its achievable gain: a label efficiency gain computed from
+how strongly a two dimensional pseudo label control span explains the naive per class quantile estimator,
+evaluated at the oracle tuning parameter, an unbounded unlabeled pool, and the true target quantile. This is
+an asymptotic best case benchmark for this control span, and it is not a deployable estimator; finite sample,
+tunable estimators should not be expected to improve on it systematically. Every reported number passes an
+integrity check: no class is non finite or skipped, and the multivariate gain never falls below the scalar gain,
+on both datasets.
+Finding: negligible ceiling exactly where it matters.
+On both real shifts we test, the median gain over all
+classes is modest, and only a small tail reaches three times the baseline (full breakdown in the supplementary
+11
+material). Restricted to the classes whose split conformal per class coverage collapses below eighty percent,
+the ceiling collapses further: the eight collapsing NTU-60 classes cap near a factor of one, and the ninety
+seven collapsing CIFAR-100-C classes cap near a factor of one as well, and none reach three times the
+baseline on either dataset. The intrinsically hard, most confusable NTU actions are the worst served, each
+capping near a factor of one. Gain tracks classifier accuracy closely on both datasets: the shift decorrelates
+the pseudo label from the truth on precisely the classes whose coverage collapses, so the signal that control
+variate PPI relies on all but vanishes exactly where efficiency is needed.
+This is an empirical measurement, and it is not a theorem: it complements Theorem 1, which already
+proves unlabeled data cannot improve the minimax rate, by showing that even the best case pseudo la-
+bel estimator, using oracle tuning, an infinite unlabeled pool, and the true quantile, fails to extract useful
+efficiency where coverage collapses, on two real shifts and two modalities. The ceiling upper bounds de-
+ployable estimators built on this pseudo label control span within the asymptotic PPI++ family, and it is not
+itself deployable. The untuned, standard deployable form performs worse than the naive audit: it inflates
+per class quantile variance and newly breaks per class validity. The full label budget curves and deployable
+form results are in the supplementary material.
+5.6
+Limitations
+Backbone.
+The SPD conformal backbone, a tangent classifier on the SPD descriptor, lags the GCN head
+and stronger supervised baselines such as CTR-GCN [Chen et al., 2021]. Source Mondrian’s per class re-
+covery builds on top of this suboptimal starting point, and even the target label oracle’s worst class coverage
+reflects an unsolved accuracy reliability trade off. The collapse and recovery pattern is not tied to this back-
+bone: a stronger CTR-GCN feature extractor reproduces it, and conformalizing CTR-GCN’s own softmax
+head shows that the intrinsically hard NTU classes (reading, writing, type on keyboard) stay undercovered
+even at higher accuracy, and source Mondrian recovers them label free (supplementary material). The resid-
+ual collapse thus persists across the tested backbones and heads, consistent with a data intrinsic mechanism.
+The backbone sweep (supplementary material) also varies representation and classifier together, so recovery
+differences cannot be attributed to either alone.
+Scope and small classes.
+All three real skeleton shifts share NTU as the labeled source. The same col-
+lapse and recovery pattern, however, reproduces on a different modality and backbone entirely: CIFAR-100
+natural images under a corruption shift, using a CLIP zero shot classifier [Radford et al., 2021] (supple-
+mentary material). The phenomenon is thus not skeleton specific, and a broader survey of source datasets
+remains future work. The severe regime result is a negative one by design: no source only, label free method
+recovers once marginal coverage collapses (Section 5.2). Finally, Mondrian conformal prediction needs at
+least a few source calibration points per class; very rare classes yield unreliable per class quantile estimates
+and remain the residual failure mode, classes staying below eighty percent even after Mondrian correction.
+6
+Conclusion
+This paper characterizes the label cost of per class conformal coverage under distribution shift. Three results
+form the contribution. An impossibility result shows that once a shift acts jointly on covariates and labels,
+no label free method can be both valid and efficient per class (Proposition 2). A label complexity theorem
+shows that the number of labeled target examples per class needed to close that gap grows as the inverse
+square of the efficiency tolerance and the logarithm of the number of classes, and our upper and lower
+bounds match (Theorem 1). A pseudo label ceiling measurement shows that within the evaluated prediction
+powered inference family, even the most favorable use of unlabeled target data, through the classifier’s
+12
+own pseudo labels, raises efficiency by at most a small constant factor exactly where coverage collapses
+(Section 5.5).
+Skeleton action recognition is the real data case study that grounds these results. On a real cross sub-
+ject benchmark, marginal coverage stays near ninety percent while the worst action class is covered about
+seventy percent of the time and ten of the sixty classes fall below eighty percent coverage. A label free per
+class calibration on the source domain, source Mondrian, recovers a substantial share of this gap using only
+source labels. It does so precisely in the regime the theory predicts, where marginal coverage itself still
+holds.
+We are equally clear about the boundary. The per class guarantee behind this calibration is exact under
+within class exchangeability and only approximate under distribution shift, which is why the calibration
+closes only part of the gap. A severity spectrum of three real shifts traces where the label free recovery
+stops: it degrades as the shift grows more severe, and the evaluated label free methods fail once the shift
+is severe enough that marginal coverage itself collapses (Figure 3). In that regime, per class recovery in
+our experiments requires labeled target information, and unlabeled target data supports only conservative
+or assumption dependent marginal corrections, consistent with the impossibility result. We release the
+seeded scripts and the synthetic harness so each theoretical claim and each empirical number can be verified
+independently.
+References
+Anastasios N. Angelopoulos, Stephen Bates, Jitendra Malik, and Michael I. Jordan. Uncertainty sets for
+image classifiers using conformal prediction. In International Conference on Learning Representations
+(ICLR), 2021.
+Anastasios N. Angelopoulos, Stephen Bates, Clara Fannjiang, Michael I. Jordan, and Tijana Zrnic.
+Prediction-powered inference. Science, 382(6671):669–674, 2023.
+Anastasios N. Angelopoulos, Stephen Bates, Adam Fisch, Lihua Lei, and Tal Schuster. Conformal risk
+control. In International Conference on Learning Representations (ICLR), 2024.
+Vincent Arsigny, Pierre Fillard, Xavier Pennec, and Nicholas Ayache. Log-euclidean metrics for fast and
+simple calculus on diffusion tensors. Magnetic Resonance in Medicine, 56(2), 2006.
+Konstantina Bairaktari, Jiayun Wu, and Zhiwei Steven Wu. Kandinsky conformal prediction: Beyond class-
+and covariate-conditional coverage. In Proceedings of the 42nd International Conference on Machine
+Learning, volume 267 of Proceedings of Machine Learning Research, pages 2581–2602. PMLR, 2025.
+Rina Foygel Barber, Emmanuel J. Cand`es, Aaditya Ramdas, and Ryan J. Tibshirani.
+The limits of
+distribution-free conditional predictive inference.
+Information and Inference: A Journal of the IMA,
+10(2):455–482, 2021.
+Rina Foygel Barber, Emmanuel J. Cand`es, Aaditya Ramdas, and Ryan J. Tibshirani. Conformal prediction
+beyond exchangeability. The Annals of Statistics, 51(2), 2023.
+Tim Bary, Cl´ement Fuchs, and Benoˆıt Macq. Conformal predictions for human action recognition with
+vision-language models. In IEEE International Conference on Image Processing Workshops (ICIPW),
+2025.
+Rajendra Bhatia. Positive Definite Matrices. Princeton University Press, 2007.
+13
+Michele Caprio. A category-theoretic analysis of conformal prediction. arXiv preprint arXiv:2507.04441,
+2025.
+Maxime Cauchois, Suyash Gupta, Alnur Ali, and John C. Duchi. Robust validation: Confident predictions
+even when distributions shift. Journal of the American Statistical Association, 119(548):3033–3044,
+2024.
+Yuxin Chen, Ziqi Zhang, Chunfeng Yuan, Bing Li, Ying Deng, and Weiming Hu. Channel-wise topology
+refinement graph convolution for skeleton-based action recognition. In IEEE/CVF International Confer-
+ence on Computer Vision (ICCV), 2021.
+Tiffany Ding, Anastasios N. Angelopoulos, Stephen Bates, Michael I. Jordan, and Ryan J. Tibshirani. Class-
+conditional conformal prediction with many classes.
+In Advances in Neural Information Processing
+Systems, volume 36, 2023. arXiv:2306.09335.
+Isaac Gibbs and Emmanuel J. Cand`es. Adaptive conformal inference under distribution shift. In Advances
+in Neural Information Processing Systems (NeurIPS), 2021.
+Zhiwu Huang and Luc Van Gool. A riemannian network for SPD matrix learning. In AAAI Conference on
+Artificial Intelligence, 2017.
+Aaditya Khanal and Junxiu Zhou. Severe domain shift in skeleton-based action recognition: A study of
+uncertainty failure in real-world gym environments. arXiv preprint arXiv:2603.15574, 2026. Preprint.
+Jing Lei and Larry Wasserman. Distribution-free prediction bands for non-parametric regression. Journal
+of the Royal Statistical Society: Series B (Statistical Methodology), 76(1):71–96, 2014.
+Jing Lei, Max G’Sell, Alessandro Rinaldo, Ryan J. Tibshirani, and Larry Wasserman. Distribution-free
+predictive inference for regression. Journal of the American Statistical Association, 113(523), 2018.
+Tuve L¨ofstr¨om, Henrik Bostr¨om, Henrik Linusson, and Ulf Johansson. Bias reduction through conditional
+conformal prediction. Intelligent Data Analysis, 19(6):1355–1375, 2015. doi: 10.3233/IDA-150786.
+Xavier Pennec. Intrinsic statistics on riemannian manifolds: Basic tools for geometric measurements. Jour-
+nal of Mathematical Imaging and Vision, 25(1), 2006.
+Aleksandr Podkopaev and Aaditya Ramdas. Distribution-free uncertainty quantification for classification
+under label shift. In Uncertainty in Artificial Intelligence (UAI), pages 844–853. PMLR, 2021.
+Alec Radford, Jong Wook Kim, Chris Hallacy, Aditya Ramesh, Gabriel Goh, Sandhini Agarwal, Girish
+Sastry, Amanda Askell, Pamela Mishkin, Jack Clark, Gretchen Krueger, and Ilya Sutskever. Learning
+transferable visual models from natural language supervision. In International Conference on Machine
+Learning (ICML). PMLR, 2021.
+Yaniv Romano, Matteo Sesia, and Emmanuel J. Cand`es. Classification with valid and adaptive coverage. In
+Advances in Neural Information Processing Systems (NeurIPS), 2020.
+Mauricio Sadinle, Jing Lei, and Larry Wasserman. Least ambiguous set-valued classifiers with bounded
+error levels. Journal of the American Statistical Association, 114(525), 2019.
+Amir Shahroudy, Jun Liu, Tian-Tsong Ng, and Gang Wang. NTU RGB+D: A large scale dataset for 3D
+human activity analysis. In IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2016.
+14
+Ryan J. Tibshirani, Rina Foygel Barber, Emmanuel J. Cand`es, and Aaditya Ramdas. Conformal prediction
+under covariate shift. In Advances in Neural Information Processing Systems (NeurIPS), 2019.
+Vladimir Vovk. Conditional validity of inductive conformal predictors. In Asian Conference on Machine
+Learning (ACML), pages 475–490. PMLR, 2012.
+Vladimir Vovk, David Lindsay, Ilia Nouretdinov, and Alex Gammerman. Mondrian confidence machine.
+On-line Compression Modelling Project (Working Paper) 4, Computer Learning Research Centre, Royal
+Holloway, University of London, 2003. URL http://alrw.net/old/04.pdf.
+Vladimir Vovk, Alexander Gammerman, and Glenn Shafer. Algorithmic Learning in a Random World.
+Springer, 2005.
+Jiang Wang, Xiaohan Nie, Yin Xia, Ying Wu, and Song-Chun Zhu. Cross-view action modeling, learning,
+and recognition. In IEEE Conference on Computer Vision and Pattern Recognition (CVPR), 2014.
+Sijie Yan, Yuanjun Xiong, and Dahua Lin. Spatial temporal graph convolutional networks for skeleton-based
+action recognition. In AAAI Conference on Artificial Intelligence, 2018.
+15
+4
+6
+8
+10
+12
+Mean prediction set size (smaller is better)
+0.70
+0.75
+0.80
+0.85
+0.90
+Worst class coverage
+nominal
+Split
+Source Mondrian
+Weighted
+Weighted class
+Oracle
+label free
+unlabeled target
+target labels
+Figure 2: The recovery frontier on the real NTU-60 cross subject skeleton benchmark. Each method is
+placed by its worst class coverage and its mean prediction set size. Source Mondrian lifts the worst class
+using source labels alone, at a small set size cost, and it holds marginal coverage on target. The weighted
+methods reach a higher worst class only by inflating sets and overcovering the marginal; Weighted class
+denotes the weighted class conditional combination. The target label oracle marks the ceiling near the
+nominal line.
+16
+Cross view
+(mild)
+Cross subject
+(moderate)
+Cross sensor
+(severe)
+0.0
+0.2
+0.4
+0.6
+0.8
+1.0
+Coverage
+marginal itself
+breaks
+marginal coverage
+worst class after label free recovery
+Figure 3: The severity spectrum across three real NTU based shifts. Marginal coverage holds under the
+mild and moderate shifts and then drops sharply under the severe one, while the worst class after label free
+recovery degrades and finally collapses. The shaded region marks where marginal coverage itself breaks
+and the evaluated label free methods no longer recover per class coverage.
+17
+Supplementary Material
+The Label Complexity of Class Conditional Coverage under Distribution Shift
+Abbreviations.
+SPD = symmetric positive definite; ST-GCN / CTR-GCN = the spatial temporal and chan-
+nel wise topology refined graph convolutional network backbones; LAC / APS / RAPS = the least ambiguous
+set valued classifier, adaptive prediction sets, and regularized APS nonconformity scores; OOD = out of dis-
+tribution; AUROC = area under the ROC curve; CRC = conformal risk control; PPI = prediction powered
+inference; CP = conformal prediction; LE = log Euclidean; xsub / xview = the NTU cross subject and cross
+view evaluation splits.
+S1
+Construction and proof of the impossibility proposition
+The main paper states the impossibility proposition (no valid and efficient label free per class coverage
+under joint shift); its construction and proof follow.
+Construction. Since s(·, c) is nonconstant on supp PT (X), fix disjoint regions B, A with
+PT (B) > 0,
+PT (A) = m > 0,
+inf
+x∈A s(x, c) ≥qB + δ,
+where qB is the (1−α)-quantile of s(X, c) on the class-c base population in B. Both laws place class c on
+B with mass µc > 0 chosen so that
+ε :=
+m
+m + µc
+> α.
+P ′
+T assigns the A-mass to Y =c, whereas PT assigns it to some c′̸ = c. Thus,
+q⋆
+c(P ′
+T ) ≥qB + δ,
+q⋆
+c(PT ) = qB.
+Both joints share PT (X) and are consistent with PS, since label free observables place no restriction on
+PT (Y | X); class c has positive mass under both. Validity under P ′
+T forces
+Pr[c ∈ˆC(X) | X ∈A] ≥ε −α
+ε
+.
+Under PT these inclusions are spurious, and deleting them preserves validity on PT (class c has no A-mass
+there) while cutting expected size by at least
+β = m(ε −α)
+ε
+.
+S2
+Proof of the label complexity theorem
+We prove the label complexity theorem (main paper): audit-Mondrian with m labeled target draws attains
+per class coverage with excess set size O(P
+c m−1/2
+c
+), and mc = Ω(ε−2) is necessary, a matching charac-
+terization whose m=0 corner is the impossibility proposition (§S1).
+18
+(a) Validity
+Condition on the audit counts (mc)c. The class-c audit scores {s( ˜Xj, c) : ˜Yj = c} are i.i.d. from the target
+class conditional score law F T
+c , and a fresh test point with Y ⋆= c has score s(X⋆, c) ∼F T
+c , exchangeable
+with them. The threshold ˆqc is the ⌈(mc+1)(1−α)⌉-th order statistic. Therefore, by the standard split
+conformal rank argument [Vovk et al., 2005, Lei et al., 2018],
+Pr
+T [s(X⋆, c) ≤ˆqc | Y ⋆=c] = ⌈(mc+1)(1−α)⌉
+mc+1
+∈
+
+1 −α, 1 −α +
+1
+mc + 1
+
+whenever mc ≥⌈1/α⌉−1 (else the index exceeds mc, ˆqc = +∞, and class c is always included). Atom-
+lessness of F T
+c (or random tie breaking) gives the exact upper edge. No assumption on PT (Y | X) enters:
+within class exchangeability of the audit scores holds by construction because they are drawn from PT itself.
+□
+(b) Efficiency
+We fix deterministic per class audit quotas (mc)c (so the DKW events are independent across c and the
+union bound is clean; a multinomial audit is handled by conditioning on its realized counts). Assume the
+following sufficient regularity (not necessary, a local H¨older or margin condition would give other rates):
+there is a radius r > 0 such that
+F T′
+c (t) ≥f0
+for all t ∈[q⋆
+c −r, q⋆
+c + r],
+Gc(t) =
+Pr
+PT (X)[s(X, c) ≤t]
+is L-Lipschitz on that neighborhood,
+and let q⋆
+c be the target oracle threshold (the (1−α)-quantile of F T
+c ).
+Write
+ϵc :=
+s
+log(2K/δ)
+2mc
+.
+By the Dvoretzky-Kiefer-Wolfowitz inequality,
+sup
+t
+| ˆFc(t) −F T
+c (t)| ≤ϵc
+for all c simultaneously with probability ≥1 −δ (union bound over the K fixed quotas), where ˆFc is the
+audit empirical CDF. The audit threshold ˆqc is the empirical quantile at level
+umc := ⌈(mc+1)(1−α)⌉
+mc
+= (1−α) + O(m−1
+c ),
+so
+|F T
+c (ˆqc) −(1 −α)| ≤ϵc + O(m−1
+c ).
+Provided ϵc + O(m−1
+c ) < f0r (i.e. mc past a constant threshold), ˆqc lies in the regularity neighborhood and
+the density lower bound inverts the CDF error into the quantile error:
+|ˆqc −q⋆
+c| ≤f−1
+0 (ϵc + O(m−1
+c )).
+The expected set size is
+EPT | ˆC(X)| =
+X
+c
+Gc(ˆqc).
+19
+By L-Lipschitzness, the positive excess over the oracle satisfies
+ Gc(ˆqc) −Gc(q⋆
+c)
+
++ ≤L |ˆqc −q⋆
+c|.
+Thus, summing gives excess over the oracle P
+c Gc(q⋆
+c) of at most
+L
+f0
+X
+c
+ ϵc + O(m−1
+c )
+
+= L
+f0
+X
+c
+s
+log(2K/δ)
+2mc
++ O
+ X
+c
+m−1
+c
+!
+.
+Hence mc = O(ε−2 log(K/δ)) per class bounds every class c term by a constant times ε, yielding per class
+ε-efficiency; the total excess over all K classes is then O(Kε), and the lower bounds in (c) and (d) are stated
+in the same per class sense.
+□
+High probability validity variant (used by the lower bounds). The event pair (Va, Ea) in (c) asks for
+realized class conditional coverage ≥1 −α together with O(ε) size excess, jointly with probability ≥3
+4.
+Audit Mondrian achieves this at the same rate by calibrating at the DKW inflated level
+u′
+mc = (1 −α) + ϵc.
+On the DKW event (probability ≥1 −δ),
+F T
+c (ˆqc) ≥u′
+mc −ϵc ≥1 −α,
+F T
+c (ˆqc) ≤u′
+mc + ϵc + O(m−1
+c ).
+Thus the realized coverage requirement holds, while the second inequality keeps the quantile within
+f−1
+0 (2ϵc + O(m−1
+c )) of the oracle and the class c size excess at O(ϵc). The upper and lower bounds
+therefore refer to the same validity and efficiency notion.
+(c) Necessity: a perturbative two point lower bound
+The m=0 construction moves an order one mass and separates quantiles by a constant, giving β = Ω(1);
+to obtain the ε−2 rate we instead tilt the conditional label law smoothly, so that an Θ(ε) objective gap costs
+only Θ(ε2) Hellinger per audit sample.
+Construction (a specific hard instance). We exhibit one shift instance, not a reduction from every non-
+constant score, which suffices for the existential necessity claim. Let X ∼Unif[0, 1] under PT (X) and take
+the score s(x, c) = x; fix the level α ∈(0, 1) and a base a0 ∈(0, 1) bounded away from 1. Define, for
+a ∈(0, 1),
+Pa(Y =c | X=x) = 1
+2 + a(1
+2 −x),
+Pa(Y =c) = 1
+2.
+On the complement put label c′̸ = c with score s(x, c′) = 1−x (so class c′’s valid oracle is also a threshold,
+blocking cross label size compensation; K > 2 below). The class-c score CDF is
+Fa(t) = Pa(X ≤t | Y =c) = t + a(t −t2),
+t ∈[0, 1].
+Compare Pa+ and Pa−with
+a± = a0 ± τ.
+Both share PT (X) = Unif[0, 1]; take the source sample law PS identical under both and modeled as un-
+constraining the target conditional (arbitrary label/concept shift is permitted), so the two target laws are
+20
+consistent with the same (PS, PT (X)) and indistinguishable from labeled source plus an unbounded unla-
+beled target pool.
+Objective gap is Θ(τ). The (1−α)-quantile q(a) solves
+q + a(q −q2) = 1 −α.
+Implicit differentiation gives
+q′(a) = −
+q −q2
+1 + a(1 −2q).
+Its denominator is positive and bounded away from 0 for α ∈(0, 1) fixed and a0 bounded away from 1 (so
+q ∈(0, 1)), giving
+∆:= |q(a+) −q(a−)| = Θ(τ).
+Size is a scalar estimator of q(a) (no stability lemma needed). Because pa(x) = 1
+2 + a(1
+2 −x) is de-
+creasing in x = s(x, c), the class-c conditional density ratio dPa(· | Y =c)/dPT (X) ∝pa(x) is decreasing,
+so by the Neyman-Pearson lemma any (randomized, set valued) rule whose realized acceptance region has
+class-c coverage ≥1 −α under the true law Pa has marginal size
+ˆs :=
+Pr
+PT (X)[c ∈ˆC(X)] ≥q(a).
+A lower level set of the decreasing ratio is size optimal: for a randomized ϕ ∈[0, 1],
+Z
+ϕ fa ≤
+Z ˆs
+0
+fa = Fa(ˆs),
+so coverage ≥1 −α forces ˆs ≥q(a). Let
+Va = {realized class-c coverage ≥1 −α}.
+On Va, validity ⇒ˆs ≥q(a) per realization. We take the (achievable, cf. (b)) high probability efficiency
+event
+Ea =
+
+ˆs ≤q(a) + ∆
+4
+
+,
+and call a rule ε-efficient/valid on Pa if Pa(Va ∩Ea) ≥3
+4. On Va ∩Ea then |ˆs−q(a)| ≤∆
+4 . Since q′(a) < 0
+gives q(a+) < q(a−) with q(a−) −q(a+) = ∆, the test
+declare a+ iff ˆs < q(a+) + q(a−)
+2
+errs only off Va ∩Ea, hence with probability ≤1
+4 under each of Pa+, Pa−. (If total expected set size is
+the efficiency metric rather than the class-c marginal ˆs: on the all label validity event {realized coverage ≥
+1 −α for every class} each label’s marginal inclusion size ˆsy ≥qy(a) by Neyman-Pearson, so P
+y ˆsy ≤
+P
+y qy(a) + ∆
+4 forces ˆsc ≤qc(a) + ∆
+4 , an Ω(∆) class-c excess cannot be offset by other labels.)
+Hellinger cost is Θ(τ 2). For a labeled audit pair, the only a-dependence is the Bernoulli label given
+X=x, with success probabilities p±(x) = 1
+2 + a±(1
+2 −x) differing by 2τ(1
+2 −x). As a0 + τ < 1 keeps p±
+bounded inside (0, 1),
+H2(Pa+, Pa−) = τ 2
+2 E
+h
+(1
+2 −X)2 1
+p0(X) +
+1
+1−p0(X)
+i
++ O(τ 4)
+= Θ(τ 2),
+21
+with p0(x) = 1
+2 + a0(1
+2 −x). The bound is uniform in x:
+H2 Bern(p+(x)), Bern(p−(x))
+
+≤Cτ 2.
+Thus the same tensorization holds even if audit points are queried adaptively from the unlabeled pool. (A
+localized order one perturbation would instead cost H2 = Θ(τ) and yield only m = Ω(1/τ); the smooth
+tilt over constant covariate mass is what buys ε−2.)
+Le Cam contradiction. Set τ ≍ε. For m i.i.d. audit pairs, tensorization gives
+H2 P ⊗m
+a+ , P ⊗m
+a−
+
+≤mH2(Pa+, Pa−)
+= O(mε2).
+Since TV ≤H, choosing c0 small makes
+TV
+ P ⊗m
+a+ , P ⊗m
+a−
+
+≤1
+4,
+m ≤c0
+ε2 .
+The source and the unlabeled pool are identical under both laws, so any procedure’s output, hence the scalar
+ˆs and the induced test, is a channel applied to the audit experiment. By the data processing inequality, the
+test’s combined (type-I + type-II) error satisfies
+combined error ≥1 −TV ≥3
+4,
+i.e. it errs ≥3
+8 on one law. This contradicts the “error ≤1
+4 on both laws” consequence of Pa(Va ∩Ea) ≥3
+4
+above. Hence for m ≤c0/ε2 no rule can have Pa(Va ∩Ea) ≥3
+4 on both laws: on at least one law, with
+probability ≥1
+4, it violates per class validity or has excess size > ∆
+4 = Ω(ε). This gives m = Ω(ε−2),
+matching (b) in ε up to the log K factor, closed in (d) below. Because Pa+, Pa−share PT (X) exactly, the
+unlabeled pool cannot improve the minimax rate.
+□
+General K. Embed the binary instance into K ≥2 classes. Take the complement score s(x, c′) = 1−x,
+so class c′’s Neyman-Pearson-optimal valid region is also a threshold at its own oracle, its size cannot be
+shrunk below the oracle minimum under validity, ruling out cross label compensation. For K > 2, allocate
+a fixed probability mass π0 > 0 to the classes outside {c, c′} independently of (X, a) (with a-independent
+scores), and rescale the {c, c′} construction to mass 1 −π0: the class-c conditional law, its score quantile,
+and the audit Hellinger are unchanged up to the constant 1−π0, and the other classes carry no a-dependence,
+so the lower bound is unaffected.
+(d) Simultaneous necessity: the log K lower bound
+Construction (K-region decoupling). Let
+X = (Z, U),
+Z ∼Unif{1, . . . , K} observed,
+U ∼Unif[0, 1] independent.
+The label is Y ∈{0, 1, . . . , K} (0 a background class). Given Z = c,
+P(Y =c | Z=c, u) = 1
+2 + ac(1
+2 −u),
+P(Y =0 | Z=c, u) = 1
+2 −ac(1
+2 −u),
+with ac ∈{+τ, −τ} chosen independently per class and τ = c1ε. The scores are
+s((z, u), c) =
+(
+u,
+z = c,
+M,
+z̸ = c,
+M > 1,
+s(·, 0) = M.
+22
+Source PS = the a=0 law, fixed for all hypotheses. Then
+PT (X) = Unif{1..K} × Unif[0, 1]
+is identical for every a, so neither the fixed source nor the unbounded unlabeled target pool (which only
+identifies PT (X)) carries any information about any ac; and P(Y =c) =
+1
+2K . Per class efficiency is the
+class c excess set size, the class c contribution to the expected size under PT (X), exactly the metric of parts
+(a) to (c); the class c score law is the law of s(X, c) conditional on Y = c, and under Y = c necessarily
+Z = c and U | Y =c has the linear tilt density
+fac(u) = 1 + 2ac(1
+2 −u),
+i.e. exactly the part-(c) class-c law, with
+∆c = 2α(1 −α)τ + O(τ 2) = Θ(ε),
+q′(0) = −α(1 −α).
+Fix c1 with 2α(1 −α)c1 > 4 so ε < ∆c/4. We state the bound for a stratified audit with preallocated per
+region counts nc (fixed by design); the i.i.d. audit reduces to this case by conditioning on the observed region
+counts, which are ancillary here: given the counts, the per region samples are independent draws from the
+corresponding conditional laws. Within region c the class conditional count #{Y =c} is Binomial(nc, 1
+2)
+and concentrates at nc/2, so per class and per region counts agree up to a constant factor with probability
+approaching one, and the rate below holds for either. The region-c audit data depend only on ac and different
+regions are independent (observed Z). Per audit sample the two hypotheses ac = ±τ differ only through
+the Bernoulli label, with
+η = τ 2
+6 + O(τ 4),
+c′τ 2 ≤η ≤C′τ 2.
+Reduction. By the part-(c) size as estimator argument applied under Y = c, on the event Ac = Vc ∩Ec
+(“valid and ε-efficient on class c”), the class-c size statistic obeys
+qc(ac) ≤ˆsc ≤qc(ac) + ∆c
+4 .
+Thus the decision
+ˆac = +τ iff ˆsc < 1
+2
+ qc(+τ) + qc(−τ)
+
+is correct on Ac. Consequently,
+{∀c : ˆac = ac} ⊇
+\
+c
+Ac,
+Pa(∀c : ˆac = ac) ≥3
+4
+for every a, where the second inequality follows from simultaneous validity+efficiency w.p. ≥3
+4.
+Bayes factorization. Under the uniform product prior (ac i.i.d. Unif{±τ}), worst case ≥
+3
+4 implies
+average ≥3
+4. Because the region data are independent and the prior is a product, the posterior factorizes and
+the Bayes-optimal exact vector estimator is coordinatewise MAP, with average all correct probability
+K
+Y
+c=1
+(1 −p⋆
+c),
+where p⋆
+c is the equal prior Bayes error of testing ac = ±τ from the nc region-c samples; no estimator beats
+this. Hence
+Y
+c
+(1 −p⋆
+c) ≥3
+4.
+23
+Testing bound. With affinity ρnc = (1 −η)nc,
+p⋆
+c = 1 −TV
+2
+≥1 −
+p
+1 −ρ2
+2
+≥ρ2
+4
+= 1
+4(1 −η)2nc
+≥1
+4e−4ηnc
+≥1
+4e−Cε2nc,
+for an absolute C, using η ≤C′τ 2 = Θ(ε2).
+Combine. By log(1 −x) ≤−x,
+Y
+c
+(1 −p⋆
+c) ≥3
+4 ⇒
+X
+c
+log(1 −p⋆
+c) ≥−log 4
+3
+⇒
+X
+c
+p⋆
+c ≤log 4
+3.
+Therefore,
+X
+c
+e−Cε2nc ≤4 log 4
+3 < 8/5.
+Extract log K. Minimizing
+X
+c
+nc =
+1
+Cε2
+X
+c
+log(1/yc)
+over yc = e−Cε2nc ∈(0, 1] with P
+c yc ≤A := 4 log 4
+3 is convex; the minimizer is yc = A/K, giving
+X
+c
+nc ≥K
+Cε2 log K
+A = Ω(Kε−2 log K)
+and average nc = Ω(ε−2 log K). If
+nc <
+1
+Cε2 log K
+2A,
+then yc > 2A/K, so fewer than K/2 classes can violate it: at least K/2 classes need nc = Ω(ε−2 log K);
+uniform budgets need n = Ω(ε−2 log K). With (b) this is tight: mc = Θ(ε−2 log K). Here nc denotes the
+per class audit budget (labeled target points in class c); the bound is stated for the preallocated count and,
+via the constant factor equivalence above, holds equally for the realized Y =c count.
+□
+Remark 3 (Scope of the assumptions). Validity (a) is exact and assumption free on PT (Y | X), needing
+only atomless scores (or randomized ties). Efficiency (b) uses sufficient (not necessary) regularity, a local
+density lower bound f0 near the quantile and local L-Lipschitz score marginal, to convert threshold error
+into set size excess. The lower bound (c) is an existential statement about a specific hard instance; it binds
+arbitrary randomized set valued rules, since the argument controls only the scalar set size ˆs (lower bounded
+by the Neyman-Pearson oracle under validity), not the rule’s shape.
+24
+S3
+Joint accept and err risk control (negative control support)
+The CRC guarantee applies to the margin abstention negative control (main paper, method section). It
+controls a marginal joint risk, not per class conditional coverage, which is precisely why margin abstention
+leaves per class undercoverage unresolved. The CRC threshold requires a labeled target pool, so this result
+does not contribute a deployable method.
+Proposition S1 (CRC joint risk control). Let {(xi, yi)}n
+i=1 be a labeled target calibration sample exchange-
+able with a test point (x⋆, y⋆). Define the threshold indexed per point loss
+Li(t) = 1{smar(xi) < t} · 1{yi /∈ˆC(xi)}
+(accept and err: monotone non decreasing in t). Let ˆt be the largest threshold satisfying
+n bRn(ˆt) + B
+n + 1
+≤δ,
+bRn(t) = 1
+n
+n
+X
+i=1
+Li(t),
+(1)
+with B=1 and δ=α. Then E[L(ˆt)] ≤α on a fresh exchangeable test point.
+This is the Conformal Risk Control guarantee of Angelopoulos et al. [2024]. The guarantee is on a joint
+marginal risk: it does not provide per class conditional coverage, and it requires target labels for threshold
+selection. Margin abstention is therefore a diagnostic negative control, not a deployable method.
+S4
+The LE chart is isometric
+Lemma S1 (Isometric vectorization). The map
+Φ(X) = vech√
+2(LogX)
+from (SPD(d), dLE) to (Rd(d+1)/2, ∥· ∥2) is an isometry:
+∥Φ(X) −Φ(Y )∥2 = ∥LogX −LogY ∥F = dLE(X, Y ).
+Consequently: (i) the min distance signal sood and geodesic margin smar computed from Φ equal their
+log Euclidean manifold counterparts exactly; (ii) all backbone computations (nearest mean softmax, tan-
+gent logistic, density ratio discriminator) operate in the isometric LE chart without additional geometric
+approximation.
+The
+√
+2 weighting on off diagonal entries makes the half vectorization norm preserving on symmetric ma-
+trices; the result follows from dLE(X, Y ) = ∥LogX −LogY ∥F .
+Corollary S1 (Inherited invariances, and their limits). Because dLE is invariant under congruence by an
+orthogonal matrix (X 7→OXO⊤, O ∈O(d)) and under inversion (X 7→X−1), all abstention signals
+inherit these invariances. They are not invariant under the full GL(d) congruence action, that is the affine
+invariant metric (AIRM). A fully affine invariant variant is future work.
+S5
+Method and calibration details
+This section collects the formal definitions, constants, and formulas underlying the four calibration methods
+of the main paper’s method section.
+25
+SPD descriptors and backbone configurations.
+Each input sequence is summarized by an SPD descrip-
+tor φ(x) ∈SPD(d), the temporal covariance of joint coordinates and velocities. The three backbone con-
+figurations are: (i) nearest mean, raw skeleton SPD descriptors (d=150) classified by a log Euclidean
+nearest class mean rule (softmax over negative geodesic distances to class Karcher means; formula below);
+(ii) tangent logistic, raw skeleton SPD (d=150) classified by a tangent space logistic classifier; (iii) ST-
+GCN features, per frame ST-GCN features [Yan et al., 2018] summarized into a temporal covariance SPD
+descriptor (d=64) classified by the same tangent space logistic classifier. The ST-GCN-feature configuration
+is run in two training regimes, a 40-epoch and an 80-epoch regime; the resulting worst class coverage across
+all four backbone rows appears in Table S1 (Section S6).
+Source data is partitioned into disjoint scorer training and calibration subsets: the backbone classifier
+(class means or logistic weights) is fit on the former, and conformal quantiles are estimated on the latter, at
+a per class calibration count of approximately 334 on NTU-60 cross subject. All four calibration methods
+share this backbone and calibration pool.
+Karcher means and the isometric vectorization.
+For each class c, the log Euclidean Karcher mean is
+Mc = Exp
+
+1
+|Sc|
+X
+i∈Sc
+Logφ(xi)
+
+,
+computed on the scorer training subset. The LE vectorization Φ(X) = vech√
+2(LogX), a half vectorization
+that scales off diagonal entries by
+√
+2, is an isometry: its Euclidean norm equals the Frobenius norm of
+LogX (Lemma S1, Section S4), so all backbone computations live in an isometric copy of the LE manifold.
+The LAC nonconformity score.
+All four calibration methods use the LAC nonconformity score [Sadinle
+et al., 2019]: s(x, c) = 1 −ˆp(c | x), where ˆp(· | x) is the backbone’s class probability output. For the
+nearest mean configuration,
+ˆp(c | x) =
+exp(−dLE(φ(x), Mc)/τ)
+P
+c′ exp(−dLE(φ(x), Mc′)/τ),
+τ=0.5,
+so geodesic distance enters indirectly through the softmax; for the tangent logistic configuration, ˆp is the
+logistic classifier output on Φ(φ(x)).
+Source Mondrian per class quantile.
+For each class c,
+ˆqc = the ⌈(nc + 1)(1 −α)⌉-th smallest element of {s(xi, c) : yi = c, i = 1, . . . , n},
+(2)
+where nc = |{i : yi = c}| is the per class calibration count (approximately 334 per class on NTU-60
+cross subject), ˆqc = +∞whenever the index ⌈(nc + 1)(1 −α)⌉exceeds nc, and the prediction set is
+ˆC(x) = {c : s(x, c) ≤ˆqc}. At this nc, the finite sample correction 1/(nc + 1) ≈0.003 is negligible.
+Weighted conformal quantile.
+The marginal weighted quantile, using a +1 notional test atom, is
+Q1−α
+ {si}, {wi}
+
+= inf
+n
+q :
+P
+i: si≤q wi
+P
+j wj+1
+≥1 −α
+o
+.
+(3)
+The exact per test point variant [Tibshirani et al., 2019] normalizes the calibration weights in Equation (3)
+by w(x⋆) for each test point x⋆; the test point itself contributes the notional unit atom, placed at +∞, so it
+enters the denominator of Equation (3) but never the numerator at a finite threshold. We report this exact
+26
+variant throughout; the marginal single threshold variant fails to recover coverage on our controlled synthetic
+study (0.704/0.729; Table S9, Section S12).
+A weighted class conditional variant combines density ratio weights and per class quantiles: for each
+class c it computes the marginal weighted quantile of Equation (3) over the class c calibration scores
+{s(xi, c) : yi = c} with weights w(xi) (one threshold per class, without the per test point normalization), in
+place of the unweighted order statistic of Equation (2).
+The density ratio discriminator.
+Importance weights w(x) ≈ptarget(x)/psource(x) are SPD-derived.
+We fit an ℓ2-regularized logistic discriminator (C=1, balanced classes) on Φ-vectorized features to separate
+source from target; the resulting ratio w(x) = p(target | x)/p(source | x) is clipped to [0, 20], fit on a
+disjoint pool, and applied out of sample.
+Margin-abstention signals.
+We study two geometric per sample abstention signals: the min distance
+OOD signal sood(x) = minc dg(φ(x), Mc) and the geodesic margin smar(x) = dg(φ(x), M(1)) −
+dg(φ(x), M(2)) ≤0, where M(1), M(2) are the two nearest class manifolds and geodesic distances are
+computed via Φ (Lemma S1, Section S4). The signed margin is nonpositive: strongly negative values
+mean a confidently nearest class, values near zero mean ambiguity, and prose statements such as “large
+margin” refer to its magnitude |smar(x)|. The margin signal is thresholded by Conformal Risk Control
+(Proposition S1, Section S3), which requires a labeled target calibration pool.
+S6
+Backbone-strength sweep
+Important caveat.
+The sweep varies both SPD representation and classifier together; it is not a controlled
+single variable ablation. The three backbone configurations are: nearest class mean on raw skeleton SPD;
+tangent logistic on raw skeleton SPD; and tangent logistic on ST-GCN-feature SPD. The ST-GCN-feature
+configuration is run in two training regimes (40-epoch and 80-epoch), giving four rows in Table S1.
+Finding.
+As the combined representation+classifier becomes more discriminative (target accuracy from
+∼chance to 0.73 on the GCN head), prediction sets tighten (≈27 →3.85 of 60 classes; Figure S1). Source
+Mondrian reduces per class undercoverage at all tested levels and is the only near nominal marginal, label
+free recoverer throughout.
+Figure S2 shows worst class coverage and the share of severely undercovered classes, per method, for
+the main paper recovery experiment on the strongest (ST-GCN 80-epoch) backbone; the set sizes appear in
+the recovery table.
+S7
+Stronger-backbone check (CTR-GCN)
+To confirm that the collapse and recovery pattern is not tied to ST-GCN, we repeat it with a stronger feature
+extractor, a channel wise topology refinement GCN [Chen et al., 2021], trained on the same NTU-60 cross
+subject split (head top-1 0.767, above ST-GCN’s 0.727; tangent space conformal backbone top-1 0.675,
+above ST-GCN’s 0.627). This is a single joint stream network, still below strong four stream ensembles
+(≈0.92); the point is that the finding persists as accuracy rises, not a peak accuracy claim.
+The finding reproduces on the SPD pipeline.
+Feeding CTR-GCN features through the same tangent
+space SPD conformal pipeline (Table S2), split CP again collapses per class (0.673 worst) at near nominal
+marginal (0.881), and label free source Mondrian again recovers it (0.725, +0.052) while holding marginal
+27
+Table S1: [Real data, NTU-60 cross subject] Backbone sweep: worst class per class coverage. Repre-
+sentation and classifier vary jointly (not a single variable ablation). Bold: highest non oracle worst class
+coverage per backbone row.
+†GCN head accuracy; conformal backbone uses tangent logistic on SPD.
+‡Tangent-logistic on raw SPD. ◦Threshold requires labeled target pool. Set sizes approximate for near-
+est mean and tangent rows (split CP only measured). α=0.10.
+Backbone
+split
+source-CC
+weighted
+wCC
+abstention◦
+oracle
+Nearest-mean (raw SPD)
+0.682
+0.690
+0.711
+0.698
+0.687@92%
+0.888
+sets (split / source-CC)
+≈27 / n/a
+Tangent-logistic (raw SPD‡, top-1≈0.36)
+0.720
+0.824
+0.723
+0.814
+0.722
+0.876
+sets (split / source-CC)
+≈18 / n/a
+ST-GCN 40-epoch (GCN† 0.635)
+0.693
+0.798
+0.717
+0.605
+0.681@90%
+0.885
+sets (split / source-CC)
+5.11 / 7.87
+ST-GCN 80-epoch (GCN† 0.727)
+0.699
+0.772
+0.803
+0.809
+0.700@91%
+0.898
+sets (split / source-CC)
+3.85 / 4.77
+Table S2: [Real data, NTU-60 cross subject, CTR-GCN features] Recovery on a stronger backbone.
+Tangent-space conformal backbone on CTR-GCN-feature SPD (conformal top-1 0.675). α=0.10, 10 seeds,
+60 classes. ◦Threshold requires a labeled target pool. ∗Oracle needs target labels (ceiling).
+Method
+Marg. cov.
+Worst-class
+%<0.85
+%<0.80
+Mean size
+Split CP (baseline)
+0.881
+0.673
+32%
+20%
+2.98
+Source Mondrian (ours, label free)
+0.881
+0.725
+18%
+3%
+3.79
+Weighted CP
+0.910
+0.735
+20%
+13%
+4.01
+Weighted class conditional
+0.898
+0.735
+13%
+3%
+6.76
+Margin abstention◦(89% acc.)
+0.892
+0.681
+30%
+20%
+2.82
+Target-oracle class cond. ∗
+0.908
+0.899
+0%
+0%
+4.51
+coverage on target: the identical qualitative pattern to the ST-GCN rows, at a higher accuracy backbone.
+Weighted CP again buys worst class only by marginal over coverage.
+The collapse persists across backbones and heads.
+Conformalizing CTR-GCN’s own softmax head
+directly (LAC on its class probabilities, the deployable single model recommendation) tells the same story:
+per class coverage collapses to 0.558 worst under split CP at α=0.10 and source Mondrian recovers it to
+0.677 label free (and at α=0.01, split worst 0.895 →Mondrian 0.932). The mechanism is visible in the
+intrinsically confusable NTU actions, reading, writing, play with phone, type on keyboard, which stay at
+42 to 56 percent per class accuracy even for strong skeleton models because they share near identical pose.
+Table S3 shows these classes remain badly under covered by split CP even at 0.767 head accuracy, and
+source Mondrian lifts each label free. The residual collapse thus persists across the tested backbones and
+heads, consistent with data intrinsic class heterogeneity that a stronger backbone does not remove and that
+class conditional calibration addresses directly.
+S8
+Generality beyond skeletons (CIFAR-100 under corruption shift)
+The collapse and recovery is not specific to skeleton data. We reproduce it on a completely different modal-
+ity, backbone, and shift type: natural images (CIFAR-100, 100 classes), a CLIP ViT-L/14 zero shot
+classifier [Radford et al., 2021] (no task training; one text classifier scores both domains), and a corruption
+28
+Nearest-mean
+Tangent
+acc≈0.36
+ST-GCN 40ep
+acc≈0.64
+ST-GCN 80ep
+acc≈0.73
+0.70
+0.75
+0.80
+0.85
+0.90
+Worst-class coverage
+nominal 0.90
+A  Worst-class coverage
+Nearest-mean
+Tangent
+acc≈0.36
+ST-GCN 40ep
+acc≈0.64
+ST-GCN 80ep
+acc≈0.73
+3
+5
+10
+20
+30
+Mean set size (of 60)
+27.0
+18.0
+5.1
+3.9
+7.87
+4.77
+n/a
+n/a
+B  Mean prediction-set size (log scale)
+Split-CP
+Source Mondrian
+Weighted-CP
+Oracle (ceiling)
+Figure S1: [Real data, NTU-60 cross subject] Backbone sweep. Worst-class per class coverage by method
+(Table S1). Representation and classifier vary jointly.
+Table S3: [Real data, NTU-60 cross subject, CTR-GCN head] Hard-class slice. Per class target coverage
+for the four intrinsically confusable NTU actions, conformalizing CTR-GCN’s own softmax head (top-1
+0.767). α=0.10, 10 seeds. Split CP undercovers them even at high accuracy; source Mondrian recovers
+each label free.
+Hard class
+Split CP
+Source Mondrian
+Oracle
+reading
+0.558
+0.821
+0.908
+writing
+0.732
+0.846
+0.907
+play with phone
+0.719
+0.835
+0.915
+type on keyboard
+0.808
+0.885
+0.914
+shift (Gaussian noise, source = clean, target = corrupted). Source Mondrian calibrates on source labels only;
+target labels are used for evaluation only, the same label free-on target protocol as our skeleton experiments.
+The pattern is identical to NTU-60 (Table S4): split CP holds near nominal marginal coverage (0.916)
+while per class coverage collapses (worst class 0.601; 8% of classes below 0.80), and label free source
+Mondrian recovers it (worst class 0.601 →0.784, severely undercovered classes 8% →2%) while keeping
+marginal coverage on target (0.910) and a modest set size cost (+1.05). The recovery holds across the
+coverage regime: worst class 0.387 →0.671 at α=0.10 and 0.910 →0.954 at α=0.01. That the same
+marginal holds/per class collapses/label free-Mondrian-recovers structure appears on images with a vision
+language backbone, far from skeletons and SPD geometry, indicates the phenomenon is a property of class
+heterogeneous deployment shift in conformal prediction, not of the application.
+S9
+Pseudo-label efficiency ceiling: prediction powered per class calibration
+Setup.
+The label complexity theorem (main paper) is a minimax statement: it treats a labeled audit set as
+the only source of information about PT (Y | X) and shows unlabeled target data cannot improve the rate
+at which it recovers per class coverage. In practice, however, the classifier under evaluation also supplies
+free pseudo labels on the unlabeled target pool, and PPI [Angelopoulos et al., 2023] is designed to exploit
+29
+Split-CP
+Source
+Mondrian
+Weighted
+CP
+Weighted
+CC
+Margin
+abst.
+Oracle
+(ceiling)
+0.70
+0.75
+0.80
+0.85
+0.90
+0.95
+Worst-class coverage
+0.699
+0.772
+0.803
+over-covers
+0.809
+over-covers
+0.700
+nominal 0.90
+A  Worst-class per-class coverage
+0.898
+Split-CP
+Source
+Mondrian
+Weighted
+CP
+Weighted
+CC
+Margin
+abst.
+Oracle
+(ceiling)
+0.0
+2.5
+5.0
+7.5
+10.0
+12.5
+15.0
+17.5
+20.0
+% classes below 0.80
+17%
+2%
+0%
+0%
+13%
+0%
+B  Severely-undercovered classes
+Per-class coverage recovery  (NTU-60 xsub, REAL)
+Figure S2: [Real data, NTU-60 cross subject] Worst-class coverage (left) and the percentage of classes
+below 0.80 coverage (right), by method (main paper recovery table). Source Mondrian is the efficient,
+near nominal marginal recoverer.
+Table S4: [CIFAR-100, CLIP ViT-L/14 zero shot, corruption shift] Generality check. Source = clean,
+target = Gaussian-corrupted (target top-1 0.651). α=0.05 (nominal 0.95), 10 seeds, 100 classes. Same
+collapse and recovery as the skeleton experiments, on a different modality and backbone. ∗Oracle needs
+target labels (ceiling).
+Method
+Marg. cov.
+Worst-class
+%<0.85
+%<0.80
+Mean size
+Split CP (baseline)
+0.916
+0.601
+17%
+8%
+5.73
+Source Mondrian (ours, label free)
+0.910
+0.784
+10%
+2%
+6.78
+Target-oracle class cond. ∗
+0.964
+0.931
+0%
+0%
+12.41
+exactly this kind of correlated, cheap surrogate to debias an estimate using a small number of true labels.
+We test PPI as an alternative to Audit-Mondrian (main paper, label complexity section) for estimating the
+per class conformal quantile q⋆
+c at a fixed total labeled budget M split across classes, on two of the real
+backbone/dataset pairs used elsewhere in this supplement: NTU-60 cross subject with a CTR-GCN softmax
+head [Chen et al., 2021] (Section S7), and CIFAR-100 under corruption shift with CLIP zero shot [Radford
+et al., 2021] (Section S8).
+Naive vs. PPI audit at matched budget.
+The naive audit uses only the mc true labels per class (Audit-
+Mondrian). The PPI audit additionally uses the unlabeled pseudo labelled pool: it forms the per class
+quantile estimate as the naive audit estimate minus λ times (the pseudo label estimate on the audit indices
+minus the pseudo label estimate on the full unlabeled pool), for a tuning parameter λ, with λ=1 the standard,
+untuned, deployable choice [Angelopoulos et al., 2023]. We validate every configuration with a two layer
+guard: (i) an aggregate check, does the resulting worst class / %<0.80 summary get worse, and (ii) a same
+class check, does PPI newly break per class validity on a class the naive audit kept valid at the identical
+budget. Both layers flag harm below.
+30
+Table S5: Real data. Oracle 2-D PPI++ label efficiency ceiling, per dataset. Best case: oracle λ, infinite
+unlabeled pool, true target quantile; not a deployable estimator. “Collapsing” classes are those with split CP
+per class coverage < 0.80. α=0.10.
+Metric
+NTU-60 CTR-GCN
+CIFAR-100-C / CLIP
+K (classes)
+60
+100
+¯ρ (mean pseudo label disagreement)
+0.235
+0.734
+All classes: median gain
+1.07×
+1.01×
+All classes: max gain
+3.36×
+1.06×
+All classes: % gain ≥3×
+2%
+0%
+Spearman(gain, 1−ρ), all classes
+0.96
+0.79
+Collapsing classes: n
+8
+97
+Collapsing classes: median gain
+1.05×
+1.01×
+Collapsing classes: max gain
+1.08×
+1.06×
+The untuned estimator harms.
+At every labeled budget we test, λ=1 PPI is worse than the naive audit
+alone. On NTU-60 CTR-GCN, at total budget M=300 the worst decile per class coverage (the mean over
+the lowest ten percent of per class coverages, denoted cvar10) is 0.477 for PPI vs. 0.739 for naive; PPI
+newly breaks per class validity (undoes coverage the naive audit had achieved) on 39 classes (4 of them the
+intrinsically hard classes of Table S3) at M=300, and still on 15 classes (2 hard) at M=600. The measured
+per class quantile variance reduction ratio (median over classes, naive audit variance over PPI variance) is
+0.44× on NTU-60, i.e. PPI increases variance rather than reducing it, with Spearman correlation between
+this (harmful) ratio and classifier accuracy 1−ρ of 0.82. On CIFAR-100-C/CLIP the same pattern holds:
+variance ratio 0.47×, Spearman −0.59, and PPI breaks per class validity at every budget we test, up to
+M=4000. Both failures are caught by our validity guard before any downstream use, this is why we do not
+recommend λ=1 PPI as a method, and why we instead ask what the best possible tuning could achieve.
+The oracle ceiling: is the harm fixable by tuning λ?
+The λ=1 harm could in principle be a tuning
+artifact rather than a structural limit. We therefore compute the best case directly: the oracle 2-D PPI++
+label efficiency gain is gain = 1/(1 −R2), where R2 is the squared multiple correlation of the naive
+per class quantile influence function with the 2-D span of pseudo label control variates (the pseudo label
+indicator 1{ˆy = c} and the thresholded interaction 1{s(X, c) ≤q⋆
+c, ˆy = c}), evaluated at the oracle
+optimal λ, an unbounded unlabeled pool, and the true target quantile. This is the standard PPI++ efficiency
+identity [Angelopoulos et al., 2023] specialized to a scalar per class quantile target; gain ≥1 always, with
+equality when the pseudo label carries no information (R2 →0). Because it assumes oracle tuning, an
+infinite unlabeled pool, and the (unknown, in deployment) true quantile, it is an asymptotic best case for this
+control span; a finite sample, tunable-λ estimator should not be expected to systematically exceed it, so the
+reported ceiling is, if anything, favorable to PPI, making the negative reading below conservative rather than
+overstated. We certify every reported number: 0 classes are non finite or skipped, and gainmulti ≥gainscalar
+holds for every class on both datasets (Table S5).
+Mechanism.
+On both datasets, gain tracks classifier accuracy closely (Table S5): the pseudo label is a
+more informative control variate exactly where the classifier already agrees with the truth. Shift breaks this
+precisely on the classes whose per class coverage collapses, it decorrelates the pseudo label from the ground
+truth on those classes, so the 2-D control span the estimator relies on carries almost no signal (R2 →0)
+where efficiency is needed most; the harder shifted CIFAR-100-C/CLIP setting has both a higher mean
+disagreement (¯ρ=0.734 vs. 0.235) and a uniformly lower ceiling than NTU-60. The intrinsically confusable
+31
+Table S6: [Real data, NTU-60 cross subject] α-sweep, worst class per class coverage. Same cache and
+protocol as the main paper recovery table; mean over 10 seeds, 60 classes. ∗Oracle calibrates on target labels
+(not deployable; the ceiling).
+α
+Nominal
+Split CP
+Source-CC
+Weighted CP
+wCC
+Oracle∗
+0.05
+0.95
+0.824
+0.840
+0.913
+0.857
+0.949
+0.10
+0.90
+0.699
+0.772
+0.803
+0.809
+0.898
+0.15
+0.85
+0.544
+0.706
+0.687
+0.740
+0.843
+0.20
+0.80
+0.427
+0.662
+0.537
+0.708
+0.792
+NTU actions (Table S3) illustrate this at the individual class level: reading (ρ=0.71) and writing (ρ=0.68)
+cap at 1.01×; play with phone (ρ=0.45) and type on keyboard (ρ=0.41) at 1.03×.
+Reading.
+Two independent lines of evidence agree: the untuned, deployable PPI estimator actively harms,
+and the idealized, non deployable oracle ceiling shows this is not fixable by better tuning, on the classes
+where per class coverage collapses, no amount of λ-tuning or pool size manufactures efficiency the pseudo
+label does not carry. The result is an empirical measurement complementing, not superseding, the label
+complexity theorem (main paper): the theorem shows unlabeled data cannot help in the worst case over all
+consistent target laws; this experiment shows that, on two real shifts and two modalities, the single most
+favorable use of unlabeled data available in practice, the classifier’s own pseudo labels, does not help either,
+exactly where it would matter.
+S10
+Coverage-level (α) sweep
+To test whether the per class collapse is an artifact of the single operating point α=0.10, we sweep α ∈
+{0.05, 0.10, 0.15, 0.20} on the same NTU-60 xsub ST-GCN (full) cache, no retraining, 10 seeds. Table S6
+reports worst class per class coverage.
+Finding.
+The collapse is not specific to α=0.10: the split CP worst class to nominal gap grows mono-
+tonically from 0.13 (α=0.05) to 0.37 (α=0.20). Label free source Mondrian raises the worst class at every
+level, by +0.02, +0.07, +0.16, +0.24 as α increases, i.e. by more where the collapse is more severe, while
+its marginal coverage tracks split CP’s (both slightly below nominal: source 0.939/0.881/0.826/0.773
+across the four levels). Weighted CP reaches higher worst class but only through marginal over coverage
+throughout (marginal 0.975/0.928/0.876/0.822 vs. nominal). The headline pattern is thus robust across the
+coverage regime.
+S11
+Cross-dataset shift (NTU →N-UCLA): full method breakdown
+The main paper summarizes this cross sensor result; the full six method breakdown is in Table S7.
+The geometry aware candidate’s diagnostic.
+The main text notes that a geometry aware label free can-
+didate, which reweights per class quantiles by log Euclidean geodesic proximity to the target class means,
+also undercovers on this shift. The diagnostic behind that failure is as follows. Its importance weights keep
+an effective sample size of at least 68 percent of the calibration points on every class, so the reweighting
+itself is well behaved. Even so, its reweighted per class source quantiles, which range from 0.01 to 0.82
+32
+Table S7: [Real data, NTU-60 →N-UCLA cross dataset] Recovery under a cross sensor shift. α=0.10,
+10 seeds, five shared classes, target top-1 0.598. ∗Oracle needs target labels (ceiling). †Margin abstention’s
+CRC threshold also needs a labeled target pool.
+Method
+Marg. cov.
+Worst-class
+Mean size
+Split CP (baseline)
+0.501
+0.000
+0.72
+Source Mondrian (ours, label free)
+0.495
+0.001
+0.75
+Weighted CP
+0.968
+0.837
+4.57
+Weighted class conditional
+0.864
+0.750
+3.55
+Margin abstention†
+0.358
+0.000
+0.59
+Target-oracle class cond. ∗
+0.914
+0.909
+2.49
+across classes, fall short of every target class threshold, which ranges from 0.78 to 1.00, by amounts be-
+tween 0.18 and 0.97. Source true class scores are concentrated too low relative to the target, the support gap
+the impossibility result rests on.
+S12
+Synthetic Controlled Study: Full Details
+All numbers and figures in this appendix are from a controlled synthetic SPD shift. They are mechanism
+illustrations only and should not be read as real data evidence.
+The synthetic study uses a class conditional SPD generator: K=5 classes, 250 descriptors per class,
+d=6, in a graded regime (within class spread = shift strength = 0.3). We fix α=0.10 and report two
+disjoint seed ranges (primary 0–9, held out 100–109) as mean±std. No hyperparameter is tuned to the
+outcome.
+H1: Split CP undercovers (SYNTHETIC)
+A source calibrated split CP threshold holds at nominal in distribution (source coverage 0.896/0.907) but
+undercovers the shifted target, dropping to 0.735/0.791 (Figure S4, Table S9). The shift is detectable, min
+distance AUROC 0.900/0.884, yet detectability does not buy safety: at 50% acceptance, selective cover-
+age is only 0.757/0.825, below nominal. This is the “high OOD-AUROC̸ = safe selective classification”
+phenomenon [Khanal and Zhou, 2026] reproduced under a coverage lens.
+H2: Geodesic score tightens in distribution sets (SYNTHETIC)
+For reference: a geodesic nonconformity score s(x, c) = dLE(φ(x), Mc) (different from the LAC score used
+in the main results) yields tighter in distribution prediction sets than a Euclidean prototype score: 1.54/1.52
+classes vs. 3.83/3.75 at matched ≈0.90 coverage, that is 2.29/2.23 classes smaller (Figure S3, Table S8).
+The geodesic score gives sets 0.52 classes larger than LAC (1.00/1.02), which exploits softmax sharpness
+on this low temperature backbone, a different mechanism. This result supports geodesic geometry for SPD
+but is not load bearing.
+H3: Weighted CP restores marginal coverage, at a cost (SYNTHETIC)
+Weighted exact CP restores marginal target coverage from 0.735/0.791 to 0.956/0.944 but inflates sets
+≈4× (Table S9, Figure S4). The marginal recipe does not recover (0.704/0.729). This illustrates why, on
+the real benchmark, weighted CP recovers marginal but not per class coverage efficiently.
+33
+Table S8: Synthetic study. H2: mean prediction set size at ≈0.90 coverage, 5 classes (lower is better).
+Mean±std over seeds 0–9 / 100–109. Coverage in brackets. Synthetic setting: K=5, 250/class, d=6, in
+distribution (shift strength 0).
+Score
+Size (seeds 0–9)
+Size (seeds 100–109)
+Geodesic
+1.54±0.12 [0.90]
+1.52±0.07 [0.91]
+Euclidean prototype
+3.83±0.19 [0.92]
+3.75±0.18 [0.91]
+LAC
+1.00±0.04 [0.90]
+1.02±0.06 [0.91]
+APS (non-rand.)
+2.70±0.12 [1.00]
+2.72±0.16 [1.00]
+RAPS (non-rand.)
+2.65±0.09 [1.00]
+2.64±0.12 [1.00]
+Figure S3: Synthetic study. H2: geodesic vs. flat nonconformity scores, in distribution. Geodesic sets
+are 2.29 classes smaller than the Euclidean prototype; LAC (smallest, using softmax sharpness) is 0.52
+classes smaller than geodesic. Seeds 0–9 solid, 100–109 hatched. Synthetic setting: K=5, d=6, shift 0.
+Table S9: Synthetic study. H1/H3 coverage and size under shift (nominal 0.90). Source split CP holds in
+distribution; target split CP undercovers; weighted exact restores marginal coverage but inflates sets ≈4×.
+Mean over seeds 0–9 / 100–109. Synthetic setting: K=5, 250/class, d=6, shift 0.3.
+Method
+Target coverage
+Mean size
+Source split CP (in distribution)
+0.896 / 0.907
+–
+Target split CP (H1)
+0.735 / 0.791
+0.86 / 0.90
+Weighted marginal
+0.704 / 0.729
+0.86 / 0.84
+Weighted exact (H3)
+0.956 / 0.944
+3.63 / 3.80
+34
+Figure S4: Synthetic study. H1/H3 marginal coverage recovery. Split CP undercovers target; weighted
+exact restores nominal. Solid = seeds 0–9, hatched = 100–109. Synthetic setting: K=5, d=6, shift 0.3.
+35
+Figure S5: Synthetic study. Margin abstention pipeline. (A) Under synthetic congruence shift, a point
+inside a class manifold has a large margin magnitude (accept); an ambiguous point has margin →0 (abstain).
+Miscovered points look in support to OOD min distance but ambiguous to the margin, the OOD-AUROC
+trap. (B) Pipeline: geodesic distances to class means yield the two signals. Synthetic setting: K=5, shift
+0.3.
+H4: Margin abstention, negative control (SYNTHETIC)
+H4 is a negative control: even given a labeled target pool to calibrate the abstention threshold, margin
+abstention does not address per class undercoverage.
+The signal dichotomy on the synthetic shift.
+Figure S5 illustrates the mechanism. The min distance
+OOD score has high source versus target AUROC (0.898/0.881) but miscoverage AUROC of only
+0.549/0.574, it ranks distributional outliers, not miscovered points. The geodesic margin has low source
+versus target AUROC (0.576/0.593) but miscoverage AUROC 0.895/0.894:
+on this synthetic shift,
+miscovered points are pushed toward the wrong class mean (small min distance) but look ambiguous (small
+margin), so the margin ranks miscovered points better (Figure S6).
+The CRC operating point (requires labeled target pool).
+Setting the threshold by CRC (1) (using a
+labeled target pool) accepts 75%/82% of points, at conditional accepted coverage 0.869/0.885 (< nomi-
+nal; only the joint marginal risk is controlled, not conditional coverage) and accepted set size 0.948/0.961
+, 3.82 × /3.96× tighter than weighted exact’s 3.63/3.80 (Table S10; Figures S8, S7). Joint risk mean
+0.097/0.095 ≤α+0.01, per seed max 0.130/0.125 (only the mean is guaranteed).
+Synthetic H4 limitations.
+The geodesic margin’s miscoverage AUROC (0.89) is comparable to, not
+above, a softmax confidence baseline (0.95), its value is being geometry aware, not beating softmax. The
+OOD-trap / margin contrast is shown on one synthetic shift family; class specific shifts and real backbones
+are untested. On the real NTU-60 benchmark, margin abstention does not reduce per class undercoverage
+even with this favorable synthetic shift mechanism operating (main paper recovery table).
+36
+Table S10: Synthetic study. H4: signal diagnostics and CRC operating point (seeds 0–9 / 100–109).
+CRC threshold calibrated on a labeled target pool; not deployable without target labels. Synthetic setting:
+K=5, d=6, shift 0.3.
+Quantity
+min distance (OOD)
+geodesic margin
+source versus target AUROC
+0.898 / 0.881
+0.576 / 0.593
+miscoverage AUROC
+0.549 / 0.574
+0.895 / 0.894
+softmax (1−max prob.) miscoverage AUROC: 0.947 / 0.960
+CRC point (margin; labeled target pool required):
+acceptance rate
+0.754 / 0.820
+conditional accepted coverage
+0.869 / 0.885 (< nominal)
+accepted set size
+0.948 / 0.961
+joint risk (mean; per seed max)
+0.097 / 0.095 ; 0.130 / 0.125
+set size gain vs. weighted exact
+3.82× / 3.96×
+Figure S6: Synthetic study. The OOD-AUROC trap. (A) Min-distance: high OOD-AUROC, low miscov-
+erage AUROC. Geodesic margin: reverse. (B) Abstaining on margin (blue) raises accepted coverage; ab-
+staining on min distance (red) stays below nominal. Note: “past nominal” here refers only to a test label se-
+lected frontier, an oracle diagnostic that is not deployable, not to the CRC point (which gives 0.869/0.885 <
+nominal). Solid = seeds 0–9, dashed = 100–109. Synthetic setting: K=5, shift 0.3.
+37
+Figure S7: Synthetic study. CRC certifies the joint risk. Joint accept and err risk along the margin
+frontier vs. acceptance rate; CRC operating point (stars) at α=0.10 control line. Threshold calibrated on
+labeled target pool. Synthetic setting: K=5, shift 0.3.
+Figure S8: Synthetic study. Accepted set size vs. acceptance rate. (A) The CRC operating point achieves
+3.82 × /3.96× smaller accepted sets than weighted exact, at the cost of abstaining on 24.6%/18.0% of
+points (acceptance 0.754/0.820). (B) Accepted set size along the margin frontier; the CRC point (star) is
+far below weighted exact’s blanket size (dotted). Synthetic setting: K=5, shift 0.3.
+38

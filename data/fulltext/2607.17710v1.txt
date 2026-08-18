@@ -1,0 +1,2801 @@
+Preprint
+PLANNING WITH TRANSFORMERS:
+CHAIN OF COMPUTATION AND STRUCTURED CON-
+TEXT WINDOWS
+Ehsan Futuhi1 , Nathan R. Sturtevant1,2
+1Department of Computing Science, University of Alberta
+2Alberta Machine Intelligence Institute (Amii)
+{futuhi, nathanst}@ualberta.ca
+ABSTRACT
+Large Language Models (LLMs) have had a remarkable impact across many areas
+of machine learning. However, recent studies have shown that they struggle to re-
+liably solve planning problems, particularly when compared to classical planners
+and planning frameworks such as PDDL. Even with recent advances in reasoning-
+oriented models, the extent to which LLMs can genuinely perform planning re-
+mains an open question. At the same time, theoretical results have shown that
+transformers, the core architecture underlying modern LLMs, are Turing-complete
+and therefore capable of universal computation in principle. In this work, we in-
+vestigate this apparent gap between the theoretical computational power of LLMs
+and their empirical planning performance. We propose Chain of Computation
+(COC), a computational architecture that places a transformer-based LM inside an
+iterative loop, leveraging its strength as a pattern-matching system rather than re-
+quiring it to generate complete plans in a single pass. The COC uses a Structured
+Context Window (SCW) which provides a constant-sized context window with
+support for choosing which window is used at each planning step. Within this ar-
+chitecture, the LM is able to learn a planning policy, predicts the world model, and
+performs the arithmetic operations required during planning. We show that, when
+given an append-only SCW (resembling a Turing Machine tape), even relatively
+small LMs trained from scratch can learn planning policies and generalize from a
+small number of training instances within each planning domain, achieving suc-
+cess rates above 99.89% on BlocksWorld and the Pancake puzzle. Our analysis
+of failure cases in Tower of Hanoi (TOH) reveals that they arise from arithmetic
+operations or from encountering previously unseen tokens. We show that COC
+can solve TOH problem instances with up to 20 disks, requiring over 1 million
+actions, while requiring substantially less training data by either (1) planning with
+symbolical support for arithmetic or by (2) using a deterministic pushdown au-
+tomaton (PDA) formulation for the SCW.
+1
+INTRODUCTION
+Large Language Models (LLMs) (Brown et al., 2020; Touvron et al., 2023) have demonstrated re-
+markable success across a wide range of applications, including conversational agents (Team et al.,
+2023; Achiam et al., 2023), code generation (Chen et al., 2021; Yang et al., 2024), and financial ap-
+plications (Wu et al., 2023; Xiao et al., 2025). In recent years, substantial effort has been devoted to
+improving the reasoning capabilities of LLMs through techniques such as Chain-of-Thought (COT)
+prompting and reinforcement learning (Wei et al., 2022; Nye et al., 2021; Guo et al., 2025; Li et al.,
+2026b). These advances have led to impressive performance on a variety of benchmarks, including
+mathematical reasoning (Cobbe et al., 2021), commonsense and logical reasoning (Suzgun et al.,
+2023), and planning (Kokel et al., 2026). Despite this progress, the performance of LLMs on plan-
+ning tasks involving multi-step decision making remains limited. Numerous studies have shown
+that LLMs fail on planning problems that are relatively easy for humans to solve (Valmeekam et al.,
+2023; Dziri et al., 2023; Pallagani et al., 2023; Sel et al., 2025; Shojaee et al., 2025; Kambhampati
+et al., 2024). Moreover, even when they are able to solve planning domains such as BlocksWorld,
+1
+arXiv:2607.17710v1  [cs.LG]  20 Jul 2026
+Preprint
+Standard LM Planning 
+Single-Pass, Full Context
+User Prompt: Solve TOH with 7 disks
+LLM
+Move disk 1 from peg 1 to peg 3
+Move disk 2 from peg 1 to peg 2
+Move disk 1 from peg 1 to peg 3
+…
+Output: Full Plan 
+(Sequence of Moves)
+Chain of Computation (COC)
+User Prompt: Solve TOH with 7 disks
+ CALL n=7 src=1 dst=3 aux=2 
+LM
+0
+1
+2
+3
+Write Output to Tape
+ CALL n=7 src=1 dst=3 aux=2 
+MOVE d=7 src=1 dst=3
+CALL n=6 src=1 dst=2 aux=3
+Generate next pointer pt+1
+Read instruction at pt
+…
+…
+Repeat until 
+pt = −1
+Read the Full Plan 
+(sequence of moves) from 
+the Tape
+SCW
+Reasoning Trace (Internal COT steps)
+Step 1: Move the top 6 disks from peg 1 to peg 2 using peg 3 as 
+auxiliary
+Step 2: Move the largest disk from peg 1 to peg 3
+Step 3: Move the 6 disks from peg 2 to peg 3 using peg 1 as 
+auxiliary
+…
+Move disk 1 from peg 1 to peg 3
+Move disk 2 from peg 1 to peg 2
+Move disk 1 from peg 1 to peg 3
+…
+Figure 1: Comparison between standard LM planning and Chain of Computation (COC). Instead
+of generating an entire plan in a single pass from the full context, COC employs a smaller LM that
+iteratively processes one instruction from a structured context window (SCW), updates the SCW, and
+generates the next pointer, pt+1. The process terminates when pt = −1, after which the complete
+action sequence is extracted. The example shown corresponds to the Tower of Hanoi (TOH) domain.
+they often fail to generalize to more complex instances of the same problem, suggesting that they
+have not learned the underlying planning algorithm. Some have suggested that LLMs may be inca-
+pable of planning without separate logical oracles Belle & Marcus (2026). This raises a fundamental
+question: if LLMs are capable of sophisticated reasoning in some contexts, what prevents them from
+achieving the same level of success in other contexts, in particular on planning tasks?
+Shojaee et al. (2025) investigate the performance gap between state-of-the-art large reasoning mod-
+els (LRMs) and their non-reasoning counterparts in multi-step decision-making tasks. Their ap-
+proach incorporates a few in-context examples and explicitly provides the planning algorithm for
+each domain within the prompt. One of their key findings is that, beyond a certain problem com-
+plexity threshold, the performance of both reasoning and non-reasoning models collapses to nearly
+zero. Interestingly, increasing problem complexity does not induce additional reasoning behavior
+in these models; instead, performance deteriorates at a similar or even earlier point compared to
+simpler instances. On the other hand, a complementary line of theoretical work investigates whether
+LLMs are Turing-complete, i.e., whether they can realize arbitrary computational behavior equiva-
+lent to a Turing machine (Lewandowski et al., 2026; Bhattamishra et al., 2020; P´erez et al., 2021;
+Giannou et al., 2023; Malach, 2024; Zhong et al., 2022). Lewandowski et al. (2026) show, via a
+proof-by-simulation, that a language model can exactly simulate a universal Lag system (Wang,
+1963), which is known to be computationally universal. This result implies that language mod-
+els are Turing-complete and, in principle, capable of general-purpose computation. Furthermore,
+they demonstrate that similar computational capabilities can emerge even in randomly initialized
+language models, suggesting that universal computation is an inherent property of the architecture,
+while training primarily serves to make this capability more practical to exploit. In another influen-
+tial theoretical work, Giannou et al. (2023) show that transformers, the core architecture underlying
+modern language models, can learn iterative algorithms such as square root and matrix inversion
+when executed in a loop with encoded weights. Despite these encouraging theoretical results, it
+remains unclear how such algorithmic capabilities generalize to other tasks and, more importantly,
+how the corresponding weights can be learned efficiently from training data.
+In this work, we investigate the gap between the theoretical computational power of transformer-
+based language models and their empirical performance on planning tasks. Throughout this paper,
+we use the term LM to refer to transformer-based language models, regardless of their size or rea-
+2
+Preprint
+soning capability. We propose a Chain of Computation (COC) architecture, which leverages the
+pattern-matching capabilities of transformers by placing them inside an iterative planning loop. The
+planning procedure is represented as a sequence of iterative steps, where each step consists of read-
+ing from and generating outputs to a Structured Context Window (SCW), which serves as an external
+memory. At each iteration, the LM receives the contents of a single context window together with
+the relevant local context and generates the corresponding output. All outputs generated by the
+model are written to new entries in the SCW. When used for planning, the context from the SCW
+functions as instructions for the next step of the planning process. The instruction to be executed at
+each iteration is determined by a pointer, which specifies the portion of the SCW visible to the LM.
+Importantly, the pointer to the next instruction is generated by the LM itself, allowing the model to
+determine which part of the SCW to access in the next step of computation. The planning process
+begins with the instruction at position zero of the SCW and terminates when the model generates
+the pointer value −1. During training, the LM is optimized on instruction–output pairs with the
+objective of generalizing at test time to the same operations applied to previously unseen variables
+and problem instances.
+We provide extensive evaluations on three planning domains: BlocksWorld, Tower of Hanoi (TOH),
+and the Pancake Puzzle. In BlocksWorld and the Pancake Puzzle, we show that training on a rel-
+atively small number of problem instances at each complexity level is sufficient for the model to
+generalize to unseen problem instances across all complexity levels, achieving average success rates
+exceeding 99.89%. In TOH, we demonstrate that the model can generalize to unseen instructions
+held out during training, achieving an average success rate of 92% on problems ranging from 1 to
+15 disks. By analyzing the failure cases, we find that arithmetic operations on previously unseen
+numbers and unseen tokens are the primary sources of errors. We show that handling arithmetic op-
+erations symbolically eliminates the failures and substantially reduces the amount of required train-
+ing data. Alternatively, the same performance can be achieved by using a stack for the SCW. In this
+architecture, the pointer always points to the top of the SCW, with stack push and pop operations,
+allowing COC to be formulated as a deterministic pushdown automaton (PDA). This formulation
+preserves the behavior of the original architecture while simplifying the memory access mechanism,
+as the LM is no longer required to perform computations using the address of the top of the stack.
+2
+BACKGROUND AND RELATED WORK
+Overview of Research Directions in LLM Planning
+We broadly categorize prior work at the
+intersection of LLMs and planning into several groups. First, survey papers provide overviews of
+existing approaches and outline directions for future research (Huang et al., 2025; Chiari et al., 2025;
+Tantakoun et al., 2025; Pallagani et al., 2024). Second, empirical and benchmark studies evaluate
+and compare the planning abilities of state-of-the-art LLMs across different domains (Dziri et al.,
+2023; Shojaee et al., 2025; Kokel et al., 2025; 2026; Pallagani et al., 2023; Valmeekam et al., 2023;
+Aghzal et al., 2024; Bohnet et al., 2024; Liang et al., 2026; Bohnet et al., 2026). Third, a line of work
+focuses on integrating LLMs with planning algorithms (Meng et al., 2024; Hazra et al., 2024; Hao
+et al., 2023; Yao et al., 2023; Shah et al., 2023; Katz et al., 2024; Schultz et al., 2025; Li et al., 2026a;
+Corrˆea et al., 2026) or using search-based reasoning (e.g., tree search) within LLM prompting (Sel
+et al., 2024; Gandhi et al., 2024). Finally, theoretical works study the computational properties of
+LLMs, including their general computation capabilities (Lewandowski et al., 2026; Malach, 2024;
+Schuurmans, 2023; Jiang et al., 2026; Li et al., 2024; Hou et al., 2025), as well as their ability to
+learn algorithms with guarantees, often through the lens of length generalization (Giannou et al.,
+2023; Zhou et al., 2024; Hua et al., 2026; Malach et al., 2026; Chen et al., 2026; Fan et al., 2025).
+LLM-Augmented Planning Methods
+Meng et al. (2024) propose a planning algorithm, LLM-A*,
+in which the classical A* algorithm is augmented with an LLM. The model is prompted to generate
+a sequence of intermediate target states at the beginning of planning, such that the sequence starts
+from the initial state and ends at the goal state. These intermediate targets guide the search, and
+an additional cost term is introduced based on the distance to the current target. Hao et al. (2023)
+propose Reasoning via Planning (RAP), which integrates LLMs with an offline planning algorithm
+such as Monte Carlo Tree Search (MCTS). In this framework, the LLM plays two roles: (1) as a
+world model that generates new states in the search tree, and (2) as a policy that selects actions
+during simulations. To reduce the number of queries required by multi-step reasoning methods, Sel
+3
+Preprint
+et al. (2024) propose Algorithm of Thoughts (AoT), an in-context learning approach in which the
+model is provided with examples of the search process itself, rather than only problem–solution
+pairs or step-by-step solutions.
+Turing-Completeness of LLMs
+Schuurmans (2023) show that the fundamental limits of LLM
+reasoning are not necessarily rooted in their weights, but rather in the constraints imposed by
+the context window and available memory. They prove that transformer-based LLMs are Turing-
+complete, i.e., capable of universal computation, when equipped with an external read–write mem-
+ory. Lewandowski et al. (2026) further show that the context window itself can serve as the available
+memory for the LLM. Specifically, they demonstrate that an LLM can emulate a tag system, which,
+by moving both forward and backward over the context, can simulate a Turing machine. Malach
+(2024) argue that the power of modern LMs largely stems from their autoregressive next-token pre-
+diction training, particularly when applied to Chain-of-Thought (CoT) reasoning. They show that
+even linear next-token predictors can approximate any function that is efficiently computable by a
+Turing machine. Jiang et al. (2026) identify a key limitation in prior proofs of Turing-completeness
+for CoT-based transformers (Li & Wang, 2026; Meng et al., 2024), namely the reliance on hard-
+max attention, which is not a realistic assumption and does not provide guarantees on trainability.
+To address this limitation, they prove that transformers with standard softmax attention are also
+Turing-complete and provide guarantees on length generalization.
+Length-generalization of LLMs.
+Zhou et al. (2024) study which algorithms are easier for trans-
+formers to learn. They characterize an algorithm as easier to learn (e.g., counting or mode compu-
+tation) if the model can length-generalize, i.e., generalize to longer instances of the same problem.
+They further show that tasks expressible in the RASP-L language, a learnable variant of the origi-
+nal RASP language (Weiss et al., 2021), tend to exhibit better length generalization, although such
+generalization is not guaranteed and remains limited in practice. Malach et al. (2026) show that,
+although state space models (SSMs) (Gu et al., 2022) are more computationally efficient for long
+contexts compared to transformers (whose complexity scales quadratically with sequence length),
+they still fail to solve problems when the required context exceeds the model’s capacity. They further
+demonstrate that incorporating external tool use significantly improves the length generalization of
+both SSMs and transformers. Hua et al. (2026) propose Turing Machine Imitation Learning (TAIL),
+where the goal is to imitate the serialized linear state transitions of a Turing machine through COT
+reasoning. TAIL consists of three core components: (1) Linear Transition, which enforces sequential
+computation; (2) Atomic States, which ensures that each step is sufficiently simple to avoid short-
+cut learning; and (3) Memory Fetcher, which provides the necessary operands for each transition.
+Although TAIL improves length generalization across a variety of computable problems, there re-
+mains a performance gap compared to strong closed-source reasoning models (e.g., O4-mini) when
+evaluated on models such as Qwen2.5 (Hui et al., 2024).
+Limitations of LLMs in Planning
+Valmeekam et al. (2023) were among the first to systemati-
+cally investigate claims about the reasoning abilities of LLMs by evaluating their performance on
+planning tasks. Their findings indicate that LLMs at the time were rarely successful at autonomously
+generating valid solution plans. Notably, they show that performance degrades significantly when
+object names are obfuscated, suggesting that LLM-generated plans rely more on learned semantic
+associations than on robust reasoning. Building on this line of work, Shojaee et al. (2025) revisit
+similar experiments using newer reasoning-oriented models. They find that while reasoning models
+can outperform non-reasoning models on instances of moderate complexity, both types of models
+fail at similar levels as problem complexity increases. Katz et al. (2024) highlight the computational
+cost and inefficiency of LLM-based planning approaches such as RAP (Hao et al., 2023). They
+show that a common limitation of these methods is the need to query the LLM at every step of the
+planning process, which becomes prohibitively slow and costly in large state spaces. To address
+this, they propose using LLMs to generate environment simulators and associated functions prior to
+planning, which can then be leveraged by classical planning algorithms.
+Reasoning Investigation in LLMs
+Dziri et al. (2023) identify two key challenges that motivate
+our approach. First, as problem complexity grows, errors introduced in early stages of the compu-
+tation tend to accumulate, leading to degraded performance on longer and more complex instances.
+Second, LLMs often exhibit shortcut learning (Geirhos et al., 2020), relying on pattern matching
+4
+Preprint
+over linearized solution traces rather than reasoning and learning the underlying compositional struc-
+ture of the task. Chen et al. (2026) study the reasoning abilities of LLMs in a high-stakes domain,
+namely legal judgment. They analyze the representations and interactions between input tokens to
+assess their influence on generated outputs. One of their key findings is that LLMs often base their
+decisions on semantically irrelevant phrases, raising concerns about their reasoning capabilities.
+3
+THE CHAIN OF COMPUTATION (COC) ARCHITECTURE
+Scratchpads (Nye et al., 2021) and chain-of-thought (COT) prompting (Wei et al., 2022) share a
+common underlying principle: simplifying multi-step reasoning by decomposing a problem into
+a sequence of next-token predictions across multiple steps. For example, if the goal is to move
+from room A to room B and the connecting door is locked, the first step is to pick up the key.
+Instead of producing the entire solution in a single pass, the reasoning process is decomposed into
+meaningful intermediate steps that are explicitly written to the context window. This suggests the
+following intuition: LMs may struggle to reliably update their internal state, but they can effectively
+update an external state, the context window, over long sequences. However, although updating the
+context is relatively easy, Liu et al. (2024) show—using the Needle in a Haystack test—that as the
+context window grows, it becomes increasingly difficult for the LM to retrieve relevant information
+embedded within it. This further suggests that even if the model explicitly writes all variables
+required for decision-making into the context at each step, it may still fail to reliably retain and
+utilize them as the complexity of the planning problem increases. This limitation is also observed
+in Searchformer (Lehnert et al., 2024), which trains an LM on planning traces generated by the
+A* algorithm (Hart et al., 1968). The LM learns to imitate the execution of A* for each problem
+instance. The entire accumulated context is provided to the LM at every step, causing the context
+window to grow throughout the planning process. Consequently, the performance degrades as task
+complexity increases, as demonstrated by the increase in maze size (see Figure 2 in Lehnert et al.
+(2024)).
+We propose a Chain of Computation (COC) architecture, which leverages an LM as its core com-
+ponent for solving problems requiring multi-step reasoning. The planning procedure is formulated
+as an iterative loop, where each iteration corresponds to a single prompt to the LM, following its
+standard autoregressive execution. The LM’s context window is loaded from an external memory
+called the structured context window (SCW). Initially, the SCW is based on an append-only tape,
+where it can read from any location but only append to the end of the tape. At each iteration, the
+LM receives the current instruction and produces three outputs: (i) the new instructions to be written
+to the SCW, (ii) the actions to be executed at the current step, and (iii) a pointer indicating the next
+instruction to be processed. To mitigate performance degradation caused by long context windows,
+the LM receives only the portion of the SCW specified by the pointer, containing all information
+required to execute the current instruction. In order to be successful, the LM must potentially learn:
+• the planning policy, π(a | s), which generates the next action in the policy for a given state;
+• the world model, T (s′ | s, a), which generates the next state; and
+• the arithmetic operations required to update the pointers.
+To train the LM, we present each instruction together with its corresponding target independently of
+the other instructions in the plan. The goal is that, by providing a finite set of training instructions
+covering all three modules, the LM learns to generalize each module to previously unseen inputs.
+The pointer mechanism not only provides concise inputs to the LM but also significantly reduces
+computational cost. Consider a planning task that requires generating noutput tokens. In a standard
+autoregressive setup (e.g. Lehnert et al. (2024)), the model processes an input whose size grows
+from nprompt to nprompt + noutput as more tokens are generated, eventually approaching the max-
+imum context length. In contrast, the proposed pointer mechanism ensures that the model receives
+inputs of approximately constant size, determined only by the current instruction being processed.
+As a result, even for long planning horizons, the computational cost per iteration remains nearly con-
+stant. A detailed empirical comparison illustrating this effect and the growth of the context window
+throughout planning is presented in Section I.
+5
+Preprint
+Algorithm 1 COC: Chain of Computation Architecture
+Require: Initial state sstart, goal state sgoal, language model M
+Ensure: Action sequence Π that transforms sstart to sgoal
+1: Initialize structured context window SCW ←∅
+2: Initialize action sequence Π ←∅
+3: Write the initial instruction SOLVE(sstart, sgoal) to SCW[0]
+4: Set pointer p ←0
+5: while p̸ = −1 do
+6:
+Xp ←READ(SCW, p)
+▷Read the instruction at p
+7:
+(Inew, Anew, pnext) ←M(Xp)
+▷Generate new instruction, action, and next pointer
+8:
+WRITE(SCW, Inew)
+▷Write generated instruction to the SCW
+9:
+Π ←Π ◦Anew
+▷Append the new action to the action sequence
+10:
+p ←pnext
+11: end while
+12: return Π
+A
+B
+C
+5
+4
+3
+2
+1
+A
+C
+F
+B
+E
+D
+6
+3
+5
+2
+4
+1
+Figure 2: Planning domains used in our experiments. Left: Tower of Hanoi with n = 5 disks.
+Middle: Blocksworld with n = 6 blocks. Right: Pancake Puzzle with n = 6 pancakes.
+An overview of the architecture is provided in Algorithm 1. At the beginning of the planning proce-
+dure, the task is placed at position 0 in the SCW, and the pointer is initialized to 0. At each iteration,
+the LM receives the current instruction and generates a new instruction, the next action, and the
+pointer to the next instruction to be executed. The new instruction is then written to the location
+specified within the instruction itself. The generated action is appended to the action sequence, and
+the process continues until the pointer becomes −1, indicating that no instructions remain to be
+executed. Upon termination, the accumulated action sequence is returned as the solution path.
+Our approach is conceptually related to the looped transformers framework (Giannou et al., 2023),
+as both employ an iterative loop to emulate the autoregressive decoding process of LMs. However,
+there are two key differences. First, in the looped transformers framework, the LM weights are
+hard-coded rather than learned. Second, that work does not provide empirical validation of the per-
+formance of such hard-coded weights, as doing so would require a detailed finite-precision analysis.
+Moreover, it remains unclear how this approach can be extended to larger pretrained models. Our
+approach is also different from recent methods that compress or summarize large context windows
+in long-horizon tasks (Li et al., 2026c; Chen et al., 2025; Liu et al., 2026). In these approaches, the
+summarization is performed either by another LM or through learned parameters called, soft tokens,
+both of which may introduce information loss or approximation errors. In contrast, COC uses a
+well-defined pointer mechanism to restrict the visible context, requiring no learning and introducing
+no additional approximation error.
+4
+PLANNING DOMAINS
+In this section, we present the planning domains used to evaluate COC. We consider two domains
+that are commonly used in recent work (Shojaee et al., 2025; Pallagani et al., 2023; Katz et al.,
+2024): Tower of Hanoi (TOH) and BlocksWorld. In addition, we include the Pancake Puzzle (Gates
+& Papadimitriou, 1979) as a classical combinatorial planning domain. These domains are illustrated
+in Figure 2 and described below. For each domain, we show how the planning algorithm can be
+formulated as prompt–target pairs with pointers, enabling the training of the LM.
+6
+Preprint
+Tower of Hanoi (TOH).
+The Tower of Hanoi is a classical planning problem that requires long-
+horizon planning and strict adherence to constraints. The environment consists of three pegs and
+n disks of distinct sizes, initially stacked on a single peg in decreasing order of size (largest at the
+bottom, smallest at the top). The objective is to move the entire stack to a target peg while satisfying
+two constraints: (i) only one disk can be moved at a time, and (ii) a larger disk can never be placed
+on top of a smaller disk. Following prior work, we define the problem complexity in terms of the
+number of disks n, as the optimal solution length grows exponentially with n (i.e., 2n −1 moves).
+The standard recursive planning algorithm for TOH is based on the following decomposition. To
+move n disks from source peg s to destination peg d using auxiliary peg a, one first moves the top
+n −1 disks from s to a, then moves disk n from s to d, and finally moves the n −1 disks from a to
+d. Formally, if HANOI(n, s, d, a) denotes the solution procedure, then
+HANOI(n, s, d, a) = HANOI(n −1, s, a, d) ◦Move(n, s, d) ◦HANOI(n −1, a, d, s),
+with the base case
+HANOI(1, s, d, a) = Move(1, s, d).
+Thus, the recursive algorithm alternates between two types of operations: recursive subproblem
+expansion and primitive disk moves. We represent this procedure as a stack of instructions. Each
+prompt to the LM corresponds to either a call or a move instruction. A complete example illustrating
+how the context window evolves with all prompts and LM outputs is provided in Appendix B.
+The TOH domain is unique in that the state does not need to be explicitly represented. The recursive
+algorithm can just generate the list of actions used to solve the problem.
+Blocksworld.
+Blocksworld is a classical planning domain that requires reasoning over long se-
+quences of actions with constraints on how blocks can be moved. The environment consists of a set
+of n distinct blocks arranged in stacks on a tabletop. The goal is to transform an initial block con-
+figuration into a given target configuration. At each step, only a clear block—i.e., a block with no
+other block on top of it—can be moved, and it can be placed either on the table or on top of another
+clear block. The complexity is defined by the number of blocks n and grows linearly with n, since a
+simple strategy yields a solution with at most 2(n−1) moves: first unstack the blocks onto the table
+using n −1 moves, and then stack them into the goal configuration using another n −1 moves.
+We formulate this strategy as BLOCKSWORLD(n, s, g), where n is the number of blocks, s is the
+current state (equal to the start configuration initially), and g is the goal configuration. The plan is
+divided into two equal-length phases: unstacking and stacking. The procedure begins with the un-
+stacking phase using the initial prompt type=unstacking CALL(n, s, g). The stacking phase
+then begins with the prompt type=stacking CALL(n, [], g), where the empty start state indi-
+cates the current configuration. A complete example illustrating how the context window evolves
+with all prompts and LM outputs is provided in Appendix C.
+Pancake Puzzle.
+The Pancake Puzzle is a classical combinatorial planning problem that requires
+sequential decision-making under constrained actions that change the arrangement of pancakes. The
+environment consists of a stack of n pancakes of distinct sizes in some initial order. The goal is to
+transform the stack into the sorted order, with the largest pancake at the bottom and the smallest
+at the top. The only allowed action is a prefix flip: at each step, the top k pancakes, for some
+1 < k ≤n, can be flipped, reversing their order. We define the problem complexity in terms of
+the number of pancakes n, as the number of possible configurations grows factorially with n. A
+simple strategy for solving the Pancake Puzzle is to repeatedly apply the following process until no
+unsorted pancake remains: first identify the largest unsorted pancake and flip the prefix ending at
+its current position to bring it to the top; then flip the prefix ending at its target position to place it
+correctly. Using this strategy, any instance can be solved in at most 2(n −1) moves, since the last
+pancake is automatically placed correctly after sorting the previous n −1 pancakes.
+We formulate the planning problem as PANCAKE(n, s, g) to replicate this process with the LM,
+where n is the number of pancakes, s is the start configuration, and g is the goal configuration,
+which is fixed and identical across all problem instances. The planning procedure begins with the
+initial prompt pointer = 0 CALL(s, g). At each step, the LM generates
+7
+Preprint
+pointer = i CALL(s, g) →
+
+
+
+
+
+Px, FLIP(cur(Px)),
+s′, FLIP(goal(Px)),
+s′′, pointer = i + 1 CALL(s′′, g)
+where Px is the largest unsorted pancake, cur(Px) is its current position in s, goal(Px) is its target
+position in g, and s′ and s′′ are the states after the first and second flips, respectively. A complete
+example, including all prompts and LM outputs, is provided in Appendix D.
+The Pancake Puzzle has the most complicated state transitions of the domains considered in this
+paper. Learning the world model requires learning how to reverse a set of pancakes from the state
+representation, and the policy requires finding the maximum unsorted pancake.
+5
+EXPERIMENTS
+In this section, we aim to answer the following key questions: (1) Can COC reliably solve the
+planning tasks considered in this work? (2) Can COC generalize to unseen problem instances
+within the same domains on which it was trained? (3) How does the pointer mechanism improve
+efficiency and reduce computational cost? To answer these questions, we design a set of experiments
+across the planning domains considered in this work. We use a decoder-only transformer as the LM
+within the COC architecture. The model is trained from scratch in an autoregressive manner using
+the standard next-token prediction loss over all tokens, including the prompt. We use two different
+approaches to construct the training datasets for the planning domains. For TOH, we generate all
+prompt–target pairs for each value of n disks. During training, the model is exposed only to a random
+subset of these pairs, while the remaining pairs are held out for evaluation. For the Pancake Puzzle
+and BlocksWorld, we generate complete prompt–target pairs only for a fixed number of randomly
+sampled problem instances for each value of n. More details and the hyperparameters used for each
+puzzle are provided in Appendix A.
+5.1
+ACCURACY UNDER INCREASING COMPLEXITY
+A key requirement of a planner is to maintain its performance as the complexity of the problem
+increases. To evaluate this property, we test COC across different complexity levels in each environ-
+ment. For BlocksWorld and the Pancake Puzzle, we generate 500 uniformly random configurations
+for each value of n from 5 to 40 for training. Each configuration consists of a random start state;
+for BlocksWorld, the goal state is also sampled uniformly at random for each instance. During test-
+ing, we evaluate the model on 50 randomly sampled configurations for each n, all disjoint from the
+training set. The model achieves 100% success across all test instances in both environments.
+A natural question is whether 50 test configurations are sufficient to represent performance at each
+complexity level. To answer this, we perform an exhaustive evaluation at n = 8 over all 8! = 40,320
+possible start configurations. In BlocksWorld, COC successfully solves 100% of test configurations.
+In the Pancake Puzzle, it fails in only one case, achieving a success rate of 99.99%. This failure
+occurs when the pancakes are already sorted, in which case the correct behavior is to generate no
+action. Since the LM never observes an already sorted configuration during training, it treats this
+case as an unsorted instance and attempts to identify the largest unsorted pancake. Consequently, it
+generates two flips of the smallest pancake before terminating the plan. These actions leave the state
+unchanged, and the goal state is still reached. Therefore, this case does not reflect a failure of the
+planning policy itself, but rather the generation of a plan containing unnecessary actions.
+Towers of Hanoi
+For TOH, we require a different experimental setup since there is only a sin-
+gle problem instance for each value of n disks. We train the model on prompt–target pairs for
+n = 1 to n = 15 disks, holding out a fraction of the pairs uniformly at random to evaluate
+generalization. We gradually increase the hold-out percentage from 5% to 50%. For each hold-
+out level, we use a distinct set of five random seeds so that the held-out pairs differ as much
+as possible across runs. The success rates are shown in Figure 3, while the detailed results, in-
+cluding the values of n for which the planner fails and the corresponding failure steps for one
+8
+Preprint
+s
+5
+10
+15
+20
+25
+30
+35
+40
+45
+50
+Holdout
+20
+30
+40
+50
+60
+70
+80
+90
+100
+Success rate (%)
+Figure 3: Mean success rate on TOH across ran-
+dom hold-out percentages of the training data,
+with error bars showing ± one standard devia-
+tion over five random seeds.
+representative run from each hold-out setting, are
+provided in Appendix H. As expected, the av-
+erage success rate decreases as the holdout per-
+centage increases, dropping from 92% at a 5%
+holdout rate to 41% at 50%. Nevertheless, even
+with 35% of the data held out, COC achieves an
+average success rate of 70%, substantially out-
+performing recent methods (Shojaee et al., 2025;
+Malach et al., 2026), which employ much larger
+pretrained reasoning LMs. Also, a closer inspec-
+tion of the failure cases reveals that most failures
+occur when the planner encounters unseen disk
+indices or unseen instruction numbers. In these
+cases, the failure is typically caused by incorrect
+arithmetic operations when updating the pointer
+or directing it to the next instruction, something
+we return to shortly.
+Extended BlocksWorld
+We consider a more general variant of BlocksWorld. In the standard
+setting, the initial configuration consists of a single stack of blocks. We extend this to allow multiple
+stacks in the initial state, introducing a broader set of combinatorial configurations, and refer to this
+setting as Extended BlocksWorld. A complete example illustrating how the context window evolves
+with all prompts and LM outputs is provided in Appendix E. Similar to the standard BlocksWorld
+setting, we use 500 randomly sampled start–goal configuration pairs for each value of n from 5 to
+40 for training. At test time, we evaluate the model on 50 randomly sampled configurations per n
+that are disjoint from the training set. In this extended setting, it is not possible to cover all stack
+configurations during training, and the model does not observe all possible numbers of stacks for
+each value of n. Despite this, COC successfully solves all test configurations for every value of n
+except two configurations for n = 35 and n = 36, achieving a success rate of 99.89%. This result
+demonstrates that the model learns the underlying planning strategy and generalizes across different
+stack configurations, regardless of how the blocks are distributed among the stacks.
+Table 1: Success rates (%) across selected complexity levels (n blocks or pancakes) and numbers of
+complete training instances.
+Environment
+Training Instances
+n
+6
+10
+15
+20
+25
+30
+35
+40
+BlocksWorld
+500
+100 100 100 100 100 100 100 100
+300
+100 100 100 100 100 100 100 100
+100
+100 100 100 100 100 100 100 100
+30
+100 100 100 100 100 100 100
+92
+5
+94
+80
+100
+76
+78
+54
+30
+0
+Extended BlocksWorld
+500
+100 100 100 100 100 100
+98
+100
+300
+100 100 100 100 100 100 100
+98
+100
+100 100 100 100 100 100
+98
+98
+30
+100 100 100 100 100
+98
+100
+94
+5
+94
+88
+78
+72
+52
+38
+16
+2
+Pancake
+500
+100 100 100 100 100 100 100 100
+300
+100 100 100 100 100 100 100 100
+100
+100 100 100 100 100 100 100 100
+30
+98
+96
+100 100 100
+98
+100
+82
+5
+78
+66
+74
+54
+64
+48
+20
+0
+9
+Preprint
+5.2
+SCALING POLICY LEARNING AND GENERALIZATION WITH TRAINING DATA
+In the previous section, we showed that the planner achieves high success rates across all three plan-
+ning domains. We now investigate how much training data is required to maintain this performance.
+Starting from 500 complete training instances for each value of n, we progressively reduce the
+training set size and evaluate the resulting performance on the test set, while keeping the model ar-
+chitecture and training setup fixed. A summary of the results is shown in Table 1, while the complete
+results are provided in Appendix H.
+For BlocksWorld, no failures occur until the number of training instances is reduced to 100. A
+few failure cases begin to appear at higher complexity levels when using 30 training instances. As
+the number of training instances decreases further, the failure rate gradually increases with n, such
+that with only 5 training instances, COC successfully solves only a small number of test cases at
+larger values of n. In Extended BlocksWorld, we observe a similar trend, although failures appear
+at higher training set sizes compared to the standard setting. This behavior is expected, since gen-
+eralizing across different numbers of stacks requires more training configurations than the standard
+single-stack setting. Nevertheless, even with only 30 training instances, COC achieves higher suc-
+cess rates in both BlocksWorld variants than those reported for much larger pretrained reasoning
+LMs in previous work (Shojaee et al., 2025; Valmeekam et al., 2023; Katz et al., 2024). For the
+Pancake Puzzle, the planner exhibits almost no failures down to 100 training instances. Below this
+threshold, the number of failures increases steadily as the amount of training data decreases. With
+only 5 training instances, the planner fails on most test cases across all values of n. This stronger
+degradation compared to BlocksWorld is expected, since the Pancake Puzzle additionally requires
+the model to learn reversal operations and the corresponding state transformations.
+5.3
+ISOLATING PLANNING FROM ARITHMETIC IN TOH
+The results in Figure 3 show that holding out the same percentage of training data can
+lead to different levels of generalization depending on which prompt–target pairs are ex-
+cluded from training.
+Motivated by this finding,
+we design a second experiment to
+21
+23
+25
+27
+29
+211
+213
+215
+Solution Length for last n (log scale)
+0
+20
+40
+60
+80
+100
+120
+140
+160
+# Training Instances
+n = 1 n = 2
+n = 3
+n = 4
+n = 5
+n = 6
+n = 7
+n = 8
+n = 9
+n = 10
+n = 11
+n = 12
+n = 13
+n = 14
+n = 15
+Figure 4: Planning instructions required for
+training to solve TOH instances up to disk
+count n. The x-axis is logarithmic.
+investigate the minimum amount of additional train-
+ing data required as the number of disks increases
+in order to maintain a 100% success rate. For this
+experiment, we separate the planning and arithmetic
+operations so that they are handled independently.
+The prompt is passed to the language model us-
+ing symbolic placeholders, and the model gener-
+ates target instructions containing symbolic arith-
+metic expressions rather than explicit numerical val-
+ues. These symbolic expressions, along with the cur-
+rent values of the symbols, are then passed to an
+arithmetic module to obtain the updated numerical
+values. The arithmetic module can either be another
+language model trained to perform arithmetic opera-
+tions or an external tool invoked to execute the com-
+putations. The overall procedure for each planning
+iteration, together with example prompt–target pairs
+generated by the language model, is shown in Appendix F.
+In Figure 4, we show the number of prompt–target pairs that are added to the training set as the
+number of disks n increases in order to maintain a 100% success rate for all values of n up to that
+complexity level. In this experiment, we use the same LM architecture as in the previous exper-
+iments, while arithmetic operations are handled by a built-in module that computes the required
+numerical values exactly. As shown in the figure, the solution length grows exponentially with the
+number of disks, while the amount of additional training data required to maintain perfect perfor-
+mance grows only linearly. This stark contrast provides further evidence that the primary source of
+failures observed in the original TOH experiments is not the planning procedure itself, but rather
+inaccuracies in the arithmetic operations required to update the pointers.
+10
+Preprint
+6
+DISCUSSION
+When comparing the results in Figures 3 and 4, we observe that the planning policy itself is not the
+main source of failure. Rather, the pointer mechanism appears to be the component preventing the
+planner from achieving perfect success across all TOH instances. This raises a natural question: are
+pointers necessary for TOH at all? In TOH, the planner only needs to access the instruction at the
+top of the SCW at each step and append new instructions to the top of the SCW. At no point does
+it need to access an arbitrary location in the SCW. In other words, the planner only requires push
+and pop operations to interact with the SCW. This structure resembles a deterministic pushdown
+automaton (PDA) (Hopcroft et al., 2001), where a finite-state machine is equipped with a LIFO
+external memory and can push to or pop from the stack.
+The formulation of the TOH planner as a PDA, together with a complete example of the correspond-
+ing prompt–target pairs, is provided in Appendix G. We train a new model on prompt–target pairs
+constructed using the PDA structure for TOH, following the same training setup as in the previous
+experiments. In this experiment, the dataset is generated for problem instances with n = 1 to n = 20
+disks. Among all generated prompt–target pairs, only unique pairs are retained, while duplicate in-
+structions are removed. Then, 15% of the resulting dataset is selected uniformly at random and held
+out for testing. At test time, the planner solves 100% of problem instances for n = 1 to n = 20,
+providing further evidence that the underlying planning policy is successfully learned by the LM.
+The PDA formulation can also be applied to other domains, as they require the same stack access
+operations. However, since the plan length does not grow exponentially in those domains, pointer
+operations are not the same challenge as in TOH. Therefore, we do not repeat the experiments for
+those domains.
+7
+CONCLUSION AND FUTURE WORK
+In this work, we investigated the gap between the theoretical computational power of transformer-
+based language models and their empirical performance on planning tasks. We proposed the Chain
+of Computation (COC) architecture, in which a language model operates inside an iterative plan-
+ning loop and interacts with a structured context window (SCW) through a pointer mechanism.
+Rather than generating complete plans in a single pass, the model learns to execute local planning
+instructions and iteratively update the SCW. We evaluated the proposed approach on three planning
+domains: Tower of Hanoi (TOH), BlocksWorld, and the Pancake Puzzle. Across BlocksWorld and
+the Pancake Puzzle, we found that relatively small language models trained from scratch can learn
+planning policies and generalize from a surprisingly small number of training instances. In both
+domains, COC achieves near-perfect success rates on unseen problem instances. In TOH, COC gen-
+eralizes to unseen instructions and achieves an average success rate of 92%. Our analysis of failure
+cases in TOH provides an important insight into the limitations of language models in planning. We
+find that the primary source of failures is not an inability to learn the planning policy itself, but rather
+inaccuracies in arithmetic operations caused by previously unseen numbers. By separating planning
+from arithmetic and performing the latter symbolically, we show that perfect performance can be
+maintained while the amount of additional training data required grows only linearly, even though
+the planning length grows exponentially as the problem complexity increases.
+We later show that planning for TOH does not require pointers and that the only operations needed
+on the SCW are push and pop. Consequently, the planner can be formulated as a deterministic
+pushdown automaton (PDA). This PDA formulation eliminates the need for pointer operations and
+achieves a perfect success rate on all TOH problem instances up to 20 disks.
+Several directions remain for future work. First, we aim to theoretically investigate how the pointer
+mechanism affects the probability of success compared to the conventional approach of providing
+the entire accumulated context to the language model. Second, we aim to investigate whether COC
+can accurately learn and execute more sophisticated planning algorithms. Finally, we will further
+investigate how the SCW architecture impacts learning and generalization.
+11
+Preprint
+REFERENCES
+Josh Achiam, Steven Adler, Sandhini Agarwal, Lama Ahmad, Ilge Akkaya, Florencia Leoni Ale-
+man, Diogo Almeida, Janko Altenschmidt, Sam Altman, Shyamal Anadkat, et al. Gpt-4 technical
+report. arXiv preprint arXiv:2303.08774, 2023.
+Mohamed Aghzal, Erion Plaku, and Ziyu Yao. Can large language models be good path planners?
+a benchmark and investigation on spatial-temporal reasoning. In ICLR 2024 Workshop on LLM
+Agents, 2024.
+Alfred V. Aho and Jeffrey D. Ullman. Syntax directed translations and the pushdown assembler.
+Journal of Computer and System Sciences, 3(1):37–56, 1969.
+Vaishak Belle and Gary Marcus. The future is neuro-symbolic: Where has it been, and where is
+it going? Proceedings of the AAAI Conference on Artificial Intelligence, 40(48):40954–40961,
+Mar. 2026. doi: 10.1609/aaai.v40i48.42130. URL https://ojs.aaai.org/index.php/
+AAAI/article/view/42130.
+Satwik Bhattamishra, Arkil Patel, and Navin Goyal. On the computational power of transformers
+and its implications in sequence modeling. In Proceedings of the 24th Conference on Computa-
+tional Natural Language Learning, pp. 455–475, 2020.
+Bernd Bohnet, Azade Nova, Aaron T Parisi, Kevin Swersky, Katayoon Goshvadi, Hanjun Dai, Dale
+Schuurmans, Noah Fiedel, and Hanie Sedghi. Exploring and benchmarking the planning capabil-
+ities of large language models. arXiv preprint arXiv:2406.13094, 2024.
+Bernd Bohnet, Michael C Mozer, Kevin Swersky, Wil Cunningham, Aaron Parisi, Kathleen Kenealy,
+and Noah Fiedel. Analysis of optimality of large language models on planning problems. arXiv
+preprint arXiv:2604.02910, 2026.
+Tom B. Brown et al. Language models are few-shot learners. NeurIPS, 2020.
+Lu Chen, Yuxuan Huang, Yixing Li, Dongrui Liu, Qihan Ren, Kun Kuang, Zilong Zheng, Quanshi
+Zhang, et al. Can llms reason soundly in law? auditing inference patterns for legal judgment.
+In Proceedings of the Fourteenth International Conference on Learning Representations (ICLR),
+2026.
+Mark Chen et al.
+Evaluating large language models trained on code.
+arXiv preprint
+arXiv:2107.03374, 2021.
+Shaoshen Chen, Yangning Li, Zishan Xu, Yongqin Zeng, Shunlong Wu, Xinshuo Hu, Zifei Shan,
+Xin Su, Jiwei Tang, Yinghui Li, et al. Dast: Context-aware compression in llms via dynamic
+allocation of soft tokens. In Findings of the Association for Computational Linguistics: ACL
+2025, pp. 20544–20552, 2025.
+Mattia Chiari, Luca Putelli, Nicholas Rossetti, Ivan Serina, and Alfonso Emilio Gerevini. On plan-
+ning through llms. In Proceedings of the International Conference on Automated Planning and
+Scheduling, volume 35, pp. 377–385, 2025.
+Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser,
+Matthias Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, et al. Training verifiers to
+solve math word problems. arXiv preprint arXiv:2110.14168, 2021.
+Augusto B Corrˆea, Andr´e G Pereira, and Jendrik Seipp. Classical planning with llm-generated
+heuristics: Challenging the state of the art with python code. Advances in Neural Information
+Processing Systems, 38:42070–42108, 2026.
+Nouha Dziri, Ximing Lu, Melanie Sclar, Xiang Lorraine Li, Liwei Jiang, Bill Yuchen Lin, Sean
+Welleck, Peter West, Chandra Bhagavatula, Ronan Le Bras, et al.
+Faith and fate: Limits of
+transformers on compositionality. Advances in neural information processing systems, 36:70293–
+70332, 2023.
+Ying Fan, Yilun Du, Kannan Ramchandran, and Kangwook Lee. Looped transformers for length
+generalization.
+In International Conference on Learning Representations, volume 2025, pp.
+14502–14520, 2025.
+12
+Preprint
+Kanishk Gandhi, Denise Lee, Gabriel Grand, Muxin Liu, Winson Cheng, Archit Sharma, and
+Noah D Goodman.
+Stream of search (sos): Learning to search in language.
+arXiv preprint
+arXiv:2404.03683, 2024.
+William H. Gates and Christos H. Papadimitriou.
+Bounds for sorting by prefix reversal.
+Discrete Mathematics, 27(1):47–57, 1979.
+ISSN 0012-365X.
+doi:
+https://doi.org/10.
+1016/0012-365X(79)90068-2.
+URL https://www.sciencedirect.com/science/
+article/pii/0012365X79900682.
+Robert Geirhos, J¨orn-Henrik Jacobsen, Claudio Michaelis, Richard Zemel, Wieland Brendel,
+Matthias Bethge, and Felix A Wichmann. Shortcut learning in deep neural networks. Nature
+Machine Intelligence, 2(11):665–673, 2020.
+Angeliki Giannou, Shashank Rajput, Jy-yong Sohn, Kangwook Lee, Jason D Lee, and Dimitris
+Papailiopoulos. Looped transformers as programmable computers. In International Conference
+on Machine Learning, pp. 11398–11442. PMLR, 2023.
+Albert Gu, Karan Goel, and Christopher R´e. Efficiently modeling long sequences with structured
+state spaces. 2022.
+Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Peiyi Wang, Qihao Zhu, Runxin Xu, Ruoyu
+Zhang, Shirong Ma, Xiao Bi, et al. Deepseek-r1: Incentivizing reasoning capability in llms via
+reinforcement learning. arXiv preprint arXiv:2501.12948, 2025.
+Shibo Hao, Yi Gu, Haodi Ma, Joshua Hong, Zhen Wang, Daisy Wang, and Zhiting Hu. Reasoning
+with language model is planning with world model. In Proceedings of the 2023 Conference on
+Empirical Methods in Natural Language Processing, pp. 8154–8173, 2023.
+Peter E Hart, Nils J Nilsson, and Bertram Raphael. A formal basis for the heuristic determination
+of minimum cost paths. IEEE transactions on Systems Science and Cybernetics, 4(2):100–107,
+1968.
+Rishi Hazra, Pedro Zuidberg Dos Martires, and Luc De Raedt. Saycanpay: Heuristic planning
+with large language models using learnable domain knowledge.
+In Proceedings of the AAAI
+Conference on Artificial Intelligence, volume 38, pp. 20123–20133, 2024.
+Dan Hendrycks and Kevin Gimpel.
+Gaussian error linear units (gelus).
+arXiv preprint
+arXiv:1606.08415, 2016.
+John E Hopcroft, Rajeev Motwani, and Jeffrey D Ullman. Introduction to automata theory, lan-
+guages, and computation. Acm Sigact News, 32(1):60–65, 2001.
+Kaiying Hou, David Brandfonbrener, Sham Kakade, Samy Jelassi, and Eran Malach. Universal
+length generalization with turing programs. 2025.
+Zhouqi Hua, Wenwei Zhang, Chengqi Lyu, Yuzhe Gu, Songyang Gao, Kuikun Liu, Dahua Lin,
+and Kai Chen. The imitation game: Turing machine imitator is length generalizable reasoner.
+In Proceedings of the Fourteenth International Conference on Learning Representations (ICLR),
+2026.
+Sukai Huang, Trevor Cohn, and Nir Lipovetzky. Chasing progress, not perfection: Revisiting strate-
+gies for end-to-end llm plan generation. In Proceedings of the International Conference on Auto-
+mated Planning and Scheduling, volume 35, pp. 204–212, 2025.
+Binyuan Hui, Jian Yang, Zeyu Cui, Jiaxi Yang, Dayiheng Liu, Lei Zhang, Tianyu Liu, Jiajun Zhang,
+Bowen Yu, Keming Lu, et al. Qwen2. 5-coder technical report. arXiv preprint arXiv:2409.12186,
+2024.
+Hongjian Jiang, Michael Hahn, Georg Zetzsche, and Anthony Widjaja Lin. Softmax transformers
+are turing-complete. In Proceedings of the Fourteenth International Conference on Learning
+Representations (ICLR), 2026.
+13
+Preprint
+Subbarao Kambhampati, Karthik Valmeekam, Lin Guan, Mudit Verma, Kaya Stechly, Siddhant
+Bhambri, Lucas Paul Saldyt, and Anil B Murthy. Position: Llms can’t plan, but can help planning
+in llm-modulo frameworks. In Forty-first International Conference on Machine Learning, 2024.
+Michael Katz, Harsha Kokel, Kavitha Srinivas, and Shirin Sohrabi. Thought of search: Planning
+with language models through the lens of efficiency. Advances in Neural Information Processing
+Systems, 37:138491–138568, 2024.
+Harsha Kokel, Michael Katz, Kavitha Srinivas, and Shirin Sohrabi. Acpbench: Reasoning about
+action, change, and planning. In Proceedings of the AAAI Conference on Artificial Intelligence,
+volume 39, pp. 26559–26568, 2025.
+Harsha Kokel, Michael Katz, Kavitha Srinivas, and Shirin Sohrabi. Acpbench hard: Unrestrained
+reasoning about action, change, and planning. In Proceedings of the Fourteenth International
+Conference on Learning Representations (ICLR), 2026.
+Lucas Lehnert, Sainbayar Sukhbaatar, Paul McVay, Michael Rabbat, and Yuandong Tian.
+Be-
+yond a*: Better LLM planning via search dynamics bootstrapping. In ICLR 2024 Workshop on
+Large Language Model (LLM) Agents, 2024. URL https://openreview.net/forum?
+id=rviGTsl0oy.
+Alex Lewandowski, Marlos C Machado, and Dale Schuurmans. Universal computation is intrinsic
+to language model decoding. arXiv preprint arXiv:2601.08061, 2026.
+Andrew Li, Toryn Klassen, Andrew Wang, Parand A Alamdari, and Sheila McIlraith. Ground-
+compose-reinforce: Grounding language in agentic behaviours using limited data. Advances in
+Neural Information Processing Systems, 38:160838–160874, 2026a.
+Guanghao Li, Wenhao Jiang, Mingfeng Chen, Yan Li, Hao Yu, Shuting Dong, Tao Ren, Ming Tang,
+and Chun Yuan. Scout: Teaching pre-trained language models to enhance reasoning via flow
+chain-of-thought. Advances in Neural Information Processing Systems, 38:95340–95364, 2026b.
+Qian Li and Yuyi Wang. Constant bit-size transformers are turing complete. Advances in Neural
+Information Processing Systems, 38:62273–62292, 2026.
+Yangning Li, Shaoshen Chen, Yinghui Li, Yankai Chen, Hai-Tao Zheng, Hui Wang, Wenhao Jiang,
+and Philip S Yu. Admtree: Compressing lengthy context with adaptive semantic trees. Advances
+in Neural Information Processing Systems, 38:40389–40415, 2026c.
+Zhiyuan Li, Hong Liu, Denny Zhou, and Tengyu Ma. Chain of thought empowers transformers to
+solve inherently serial problems. In The Twelfth International Conference on Learning Represen-
+tations, 2024.
+Jingcong Liang, Shijun Wan, Xuehai Wu, Yitong Li, Qianglong Chen, Duyu Tang, Siyuan Wang,
+and Zhongyu Wei. Hardcorelogic: Challenging large reasoning models with long-tail logic puzzle
+games. 2026.
+Nelson F. Liu, Kevin Lin, John Hewitt, Ashwin Paranjape, Michele Bevilacqua, Fabio Petroni, and
+Percy Liang. Lost in the middle: How language models use long contexts. Transactions of the
+Association for Computational Linguistics (TACL), 12:157–173, 2024.
+Xin Liu, Runsong Zhao, Pengcheng Huang, Xinyu Liu, Junyi Xiao, Chunyang Xiao, Tong Xiao,
+Shengxiang Gao, Zhengtao Yu, and Jingbo Zhu. Autoencoding-free context compression for llms
+via contextual semantic anchors. 2026.
+Eran Malach. Auto-regressive next-token predictors are universal learners. In Proceedings of the
+41st International Conference on Machine Learning (ICML), volume 235 of Proceedings of Ma-
+chine Learning Research, 2024.
+Eran Malach, Omid Saremi, Sinead Williamson, Arwen Bradley, Aryo Lotfi, Emmanuel Abbe, Josh
+Susskind, and Etai Littwin. To infinity and beyond: Tool-use unlocks length generalization in
+state space models. 2026.
+14
+Preprint
+Silin Meng, Yiwei Wang, Cheng-Fu Yang, Nanyun Peng, and Kai-Wei Chang.
+Llm-a*: Large
+language model enhanced incremental heuristic search on path planning. In Findings of the As-
+sociation for Computational Linguistics: EMNLP 2024, pp. 1087–1102, 2024.
+Maxwell Nye, Anders J Andreassen, Guy Gur-Ari, Henryk Michalewski, David Bieber, David
+Dohan, Aitor Pang, Aitor Lewkowycz, Maarten Bosma, Edward Jiang, et al.
+Show your
+work:
+Scratchpads for intermediate computation with language models.
+arXiv preprint
+arXiv:2112.00114, 2021.
+Vishal Pallagani, Bharath Muppasani, Keerthiram Murugesan, Francesca Rossi, Biplav Srivastava,
+Lior Horesh, Francesco Fabiano, and Andrea Loreggia. Understanding the capabilities of large
+language models for automated planning. arXiv preprint arXiv:2305.16151, 2023.
+Vishal Pallagani, Bharath Chandra Muppasani, Kaushik Roy, Francesco Fabiano, Andrea Loreggia,
+Keerthiram Murugesan, Biplav Srivastava, Francesca Rossi, Lior Horesh, and Amit Sheth. On
+the prospects of incorporating large language models (llms) in automated planning and scheduling
+(aps). In Proceedings of the International Conference on Automated Planning and Scheduling,
+volume 34, pp. 432–444, 2024.
+Jorge P´erez, Pablo Barcel´o, and Javier Marinkovic. Attention is turing-complete. Journal of Ma-
+chine Learning Research, 22(75):1–35, 2021.
+John Schultz, Jakub Adamek, Matej Jusup, Marc Lanctot, Michael Kaisers, Sarah Perrin, Daniel
+Hennes, Jeremy Shar, Cannada Lewis, Anian Ruoss, et al. Mastering board games by external
+and internal planning with language models. 2025.
+Dale Schuurmans. Memory augmented large language models are computationally universal. arXiv
+preprint arXiv:2301.04589, 2023.
+Bilgehan Sel, Ahmad Al-Tawaha, Vanshaj Khattar, Lu Wang, Ruoxi Jia, and Ming Jin. Algorithm
+of thoughts: Enhancing exploration of ideas in large language models. In Proceedings of the 41st
+International Conference on Machine Learning (ICML), 2024.
+Bilgehan Sel, Ruoxi Jia, and Ming Jin. Llms can plan only if we tell them. In International Confer-
+ence on Learning Representations (ICLR), 2025.
+Rico Sennrich, Barry Haddow, and Alexandra Birch. Neural machine translation of rare words with
+subword units. In Proceedings of the 54th annual meeting of the association for computational
+linguistics (volume 1: long papers), pp. 1715–1725, 2016.
+Dhruv Shah, Michael Robert Equi, Bła˙zej Osi´nski, Fei Xia, Brian Ichter, and Sergey Levine. Navi-
+gation with large language models: Semantic guesswork as a heuristic for planning. In Conference
+on Robot Learning, pp. 2683–2699. PMLR, 2023.
+Parshin Shojaee, Seyed Iman Mirzadeh, Keivan Alizadeh, Maxwell Horton, Samy Bengio, and
+Mehrdad Farajtabar. The illusion of thinking: Understanding the strengths and limitations of
+reasoning models via the lens of problem complexity. In Advances in Neural Information Pro-
+cessing Systems, volume 38, 2025.
+Mirac Suzgun, Nathan Scales, Nathanael Sch¨arli, Sebastian Gehrmann, Yi Tay, Hyung Won Chung,
+Aakanksha Chowdhery, Quoc Le, Ed Chi, Denny Zhou, et al. Challenging big-bench tasks and
+whether chain-of-thought can solve them. In Findings of the Association for Computational Lin-
+guistics: ACL 2023, pp. 13003–13051, 2023.
+Marcus Tantakoun, Christian Muise, and Xiaodan Zhu. Llms as planning formalizers: A survey
+for leveraging large language models to construct automated planning models. In Findings of the
+Association for Computational Linguistics: ACL 2025, pp. 25167–25188, 2025.
+Gemini Team, Rohan Anil, Sebastian Borgeaud, Jean-Baptiste Alayrac, Jiahui Yu, Radu Soricut,
+Johan Schalkwyk, Andrew M Dai, Anja Hauth, Katie Millican, et al. Gemini: a family of highly
+capable multimodal models. arXiv preprint arXiv:2312.11805, 2023.
+15
+Preprint
+Hugo Touvron, Louis Martin, Kevin Stone, Peter Albert, Amjad Almahairi, Yasmine Babaei, Niko-
+lay Bashlykov, Soumya Batra, Prajjwal Bhargava, Shruti Bhosale, et al. Llama 2: Open founda-
+tion and fine-tuned chat models. arXiv preprint arXiv:2307.09288, 2023.
+Karthik Valmeekam, Matthew Marquez, Sarath Sreedharan, and Subbarao Kambhampati. On the
+planning abilities of large language models-a critical investigation. Advances in neural informa-
+tion processing systems, 36:75993–76005, 2023.
+Hao Wang. Tag systems and lag systems. Mathematische Annalen, 152(1):65–74, 1963.
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi, Quoc V Le, Denny
+Zhou, et al. Chain-of-thought prompting elicits reasoning in large language models. Advances in
+neural information processing systems, 35:24824–24837, 2022.
+Gail Weiss, Yoav Goldberg, and Eran Yahav. Thinking like transformers. In International Confer-
+ence on Machine Learning, pp. 11080–11090. PMLR, 2021.
+Shijie Wu, Ozan Irsoy, Steven Lu, Vadim Dabravolski, Mark Dredze, Sebastian Gehrmann, Prab-
+hanjan Kambadur, David Rosenberg, and Gideon Mann. Bloomberggpt: A large language model
+for finance. arXiv preprint arXiv:2303.17564, 2023.
+Yijia Xiao, Edward Sun, Tong Chen, Fang Wu, Di Luo, and Wei Wang. Trading-r1: Financial
+trading with llm reasoning via reinforcement learning. arXiv preprint arXiv:2509.11420, 2025.
+John Yang, Carlos Jimenez, Alexander Wettig, Kilian Lieret, Shunyu Yao, Karthik Narasimhan,
+and Ofir Press. Swe-agent: Agent-computer interfaces enable automated software engineering.
+Advances in Neural Information Processing Systems, 37:50528–50652, 2024.
+Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran, Tom Griffiths, Yuan Cao, and Karthik
+Narasimhan. Tree of thoughts: Deliberate problem solving with large language models. Ad-
+vances in neural information processing systems, 36:11809–11822, 2023.
+Zexuan Zhong, Tao Lei, and Danqi Chen. Training language models with memory augmentation.
+In Proceedings of the 2022 Conference on Empirical Methods in Natural Language Processing,
+pp. 5657–5673, 2022.
+Hattie Zhou, Gareth Bradley, Vantshaj Khattar, Seyed Iman Mirzadeh, Maxwell Horton, Samy Ben-
+gio, and Mehrdad Farajtabar. What algorithms can transformers learn? a study in length general-
+ization. In International Conference on Learning Representations (ICLR), 2024.
+16
+Preprint
+Appendix
+CONTENTS
+A Experimental Setup
+17
+B
+Tower of Hanoi: Complete Example
+18
+C Blocksworld: Complete Example
+20
+D Pancake Puzzle: Complete Example
+22
+E
+Extended Blocksworld: Complete Example
+24
+F
+Tower of Hanoi: Complete Planning-Only Example
+26
+G PDA for Tower of Hanoi: Complete Example
+28
+H Extended Training Scaling Results
+30
+I
+Context Window Growth during Planning
+30
+A
+EXPERIMENTAL SETUP
+In this section, we describe the tokenization process and the LM structure. For each environment, we
+convert every instruction example from training into a prompt–target language modeling sequence.
+Each dataset record contains a textual prompt p and a textual target y. We train a separate tokenizer
+for each environment using only the concatenated strings
+p || \n || y,
+where \n is the prompt–target separator. The tokenizer is a Unicode, non-byte-level BPE tokenizer
+(Sennrich et al., 2016) with a Metaspace pre-tokenizer and decoder. The BPE vocabulary is ini-
+tialized with the set of characters appearing in the corresponding environment’s prompt–target text,
+together with the special tokens [PAD], [BOS], [EOS], and [UNK]. We do not train the tokenizer
+on metadata fields such as problem size, step index, or configuration identifiers; only the prompt and
+target strings are used. After tokenizer training, each record is encoded as
+x = [BOS] || tok(p) || tok(\n) || tok(y) || [EOS].
+We store the token index at which the target portion begins. During training, the model is optimized
+with next-token prediction, but loss terms corresponding to prompt reconstruction and padding to-
+kens are masked out.
+Model architecture.
+All experiments use a decoder-only Transformer language model. Given an
+input sequence of token ids (x1, . . . , xT ), the model forms the initial hidden states by summing
+learned token embeddings and learned absolute positional embeddings:
+x(0)
+i
+= Etok(xi) + Epos(i),
+i = 1, . . . , T.
+The sequence is then processed by L identical pre-normalization Transformer blocks. Each block
+consists of causal multi-head self-attention followed by a position-wise feed-forward network, with
+residual connections around both sub-layers. Let LN denote layer normalization, MHA denote
+17
+Preprint
+Token ids
+(B, T)
+Model
+Token 
+Embeddings 
++ 
+Position 
+Embedngs
+Layer 
+Normalization
+LM head
+Output logits 
+(B, T, |𝒱|)
+…
+Transformer Block 1
+Layer 
+Normalization
+Causal self-attention
+Head 1
+…
+Head h
+Layer 
+Normalization
+Feed-Forward 
+Network
+…
+…
++
+Input to the Block 2
++
+Transformer Block L
+Layer 
+Normalization
+Causal self-attention
+Head 1
+…
+Head h
+Layer 
+Normalization
+Feed-Forward 
+Network
+…
+…
++
++
+Output of the Block L-1
+Figure 5: Decoder-only Transformer architecture used as the language model within the planner.
+Table 2: Model and tokenization hyperparameters used for each environment.
+Hyperparameter
+Tower of Hanoi
+Blocksworld
+Pancake
+Tokenizer
+Unicode BPE
+Unicode BPE
+Unicode BPE
+BPE vocabulary size
+300
+300
+300
+BPE min frequency
+10
+5
+5
+BOS/EOS tokens
+Yes
+Yes
+Yes
+Maximum sequence length
+128
+256
+512
+Trainable parameters
+10.8 M
+25.49 M
+25.62 M
+Hidden size dmodel
+384
+512
+512
+Transformer blocks L
+6
+8
+8
+Attention heads
+6
+8
+8
+Attention head dimension
+64
+64
+64
+Feed-forward dimension dff
+1536
+2048
+2048
+Dropout
+0.1
+0.1
+0.1
+Input/output embedding tying
+Yes
+Yes
+Yes
+causal multi-head self-attention, and FFN denote the position-wise feed-forward network. Then the
+ℓ-th block is given by
+˜x(ℓ) = x(ℓ−1) + MHA
+
+LN(x(ℓ−1))
+
+,
+x(ℓ) = ˜x(ℓ) + FFN
+
+LN(˜x(ℓ))
+
+.
+The attention mask is strictly causal, so position i can attend only to positions j ≤i; padding
+positions are additionally masked. The feed-forward network is a two-layer MLP with a GELU
+nonlinearity (Hendrycks & Gimpel, 2016). After the final Transformer block, we apply a final layer
+normalization and a linear language-modeling head to obtain logits over the tokenizer vocabulary.
+An overview of the model architecture is shown in Figure 5. The model hyperparameters used for
+each puzzle environment are reported in Table 2, and the corresponding training hyperparameters
+are reported in Table 3.
+B
+TOWER OF HANOI: COMPLETE EXAMPLE
+In this section, we provide a complete execution of the planning procedure for solving
+HANOI(3, s, d, a), including all prompts and the corresponding responses expected from the LM.
+The step variable indicates the order of execution from initialization to termination. Each prompt
+18
+Preprint
+Table 3: Training hyperparameters used for each environment.
+Hyperparameter
+Tower of Hanoi
+Blocksworld
+Pancake
+Training sequence length
+128
+256
+512
+Batch size
+64
+32
+32
+Validation fraction
+0.05
+0.05
+0.05
+Training configurations per n
+—
+500
+500
+Epochs
+100
+100
+100
+Maximum training steps
+50,000
+100,000
+100,000
+Learning rate
+3 × 10−4
+3 × 10−4
+3 × 10−4
+Weight decay
+0.1
+0.1
+0.1
+Gradient clipping
+1.0
+1.0
+1.0
+Warmup steps
+2,000
+2,000
+2,000
+Optimizer
+AdamW
+AdamW
+AdamW
+Learning-rate schedule
+Cosine decay
+Cosine decay
+Cosine decay
+Evaluation interval
+1,000 steps
+1,000 steps
+1,000 steps
+Logging interval
+100 steps
+100 steps
+100 steps
+and target also includes NEXT ID, which specifies the current number of instructions in the stack
+and serves as the index for inserting newly generated instructions during decomposition.
+Example: Full Prompt–Target Trace for Tower of Hanoi with n = 3
+Step 1
+Prompt
+PTR=0 NEXT ID=1 INSTR[0] CALL n=3 src=1 dst=3 aux=2
+prev=-1
+Target
+APPEND[1] CALL n=2 src=2 dst=3 aux=1 prev=-1
+APPEND[2] MOVE d=3 src=1 dst=3 prev=1
+APPEND[3] CALL n=2 src=1 dst=2 aux=3 prev=2
+PTR=3 NEXT ID=4
+Step 2
+Prompt
+PTR=3 NEXT ID=4 INSTR[3] CALL n=2 src=1 dst=2 aux=3
+prev=2
+Target
+APPEND[4] CALL n=1 src=3 dst=2 aux=1 prev=2
+APPEND[5] MOVE d=2 src=1 dst=2 prev=4
+APPEND[6] CALL n=1 src=1 dst=3 aux=2 prev=5
+PTR=6 NEXT ID=7
+Step 3
+Prompt
+PTR=6 NEXT ID=7 INSTR[6] CALL n=1 src=1 dst=3 aux=2
+prev=5
+Target
+OUTPUT Move disk 1 from 1 to 3
+PTR=5 NEXT ID=7
+Step 4
+Prompt
+PTR=5 NEXT ID=7 INSTR[5] MOVE d=2 src=1 dst=2 prev=4
+Target
+OUTPUT Move disk 2 from 1 to 2
+PTR=4 NEXT ID=7
+19
+Preprint
+Step 5
+Prompt
+PTR=4 NEXT ID=7 INSTR[4] CALL n=1 src=3 dst=2 aux=1
+prev=2
+Target
+OUTPUT Move disk 1 from 3 to 2
+PTR=2 NEXT ID=7
+Step 6
+Prompt
+PTR=2 NEXT ID=7 INSTR[2] MOVE d=3 src=1 dst=3 prev=1
+Target
+OUTPUT Move disk 3 from 1 to 3
+PTR=1 NEXT ID=7
+Step 7
+Prompt
+PTR=1 NEXT ID=7 INSTR[1] CALL n=2 src=2 dst=3 aux=1
+prev=-1
+Target
+APPEND[7] CALL n=1 src=1 dst=3 aux=2 prev=-1
+APPEND[8] MOVE d=2 src=2 dst=3 prev=7
+APPEND[9] CALL n=1 src=2 dst=1 aux=3 prev=8
+PTR=9 NEXT ID=10
+Step 8
+Prompt
+PTR=9 NEXT ID=10 INSTR[9] CALL n=1 src=2 dst=1 aux=3
+prev=8
+Target
+OUTPUT Move disk 1 from 2 to 1
+PTR=8 NEXT ID=10
+Step 9
+Prompt
+PTR=8 NEXT ID=10 INSTR[8] MOVE d=2 src=2 dst=3 prev=7
+Target
+OUTPUT Move disk 2 from 2 to 3
+PTR=7 NEXT ID=10
+Step 10
+Prompt
+PTR=7 NEXT ID=10 INSTR[7] CALL n=1 src=1 dst=3 aux=2
+prev=-1
+Target
+OUTPUT Move disk 1 from 1 to 3
+PTR=-1 NEXT ID=10
+C
+BLOCKSWORLD: COMPLETE EXAMPLE
+In this section, we provide a complete example of all prompts and their corresponding targets re-
+quired to solve a Blocksworld problem with n = 6 blocks. The initial and goal configurations are
+sampled uniformly at random from all possible permutations. The step variable indicates the order
+of prompt–target pairs from initialization until the problem is solved. The language model only
+observes the prompt and generates the target for the next iteration. Whenever the start and goal
+configurations are identical, the pointer becomes −1, indicating that no instructions remain and that
+the planning algorithm has reached the goal state.
+20
+Preprint
+Example: Full Prompt–Target Trace for Blocksworld with n = 6
+Initial stack:
+[B1, B6, B2, B5, B4, B3]
+Goal stack:
+[B5, B3, B6, B1, B4, B2]
+Step 1
+Prompt
+PTR=0 CALL type=unstacking start=[B1, B6, B2, B5, B4,
+B3] & goal=[B5, B3, B6, B1, B4, B2]
+Target
+OUTPUT Move block B3 APPEND[1] CALL type=unstacking
+start=[B1, B6, B2, B5, B4] & goal=[B5, B3, B6, B1, B4,
+B2] PTR=1
+Step 2
+Prompt
+PTR=1 CALL type=unstacking start=[B1, B6, B2, B5, B4]
+& goal=[B5, B3, B6, B1, B4, B2]
+Target
+OUTPUT Move block B4 APPEND[2] CALL type=unstacking
+start=[B1, B6, B2, B5] & goal=[B5, B3, B6, B1, B4, B2]
+PTR=2
+Step 3
+Prompt
+PTR=2 CALL type=unstacking start=[B1, B6, B2, B5] &
+goal=[B5, B3, B6, B1, B4, B2]
+Target
+OUTPUT Move block B5 APPEND[3] CALL type=unstacking
+start=[B1, B6, B2] & goal=[B5, B3, B6, B1, B4, B2]
+PTR=3
+Step 4
+Prompt
+PTR=3 CALL type=unstacking start=[B1, B6, B2] &
+goal=[B5, B3, B6, B1, B4, B2]
+Target
+OUTPUT Move block B2 APPEND[4] CALL type=unstacking
+start=[B1, B6] & goal=[B5, B3, B6, B1, B4, B2] PTR=4
+Step 5
+Prompt
+PTR=4 CALL type=unstacking start=[B1, B6] & goal=[B5,
+B3, B6, B1, B4, B2]
+Target
+OUTPUT Move block B6 APPEND[5] CALL type=unstacking
+start=[B1] & goal=[B5, B3, B6, B1, B4, B2] PTR=5
+Step 6
+Prompt
+PTR=5 CALL type=unstacking start=[B1] & goal=[B5, B3,
+B6, B1, B4, B2]
+Target
+OUTPUT Move block B1 APPEND[6] CALL type=stacking
+start=[] & goal=[B5, B3, B6, B1, B4, B2] PTR=6
+Step 7
+Prompt
+PTR=6 CALL type=stacking start=[] & goal=[B5, B3, B6,
+B1, B4, B2]
+21
+Preprint
+Target
+OUTPUT Move block B5 APPEND[7] CALL type=stacking
+start=[B5] & goal=[B5, B3, B6, B1, B4, B2] PTR=7
+Step 8
+Prompt
+PTR=7 CALL type=stacking start=[B5] & goal=[B5, B3,
+B6, B1, B4, B2]
+Target
+OUTPUT Move block B3 APPEND[8] CALL type=stacking
+start=[B5, B3] & goal=[B5, B3, B6, B1, B4, B2] PTR=8
+Step 9
+Prompt
+PTR=8 CALL type=stacking start=[B5, B3] & goal=[B5,
+B3, B6, B1, B4, B2]
+Target
+OUTPUT Move block B6 APPEND[9] CALL type=stacking
+start=[B5, B3, B6] & goal=[B5, B3, B6, B1, B4, B2]
+PTR=9
+Step 10
+Prompt
+PTR=9 CALL type=stacking start=[B5, B3, B6] &
+goal=[B5, B3, B6, B1, B4, B2]
+Target
+OUTPUT Move block B1 APPEND[10] CALL type=stacking
+start=[B5, B3, B6, B1] & goal=[B5, B3, B6, B1, B4, B2]
+PTR=10
+Step 11
+Prompt
+PTR=10 CALL type=stacking start=[B5, B3, B6, B1] &
+goal=[B5, B3, B6, B1, B4, B2]
+Target
+OUTPUT Move block B4 APPEND[11] CALL type=stacking
+start=[B5, B3, B6, B1, B4] & goal=[B5, B3, B6, B1, B4,
+B2] PTR=11
+Step 12
+Prompt
+PTR=11 CALL type=stacking start=[B5, B3, B6, B1, B4] &
+goal=[B5, B3, B6, B1, B4, B2]
+Target
+OUTPUT Move block B2 APPEND[-1] CALL type=stacking
+start=[B5, B3, B6, B1, B4, B2] & goal=[B5, B3, B6, B1,
+B4, B2] PTR=-1
+D
+PANCAKE PUZZLE: COMPLETE EXAMPLE
+In this section, we provide a complete example of all prompts and their corresponding targets re-
+quired to solve a Pancake Puzzle problem with n = 6 pancakes. The initial configuration is sampled
+uniformly at random from all possible permutations, while the goal configuration is the same sorted
+order for all problem instances. The step variable indicates the order of prompt–target pairs from
+initialization until the problem is solved. At each step, two flip moves are generated to place the next
+largest unsorted pancake into its correct position. The pointer to the next instruction for the follow-
+ing iteration is generated in the target and always refers to the next instruction in the context window.
+22
+Preprint
+Whenever the start and goal configurations are identical, the pointer becomes −1, indicating that no
+instructions remain and that the planning algorithm has reached the goal state.
+Example: Full Prompt–Target Trace for Pancake Puzzle with n = 6
+Initial state:
+[P4, P6, P2, P5, P1, P3]
+Goal state:
+[P1, P2, P3, P4, P5, P6]
+Step 1
+Prompt
+CALL instruction pointer=0 state=[P4, P6, P2, P5, P1,
+P3] & goal=[P1, P2, P3, P4, P5, P6]
+Target
+The largest unsorted pancake is P1.
+OUTPUT Flip from where P1 is located.
+State after first flip:
+[P4, P6, P2, P5, P3, P1].
+OUTPUT Flip from where P1 must be located.
+State after second flip:
+[P1, P3, P5, P2, P6, P4].
+APPEND[1] CALL instruction state=[P1, P3, P5, P2, P6,
+P4] & goal=[P1, P2, P3, P4, P5, P6] pointer=1.
+Step 2
+Prompt
+CALL instruction pointer=1 state=[P1, P3, P5, P2, P6,
+P4] & goal=[P1, P2, P3, P4, P5, P6]
+Target
+The largest unsorted pancake is P2.
+OUTPUT Flip from where P2 is located.
+State after first flip:
+[P1, P3, P5, P4, P6, P2].
+OUTPUT Flip from where P2 must be located.
+State after second flip:
+[P1, P2, P6, P4, P5, P3].
+APPEND[2] CALL instruction state=[P1, P2, P6, P4, P5,
+P3] & goal=[P1, P2, P3, P4, P5, P6] pointer=2.
+Step 3
+Prompt
+CALL instruction pointer=2 state=[P1, P2, P6, P4, P5,
+P3] & goal=[P1, P2, P3, P4, P5, P6]
+Target
+The largest unsorted pancake is P3.
+OUTPUT Flip from where P3 is located.
+State after first flip:
+[P1, P2, P6, P4, P5, P3].
+OUTPUT Flip from where P3 must be located.
+State after second flip:
+[P1, P2, P3, P5, P4, P6].
+APPEND[3] CALL instruction state=[P1, P2, P3, P5, P4,
+P6] & goal=[P1, P2, P3, P4, P5, P6] pointer=3.
+Step 4
+Prompt
+CALL instruction pointer=3 state=[P1, P2, P3, P5, P4,
+P6] & goal=[P1, P2, P3, P4, P5, P6]
+Target
+The largest unsorted pancake is P4.
+OUTPUT Flip from where P4 is located.
+State after first flip:
+[P1, P2, P3, P5, P6, P4].
+OUTPUT Flip from where P4 must be located.
+State after second flip:
+[P1, P2, P3, P4, P6, P5].
+APPEND[4] CALL instruction state=[P1, P2, P3, P4, P6,
+P5] & goal=[P1, P2, P3, P4, P5, P6] pointer=4.
+23
+Preprint
+Step 5
+Prompt
+CALL instruction pointer=4 state=[P1, P2, P3, P4, P6,
+P5] & goal=[P1, P2, P3, P4, P5, P6]
+Target
+The largest unsorted pancake is P5.
+OUTPUT Flip from where P5 is located.
+State after first flip:
+[P1, P2, P3, P4, P6, P5].
+OUTPUT Flip from where P5 must be located.
+State after second flip:
+[P1, P2, P3, P4, P5, P6].
+APPEND[-1] CALL instruction state=[P1, P2, P3, P4, P5,
+P6] & goal=[P1, P2, P3, P4, P5, P6] pointer=-1.
+E
+EXTENDED BLOCKSWORLD: COMPLETE EXAMPLE
+In this section, we provide a complete example of all prompts and their corresponding targets re-
+quired to solve an Extended BlocksWorld problem with n = 6 blocks. The initial and goal con-
+figurations are sampled uniformly at random from all possible permutations. In this setting, the
+number of stacks is also sampled from 1 to n, with the constraint that no stack is empty. This is
+because blocks can be placed directly on the table, and an empty stack is equivalent to the table.
+The step variable indicates the order of prompt–target pairs from initialization until the problem is
+solved. The language model observes only the prompt and generates the target for the next iteration.
+Whenever the start and goal configurations are identical, the pointer becomes −1, indicating that no
+instructions remain and that the planning algorithm has reached the goal state. The language model
+always attempts to match the goal configuration in the first stack of the start state and leaves the
+remaining stacks empty.
+Example: Full Prompt–Target Trace for Extended BlocksWorld with n = 6
+Initial stacks:
+[[B1, B6], [B2, B5, B4], [B3]]
+Goal stack:
+[B5, B3, B6, B1, B4, B2]
+Step 1
+Prompt
+PTR=0 CALL type=unstacking start=[[B1, B6], [B2, B5,
+B4], [B3]] & goal=[B5, B3, B6, B1, B4, B2]
+Target
+OUTPUT Move block B3 APPEND[1] CALL type=unstacking
+start=[[B1, B6], [B2, B5, B4]] & goal=[B5, B3, B6, B1,
+B4, B2] PTR=1
+Step 2
+Prompt
+PTR=1 CALL type=unstacking start=[[B1, B6], [B2, B5,
+B4]] & goal=[B5, B3, B6, B1, B4, B2]
+Target
+OUTPUT Move block B4 APPEND[2] CALL type=unstacking
+start=[[B1, B6], [B2, B5]] & goal=[B5, B3, B6, B1, B4,
+B2] PTR=2
+Step 3
+Prompt
+PTR=2 CALL type=unstacking start=[[B1, B6], [B2, B5]]
+& goal=[B5, B3, B6, B1, B4, B2]
+Target
+24
+Preprint
+OUTPUT Move block B5 APPEND[3] CALL type=unstacking
+start=[[B1, B6], [B2]] & goal=[B5, B3, B6, B1, B4, B2]
+PTR=3
+Step 4
+Prompt
+PTR=3 CALL type=unstacking start=[[B1, B6], [B2]] &
+goal=[B5, B3, B6, B1, B4, B2]
+Target
+OUTPUT Move block B2 APPEND[4] CALL type=unstacking
+start=[[B1, B6]] & goal=[B5, B3, B6, B1, B4, B2] PTR=4
+Step 5
+Prompt
+PTR=4 CALL type=unstacking start=[[B1, B6]] &
+goal=[B5, B3, B6, B1, B4, B2]
+Target
+OUTPUT Move block B6 APPEND[5] CALL type=unstacking
+start=[[B1]] & goal=[B5, B3, B6, B1, B4, B2] PTR=5
+Step 6
+Prompt
+PTR=5 CALL type=unstacking start=[[B1]] & goal=[B5,
+B3, B6, B1, B4, B2]
+Target
+OUTPUT Move block B1 APPEND[6] CALL type=stacking
+start=[] & goal=[B5, B3, B6, B1, B4, B2] PTR=6
+Step 7
+Prompt
+PTR=6 CALL type=stacking start=[] & goal=[B5, B3, B6,
+B1, B4, B2]
+Target
+OUTPUT Move block B5 APPEND[7] CALL type=stacking
+start=[[B5]] & goal=[B5, B3, B6, B1, B4, B2] PTR=7
+Step 8
+Prompt
+PTR=7 CALL type=stacking start=[[B5]] & goal=[B5, B3,
+B6, B1, B4, B2]
+Target
+OUTPUT Move block B3 APPEND[8] CALL type=stacking
+start=[[B5, B3]] & goal=[B5, B3, B6, B1, B4, B2] PTR=8
+Step 9
+Prompt
+PTR=8 CALL type=stacking start=[[B5, B3]] & goal=[B5,
+B3, B6, B1, B4, B2]
+Target
+OUTPUT Move block B6 APPEND[9] CALL type=stacking
+start=[[B5, B3, B6]] & goal=[B5, B3, B6, B1, B4, B2]
+PTR=9
+Step 10
+Prompt
+PTR=9 CALL type=stacking start=[[B5, B3, B6]] &
+goal=[B5, B3, B6, B1, B4, B2]
+Target
+OUTPUT Move block B1 APPEND[10] CALL type=stacking
+start=[[B5, B3, B6, B1]] & goal=[B5, B3, B6, B1, B4,
+B2] PTR=10
+25
+Preprint
+Step 11
+Prompt
+PTR=10 CALL type=stacking start=[[B5, B3, B6, B1]] &
+goal=[B5, B3, B6, B1, B4, B2]
+Target
+OUTPUT Move block B4 APPEND[11] CALL type=stacking
+start=[[B5, B3, B6, B1, B4]] & goal=[B5, B3, B6, B1,
+B4, B2] PTR=11
+Step 12
+Prompt
+PTR=11 CALL type=stacking start=[[B5, B3, B6, B1, B4]]
+& goal=[B5, B3, B6, B1, B4, B2]
+Target
+OUTPUT Move block B2 APPEND[-1] CALL type=stacking
+start=[[B5, B3, B6, B1, B4, B2]] & goal=[B5, B3, B6,
+B1, B4, B2] PTR=-1
+F
+TOWER OF HANOI: COMPLETE PLANNING-ONLY EXAMPLE
+In this section, we provide prompt–target pair examples for the experiment designed to separate
+the planning and arithmetic operations, allowing us to verify whether the failures observed in the
+original setting are caused by requiring the model to perform both tasks simultaneously. Below, we
+present the planning operations for values of n ∈[1, 3]. The structure of the prompts and targets is
+identical to that of the original setting; the only difference is that the arithmetic values are represented
+symbolically rather than being explicitly computed. Figure 6 illustrates how each iteration of the
+planning loop is processed, from receiving the current prompt to writing the final output on the tape.
+The arithmetic operations are handled separately, either by a dedicated language model trained for
+arithmetic reasoning or by an external tool invoked at each iteration.
+Main Prompt 
+PTR=0 NEXT_ID=1 INSTR[0] CALL n=3 src=1 dst=3 aux=2 prev=-1
+Planning Prompt
+Arithmatic Prompts
+INSTR CALL n=3 src=1 dst=3 aux=2 prev=prev
+APPEND[NEXT_ID] CALL n=2 src=2 dst=3 aux=1 prev=prev 
+APPEND[NEXT_ID+1] MOVE d=3 src=1 dst=3 prev=NEXT_ID 
+APPEND[NEXT_ID+2] CALL n=2 src=1 dst=2 aux=3 prev=NEXT_ID+1  
+PTR=NEXT_ID+2  
+NEXT_ID=NEXT_ID+3
+prev=-1 
+prev=prev
+NEXT_ID=1 
+APPEND[NEXT_ID] 
+APPEND[NEXT_ID+1] 
+APPEND[NEXT_ID+2] 
+prev=NEXT_ID 
+prev=NEXT_ID+1 
+PTR=NEXT_ID+2 
+NEXT_ID=NEXT_ID+3
+Arithmatic Model 
+or Tool
+First Prompt
+Second Prompt
+APPEND[1] CALL n=2 src=2 dst=3 aux=1 prev=-1 
+APPEND[2] MOVE d=3 src=1 dst=3 prev=1 
+APPEND[3] CALL n=2 src=1 dst=2 aux=3 prev=2  
+PTR=3  
+NEXT_ID=4
+Final Output on 
+the tape 
+Planning Model
+Planning Output
+Arithmatic Outputs
+Figure 6: One iteration of the planning loop when planning and arithmetic operations are separated.
+The planning language model generates symbolic instructions, while the arithmetic operations are
+performed by a dedicated arithmetic module before the updated prompt is written back to the tape.
+26
+Preprint
+Example: Decomposition Operations for Tower of Hanoi with n ∈[1, 3]
+Operation 1
+Prompt
+INSTR CALL n=3 src=1 dst=3 aux=2 prev=prev
+Target
+APPEND[NEXT ID] CALL n=2 src=2 dst=3 aux=1 prev=prev
+APPEND[NEXT ID+1] MOVE d=3 src=1 dst=3 prev=NEXT ID
+APPEND[NEXT ID+2] CALL n=2 src=1 dst=2 aux=3
+prev=NEXT ID+1
+PTR=NEXT ID+2 NEXT ID=NEXT ID+3
+Operation 2
+Prompt
+INSTR CALL n=2 src=1 dst=2 aux=3 prev=prev
+Target
+APPEND[NEXT ID] CALL n=1 src=3 dst=2 aux=1 prev=prev
+APPEND[NEXT ID+1] MOVE d=2 src=1 dst=2 prev=NEXT ID
+APPEND[NEXT ID+2] CALL n=1 src=1 dst=3 aux=2
+prev=NEXT ID+1
+PTR=NEXT ID+2 NEXT ID=NEXT ID+3
+Operation 3
+Prompt
+INSTR CALL n=1 src=1 dst=3 aux=2 prev=prev
+Target
+OUTPUT Move disk 1 from 1 to 3 PTR=prev NEXT ID=NEXT ID
+Operation 4
+Prompt
+INSTR MOVE d=2 src=1 dst=2 prev=prev
+Target
+OUTPUT Move disk 2 from 1 to 2 PTR=prev NEXT ID=NEXT ID
+Operation 5
+Prompt
+INSTR CALL n=1 src=3 dst=2 aux=1 prev=prev
+Target
+OUTPUT Move disk 1 from 3 to 2 PTR=prev NEXT ID=NEXT ID
+Operation 6
+Prompt
+INSTR MOVE d=3 src=1 dst=3 prev=prev
+Target
+OUTPUT Move disk 3 from 1 to 3 PTR=prev NEXT ID=NEXT ID
+Operation 7
+Prompt
+INSTR CALL n=2 src=2 dst=3 aux=1 prev=prev
+Target
+APPEND[NEXT ID] CALL n=1 src=1 dst=3 aux=2 prev=prev
+APPEND[NEXT ID+1] MOVE d=2 src=2 dst=3 prev=NEXT ID
+APPEND[NEXT ID+2] CALL n=1 src=2 dst=1 aux=3
+prev=NEXT ID+1
+PTR=NEXT ID+2 NEXT ID=NEXT ID+3
+Operation 8
+Prompt
+INSTR CALL n=1 src=2 dst=1 aux=3 prev=prev
+Target
+27
+Preprint
+OUTPUT Move disk 1 from 2 to 1 PTR=prev NEXT ID=NEXT ID
+Operation 9
+Prompt
+INSTR MOVE d=2 src=2 dst=3 prev=prev
+Target
+OUTPUT Move disk 2 from 2 to 3 PTR=prev NEXT ID=NEXT ID
+G
+PDA FOR TOWER OF HANOI: COMPLETE EXAMPLE
+In this section, we first show how the planner for TOH can resemble a PDA. A PDA is formally
+defined as a tuple
+A = (Q, Σ, Γ, δ, q0, Z0, F) ,
+where:
+• Q is a finite set of control states;
+• Σ is the input alphabet, containing the symbols that may appear in the input sequence;
+• Γ is the stack alphabet, containing the symbols that may be stored in the pushdown stack;
+• δ is the transition function, which determines the possible next control states and stack
+updates;
+• q0 ∈Q is the initial control state;
+• Z0 ∈Γ is the initial stack symbol, typically used as the bottom-of-stack marker;
+• F ⊆Q is the set of accepting states.
+Assume that the number of disks is bounded by a fixed constant N, and let P = {1, 2, 3} denote
+the set of pegs. We represent a recursive instruction by C(k, s, d, a), meaning that k disks must be
+moved from source peg s to destination peg d using auxiliary peg a, and an explicit move instruc-
+tion by M(k, s, d), meaning that disk k must be moved from peg s to peg d. The planner can be
+represented by the deterministic pushdown automaton where
+Q = {qinit, qrun, qacc},
+F = {qacc},
+and
+ΣN = {τn | 1 ≤n ≤N},
+with τn denoting a Tower-of-Hanoi instance containing n disks.
+The stack alphabet is
+ΓN = {Z0} ∪{C(k, s, d, a)} ∪{M(k, s, d)},
+where 1 ≤k ≤N, s, d, a ∈P, the pegs in a call instruction are pairwise distinct, and s̸ = d in a
+move instruction. Since N is bounded, ΓN is finite.
+The transition function is defined as follows.
+Initialization:
+δ(qinit, τn, Z0) =
+ qrun, C(n, 1, 3, 2)Z0
+
+.
+Recursive expansion, for k > 1:
+δ(qrun, ϵ, C(k, s, d, a)) =
+
+qrun, C(k −1, s, a, d) M(k, s, d) C(k −1, a, d, s)
+
+.
+Base case:
+δ(qrun, ϵ, C(1, s, d, a)) = (qrun, ϵ).
+Move execution:
+δ(qrun, ϵ, M(k, s, d)) = (qrun, ϵ).
+28
+Preprint
+Termination:
+δ(qrun, ϵ, Z0) = (qacc, Z0).
+Thus, recursive calls are replaced by three unfinished instructions, whereas base-case calls and ex-
+plicit move instructions are popped from the stack. The planner accepts when all instructions have
+been processed and only the bottom-of-stack marker remains.
+Because the planner also emits actions, its complete formulation is more precisely a deterministic
+pushdown transducer (Aho & Ullman, 1969). Let
+ΩN = {Move(k, s, d) | 1 ≤k ≤N, s, d ∈P, s̸ = d}
+be the output alphabet. The output function satisfies
+λ(qrun, ϵ, C(1, s, d, a)) = Move(1, s, d),
+λ(qrun, ϵ, M(k, s, d)) = Move(k, s, d),
+and produces no output for recursive-call expansion.
+Below, we show the complete sequence of prompt–target pairs for the planning procedure with
+n = 3 disks. The pop operation is omitted for clarity. Each time a prompt is presented to the LM, it
+is implicitly assumed that the corresponding instruction has been popped from the top of the stack.
+The output transduction performed by the λ function is indicated by the OUTPUT token preceding
+each action.
+Example: Full Push–Pop Prompt–Target Trace for Tower of Hanoi with n = 3
+Step 1
+Prompt
+INSTR CALL n=3 src=1 dst=3 aux=2
+Target
+PUSH CALL n=2 src=2 dst=3 aux=1
+PUSH MOVE d=3 src=1 dst=3
+PUSH CALL n=2 src=1 dst=2 aux=3
+Step 2
+Prompt
+INSTR CALL n=2 src=1 dst=2 aux=3
+Target
+PUSH CALL n=1 src=3 dst=2 aux=1
+PUSH MOVE d=2 src=1 dst=2
+PUSH CALL n=1 src=1 dst=3 aux=2
+Step 3
+Prompt
+INSTR CALL n=1 src=1 dst=3 aux=2
+Target
+OUTPUT Move disk 1 from 1 to 3
+Step 4
+Prompt
+INSTR MOVE d=2 src=1 dst=2
+Target
+OUTPUT Move disk 2 from 1 to 2
+Step 5
+Prompt
+INSTR CALL n=1 src=3 dst=2 aux=1
+Target
+OUTPUT Move disk 1 from 3 to 2
+Step 6
+Prompt
+29
+Preprint
+INSTR MOVE d=3 src=1 dst=3
+Target
+OUTPUT Move disk 3 from 1 to 3
+Step 7
+Prompt
+INSTR CALL n=2 src=2 dst=3 aux=1
+Target
+PUSH CALL n=1 src=1 dst=3 aux=2
+PUSH MOVE d=2 src=2 dst=3
+PUSH CALL n=1 src=2 dst=1 aux=3
+Step 8
+Prompt
+INSTR CALL n=1 src=2 dst=1 aux=3
+Target
+OUTPUT Move disk 1 from 2 to 1
+Step 9
+Prompt
+INSTR MOVE d=2 src=2 dst=3
+Target
+OUTPUT Move disk 2 from 2 to 3
+Step 10
+Prompt
+INSTR CALL n=1 src=1 dst=3 aux=2
+Target
+OUTPUT Move disk 1 from 1 to 3
+H
+EXTENDED TRAINING SCALING RESULTS
+In this section, we provide the complete results of the experiment designed to investigate how learn-
+ing scales with the number of complete training instances used during training. The results for
+BlocksWorld and Extended BlocksWorld are presented in Table 4, while the results for the Pancake
+Puzzle are presented in Table 6. The overall findings are consistent with those reported in the main
+text; however, these detailed results provide a more fine-grained view of how performance changes
+as the number of training instances is reduced, particularly for larger values of n.
+For TOH, we report the values of n for which each hold-out setting fails, together with the corre-
+sponding failure step whenever an execution error occurs. The results are shown in Table 5. In one
+failure case at n = 15 with a 15% hold-out setting, the entire plan was executed without any explicit
+execution error; however, the final state was incorrect, with only 12 disks moved to the third peg
+while the three largest disks remained on the first peg. For this case, the failure step is reported as
+“–” since no execution error occurred during the planning process.
+I
+CONTEXT WINDOW GROWTH DURING PLANNING
+In this section, we examine how the context window evolves throughout the planning process across
+all environments. In this experiment, the context window is defined as the initial prompt together
+with all targets generated by the language model and written to the tape throughout planning. Since
+the highest complexity level in each environment exhibits the longest planning trajectory and sub-
+sumes all planning patterns observed at lower complexity levels, we report results only for the largest
+value of n in each domain. Figure 7 presents the results for all four environments, showing both the
+context window size and the prompt size at each planning step. As shown in the figure, the size
+of the prompt passed to the language model remains nearly constant throughout planning for TOH
+and the Pancake Puzzle, while the total context window grows linearly with the solution length. In
+30
+Preprint
+Table 4: Success rates (%) for BlocksWorld and Extended BlocksWorld across all complexity levels
+(n blocks) and numbers of complete training instances.
+(a) BlocksWorld
+n
+Training Instances
+500 400 300 200 100
+50
+30
+10
+5
+6
+100 100 100 100 100 100 100 100
+94
+7
+100 100 100 100 100 100 100 100
+98
+8
+100 100 100 100 100 100 100 100
+92
+9
+100 100 100 100 100 100 100 100
+84
+10 100 100 100 100 100 100 100 100
+80
+11 100 100 100 100 100 100 100 100
+82
+12 100 100 100 100 100 100 100 100
+80
+13 100 100 100 100 100 100 100 100
+84
+14 100 100 100 100 100 100 100 100
+92
+15 100 100 100 100 100 100 100 100 100
+16 100 100 100 100 100 100 100 100
+92
+17 100 100 100 100 100 100 100 100
+90
+18 100 100 100 100 100 100 100 100
+98
+19 100 100 100 100 100 100 100 100
+92
+20 100 100 100 100 100 100 100 100
+76
+21 100 100 100 100 100 100 100
+96
+82
+22 100 100 100 100 100 100 100
+92
+82
+23 100 100 100 100 100 100 100
+96
+74
+24 100 100 100 100 100 100 100
+98
+72
+25 100 100 100 100 100 100 100
+98
+78
+26 100 100 100 100 100 100 100
+94
+58
+27 100 100 100 100 100 100 100
+96
+64
+28 100 100 100 100 100 100 100
+90
+64
+29 100 100 100 100 100 100 100
+94
+52
+30 100 100 100 100 100 100 100
+92
+54
+31 100 100 100 100 100 100 100
+92
+36
+32 100 100 100 100 100 100 100
+92
+34
+33 100 100 100 100 100 100 100
+92
+40
+34 100 100 100 100 100 100 100
+88
+30
+35 100 100 100 100 100 100 100
+90
+30
+36 100 100 100 100 100 100 100
+88
+30
+37 100 100 100 100 100 100 100
+94
+20
+38 100 100 100 100 100 100 100
+86
+10
+39 100 100 100 100 100 100 100
+0
+6
+40 100 100 100 100 100
+98
+92
+2
+0
+(b) Extended BlocksWorld
+n
+Training Instances
+500 400 300 200 100
+50
+30 10
+5
+6
+100 100 100 100 100 100 100 96 94
+7
+100 100 100 100 100 100 100 98 96
+8
+100 100 100 100 100 100 100 86 88
+9
+100 100 100 100 100 100 100 98 94
+10 100 100 100 100 100 100 100 98 88
+11 100 100 100 100 100 100 100 94 86
+12 100 100 100 100 100 100 100 88 82
+13 100 100 100 100 100 100 100 90 86
+14 100 100 100 100 100 100 100 92 82
+15 100 100 100 100 100 100 100 82 78
+16 100 100 100 100 100 100 100 78 80
+17 100 100 100 100 100 100
+98 80 68
+18 100 100
+98 100
+98 100
+96 82 60
+19 100 100 100 100 100 100 100 80 62
+20 100 100 100 100 100 100 100 76 72
+21 100 100 100 100 100 100 100 66 66
+22 100 100 100 100 100 100
+96 82 66
+23 100 100 100 100 100 100
+98 78 64
+24 100 100 100
+98
+98 100
+98 74 70
+25 100 100 100 100 100 100 100 66 52
+26 100 100
+98 100 100 100 100 74 46
+27 100 100 100 100 100 100
+98 88 48
+28 100
+98 100 100 100
+96
+98 60 36
+29 100 100 100 100 100 100
+98 60 36
+30 100 100 100 100 100 100
+98 60 38
+31 100 100 100 100 100 100
+94 62 26
+32 100 100 100 100 100
+96
+94 66 22
+33 100 100 100 100 100 100
+98 64 30
+34 100 100 100 100 100 100 100 68 26
+35
+98 100 100 100
+98 100 100 66 16
+36
+98 100 100 100
+98
+96 100 54 16
+37 100
+98 100 100 100
+98 100 48 12
+38 100 100
+98
+98
+98
+98
+96 58
+2
+39 100
+96 100 100
+98
+98
+92 52
+6
+40 100
+96
+98 100
+98
+94
+94 40
+2
+Table 5: Tower of Hanoi success results across holdout percentages. A value of 1 indicates success.
+A value of 0 indicates failure, with the failure step shown in parentheses.
+Holdout percentage
+n disks
+5%
+10%
+15%
+20%
+25%
+30%
+35%
+40%
+45%
+50%
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+2
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+3
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+4
+1
+1
+1
+1
+1
+1
+1
+1
+0 (8)
+0 (8)
+5
+1
+1
+1
+0 (7)
+1
+1
+1
+1
+1
+0 (7)
+6
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+7
+1
+1
+1
+1
+1
+1
+1
+1
+1
+0 (25)
+8
+1
+1
+1
+1
+1
+1
+1
+1
+0 (194)
+0 (26)
+9
+1
+1
+1
+1
+1
+1
+1
+1
+0 (509)
+0 (27)
+10
+1
+1
+1
+1
+1
+1
+1
+1
+0 (197)
+0 (1152)
+11
+1
+0 (387)
+1
+1
+1
+0 (1537)
+1
+1
+0 (386)
+1
+12
+1
+0 (1827)
+1
+1
+0 (6146)
+0 (1538)
+1
+0 (1828)
+0 (509)
+0 (1827)
+13
+1
+1
+1
+1
+1
+0 (1539)
+1
+0 (1830)
+0 (6144)
+0 (1537)
+14
+1
+1
+0 (1830)
+1
+0 (24576)
+0 (1158)
+0 (12288)
+0 (1830)
+0 (197)
+0 (1537)
+15
+1
+0 (37855)
+0 (–)
+0 (6145)
+0 (29984)
+0 (1158)
+0 (12288)
+0 (1830)
+0 (509)
+0 (1827)
+Success rate
+100.0%
+80.0%
+86.7%
+86.7%
+80.0%
+66.7%
+86.7%
+73.3%
+40.0%
+33.3%
+both versions of BlocksWorld, the prompt size initially decreases as the start configuration is pro-
+gressively unstacked. (Single blocks on the table are not explicitly represented, but are implicitly
+found on the table.) The minimum prompt size is reached when all blocks are placed on the table.
+Thereafter, the prompt size increases as the blocks are stacked to match the goal configuration.
+These results highlight the effectiveness of the pointer mechanism for planning. First, it helps main-
+tain prediction accuracy throughout the planning process. Once the model has learned to execute a
+31
+Preprint
+Table 6: Success rates (%) for Pancake across all complexity levels (n pancakes) and numbers of
+complete training instances.
+n
+Training Instances
+500
+400
+300
+200
+100
+50
+30
+10
+5
+6
+100
+100
+100
+100
+100
+100
+98
+88
+78
+7
+100
+100
+100
+100
+100
+100
+94
+88
+66
+8
+100
+100
+100
+100
+100
+100
+96
+94
+48
+9
+100
+100
+100
+100
+100
+100
+98
+88
+8
+10
+100
+100
+100
+100
+100
+100
+96
+88
+66
+11
+100
+100
+100
+100
+100
+100
+100
+84
+40
+12
+100
+100
+100
+100
+100
+100
+100
+76
+22
+13
+100
+100
+100
+100
+100
+100
+100
+68
+48
+14
+100
+100
+100
+100
+100
+100
+98
+76
+60
+15
+100
+100
+100
+100
+100
+100
+100
+70
+74
+16
+100
+100
+100
+100
+100
+100
+100
+72
+84
+17
+100
+100
+100
+100
+100
+100
+100
+82
+44
+18
+100
+100
+100
+100
+100
+100
+100
+76
+84
+19
+100
+100
+100
+100
+100
+100
+100
+76
+86
+20
+100
+100
+100
+100
+100
+100
+100
+52
+54
+21
+100
+100
+100
+100
+100
+100
+98
+58
+92
+22
+100
+100
+100
+100
+100
+100
+100
+86
+90
+23
+100
+100
+100
+100
+100
+100
+100
+76
+46
+24
+100
+100
+100
+100
+100
+100
+100
+76
+44
+25
+100
+100
+100
+100
+100
+100
+100
+56
+64
+26
+100
+100
+100
+100
+100
+100
+100
+74
+56
+27
+100
+100
+100
+100
+100
+100
+100
+52
+76
+28
+100
+100
+100
+100
+100
+100
+100
+68
+54
+29
+100
+100
+100
+100
+100
+100
+100
+58
+44
+30
+100
+100
+100
+100
+100
+100
+98
+70
+48
+31
+100
+100
+100
+100
+100
+100
+100
+70
+32
+32
+100
+100
+100
+100
+100
+100
+100
+66
+46
+33
+100
+100
+100
+100
+100
+100
+100
+20
+54
+34
+100
+100
+100
+100
+98
+100
+98
+62
+20
+35
+100
+100
+100
+100
+100
+100
+100
+58
+20
+36
+100
+100
+100
+100
+100
+100
+100
+62
+6
+37
+100
+100
+100
+100
+100
+100
+100
+58
+10
+38
+100
+100
+100
+100
+100
+94
+100
+36
+0
+39
+100
+100
+100
+100
+96
+100
+96
+30
+2
+40
+100
+100
+100
+100
+100
+98
+82
+18
+0
+particular instruction, its accuracy is largely independent of the total solution length because it only
+needs to attend to the current instruction and the relevant local information. In contrast, if the entire
+accumulated context were provided as input at every step, the model would need to retrieve the rel-
+evant information from an increasingly large context window, making the task progressively more
+difficult and potentially reducing accuracy. Second, the pointer mechanism substantially reduces
+computational cost. In our approach, the amount of information processed by the language model
+at each planning step remains approximately constant. In contrast, when the entire accumulated
+context is repeatedly passed to the model, the computational cost increases with the context length,
+since all tokens in the context participate in the attention computation. As a result, the overall com-
+putational cost grows with the length of the planning trajectory, whereas in our approach the cost
+per planning step remains nearly constant.
+32
+Preprint
+0
+10
+20
+30
+40
+50
+60
+70
+80
+0
+1,000
+2,000
+3,000
+4,000
+5,000
+BlocksWorld
+0
+10
+20
+30
+40
+50
+60
+70
+80
+0
+1,000
+2,000
+3,000
+4,000
+5,000
+Extended BlocksWorld
+0
+5
+10
+15
+20
+25
+30
+35
+0
+1,000
+2,000
+3,000
+4,000
+5,000
+6,000
+7,000
+Pancake
+0
+10,000
+20,000
+30,000
+40,000
+50,000
+0
+100,000
+200,000
+300,000
+400,000
+500,000
+600,000
+700,000
+TOH
+0
+10
+20
+30
+40
+50
+60
+70
+80
+0
+10
+20
+30
+40
+50
+60
+70
+80
+0
+10
+20
+30
+40
+50
+60
+70
+80
+0
+2
+4
+6
+8
+Planning step
+Accumulated Context window size
+Prompt size at step
+Accumulated Context window
+Prompt size
+Figure 7: Prompt size and cumulative context-window size over planning steps for BlocksWorld,
+Extended BlocksWorld, Pancake, and Tower of Hanoi (TOH). The x-axis shows the planning step.
+The context-window curve measures the initial prompt plus all model-generated text up to that step,
+while the prompt-size curve measures the prompt at the current step.
+33

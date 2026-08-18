@@ -1,0 +1,1519 @@
+When to Use Extra Context: Evidence-Grounded Terminology Adaptation
+for Simultaneous Speech Translation
+Zeyu Yang1, Satoshi Nakamura1
+1The Chinese University of Hong Kong, Shenzhen
+Correspondence: zeyuyang1@link.cuhk.edu.cn, snakamura@cuhk.edu.cn
+Abstract
+Extra context is valuable for simultaneous
+speech translation of technical talks, but in-
+jecting the entire document context into every
+streaming segment is often too coarse. Through
+diagnostic experiments, we find that context
+gains mainly come from paper-specific termi-
+nology recovery rather than uniform semantic
+enhancement. We therefore propose EGTA,
+an Evidence-Grounded Terminology Adapta-
+tion framework that builds a document ter-
+minology memory, selects compact candidate
+terms conditioned on the current streaming
+state, and adapts ASR/speech-side and decoder-
+side decision spaces using only the selected
+terms. EGTA can be instantiated in cascaded,
+end-to-end, and generation-only SimulST set-
+tings without full-model fine-tuning. We evalu-
+ate EGTA on an ACL technical-talk SimulST
+evaluation suite consisting of MCIF-dev and
+ACL60/60-dev.
+On MCIF-dev, EGTA-RG
+improves BLEU by +1.05/+0.59, XCOMET-
+XL by +0.019/+0.006, named-entity recall
+by +79%/+73% relative, and acronym recall
+by +0.099/+0.171 on En→Zh and En→De.
+Across MCIF-dev latency settings, EGTA
+consistently improves XCOMET-XL, named-
+entity recall, and acronym recall. External val-
+idation on ACL60/60-dev further shows con-
+sistent terminology-recall gains without addi-
+tional fine-tuning. Shuffled-memory controls
+and activation audits provide evidence that the
+improvements are tied to paper-specific evi-
+dence alignment rather than generic context
+prompting.
+1
+Introduction
+Simultaneous speech translation (SimulST) re-
+quires a system to translate speech before the full
+utterance or document is observed. This setting is
+particularly challenging for technical talks, where
+the speaker frequently mentions paper-specific ter-
+minology such as acronyms, model names, datasets,
+method names, and named entities. Unlike ordinary
+lexical choices, these terms are often rare, newly
+coined, or domain-specific. Missing or mistranslat-
+ing them can substantially reduce the usefulness of
+the translated stream, even when the surrounding
+sentence is fluent.
+A natural way to address this problem is to pro-
+vide the model with extra document context, such
+as the talk title, abstract, or extracted entities. How-
+ever, how to use such context in SimulST remains
+underexplored. A straightforward solution is to
+inject the entire context into every streaming seg-
+ment, either through prompting, retrieval augmen-
+tation, or hidden-state adaptation. Our diagnostic
+experiments show that this uniform strategy is of-
+ten too coarse: extra context can alter surface style
+or domain register without consistently improving
+the terminology fidelity that actually benefits from
+context. In streaming translation, many segments
+require no document-specific term, while only seg-
+ments that mention paper-specific terms require
+precise terminology preservation.
+This observation motivates a shift from general
+semantic context injection to terminology-oriented,
+evidence-conditioned adaptation. Instead of asking
+whether the model should always use document
+context, we ask: when should extra context be used,
+and where should it be applied? We find that the
+most reliable gains from extra context are concen-
+trated on paper-specific terminology rather than
+uniform semantic enhancement. Therefore, context
+adaptation should be selective, conditioned on the
+current streaming state, and applied to the decision
+spaces where terminology errors arise.
+We propose EGTA, an Evidence-Grounded
+Terminology Adaptation framework for extra-
+context SimulST. EGTA first constructs a docu-
+ment terminology memory from paper-level con-
+text, including acronyms, model names, dataset
+names, method names, and other paper-specific en-
+tities. For each streaming segment, EGTA selects a
+compact candidate set from this memory using the
+arXiv:2607.17766v1  [cs.CL]  20 Jul 2026
+current streaming state, such as the audio-derived
+hypothesis, transcript context, or partial translation
+state. It then applies the selected candidates to
+ASR/speech-side and decoder-side decision spaces.
+ASR/speech-side adaptation helps the system hear
+or attend to relevant terminology, while decoder-
+side adaptation biases decoding toward selected
+terminology tokens. We use “evidence-grounded”
+as a behavioral claim: the model should realize
+adapted terms only when they are supported by
+speech-conditioned evidence, which we later vali-
+date through activation audits and shuffled-memory
+controls.
+EGTA is architecture-agnostic. The same se-
+lected term set can be exposed through ASR hot-
+words in cascaded systems, compact terminology
+context in end-to-end speech-language models, or
+decoder-side logit bias when only the generation in-
+terface is editable. This makes EGTA a lightweight
+inference-time framework rather than a full-model
+fine-tuning method.
+We evaluate EGTA on MCIF-dev and ACL60/60-
+dev for En→Zh and En→De. With a fixed Qwen3-
+Omni-based end-to-end backbone, EGTA-RG with
+B = 2 improves BLEU, XCOMET-XL, named-
+entity recall, and acronym recall at the MCIF-dev
+anchor point, and ACL60/60-dev shows consistent
+terminology-recall gains without additional fine-
+tuning. Latency-frontier results, shuffled-memory
+controls, and activation audits further indicate
+that the gains come from correct paper-specific
+evidence alignment rather than generic context
+prompting.
+Our contributions are summarized as follows:
+• We present a diagnostic analysis showing that
+the main benefit of extra context in technical-
+talk SimulST comes from paper-specific ter-
+minology recovery, while uniform context in-
+jection can be unreliable.
+• We propose EGTA, an evidence-grounded ter-
+minology adaptation framework that restricts
+inference-time adaptation to compact candi-
+date terms selected from document context
+and the current streaming state.
+• We analyze EGTA across end-to-end, cas-
+caded, and generation-only backbones, show-
+ing where terminology adaptation provides
+the most headroom without full-model fine-
+tuning.
+• Experiments on an ACL technical-talk eval-
+uation suite show consistent improvements
+in XCOMET-XL, named-entity recall, and
+acronym recall, with external ACL60/60-dev
+validation and grounding audits supporting
+paper-specific evidence alignment.
+2
+Related Work
+2.1
+Simultaneous Speech Translation
+Simultaneous speech translation (SimulST) re-
+quires balancing quality and latency while the
+source speech is still unfolding. Prior work has
+studied read/write policies such as wait-k, mono-
+tonic attention, and information-transport policies,
+as well as evaluation toolkits and latency metrics
+such as SimulEval and length-adaptive average lag-
+ging (Ma et al., 2019; Arivazhagan et al., 2019;
+Ma et al., 2020; Zhang and Feng, 2022; Papi et al.,
+2022). These methods primarily improve segmen-
+tation, policy learning, or latency-aware decoding.
+Our work is complementary: we study how to
+use extra document context when only a subset
+of streaming segments requires paper-specific ter-
+minology.
+2.2
+Context-Aware and Terminology-Aware
+Translation
+Context-aware translation has been widely stud-
+ied in document-level MT and ST, including prior-
+sentence context, document-level context, and anal-
+yses of whether models actually use contextual
+signals (Voita et al., 2018; Maruf et al., 2019, 2021;
+Zhang et al., 2021; Dabre et al., 2021; Fernandes
+et al., 2021). Terminology adaptation has also been
+studied through lexical constraints, dictionary injec-
+tion, terminology-aware training, and vocabulary
+biasing (Hokamp and Liu, 2017; Post and Vilar,
+2018; Dinu et al., 2019). These works show that
+broader context or external lexical knowledge can
+improve translation, especially in domain-specific
+settings.
+SimulST creates a different challenge: context
+must be useful before the full utterance or doc-
+ument is observed. Uniformly injecting all doc-
+ument terms into every segment may expose the
+model to irrelevant context and encourage halluci-
+nated terminology. EGTA therefore differs from
+general document-context methods by treating con-
+text as a sparse terminology memory and activating
+it only when the current speech stream provides
+supporting evidence.
+2.3
+Speech-Language Models and Contextual
+Biasing
+End-to-end speech translation and speech-language
+models, including Translatotron, SpeechT5, and
+SeamlessM4T, directly map speech to target text
+or unify speech and text modeling (Jia et al., 2019;
+Ao et al., 2022; Barrault et al., 2023). In speech
+recognition, contextual biasing and hotwording are
+commonly used to improve recognition of rare
+names, technical terms, and personalized vocab-
+ulary (Pundak et al., 2018). EGTA connects these
+ideas by decomposing terminology adaptation into
+ASR/speech-side and decoder-side decision spaces,
+instead of treating document context as a uniform
+signal applied to every segment.
+In contrast to prior context-aware SimulST work
+that studies whether context helps at the sentence or
+document level, our focus is when context should
+be activated during streaming inference. EGTA op-
+erationalizes this question as terminology-memory
+construction, evidence-conditioned candidate se-
+lection, and architecture-specific ASR/speech-side
+and decoder-side adaptation.
+3
+Method
+Figure 1 shows the two-stage EGTA workflow.
+This section specifies the terminology memory, the
+evidence-conditioned selection algorithm, and the
+concrete R/G adaptation interfaces used in our sys-
+tems.
+3.1
+Problem Setup
+Given an input speech stream X, a SimulST sys-
+tem incrementally receives audio chunks and emits
+target-language text before the full utterance or talk
+is observed. For a streaming segment i, the system
+observes partial speech input X≤i and produces
+target output Yi. In technical talks, we additionally
+assume access to document-level context D, such
+as the paper title, abstract, glossary, or automati-
+cally extracted metadata.
+The goal is to use D to improve terminology
+fidelity without introducing irrelevant terms into
+segments where the context is not needed. A naive
+approach is to concatenate the whole document
+context to every streaming input. However, this
+treats all segments as equally context-dependent.
+EGTA instead treats document context as a sparse
+terminology source and restricts adaptation to a
+segment-specific candidate subset.
+3.2
+Terminology Memory
+EGTA converts document context D into a termi-
+nology memory TD = {t1, . . . , tm} containing
+paper-specific terms that are difficult for speech
+translation, including acronyms, model and dataset
+names, method names, organization names, and
+technical phrases. The memory is not taken from
+an IWSLT-provided gold glossary. We construct
+it automatically from paper-level context, includ-
+ing titles, abstracts, and available metadata, us-
+ing a prompt-based Qwen3-30B-Instruct extractor
+served in FP8. The extractor proposes candidate
+named entities and technical terms, after which
+we normalize terms by case, punctuation, whites-
+pace, and hyphen variants.
+We keep acronym-
+like strings, alphanumeric or hyphenated technical
+names, CamelCase terms, and multi-word techni-
+cal phrases, while filtering generic function words
+and non-technical metadata. Candidate named en-
+tities are therefore treated as a noisy terminology
+list rather than a gold inventory; EGTA uses local
+speech evidence to select from this list instead of
+trusting every extracted term. Each term stores
+surface forms and tokenizer-level variants for both
+ASR/speech-side conditioning and decoder-side to-
+ken biasing. Appendix A.2 reports memory-size
+and term-type statistics.
+3.3
+Evidence-Conditioned Candidate
+Selection
+For each streaming segment, EGTA selects a com-
+pact subset of terms from the document memory.
+Let Ei denote the local evidence for segment i,
+including the current speech segment, partial tran-
+script or ASR hypothesis, nearby history, and par-
+tial target-side state. EGTA forms
+Ti = A(TD, Ei),
+(1)
+where A(·) is the deterministic inference-time pro-
+cedure in Algorithm 1. The selector normalizes Ei
+with the same rules as TD, matches surface forms,
+acronyms, and tokenizer-level variants, and ranks
+matches by exactness, specificity, and recency un-
+der a fixed per-segment terminology budget. If the
+current partial hypothesis contains “we evaluate on
+MCIF”, for example, the mention of “MCIF” is
+an evidence event that activates the memory term
+MCIF. Detailed matching rules and prompt format-
+ting are given in Appendix A.3.
+Running example.
+Consider a segment whose
+partial ASR hypothesis contains “we evaluate on
+Figure 1: Overview of EGTA. The bottom panel shows the preparation stage, where document context is converted
+offline into a compact terminology memory. The top panel shows the inference stage: EGTA extracts local evidence
+from the current streaming segment, matches it to the terminology memory, selects evidence-supported terms, and
+uses them as inference-time conditioning signals for ASR-side, speech-encoder-side, and decoder-side decisions.
+Local evidence refers to a cue from the current segment, such as a partial transcript or ASR hypothesis that matches
+a term in the terminology memory.
+MCIF” while the document memory contains terms
+such as MCIF, SimulEval, and Qwen3-Omni. The
+selector treats the observed mention of MCIF as
+local evidence, ranks it above unmatched mem-
+ory terms, and exposes only the selected set to the
+downstream interfaces. EGTA-R inserts the se-
+lected terms into the compact terminology context
+or ASR hotword list, while EGTA-G biases only
+the corresponding decoder tokens.
+Unmatched
+memory terms remain available for later segments
+but are not activated for the current one.
+The selected terms define what is exposed to
+ASR/speech-side conditioning and decoder-side
+biasing, but realization is still determined by the
+speech-conditioned decoder.
+We therefore use
+“evidence-grounded” as a behavioral claim rather
+than a hard symbolic guarantee, and validate it
+through activation audits, evidence-strength buck-
+ets, and shuffled-memory controls in Section 5.4.
+3.4
+ASR/Speech-Side and Decoder-Side
+Adaptation
+EGTA applies selected terms through two inter-
+faces: R(Ti) for ASR/speech-side conditioning
+and G(Ti) for decoder-side biasing. EGTA-RG
+Algorithm 1 EGTA inference for streaming seg-
+ment i
+Require: document context D, streaming state Ei, terminol-
+ogy budget K, bias strength B
+1: Build or load terminology memory TD from D
+2: Normalize the ASR hypothesis, partial transcript, and
+recent history in Ei
+3: Match terms in TD by surface form, acronym, or
+tokenizer-level variant
+4: Rank matches by exact match, acronym match, specificity,
+and recency
+5: Select top-K evidence-supported terms Ti
+6: Apply R(Ti) as ASR hotwords or compact terminology
+context
+7: Apply G(Ti) as decoder-side vocabulary bias with
+strength B
+8: Decode the next streaming output prefix
+combines both.
+ASR/speech-side adaptation.
+ASR/speech-side
+adaptation helps the system hear or attend to rel-
+evant terminology before target decoding. In cas-
+caded systems, R(Ti) is implemented through ASR
+hotwords or contextual biasing. In end-to-end sys-
+tems, R(Ti) is implemented as inference-time ter-
+minology conditioning for the speech-language
+model rather than as a parameter update. It exposes
+only selected terms, e.g., Relevant paper terms:
+MCIF; SimulEval, instead of the full document
+context.
+Decoder-side adaptation.
+Decoder-side adapta-
+tion preserves selected terminology during target
+decoding. For each selected term t ∈Ti, EGTA
+identifies target-side token variants and applies a
+vocabulary-level bias. Let zt(v) be the original
+logit for vocabulary token v at decoding step t.
+EGTA-G modifies it as
+z′
+t(v) = zt(v) + B · 1[v ∈V (Ti)],
+(2)
+where V (Ti) is the set of vocabulary tokens asso-
+ciated with the selected terms and B is the bias
+strength. Target-side variants are constructed from
+the terminology memory and tokenizer outputs,
+not from test references. This biasing rule is delib-
+erately simple: our goal is not to introduce a new
+constrained-decoding algorithm, but to test whether
+document terms should be activated selectively un-
+der streaming evidence. We therefore compare
+EGTA-G with stronger alternatives, including uni-
+form full-memory context and Global-G, which
+applies decoder-side bias to all memory terms with-
+out evidence-conditioned selection. As shown in
+Section 5.3 and Appendix A.6, stronger all-term
+bias increases over-biasing risk and can degrade
+BLEU and latency, while selected-term bias gives
+a better recall–quality–latency trade-off. Unlike
+global terminology biasing, EGTA-G biases only
+evidence-selected terms, limiting over-biasing on
+unrelated segments.
+Full EGTA-RG.
+When both interfaces are avail-
+able, EGTA decodes with
+Yi = Mθ(X≤i; R(Ti), G(Ti)).
+(3)
+Here R(Ti) improves access to relevant terminol-
+ogy in the speech-understanding stage, while G(Ti)
+preserves selected terms through token-level bias-
+ing.
+3.5
+Architecture Instantiations
+Table 1 summarizes the concrete interfaces used in
+each backbone. All instantiations share the same
+selected term set Ti; they differ only in how R(Ti)
+and G(Ti) are exposed by the model.
+The Qwen3-Omni end-to-end setting is our main
+system. The cascade setting diagnoses how much
+headroom remains when ASR-side hotwording is
+already available, and SeamlessM4T provides a
+generation-only transfer check when the R(Ti) in-
+terface is unavailable.
+Backbone
+R(Ti) interface
+G(Ti) interface
+Qwen3-Omni E2E compact term context decoder logit bias
+Cascade ASR–MT ASR hotwords
+MT vocabulary bias
+SeamlessM4T
+–
+decoder-side EGTA-G
+Table 1: Concrete EGTA instantiations across back-
+bones.
+4
+Experimental Setup
+4.1
+Datasets
+We evaluate EGTA on an ACL technical-talk
+SimulST evaluation suite consisting of MCIF-dev
+and ACL60/60-dev. Both subsets are built from
+technical conference talks with paper-level context,
+making them suitable for evaluating terminology
+adaptation under streaming speech evidence.
+MCIF-dev is derived from MCIF (Multimodal
+Crosslingual Instruction Following), a multilingual
+benchmark based on scientific talks (Papi et al.,
+2025). We pair its speech and references with
+paper-level metadata, including titles, abstracts,
+and extracted terminology, and use the resulting 21-
+talk, 919-segment technical-talk subset as the main
+benchmark for full latency, ablation, and grounding
+analyses.
+ACL60/60-dev is used as an external technical-
+talk benchmark. It contains 5 ACL talks and 468
+gold-segmented segments with official En→Zh
+and En→De references. It also provides tagged
+terminology for both target languages, allowing
+terminology-sensitive evaluation beyond MCIF-
+dev.
+We use the same terminology extraction,
+normalization, candidate selection, and EGTA-RG
+B=2 configuration without additional fine-tuning.
+4.2
+Systems and Configurations
+For end-to-end SimulST, we use a fine-tuned
+Qwen3-Omni-30B-A3B audio-text LLM as the
+backbone. Following our IWSLT system setup,
+the audio encoder is kept frozen, the non-text gen-
+eration modules are disabled, and only language-
+side LoRA adapters are used to teach streaming
+read/write behavior. At inference time, the back-
+bone is served with vLLM using greedy decod-
+ing and a bounded dialogue history. The back-
+bone checkpoint, chunk schedule, decoding param-
+eters, and evaluation talks are fixed across variants;
+variants differ only in the inference-time terminol-
+ogy interface. The baseline receives the streaming
+speech input and task instruction without document
+terminology adaptation. We additionally include a
+uniform-context baseline, which injects the full per-
+paper terminology memory into every streaming
+segment without evidence-conditioned selection or
+decoder-side biasing. This baseline tests whether
+simply exposing document terminology to every
+segment is sufficient.
+EGTA-R adds a compact terminology block se-
+lected from the document memory; EGTA-G ap-
+plies decoder-side vocabulary bias to terminol-
+ogy tokens; and EGTA-RG combines both chan-
+nels. Unless otherwise specified, our recommended
+end-to-end configuration is EGTA-RG with bias
+strength B = 2.
+We also evaluate EGTA in a cascaded ASR–MT
+setting for architecture analysis. We use Qwen3-
+ASR-1.7B as the ASR front end and pass the se-
+lected terms as ASR hotwords/contextual-biasing
+terms for EGTA-R; EGTA-G is implemented
+through MT decoder vocabulary bias. Finally, we
+evaluate SeamlessM4T-v2-large as a generation-
+only backbone validation. Since this backbone
+does not expose the same editable terminology-
+prompting interface used for EGTA-R, we instanti-
+ate only EGTA-G. To test whether gains are paper-
+specific, we additionally use a shuffled-memory
+control that pairs each segment with terminology
+memory from a mismatched paper.
+4.3
+Metrics and Diagnostics
+We report BLEU, chrF, XCOMET-XL, NERclean
+recall, acronym recall, and LongLAALCU la-
+tency. BLEU and chrF measure surface overlap,
+XCOMET-XL provides a neural quality estimate,
+and lower LongLAALCU indicates lower latency.
+NERclean recall is computed over cleaned paper-
+specific entities after normalizing case, punctuation,
+whitespace, hyphenation, and tokenizer artifacts;
+acronym recall is computed over uppercase and
+alphanumeric paper terms. We use terminology re-
+call as the primary metric because omission or mis-
+translation of paper-specific terms is the main fail-
+ure mode in technical-talk SimulST. Since surface-
+form precision depends on whether a reference
+preserves the same term realization, precision/F1-
+style matching is treated as a conservative diag-
+nostic, while possible over-generation is analyzed
+through unsupported-activation audits, shuffled-
+memory controls, and Global-G stress tests.
+For the main end-to-end experiments, we evalu-
+ate five latency operating points; the anchor point
+is used for detailed comparison, ablation, and
+shuffled-memory control. In addition to aggregate
+Set
+Lang. ∆BLEU ∆XCOMET ∆NER ∆Acro ∆LAAL
+MCIF-dev
+Zh
++1.05
++.019
++.212
++.099
+-46
+MCIF-dev
+De
++0.59
++.006
++.266
++.171
+-44
+ACL60/60-dev Zh
++0.94
++.022
++.113
++.119
+–
+ACL60/60-dev De
++0.56
++.005
++.214
++.100
+–
+Table 2: Anchor-point gains of EGTA-RG B=2 over
+the baseline on the ACL technical-talk evaluation suite.
+NER denotes NERclean recall.
+LAAL is reported
+for MCIF-dev, where the streaming-yaml protocol is
+matched across systems. Full absolute scores are re-
+ported in Appendix A.1.
+metrics, we conduct activation audits, evidence-
+strength bucket analysis, and shuffled-memory con-
+trols to validate whether realized terminology usage
+is supported by speech-conditioned evidence rather
+than generic context exposure.
+5
+Results and Analysis
+5.1
+Main End-to-End Results
+Table 2 reports anchor-point gains of EGTA-RG
+over the baseline on the ACL technical-talk evalu-
+ation suite. The main pattern is consistent across
+both datasets and both language directions: EGTA-
+RG improves terminology-sensitive metrics, while
+maintaining or improving overall translation qual-
+ity.
+On MCIF-dev, EGTA-RG improves all reported
+anchor-point metrics on both En→Zh and En→De.
+The largest gains appear on terminology fidelity:
+NERclean recall improves by +0.212/+0.266 and
+acronym recall by +0.099/+0.171, while XCOMET-
+XL also increases by +0.019/+0.006.
+Latency
+is slightly reduced on both directions, with
+LongLAALCU decreasing by 46 ms and 44 ms.
+ACL60/60-dev provides an external valida-
+tion of the same trend without additional fine-
+tuning.
+EGTA-RG improves NERclean
+re-
+call by +0.113/+0.214 and acronym recall by
++0.119/+0.100 on En→Zh and En→De.
+On
+En→Zh, it also improves BLEU by +0.94 and
+XCOMET-XL by +0.022 over the baseline and
+outperforms uniform context on overall quality.
+We further conduct paired bootstrap resampling
+with 5,000 samples at both segment and talk
+levels on MCIF-dev.
+The terminology-fidelity
+gains are statistically robust on both language
+pairs:
+NERclean recall and acronym recall im-
+prove significantly on En→Zh and En→De (p <
+0.001).
+Appendix A.5 reports ACL60/60-dev
+significance details, and Appendix A.8 reports
+reference-supported terminology matching. Over-
+Analysis
+Main observation
+Takeaway
+Uniform
+con-
+text
+Partial
+gains;
+below
+EGTA-RG
+Selection
+helps
+Global-G B =
+5
+Zh BLEU −2.1; latency
+collapse
+Over-bias
+stress
+Cascaded
+SimulST
+Zh: +0.25 BLEU, +1.46
+NER
+Less
+head-
+room
+SeamlessM4T
+De NER: 36.7→51.7
+Decoder trans-
+fer
+Table 3: Auxiliary analyses testing always-on context,
+over-biasing, and architectural transfer. Full metrics are
+provided in Appendices A.6 and A.9.
+all, these results support our central hypothesis:
+extra document context is most useful when con-
+verted into selective terminology adaptation rather
+than injected uniformly as general semantic con-
+text.
+5.2
+End-to-End Latency–Quality Frontier
+On MCIF-dev, we further evaluate EGTA-RG
+across five latency operating points.
+Figure 2
+shows the end-to-end latency–quality frontier on
+XCOMET-XL and NERclean recall. EGTA-RG con-
+sistently outperforms the baseline on both metrics
+across operating points, and is generally stronger
+than the uniform-context variant, especially on ter-
+minology recall. This indicates that simply expos-
+ing the full terminology memory to every segment
+recovers part of the benefit, but does not provide the
+same terminology–latency trade-off as evidence-
+conditioned R+G composition. We report only end-
+to-end systems in this figure; cascaded systems are
+analyzed separately in Section 5.3 to avoid mixing
+different latency sources and terminology-recall
+protocols.
+Across the five operating points, EGTA-RG im-
+proves the En→Zh baseline by +1.31 BLEU, +2.30
+chrF, +0.0241 XCOMET-XL, +0.255 NERclean re-
+call, and +0.117 acronym recall on average, while
+reducing LongLAALCU by 43 ms. On En→De,
+EGTA-RG improves BLEU by +0.81, XCOMET-
+XL by +0.0055, NERclean recall by +0.277, and
+acronym recall by +0.154 on average. XCOMET-
+XL, NERclean, and acronym recall improve at all
+five operating points, and the positive average
+BLEU gain suggests that the terminology improve-
+ments do not come at the cost of overall translation
+quality.
+Diagnostic
+En→Zh
+En→De
+Local/ref audit support
+86.4%
+86.1%
+Same-paper audit support
+96.0%
+93.9%
+Unsupported activation
+4.0%
+6.1%
+High evid. ∆chrF / ∆NER
++3.7 / +27.7
++1.8 / +16.2
+Medium evid. ∆chrF / ∆NER
++6.9 / +59.6
++3.2 / +58.2
+Low/none ∆chrF / Unsup. act.
++0.3 / 39.5%
++0.4 / 27.3%
+Table 4: Grounding validation. The first block audits
+local/reference support, same-paper support, and unsup-
+ported activation; references are used only for post-hoc
+validation. The second block reports gains by evidence
+strength. ∆NER is in percentage points; Unsup. act.
+denotes unsupported activation rate.
+5.3
+Additional Analyses
+Table 3 summarizes four auxiliary analyses. Uni-
+form context exposes the full paper terminology
+memory to every segment.
+Global-G applies
+decoder-side vocabulary bias to all memory terms
+without evidence-conditioned selection and serves
+as an over-bias stress test rather than a matched
+operating-point baseline.
+Together, these checks show that EGTA is not
+merely stronger context injection: always-on con-
+text or biasing is less stable, while architecture
+checks show that gains depend on remaining ter-
+minology headroom. Shuffled-memory controls
+further suggest that the improvements are paper-
+specific rather than generic biasing effects.
+5.4
+Grounding Validation
+Table 4 summarizes three grounding diagnostics.
+EGTA usually activates terms supported by the
+current speech stream, and its largest gains appear
+in segments with explicit evidence.
+Activation support.
+The first block audits
+whether activated terms have post-hoc evidence.
+Local/reference audit support counts an activation
+as supported when the normalized term appears in
+local streaming evidence, such as the ASR hypoth-
+esis or nearby transcript, or in the segment-level
+reference. The reference is used only for valida-
+tion, not for candidate selection or decoding. Same-
+paper audit support additionally allows the term to
+appear elsewhere in the same talk evidence. Un-
+supported activations account for only 4.0% / 6.1%
+of activations.
+Evidence-strength buckets.
+We bucket seg-
+ments before scoring outputs: high evidence has
+an exact normalized match in the local hypothe-
+1600
+1800
+2000
+2200
+2400
+2600
+LongLAAL_CU (ms)  -  En →Zh
+0.73
+0.74
+0.75
+0.76
+0.77
+0.78
+XCOMET-XL
+1600
+1800
+2000
+2200
+2400
+2600
+LongLAAL_CU (ms)  -  En →Zh
+0.2
+0.3
+0.4
+0.5
+NERclean recall
+1400
+1600
+1800
+2000
+LongLAAL_CU (ms)  -  En →De
+0.78
+0.80
+0.82
+0.84
+0.86
+XCOMET-XL
+1400
+1600
+1800
+2000
+LongLAAL_CU (ms)  -  En →De
+0.3
+0.4
+0.5
+0.6
+NERclean recall
+Baseline
+With-context (R only)
+EGTA-RG B=2 (ours)
+Figure 2: End-to-end latency–quality frontier on MCIF-dev. Each marker corresponds to one latency operating
+point. The top row shows En→Zh and the bottom row shows En→De; the left column reports XCOMET-XL and
+the right column reports NERclean recall. EGTA-RG B=2 consistently improves XCOMET-XL and terminology
+recall over the baseline, and generally outperforms the uniform-context variant on terminology recall.
+sis or nearby transcript; medium evidence has an
+acronym, partial phrase, or tokenizer-level variant
+match; low/none has no such evidence. These buck-
+ets are computed from source-side evidence and
+the terminology memory, not from system outputs.
+High- and medium-evidence segments show the
+largest NER gains, while low/none-evidence seg-
+ments show only small chrF changes (+0.3/+0.4),
+suggesting limited over-biasing on unrelated seg-
+ments.
+Shuffled-memory
+control.
+The
+shuffled-
+memory control verifies that the gains require
+the correct paper memory.
+On En→De, the
+anchor NER gain drops from +0.266 with correct
+memory to +0.012 with shuffled memory, and the
+medium-evidence NER gain drops from +58.2
+to +7.5 points. Thus, grounding is a behavioral
+property that emerges when speech-conditioned
+decoding is paired with the correct paper-specific
+terminology memory.
+6
+Conclusion
+We presented EGTA, a lightweight inference-
+time framework for evidence-conditioned terminol-
+ogy adaptation in technical-talk SimulST. Across
+MCIF-dev and ACL60/60-dev, EGTA improves
+terminology recall while maintaining overall trans-
+lation quality. Latency-frontier results, shuffled-
+memory controls, and activation audits suggest that
+extra context is most useful when exposed as se-
+lected terminology evidence rather than injected
+uniformly into every segment.
+Limitations
+This work focuses on technical-talk SimulST,
+where document-level paper context is available
+and terminology fidelity is important; open-domain,
+informal, and low-context settings remain to be
+studied.
+EGTA also depends on terminology-
+memory quality: missing or irrelevant extracted
+terms can weaken both ASR/speech-side and
+decoder-side adaptation.
+The grounding criterion is behavioral and audit-
+based rather than enforced by a separately trained
+symbolic evidence detector. The current selector
+uses normalized surface matching, so severe ASR
+errors or phonetic variants may prevent term acti-
+vation; future work should add phonetic or fuzzy
+matching.
+Our
+evaluation
+emphasizes
+automatic
+terminology-recall
+metrics,
+complemented
+by activation audits, shuffled-memory controls,
+over-bias
+diagnostics,
+and
+precision/F1-style
+surface matching. We do not include full human
+evaluation of terminology correctness, perceived
+usefulness, or harmful wrong insertions. Finally,
+both MCIF-dev and ACL60/60-dev are technical
+conference-talk subsets, and our SeamlessM4T
+validation covers only decoder-side EGTA-G
+because the backbone does not expose the editable
+EGTA-R interface.
+Ethical Considerations
+EGTA aims to improve terminology fidelity
+in technical-talk SimulST by preserving names,
+acronyms, datasets, and method terms. However,
+terminology adaptation can amplify errors if doc-
+ument context is mismatched, outdated, or mali-
+ciously constructed. The system may still produce
+mistranslations, omissions, or hallucinated terms,
+especially in low-evidence segments or unreliable
+speech conditions, and should not be used as the
+sole mechanism in high-stakes settings without hu-
+man oversight. Our experiments use technical-talk
+data and paper-level context and do not involve
+personal profiling beyond the context required for
+translation.
+References
+Junyi Ao, Rui Wang, Long Zhou, Chengyi Wang, Shuo
+Ren, Yu Wu, Shujie Liu, Tom Ko, Qing Li, Yu Zhang,
+Zhihua Wei, Yao Qian, Jinyu Li, and Furu Wei.
+2022. SpeechT5: Unified-modal encoder-decoder
+pre-training for spoken language processing. In Pro-
+ceedings of the 60th Annual Meeting of the Asso-
+ciation for Computational Linguistics, pages 5723–
+5738, Dublin, Ireland. Association for Computational
+Linguistics.
+Naveen
+Arivazhagan,
+Colin
+Cherry,
+Wolfgang
+Macherey, Chung-Cheng Chiu, Semih Yavuz, Ruom-
+ing Pang, Wei Li, and Colin Raffel. 2019. Monotonic
+infinite lookback attention for simultaneous machine
+translation.
+In Proceedings of the 57th Annual
+Meeting of the Association for Computational
+Linguistics,
+pages 1313–1323,
+Florence,
+Italy.
+Association for Computational Linguistics.
+Loïc Barrault, Yu-An Chung, Mariano Cora Meglioli,
+David Dale, Ning Dong, Paul-Ambroise Duquenne,
+Hady Elsahar, Hongyu Gong, Kevin Heffernan, John
+Hoffman, and 1 others. 2023. Seamlessm4t: Mas-
+sively multilingual & multimodal machine transla-
+tion. arXiv preprint arXiv:2308.11596.
+Raj Dabre, Aizhan Imankulova, and Masahiro Kaneko.
+2021. Studying the impact of document-level con-
+text on simultaneous neural machine translation. In
+Proceedings of Machine Translation Summit XVIII:
+Research Track, pages 202–214, Virtual. Association
+for Machine Translation in the Americas.
+Georgiana Dinu, Prashant Mathur, Marcello Federico,
+and Yaser Al-Onaizan. 2019. Training neural ma-
+chine translation to apply terminology constraints. In
+Proceedings of the 57th Annual Meeting of the Asso-
+ciation for Computational Linguistics, pages 3063–
+3068, Florence, Italy. Association for Computational
+Linguistics.
+Patrick Fernandes, Kayo Yin, Graham Neubig, and An-
+dré F. T. Martins. 2021. Measuring and increasing
+context usage in context-aware machine translation.
+In Proceedings of the 59th Annual Meeting of the
+Association for Computational Linguistics and the
+11th International Joint Conference on Natural Lan-
+guage Processing (Volume 1: Long Papers), pages
+6467–6478, Online. Association for Computational
+Linguistics.
+Chris Hokamp and Qun Liu. 2017.
+Lexically con-
+strained decoding for sequence generation using grid
+beam search. In Proceedings of the 55th Annual
+Meeting of the Association for Computational Lin-
+guistics, pages 1535–1546, Vancouver, Canada. As-
+sociation for Computational Linguistics.
+Ye Jia, Ron J. Weiss, Fadi Biadsy, Wolfgang Macherey,
+Melvin Johnson, Zhifeng Chen, and Yonghui Wu.
+2019.
+Direct speech-to-speech translation with a
+sequence-to-sequence model. In Proceedings of In-
+terspeech 2019, pages 1123–1127.
+Mingbo Ma, Liang Huang, Hao Xiong, Renjie Zheng,
+Kaibo Liu, Baigong Zheng, Chuanqiang Zhang,
+Zhongjun He, Hairong Liu, Xing Li, Hua Wu, and
+Haifeng Wang. 2019. STACL: Simultaneous trans-
+lation with implicit anticipation and controllable la-
+tency using prefix-to-prefix framework. In Proceed-
+ings of the 57th Annual Meeting of the Association for
+Computational Linguistics, pages 3025–3036, Flo-
+rence, Italy. Association for Computational Linguis-
+tics.
+Xutai Ma, Mohammad Javad Dousti, Changhan Wang,
+Jiatao Gu, and Juan Pino. 2020. SimulEval: An
+evaluation toolkit for simultaneous translation. In
+Proceedings of the 2020 Conference on Empirical
+Methods in Natural Language Processing: System
+Demonstrations, pages 144–150, Online. Association
+for Computational Linguistics.
+Sameen Maruf, André F. T. Martins, and Gholamreza
+Haffari. 2019. Selective attention for context-aware
+neural machine translation. In Proceedings of the
+2019 Conference of the North American Chapter of
+the Association for Computational Linguistics: Hu-
+man Language Technologies, pages 3092–3102, Min-
+neapolis, Minnesota. Association for Computational
+Linguistics.
+Sameen Maruf, Fahimeh Saleh, and Gholamreza Haffari.
+2021. A survey on document-level neural machine
+translation: Methods and evaluation. ACM Comput-
+ing Surveys, 54(2):1–36.
+Sara Papi, Marco Gaido, Matteo Negri, and Marco
+Turchi. 2022. Over-generation cannot be rewarded:
+Length-adaptive average lagging for simultaneous
+speech translation. In Proceedings of the Third Work-
+shop on Automatic Simultaneous Translation, pages
+12–17, Seattle, Washington and Online. Association
+for Computational Linguistics.
+Sara Papi, Maike Züfle, Marco Gaido, Beatrice Savoldi,
+Danni Liu, Ioannis Douros, Luisa Bentivogli, and
+Jan Niehues. 2025. Mcif: Multimodal crosslingual
+instruction-following benchmark from scientific talks.
+arXiv preprint arXiv:2507.19634.
+Matt Post and David Vilar. 2018. Fast lexically con-
+strained decoding with dynamic beam allocation for
+neural machine translation. In Proceedings of the
+2018 Conference of the North American Chapter of
+the Association for Computational Linguistics: Hu-
+man Language Technologies, pages 1314–1324, New
+Orleans, Louisiana. Association for Computational
+Linguistics.
+Golan Pundak, Tara N. Sainath, Rohit Prabhavalkar, An-
+juli Kannan, and Ding Zhao. 2018. Deep context:
+End-to-end contextual speech recognition. In Pro-
+ceedings of the 2018 IEEE Spoken Language Tech-
+nology Workshop, pages 418–425. IEEE.
+Elena Voita, Pavel Serdyukov, Rico Sennrich, and Ivan
+Titov. 2018. Context-aware neural machine transla-
+tion learns anaphora resolution. In Proceedings of
+the 56th Annual Meeting of the Association for Com-
+putational Linguistics, pages 1264–1274, Melbourne,
+Australia. Association for Computational Linguistics.
+Biao Zhang, Ivan Titov, Barry Haddow, and Rico
+Sennrich. 2021. Beyond sentence-level end-to-end
+speech translation: Context helps. In Proceedings
+of the 59th Annual Meeting of the Association for
+Computational Linguistics and the 11th International
+Joint Conference on Natural Language Processing
+(Volume 1: Long Papers), pages 2566–2578, Online.
+Association for Computational Linguistics.
+Shaolei Zhang and Yang Feng. 2022.
+Information-
+transport-based policy for simultaneous translation.
+In Proceedings of the 2022 Conference on Empirical
+Methods in Natural Language Processing, pages 992–
+1013, Abu Dhabi, United Arab Emirates. Association
+for Computational Linguistics.
+A
+Additional Experimental Analyses
+A.1
+Full Anchor-Point Results
+Table 5 reports the absolute anchor-point scores
+corresponding to the gain summary in Table 2. The
+main text reports compact gains for readability,
+while this table provides the underlying baseline
+and EGTA-RG scores.
+A.2
+Terminology Memory Statistics
+Table 6 summarizes the scale of terminology mem-
+ory construction and per-segment terminology ex-
+posure. These statistics characterize the prepara-
+tion stage and make explicit the number of ex-
+tracted and selected terms used by EGTA. The
+same extraction, normalization, and ranking rules
+are used for all systems and operating points.
+Table 7 reports the distribution of extracted term
+types after filtering. The categories correspond to
+the surface-form patterns retained by the terminol-
+ogy extraction rules.
+A.3
+Implementation and Audit Details
+Candidate selection.
+For A(TD, Ei), we use de-
+terministic normalized matching rather than fuzzy
+or phonetic matching. Memory terms and stream-
+ing hypotheses are normalized for Latin case, punc-
+tuation, whitespace, hyphen variants, tokenizer
+artifacts, digits, and acronym forms. A term is
+selected if its full surface form, acronym form,
+or tokenizer-level variant is matched in the cur-
+rent segment hypothesis or recent streaming his-
+tory.
+For multiword terms, we match the full
+phrase, acronym, or content-bearing components;
+content-bearing components exclude generic func-
+tion words and retain technical tokens such as
+acronyms, digits, CamelCase spans, hyphenated
+terms, and model or dataset names. When multiple
+candidates match, ties are resolved by preferring
+exact surface matches, then acronym matches, then
+longer and more specific technical terms. The same
+fixed per-segment terminology budget and ranking
+rule are used for all systems and operating points.
+The extracted terminology memory is produced by
+the Qwen3-30B-Instruct extractor plus determin-
+istic filtering, and may contain extraction errors;
+EGTA is designed to select from this noisy mem-
+ory using local speech evidence rather than to trust
+every extracted entity.
+Target variants and prompt.
+For EGTA-G,
+V (Ti) is built from the terminology memory and
+Set
+Lang.
+System
+BLEU
+chrF
+XCOMET
+NER
+Acro
+LAAL
+MCIF-dev
+Zh
+Baseline
+43.31
+36.67
+0.7550
+0.268
+0.680
+1763
+MCIF-dev
+Zh
+EGTA-RG B=2
+44.36
+38.56
+0.7740
+0.480
+0.779
+1717
+MCIF-dev
+De
+Baseline
+26.58
+60.87
+0.8252
+0.365
+0.618
+1462
+MCIF-dev
+De
+EGTA-RG B=2
+27.16
+61.70
+0.8309
+0.631
+0.789
+1418
+ACL60/60-dev
+Zh
+Baseline
+42.35
+35.91
+0.7337
+0.415
+0.616
+–
+ACL60/60-dev
+Zh
+EGTA-RG B=2
+43.29
+37.28
+0.7554
+0.528
+0.734
+–
+ACL60/60-dev
+De
+Baseline
+28.29
+61.00
+0.8214
+0.396
+0.646
+–
+ACL60/60-dev
+De
+EGTA-RG B=2
+28.85
+61.17
+0.8263
+0.610
+0.746
+–
+Table 5: Full anchor-point results corresponding to Table 2. NER denotes NERclean recall. LAAL denotes
+LongLAALCU in milliseconds and is reported for MCIF-dev, where the streaming-yaml protocol is matched across
+systems.
+Statistic
+MCIF-dev
+ACL60/60-dev
+Talks
+21
+5
+Segments
+919
+468
+Selection budget K
+10
+10
+Bias strength B
+2.0
+2.0
+Raw NER entities / talk
+24.81 / 24 / 7 / 41 13.60 / 14 / 11 / 16
+Filtered |MD| / talk
+10.19 / 11 / 3 / 16
+6.40 / 5 / 5 / 9
+Compact top-K / talk
+8.71 / 10 / 3 / 10
+5.80 / 5 / 4 / 8
+R-prompt terms / segment
+8.66 / 10 / 3 / 10
+6.05 / 5 / 4 / 8
+G-bias candidates / segment 10.09 / 11 / 3 / 16
+6.59 / 5 / 5 / 9
+Table 6: Terminology-memory statistics. Values after
+the first four rows are reported as mean / median / min
+/ max. MD denotes the filtered document terminology
+memory. The R-prompt exposes a compact top-K term
+list, while G-bias candidates are vocabulary-bias candi-
+dates derived from the filtered memory.
+Term type
+MCIF-dev
+ACL60/60-dev
+Acronym-like
+32 (15.0%)
+6 (18.8%)
+Alphanumeric / hyphenated
+6 (2.8%)
+2 (6.2%)
+CamelCase / model or dataset
+4 (1.9%)
+0 (0.0%)
+Multi-word technical
+31 (14.5%)
+9 (28.1%)
+Named entity: person
+104 (48.6%)
+15 (46.9%)
+Named entity: organization
+37 (17.3%)
+0 (0.0%)
+Total
+214 (100%)
+32 (100%)
+Table 7: Distribution of filtered terminology-memory
+types. The retained categories include acronym-like
+strings, alphanumeric or hyphenated technical names,
+CamelCase spans, model or dataset names, multi-word
+technical phrases, and named entities.
+target tokenizer outputs, not from segment-level
+test references. Acronyms, model names, dataset
+names, and alphanumeric terms are kept as copy-
+able forms across target languages. When a tar-
+get alias is available in the memory, it is included
+as an additional variant; otherwise, the normal-
+ized source form and its tokenizer-level variants
+are used. Multi-token terms contribute their corre-
+sponding token ids to the bias set. For EGTA-R,
+selected terms are inserted into a compact termi-
+nology block attached to the task instruction and
+updated for each streaming segment, rather than
+exposing the full document memory.
+Backbone and decoding details.
+The Qwen3-
+Omni backbone follows our IWSLT 2026 system
+setup. We use Qwen3-Omni-30B-A3B with the au-
+dio encoder frozen and LoRA adapters inserted
+only into the LLM/Thinker module; the vision
+and speech-synthesis modules are disabled. We
+train one LoRA checkpoint per target language on
+220K retained chunk-level examples constructed
+from LibriSpeech, Common Voice 17.0, CoVoST2,
+and VoxPopuli. LoRA is applied to the q_proj,
+k_proj, v_proj, and o_proj modules with rank
+16, alpha 32, and dropout 0.05. The peak learning
+rates are 1 × 10−4 for En→Zh and 5 × 10−5 for
+En→De, with global batch size 128 and 3 training
+epochs on 8 NVIDIA A100 GPUs. At inference
+time, the model is served with vLLM using greedy
+decoding; the streaming agent keeps the most re-
+cent 16 dialogue turns or 20 seconds of audio his-
+tory. The latency operating points are controlled by
+the audio chunk size while all compared variants
+use the same backbone checkpoint and decoding
+settings.
+Latency and grounding audit.
+LongLAALCU
+follows an LAAL-style computation over commit-
+ted output units, using source chunk timestamps
+and emitted target prefixes. All systems compared
+at the same operating point use the same chunk
+schedule and segmentation policy, so latency dif-
+ferences reflect decoding and adaptation behavior
+rather than different input chunking. In grounding
+audits, an activation is counted as local/reference
+audit supported if its normalized surface form,
+acronym, or accepted tokenizer-level variant ap-
+pears in either the local hypothesis available during
+streaming or the segment reference used for post-
+hoc validation. It is counted as same-paper audit
+Lang.
+Metric
+∆
+95% CI
+p
+En→Zh
+NERclean
++0.212
+[+0.140, +0.285]
+< 0.001
+En→Zh
+Acro
++0.099
+[+0.033, +0.168]
+0.004
+En→De
+NERclean
++0.266
+[+0.180, +0.351]
+< 0.001
+En→De
+Acro
++0.171
+[+0.103, +0.243]
+< 0.001
+Table 8: Paired-bootstrap significance for terminology-
+fidelity metrics at the anchor operating point. ∆denotes
+EGTA-RG B=2 minus the baseline. Confidence inter-
+vals and p-values are computed with 5,000 segment-
+level bootstrap resamples.
+supported if the same normalized term appears else-
+where in the same talk evidence. An unsupported
+activation is an activated paper term without lo-
+cal/reference support under these matching rules;
+near matches are counted only when they normalize
+to an accepted surface, acronym, or tokenizer-level
+variant.
+A.4
+Statistical Robustness of Terminology
+Gains
+We conduct paired bootstrap resampling with 5,000
+samples at both segment and talk levels to assess
+whether the terminology-fidelity gains are robust.
+Table 8 reports the results for the two primary ter-
+minology metrics. NERclean recall and acronym
+recall improve significantly on both language pairs,
+supporting our use of terminology recall as the pri-
+mary evidence for EGTA’s effect.
+A.5
+ACL60/60-dev External Validation
+Details
+ACL60/60-dev contains 5 ACL talks and 468 gold-
+segmented segments. We run the same anchor
+EGTA-RG B=2 configuration used for MCIF-dev
+without additional fine-tuning. Since this split does
+not provide the same gold streaming-yaml proto-
+col as MCIF-dev, ACL60/60-dev latency is used
+only as an internal relative diagnostic; the main
+text focuses on text quality and terminology fi-
+delity. Segment-level paired bootstrap shows sig-
+nificant En→Zh gains in XCOMET-XL (p = .006),
+acronym recall (p = .04), and tagged-terminology
+recall (p = .001).
+On En→De, NERclean and
+acronym gains are significant at both segment and
+talk levels.
+A.6
+Uniform Context and Global Bias Stress
+Tests
+We compare EGTA-RG against two stronger al-
+ternatives to test whether the gains can be ex-
+plained by simply exposing more terminology or
+Lang.
+System
+BLEU
+chrF
+XCOMET
+GoldTag
+Zh
+Baseline
+42.35
+35.91
+0.7337
+0.709
+Zh
+Uniform
+41.24
+35.74
+0.7289
+0.728
+Zh
+EGTA-RG B=2
+43.29
+37.28
+0.7554
+0.746
+De
+Baseline
+28.29
+61.00
+0.8214
+0.656
+De
+Uniform
+28.50
+60.97
+0.8123
+0.631
+De
+EGTA-RG B=2
+28.85
+61.17
+0.8263
+0.642
+Table 9: ACL60/60-dev external validation. GoldTag de-
+notes recall over official tagged terminology. ACL60/60-
+dev latency is used only as an internal diagnostic be-
+cause its streaming-yaml protocol differs from MCIF-
+dev.
+System
+BLEU chrF XCOMET NER
+Acro LAAL
+Baseline
+43.31 36.67
+0.7550
+0.268 0.680
+1763
+Uniform
+44.08 38.35
+0.7628
+0.424 0.739
+1779
+Global-G B=5
+41.21 35.36
+0.7364
+0.398 0.685
+1318
+EGTA-RG B=2 44.36 38.56
+0.7740
+0.480 0.779
+1717
+Table 10:
+Uniform-context and global-bias stress
+test on En→Zh.
+EGTA-RG B=2 provides the
+best recall–quality–latency trade-off; LAAL denotes
+LongLAALCU in milliseconds.
+applying stronger decoder bias.
+The uniform-
+context baseline injects the full per-paper terminol-
+ogy memory into every streaming segment without
+evidence-conditioned selection or decoder-side bi-
+asing. Global-G applies decoder-side bias to all
+document terms for every segment without the
+ASR/speech-side prompt.
+Table 10 summarizes the En→Zh anchor com-
+parison. Uniform context recovers part of the gain,
+showing that document terminology is useful, but
+it does not match EGTA-RG on the joint recall–
+quality–latency trade-off. Global all-term biasing
+shows a clear over-bias failure mode when the bias
+is too strong: at B = 5, BLEU drops below the
+baseline and latency collapses. In contrast, EGTA-
+RG with B = 2 achieves the strongest overall
+trade-off among the tested configurations.
+We also conduct a bias-strength sweep on
+En→Zh. G-only biasing improves terminology
+recall as B increases, but aggressive biasing even-
+tually harms overall quality. Once the ASR/speech-
+side prompt is active, increasing from EGTA-RG
+B=2 to B=3 yields diminishing returns: NER recall
+does not improve, while BLEU, XCOMET-XL, and
+acronym recall decrease. We therefore use B = 2
+as a practical trade-off between terminology recall
+and over-biasing risk.
+Condition
+Anchor ∆NER
+Medium-evid. ∆NER
+Correct memory
++0.266
++58.2
+Shuffled memory
++0.012
++7.5
+Table 11: Shuffled-memory control on En→De. ∆NER
+is reported against the baseline. The large drop un-
+der shuffled memory indicates that the gains depend
+on matching the correct paper memory to the current
+speech stream.
+A.7
+Shuffled-Memory Control
+The shuffled-memory control tests whether termi-
+nology gains require matching the correct paper
+memory to the current speech stream. Table 11 re-
+ports the shuffled-memory diagnostic used in Sec-
+tion 5.4.
+A.8
+Reference-Supported Terminology
+Matching
+We further compute a reference-supported termi-
+nology matching diagnostic using the same nor-
+malization protocol as NERclean. Gold terms are
+paper terms preserved in the reference, and pre-
+dicted terms are paper terms realized in the sys-
+tem output. Because this diagnostic depends on
+reference-preserved surface forms, it is conserva-
+tive and should be interpreted as a complementary
+surface-form analysis rather than as a direct mea-
+sure of harmful over-generation. We do not use
+it as a direct over-generation measure because a
+system output can realize a valid paper term even
+when the single reference does not preserve the
+same surface form.
+Under this protocol, EGTA-RG improves micro-
+F1 from 0.625 to 0.839 on En→Zh and from 0.575
+to 0.753 on En→De. This suggests that EGTA im-
+proves reference-supported terminology coverage
+under a strict matching criterion.
+We therefore use this diagnostic as a comple-
+ment to NERclean, acronym recall, activation au-
+dits, shuffled-memory controls, and over-bias stress
+tests, rather than as the primary ranking metric.
+A.9
+SeamlessM4T Quality-Cost
+Decomposition
+Section 5.3 reports terminology-fidelity trans-
+fer
+to
+SeamlessM4T-v2-large.
+Full
+qual-
+ity metrics show small corpus-level changes:
+BLEU/chrF/XCOMET change by −0.54/ −
+0.33/ −0.0028 on En→Zh and −0.36/ −0.89/ −
+0.0084 on En→De. The cost is largely memory-
+agnostic: shuffled memory causes a similar quality
+change while removing most terminology gain. On
+segments whose references contain paper terms,
+EGTA-G improves chrF by +1.12 on En→Zh and
++1.02 on En→De, with En→De XCOMET also
+increasing by +0.0071.

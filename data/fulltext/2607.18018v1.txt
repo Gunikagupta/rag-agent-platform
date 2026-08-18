@@ -1,0 +1,1538 @@
+Uniform-in-time rational approximation of the
+matrix exponential with real poles
+Stefan Güttel∗
+Shuai Shao†
+July 21, 2026
+Abstract
+We propose two new approaches for constructing families of rational
+functions with shared real poles that nearly uniformly approximate the
+functions exp(−tz) for z ≥0 and t in a positive time interval. The first
+result concerns the case where all real poles coalesce into a single point.
+With an appropriate choice of a weight function we are able to derive
+a closed formula for the asymptotically optimal location of such a pole.
+We then discuss the more general case where all real poles are distinct.
+Using Zolotarev’s construction of certain optimal rational functions, we
+present a simple algorithm to derive nearly optimal poles eﬀiciently. We
+analyze the stability of the numerical evaluation of the resulting rational
+matrix functions in floating-point arithmetic. By controlling the growth of
+potential ill-conditioning arising from partial fractions, reliable and highly
+parallelizable exponential propagators are obtained.
+1
+Introduction
+The eﬀicient numerical approximation of exp(−tA)b, where A ∈RN×N is a
+symmetric positive semidefinite matrix and b ∈RN is a vector, for all t in a
+positive time interval T = [tmin, tmax], is a fundamental problem in science and
+engineering. Such expressions arise as solutions of linear evolution problems
+u′(t) + Au(t) = 0 with initial condition u(0) = b, and appear in applications
+ranging from geophysical modeling [7, 29, 8] and chemical kinetics [27, 22] to
+network analysis [14, 5] and exponential integrators [30, 21, 17, 18].
+Two primary challenges arise in addressing this problem. First, explicitly
+computing and storing the matrix exponential exp(−tA) is computationally
+prohibitive if N is suﬀiciently large. Second, constructing a separate approxi-
+mation for each time point can be costly, especially when solutions are required
+at a large number of time points in T.
+∗Department of Mathematics, The University of Manchester, Oxford Road, Manchester,
+M13 9PL, United Kingdom, stefan.guettel@manchester.ac.uk
+†Department of Mathematics, The University of Manchester, Oxford Road, Manchester,
+M13 9PL, United Kingdom, shuai.shao-2@manchester.ac.uk
+1
+arXiv:2607.18018v1  [math.NA]  20 Jul 2026
+An effective way to overcome these challenges is to construct a family of
+shared-pole (or shared-denominator) rational approximants
+rt,n(z) =
+n
+X
+i=1
+αi(t)
+z −σi
+(1.1)
+such that
+rt,n(A)b ≈exp(−tA)b
+(1.2)
+uniformly for all t ∈T. We refer to n as the degree of approximation. A crucial
+point is that the poles σi of rt,n are independent of the time parameter t.
+Therefore, only n shifted linear systems (A −σiI)xi = b need to be solved in
+total, regardless of the number of time points t one wants to evaluate for.
+To assess the quality of approximation in (1.2), we assume without loss of
+generality that ∥b∥2 = 1, and bound
+max
+t∈T ∥rt,n(A)b −exp(−tA)b∥2
+≤
+max
+t∈T max
+z≥0 |rt,n(z) −exp(−tz)| =: En,T .
+(1.3)
+We refer to En,T as the time-uniform error for the degree n rational approxi-
+mation in the time domain T. This bound uniformly holds for any symmetric
+positive semidefinite matrix A, which leads to mesh-independent exponential
+integrators when A arises from discretizations of differential operators.
+Reliable algorithms for computing shared complex-pole rational approxi-
+mation are readily available, such as vector fitting [16], rational Krylov fit-
+ting (RKFIT) [6], the set-valued adaptive Antoulas–Anderson method [24], and
+shared-pole Carathéodory–Fejér approximation [2]. Shared-pole approximants
+with complex poles can also be constructed using contour integration techniques;
+see [25, 26, 32]. However, the accuracy of the resulting approximants generally
+deteriorates rather quickly as one moves away from the time point the contours
+are optimized for; see, e.g., Fig. 6.2 in [6] for a direct comparison of contour-
+derived poles against RKFIT optimized poles. All of the mentioned algorithms
+can return poles in conjugate pairs in the complex plane, which can be exploited
+to reduce the number of required linear system solves from n to ⌈n
+2 ⌉. However,
+the computational cost of solving a complex shifted linear system is typically
+much higher than that of solving a real-valued linear system.
+In particular,
+when all the poles σi are negative, the associated linear systems are positive
+definite. In that case, either the direct solution via Cholesky factorization or
+an iterative method like preconditioned CG can be used. Therefore, it is highly
+beneficial to compute rational approximants with shared real poles. This prob-
+lem has received considerably less attention in the literature. Exceptions include
+the work of Druskin et al. [13] and our extension of Andersson’s approach [19].
+From an algorithmic perspective, dictionary-based methods may also be applica-
+ble, including approaches based on the rational empirical interpolation method
+(rEIM) [23].
+2
+In the recent work [19] we studied the case where all shared real poles are
+concentrated; that is, σk = σ < 0 for all k = 1, . . . , n. Extending a classical
+result by Andersson [3], we proposed an optimal location of σ that asymptoti-
+cally minimizes the time-uniform error. The fact that all poles are concentrated
+at σ means that, with direct solvers, only one Cholesky factorization of A −σI
+needs to be computed and can be reused for all n solves. The determination of σ
+in [19] required the numerical minimization of a two-parameter scalar function.
+As a first main contribution in this work, described in section 2, we will re-
+consider the concentrated-pole approximation problem but with a weight func-
+tion. That is, we seek to minimize a weighted version of (1.3),
+max
+t∈T
+
+w(t)n · max
+z≥0 |rt,n(z) −exp(−tz)|
+
+=: Ew
+n,T .
+(1.4)
+We show that for any weight function w(t) = tγ with γ ≥0.1684, the asymp-
+totically optimal concentrated pole is given by
+σ∗=
+−n
+√
+2 tmax
+.
+That is, if the weight function increases suﬀiciently fast over [tmin, tmax], it is fine
+to optimize only for the right-most time point tmax. Furthermore, this explicit
+formula for σ∗completely removes the need for numerical optimization (im-
+proving on [19]). Weight functions of the form w(t) = tγ arise very naturally in
+applications such as geophysical electromagnetic modeling [8], where simulated
+electromagnetic fields are known to decay geometrically and the relative error
+of the transient needs to be uniformly small over the simulation time interval.
+Next, in section 3, we turn our attention to the case where the poles of the
+functions rt,n are real but distinct. Our approach is based on new family of real-
+pole rational interpolants derived from Zolotarev’s optimal functions. While
+earlier work by Druskin et al. [13] proposed an optimal shared real pole selection
+also based on Zolotarev functions, their work requires A to have eigenvalues in
+a finite positive spectral interval, with the approximation quality deteriorating
+with increasing condition number of A. By contrast, our pole selection approach
+works for any positive semidefinite matrix A independent of conditioning.
+There is great benefit in evaluating the action of a rational matrix function on
+a vector, rt,n(A)b, in partial fraction form, as each linear solve can be distributed
+to a dedicated processor. It is well known that partial fraction decompositions
+suffer numerical instability in particular when some poles of the rational function
+are clustered. This is analyzed in section 4. We show that the instability can
+be controlled, allowing for a practical and reliable numerical integrator with
+high-level of parallelism.
+In section 5 we present numerical experiments to illustrate our analysis and
+compare real-pole approximants to other choices of rational families computed
+by RKFIT [6]. We conclude in section 6.
+3
+2
+Concentrated real pole approximation with a
+weight function
+For any q > 0, let Rn
+q denote the set of degree n real rational functions with all
+poles concentrated at −nq,
+Rn
+q =
+
+pn(z)
+(z + nq)n : pn ∈Pn
+
+.
+Here, Pn denotes the class of polynomials of degree at most n. Moreover, for
+each time point t, let
+ρt
+n(q) = inf
+
+sup
+z≥0
+|rt,n(z) −exp(−tz)| : rt,n ∈Rn
+q
+
+.
+The time-weighted uniform error (1.4) associated with concentrated poles −nq
+can then be expressed as
+Ew
+n,T (q) = max
+t∈T
+ w(t)n · ρt
+n(q)
+
+.
+(2.1)
+Theorem 2.1 below provides the formula for the asymptotic minimizer of (2.1).
+Theorem 2.1. Let t ∈T = [tmin, tmax] with 0 ≤tmin ≤tmax and let w(t) = tγ
+with γ > 0. Then,
+lim
+n→+∞
+
+arg min
+q>0
+Ew
+n,T (q)
+
+= arg min
+q>0
+
+q−γ
+max
+z∈[qtmin,qtmax] zγ eH(z)
+
+,
+(2.2)
+where z = qt and
+eH(z) = exp
+
+log
+
+ez −1
+ez + 1
+ + zℜ(ez2)
+
+,
+with ez being the root in ℑ(ζ) ≥0 of the equation
+z(ζ3 −ζ) + 1 = 0
+that has the smallest positive real part.
+Proof. Based on the work of Andersson [3], we have that for any q > 0,
+lim
+n→+∞ρ1
+n(q)1/n = eH(q).
+Using the argument scaling property ρt
+n(q) = ρ1
+n(qt), we have
+lim
+n→+∞
+
+arg min
+q>0
+Ew
+n,T (q)
+
+=
+lim
+n→+∞
+
+arg min
+q>0
+max
+t∈T
+ w(t)n · ρt
+n(q)
+
+=
+lim
+n→+∞
+
+arg min
+q>0
+max
+t∈T
+
+w(t) · eH(qt)
+n
+= arg min
+q>0
+max
+t∈T
+
+tγ · eH(qt)
+
+= arg min
+q>0
+
+q−γ
+max
+z∈[qtmin,qtmax] zγ eH(z)
+
+.
+4
+Although the right-hand side of (2.2) is generally obtained via numerical
+optimization [19], this optimization step can be bypassed when γ exceeds a
+certain threshold, as shown in Theorem 2.2.
+Theorem 2.2. For γ ≥0.1684, the function F(z) = zγ eH(z) is monotonically
+increasing for z > 0. In this case, the asymptotic minimizer in Theorem 2.1 is
+lim
+n→+∞
+
+arg min
+q>0
+Ew
+n,T (q)
+
+=
+1
+√
+2 tmax
+.
+Proof. The derivative of F is given by
+F ′(z) = zγ−1 
+γ eH(z) + z eH′(z)
+
+.
+We have shown in [19] that eH(z) > 0 for z > 0 and eH′(z) ≥0 for z ≥1/
+√
+2.
+Therefore, we have F ′(z) > 0 for z ≥1/
+√
+2.
+Now, let us show that F ′(z) > 0 for 0 < z < 1/
+√
+2. Let G(z) = γ eH(z) +
+z eH′(z), it suﬀices to show that G(z) > 0 for 0 < z < 1/
+√
+2. Applying the
+results of the equations (9) and (10) in Theorem 2.3 from [19], we have
+eH (z) = eh (m) =
+r
+m + 1
+m −1 exp
+
+m2 −2
+2m (m2 −1)
+
+,
+(2.3)
+where z and m are related by
+zm
+ m2 −1
+
+= −1.
+(2.4)
+Therefore,
+eh′ (m) = eh (m)
+
+s′ (m) −
+1
+m2 −1
+
+,
+(2.5)
+where
+s(m) =
+m2 −2
+2m (m2 −1).
+(2.6)
+By taking the implicit derivative with respect to z in (2.4), we have
+z
+ 3m2 −1
+
+m′(z) + m
+ m2 −1
+
+= 0,
+and hence
+m′ (z) =
+1
+z2 (3m2 −1).
+(2.7)
+From (2.3), we can evaluate
+eH′ (z) = eh′ (m) m′ (z) ,
+(2.8)
+5
+with the results in (2.5) and (2.7). Substituting into G, we obtain
+G (z) = eh (m)
+
+γ + z
+
+s′ (m) −
+1
+m2 −1
+
+m′ (z)
+
+.
+Recall that we want to show that G(z) > 0 for 0 < z < 1/
+√
+2. Since eh (m) > 0,
+it suﬀices to show that
+γ + z
+
+s′ (m) −
+1
+m2 −1
+
+m′ (z) > 0.
+(2.9)
+By (2.4), this is equivalent to the condition m < −
+√
+2. The inequality (2.9) is
+equivalent to
+γz + z2m′ (z)
+
+s′ (m) −
+1
+m2 −1
+
+> 0,
+and hence
+−γ
+m (m2 −1) +
+1
+3m2 −1
+
+s′ (m) −
+1
+m2 −1
+
+> 0.
+Substituting s (m) in (2.6), we have to show that
+ϕ(m) > −γ
+(2.10)
+for all m < −
+√
+2, where
+ϕ(m) = m
+ m2 −1
+
+3m2 −1
+ 
+m4 −5m2 + 2
+2m2 (m2 −1)2 +
+1
+m2 −1
+!
+.
+Since
+ϕ′(m) = −m4 −5m2 + 2
+2m2 (m2 −1)2 ,
+we have that ϕ(m) decreases for m ∈(−∞, m∗) and increases for m ∈[m∗, −
+√
+2)
+where
+m∗= −
+s
+5 +
+√
+17
+2
+.
+Hence,
+min
+m<−
+√
+2
+ϕ(m) = ϕ(m∗) ≈−0.1684.
+Therefore, (2.10) holds for all γ ≥0.1684. In this case, we apply Theorem 2.1
+and obtain
+lim
+n→+∞
+
+arg min
+q>0
+Ew
+n,T (q)
+
+= arg min
+q>0
+
+q−γ
+max
+z∈[qtmin,qtmax] zγ eH(z)
+
+= arg min
+q>0
+
+tγ
+max eH(qtmax)
+
+= arg min
+q>0
+eH(qtmax)
+=
+1
+√
+2 tmax
+.
+6
+The last equality follows from the fact that 1/
+√
+2 is the unique minimizer of eH
+(see [3] and also [19]). This completes the proof.
+To summarize, Theorem 2.2 tells us that, if the weight function increases
+suﬀiciently fast over the time interval [tmin, tmax], it is fine to optimize only for
+the last time point tmax, and the asymptotically optimal shared concentrated
+real pole for minimizing the time-weighted uniform error (1.4) is
+lim
+n→+∞σ∗(n) =
+−n
+√
+2 tmax
+.
+(2.11)
+3
+A Zolotarev-based pole selection
+So far, we have only discussed the case where all real poles of rational approx-
+imants are concentrated. While this is a reasonable choice for approximation
+on short time intervals, its approximation quality deteriorates when the time
+intervals become longer. This motivates the subsequent approach of using dis-
+tinct real poles, which can achieve a much higher level of accuracy for large
+time intervals due to the increased flexibility of poles being distributed on the
+negative real axis.
+We first introduce our main algorithm, which selects a suitable set of real
+poles that approximately minimizes the time-uniform error En,T for any de-
+gree of approximation n and time interval T. The core ingredient is the Her-
+mite integral formula for the error of rational interpolants, which dates back
+to Walsh [31].
+For each t ∈T, let rt,n(z) be the degree n rational inter-
+polant of ft(z) := exp(−tz), with interpolation points ϑi ∈[0, +∞) and poles
+σi ∈[c, d] < 0. Then
+ft(z) −rt,n(z) = sn(z)
+2πi
+Z
+Γ
+ft(ζ)
+sn(ζ)(ζ −z) dζ.
+(3.1)
+Here, Γ is any contour that encloses the interpolation points and sn is a rational
+nodal function defined as
+sn(z) =
+Qn
+i=1(z −ϑi)
+Qn
+i=1(z −σi).
+(3.2)
+The error formula (3.1) indicates that the time-uniform error En,T can be ef-
+fectively controlled by bounding the growth of |sn(z)| on z ≥0. This can be
+achieved by solving a third Zolotarev approximation problem on the condenser
+Ξ1 := [c, d] ∪[0, +∞), which yields a set of interpolation points ϑi and poles σi
+that minimizes the ratio
+maxz∈[0,+∞) |sn(z)|
+minz∈[c,d] |sn(z)| .
+(3.3)
+Druskin, Knizhnerman and Zaslavsky [13] investigated a similar problem for
+a symmetric condenser consisting of an interval on the positive real axis and its
+7
+reflection about the origin. In our problem, we can map the original condenser
+to a symmetric one by a Möbius transformation and obtain ϑi and σi using the
+method proposed in [13, section 4]. We then map ϑi and σi back to the original
+condenser by an inverse Möbius transformation. The resulting rational nodal
+function sn satisfies
+max
+z∈[0,+∞) |sn(z)| = 1.
+(3.4)
+Algorithm 1 details the implementation of this idea. Lines 1 to 2 give the
+mapping ψ(z) = (z −ς)/(z −ϱ) with specifically chosen ς and ϱ. This maps
+our condenser Ξ1 to the symmetric condenser Ξ2 := [−η2, −η1] ∪[η1, η2] with
+η1 = −ψ(d) and η2 = −ψ(c). Lines 3 to 7 follow the procedures proposed in [13],
+applied to the condenser Ξ2, which yields poles and zeros on Ξ2. Line 8 maps
+these poles and zeros back to the original condenser Ξ1 via ψ−1.
+Algorithm 1 Choosing Zolotarev poles in a fixed interval
+Input: Interval [c, d] with c < d < 0, degree of approximation n ∈N+.
+Output: Poles {σi}n
+i=1 ⊂[c, d] and zeros {ϑi}n
+i=1 ⊂[0, +∞) of sn that mini-
+mizes (3.3) subject to (3.4).
+1: Compute ς ←c +
+p
+c(c −d) and ϱ ←2c −ς.
+2: Compute η1 ←(ς −d)/(d −ϱ), η2 ←(ς −c)/(c −ϱ), and µ ←1 −(η1/η2)2.
+3: Evaluate the integral J ←
+R 1
+0
+ (1 −x2)(1 −µx2)
+−1/2 dx.
+4: for i = 1 to n do
+5:
+Compute v ←(2n −2i + 1)J/(2n).
+6:
+Find θ such that
+R θ
+0
+ 1 −µ sin2 ζ
+−1/2 dζ = v.
+7:
+Obtain ϑi ←η2(1 −µ sin2 θ)1/2.
+8:
+Obtain σi ←(ς + ϱϑi)/(1 + ϑi) and ϑi ←(ς −ϱϑi)/(1 −ϑi).
+9: end for
+It remains choosing an optimal pole interval [c, d]. According to classical
+results by Andersson [3] and Borwein [9], the asymptotically optimal real poles
+of the degree n rational approximation of ft(z) = exp(−tz) on z ≥0 should
+be concentrated at −n/(
+√
+2t) for any t > 0. Therefore, a suitable choice initial
+guess for a pole interval is [c0, d0] = [−n/(
+√
+2 tmin), −n/(
+√
+2 tmax)] where T =
+[tmin, tmax]. We then refine this pole interval [c, d] by numerically solving a two-
+parameter optimization problem:
+Find (c∗, d∗) = arg min
+(c,d)∈Ω
+max
+t∈T max
+z∈Z
+ft(z) −r(c,d)
+t,n (z)
+ ,
+(3.5)
+where Ω:= {(c, d) ∈R2 : c < d < 0} is the feasible set, Z := [z1, z2, . . . , zm]T is
+a vector of m ≫n suﬀiciently dense sample points on the nonnegative real axis,
+and r(c,d)
+t,n
+is a degree n rational interpolant of ft with poles σi ∈[c, d] and inter-
+polation points ϑi ∈[0, +∞) obtained from Algorithm 1. To enforce the interpo-
+latory condition, we compute the vector of residues α(t) := [α1(t), · · · , αn(t)]T
+8
+of r(c,d)
+t,n
+by solving a linear system
+Cα(t) = f(t)
+(3.6)
+involving a Cauchy matrix C ∈Rn×n with general entries Cij = (ϑi −σj)−1 for
+1 ≤i, j ≤n and a vector f(t) := [ft(ϑ1), · · · , ft(ϑn)]T ∈Rn.
+Since the degree n is usually small to moderate, the linear system (3.6) can
+be solved to high accuracy using multiprecision (e.g., in MATLAB using the
+Advanpix Multiprecision Toolbox [1]). Alternatively, by exploiting the struc-
+ture of the Cauchy matrix, the system (3.6) can be solved more accurately via
+a rank-revealing decomposition [12]. Our numerical experiments indicate that
+this approach attains accuracy nearly indistinguishable from the multiprecision
+method for small to medium values of n, but begins to exhibit numerical insta-
+bility for larger values of n. Therefore, we recommend employing multiprecision
+arithmetic with 128-digits for solving (3.6). Again, this one-off optimization
+does not create noticeable overhead as n is small.
+To solve the optimization problem (3.5) in MATLAB, we use the fminsearch
+function. This algorithm is based on the Nelder–Mead simplex method [28],
+which determines the search directions by comparing the function values at the
+vertices of simplexes. This is suitable for solving problem (3.5) where explicit
+analytical derivatives are not easily available. The overall method is summarized
+in Algorithm 2.
+Algorithm 2 Choosing Zolotarev poles in a refined interval
+Input: Degree of approximation n ∈N+, a vector of m ≫n real positive
+sample points Z := [z1, z2, · · · , zm]T , a time interval T = [tmin, tmax].
+Output: An optimal pole-interval [c∗, d∗], Zolotarev poles {σi}n
+i=1 ⊂[c∗, d∗],
+interpolation points {ϑi}n
+i=1 ⊂[0, +∞), residue vector α(t) ∈Rn, the associated
+rational interpolant r(c∗,d∗)
+t,n
+for each t ∈T.
+1: Set the initial pole-interval as [c0, d0] = [−n/(
+√
+2tmin), −n/(
+√
+2tmax)].
+2: Find the minimizer (c∗, d∗) of the problem (3.5) using fminsearch with the
+initial guess (c0, d0).
+3: Obtain the poles {σi}n
+i=1 and interpolation points {ϑi}n
+i=1 from Algorithm 1
+with input [c∗, d∗] and n.
+4: Form the matrix bC ∈Rm×n with entries bCij = (zi −σj)−1.
+5: for each t ∈T, do
+6:
+Compute the residues α(t) of r(c∗,d∗)
+t,n
+via the linear system (3.6).
+7:
+Evaluate the approximant as r(c∗,d∗)
+t,n
+(Z) = bCα(t).
+8: end for
+Minimizing the discrete time-uniform error in (3.5) over Z does not in general
+guarantee that the target continuous time-uniform error in (1.3) will be bounded
+from above by a given error tolerance, as the latter is defined over the whole
+nonnegative real axis.
+However, this can be ensured in our setting, as the
+approximant r(c∗,d∗)
+t,n
+(z) is uniformly continuous on z ≥0 for all t ∈T.
+9
+Theorem 3.1. Let Z := [z1, z2, · · · , zm]T be a discretization of [0, +∞) sat-
+isfying 0 ≤z1 < z2 < · · · < zm = L.
+For each t ∈T := [tmin, tmax], let
+r∗
+t,n(z) = r(c∗,d∗)
+t,n
+(z) be the degree n rational interpolant of ft(z) = exp(−tz)
+with poles and interpolation points obtained from Algorithm 2. Then we have
+max
+t∈T max
+z≥0 |r∗
+t,n(z) −ft(z)| ≤max
+t∈T max
+z∈Z |r∗
+t,n(z) −ft(z)| + ϵ(δ, L),
+(3.7)
+where δ is the ‘density’ of Z in the interval [0, L] defined as
+δ = max
+x∈[0,L] min
+y∈Z |x −y|,
+(3.8)
+and ϵ(δ, L) in the last term of (3.7) satisfies
+lim
+δ→0
+lim
+L→+∞ϵ(δ, L) = 0.
+(3.9)
+Proof. For each t ∈T, we can use [10, p. 86, Lem. 2] to show that
+max
+z∈[0,L]
+r∗
+t,n(z) −ft(z)
+ ≤max
+z∈Z
+r∗
+t,n(z) −ft(z)
+ + w(r∗
+t,n−ft)(δ),
+(3.10)
+where
+w(r∗
+t,n−ft)(δ) =
+max
+0≤x,y≤L
+|x−y|≤δ
+ r∗
+t,n −ft
+
+(x) −
+ r∗
+t,n −ft
+
+(y)
+
+(3.11)
+is the modulus of continuity of the function r∗
+t,n −ft. Denote the residues of
+r∗
+t,n as {α∗
+j(t)}n
+j=0 and the poles as {σ∗
+j }n
+j=1 ⊂(−∞, 0) in the partial fraction
+form of (1.1), then for any s ≥L, we have
+r∗
+t,n(L) −r∗
+t,n(s)
+ ≤
+n
+X
+j=1
+α∗
+j(t)
+
+
+1
+L −σ∗
+j
+−
+1
+s −σ∗
+j
+
+≤
+n
+X
+j=1
+α∗
+j(t)
+
+ 
+1
+L −σ∗
+j
++
+1
+s −σ∗
+j
+!
+≤2
+n
+X
+j=1
+α∗
+j(t)
+
+L −σ∗
+j
+≤2
+L
+n
+X
+j=1
+α∗
+j(t)
+ ,
+and hence,
+|r∗
+t,n(s) −ft(s)| −|r∗
+t,n(L) −ft(L)|
+ ≤
+ft(s) −ft(L) + r∗
+t,n(L) −r∗
+t,n(s)
+
+≤|ft(s) −ft(L)| +
+r∗
+t,n(L) −r∗
+t,n(s)
+
+≤ft(L) +
+r∗
+t,n(L) −r∗
+t,n(s)
+
+≤ft(L) + 2
+L
+n
+X
+j=1
+α∗
+j(t)
+ .
+10
+Therefore,
+max
+z∈[L,+∞)
+r∗
+t,n(z) −ft(z)
+ ≤
+r∗
+t,n(L) −ft(L)
+ + ft(L) + 2
+L
+n
+X
+j=1
+α∗
+j(t)
+
+≤max
+z∈Z
+r∗
+t,n(z) −ft(z)
+ + ft(L) + 2
+L
+n
+X
+j=1
+α∗
+j(t)
+ .
+(3.12)
+Combining (3.12) with (3.10), we conclude
+max
+z≥0
+r∗
+t,n(z) −ft(z)
+ = max
+
+max
+z∈[0,L]
+r∗
+t,n(z) −ft(z)
+ ,
+max
+z∈[L,+∞)
+r∗
+t,n(z) −ft(z)
+
+
+≤max
+z∈Z
+r∗
+t,n(z) −ft(z)
+ + bϵ(δ, L),
+where
+bϵ(δ, L) = w(r∗
+t,n−ft)(δ) + ft(L) + 2
+L
+n
+X
+j=1
+α∗
+j(t)
+ .
+(3.13)
+Finally, by taking the maximum error over the time domain T, we have
+max
+t∈T max
+z≥0
+r∗
+t,n(z) −ft(z)
+ ≤max
+t∈T max
+z∈Z
+r∗
+t,n(z) −ft(z)
+ + ϵ(δ, L),
+(3.14)
+where
+ϵ(δ, L) = max
+t∈T
+
+w(r∗
+t,n−ft)(δ)
+
++ ftmin(L) + 2
+L max
+t∈T
+n
+X
+j=1
+α∗
+j(t)
+ .
+(3.15)
+Since both ft(z) and r∗
+t,n(z) are uniformly continuous on z ∈[0, +∞) for all
+t ∈T, the first term on the right-hand side of (3.15) vanishes as δ →0. The
+last two terms vanish as L →+∞.
+4
+Floating-point arithmetic analysis
+So far, we have considered only the scalar time-uniform error, the upper bound
+in (1.3). In this section, let us discuss several sources of numerical errors when
+evaluating {rt,n(A)b}t∈T in floating-point arithmetic. For this analysis, we will
+consider the more general case, often arising with finite element discretizations,
+where A = M −1K and b = M −1q for a symmetric positive definite matrix M
+(mass matrix), a symmetric positive semidefinite matrix K (stiffness matrix),
+and a vector q. Now each shifted linear system (A −σiI)xi = b is equivalent to
+(K −σiM)xi = q,
+(4.1)
+which is still symmetric positive definite for all σi < 0. This reduces to the
+standard case when M = I, the identity matrix.
+Note that A = M −1K is
+11
+similar to K = M 1/2AM −1/2 and an equivalent upper bound to (1.3) on the
+rational approximation error is available when the 2-norm is replaced by the
+M-norm, ∥x∥M =
+√
+xT Mx.
+Throughout this section, we use the standard model and notation of floating-
+point arithmetic; see [20]. We use fl(·) to indicate that an expression is evalu-
+ated in floating-point arithmetic, and u denotes the unit round-off. In particular,
+ex = fl(x) = x(1 + δ), where |δ| ≤u. Computed quantities are labeled with a
+hat or tilde.
+Given a rational approximant in partial fraction form,
+y(t) := rt,n(A)b =
+n
+X
+i=1
+αi(t)xi,
+(4.2)
+with each xi being the exact solution to (4.1), we wish to study the numerically
+evaluated counterpart fl(y(t)) and bound the distance ∥fl(y(t)) −y(t)∥M. We
+will study three sources of rounding errors, each in a separate subsection be-
+low. Each subsection bounds one error source, E1, E2, E3, and by the triangle
+inequality,
+∥fl(y(t)) −y(t)∥M ≤E1 + E2 + E3.
+4.1
+Error source 1: inaccurate linear solves
+The first source of error arises from the inaccuracy of solving the shifted linear
+systems (4.1). Let bxi be the inexact solutions, and denote the associated residual
+vectors by
+ei := (K −σiM)bxi −q.
+(4.3)
+Consider the computed by(t) given by
+by(t) :=
+n
+X
+i=1
+αi(t)bxi.
+(4.4)
+Theorem 4.1 below provides an upper bound for the resulting error. Impor-
+tantly, this bound does not depend on the exact solutions xi, which are not
+available in practice.
+Theorem 4.1. The M-norm error of by defined in (4.4) satisfies
+E1 := ∥by(t) −y(t)∥M ≤
+n
+X
+i=1
+|αi(t)|
+|σi|
+M −1ei
+
+M ,
+where each ei defined in (4.3) is the residual associated with the i-th shifted
+linear system (4.1).
+12
+Proof. Applying the triangle inequality and using the symmetric positive defi-
+niteness of M, we have
+∥by(t) −y(t)∥M =
+
+n
+X
+i=1
+αi(t)(bxi −xi)
+
+M
+≤
+n
+X
+i=1
+|αi(t)| ∥bxi −xi∥M
+≤
+n
+X
+i=1
+|αi(t)|
+(M −1K −σiI)−1
+M
+(M −1K −σiI)(bxi −xi)
+
+M
+=
+n
+X
+i=1
+|αi(t)|
+(M −1/2KM −1/2 −σiI)−1
+2
+M −1ei
+
+M
+≤
+n
+X
+i=1
+|αi(t)|
+|σi|
+M −1ei
+
+M ,
+as asserted. We note that
+M −1ei
+
+M ≤
+1
+p
+λmin(M)
+∥ei∥2 ≤
+1
+λmin(M) ∥ei∥M ,
+which could be used to remove the dependence on M −1 if (an estimate for)
+λmin(M) is available.
+Assuming that each shifted linear system is solved using a direct method such
+as sparse Cholesky factorization [15, Chapter 11], the norm of each residual ei
+is expected to be on the order of machine precision, and therefore the error is
+expected to be small provided that the residues αi(t) are of small to moderate
+magnitude. However, αi(t) may become large if the Cauchy matrix involved in
+the linear system (3.6) has small singular values. This happens in particular
+when poles σi are close together.
+4.2
+Error source 2: inaccurate residues
+Recall that solving (3.6) using standard double precision with 16 digits of accu-
+racy suffers from the increase of the condition number of the Cauchy matrix for
+large degrees of approximation. To avoid this, we recommend using multipreci-
+sion (e.g., with 128 digits of accuracy). This is computationally tractable due
+to the moderate size of the Cauchy matrix. On the other hand, we do not wish
+to form the linear combination (4.4) with residues αi(t) in multiprecision, since
+the bxi may be very high-dimensional vectors. We therefore round the residues
+to double precision, introducing an additional error in the computation of (4.4).
+Theorem 4.2 below gives an upper bound for this error.
+13
+Theorem 4.2. Let by(t) be the linear combination (4.4) formed with the exact
+residues αi(t). Let eαi(t) be the residues rounded to double precision, and define
+ey(t) :=
+n
+X
+i=1
+eαi(t)bxi.
+(4.5)
+Then we have
+E2 := ∥ey(t) −by(t)∥M ≤u
+n
+X
+i=1
+|αi(t)| ∥bxi∥M .
+(4.6)
+Proof. Applying the triangular inequality, we have
+∥ey(t) −by(t)∥M ≤
+n
+X
+i=1
+|eαi(t) −αi(t)| ∥bxi∥M ≤u
+n
+X
+i=1
+|αi(t)| ∥bxi∥M .
+Similarly to the numerical error of the computed shifted linear systems, the
+bound in Theorem 4.2 suggests that the error arising from rounding the residues
+may be amplified when the residues are of very large magnitude.
+4.3
+Error source 3: inaccurate linear combination
+The third source of error is the inaccuracy from forming the linear combina-
+tion (4.5) given the computed residues eαi(t) and solutions bxi. Theorem 4.3
+below provides an upper bound for this error, which also depends on the mag-
+nitude of residues.
+Theorem 4.3. Let fl (ey(t)) be the computed result of ey(t) in (4.4), then we
+have
+E3 := ∥fl (ey(t)) −ey(t)∥M ≤γn
+p
+κ2(M)
+
+ b
+X
+ · |eα(t)|
+
+M
+where b
+X := [bx1, bx2, · · · , bxn], eα(t) := [eα1(t), eα2(t), · · · , eαn(t)]T , κ2(M) is the
+2-norm condition number of M, and γn :=
+nu
+1−nu (u is the unit roundoff). Here,
+| · | denotes the entrywise absolute value of a vector or matrix.
+Proof. Applying the results in [20, Section 3.5], we have
+|fl (ey(t)) −ey(t)| ≤γn
+ b
+X
+ · |eα(t)|
+where the inequality holds entrywise. Therefore, it follows that
+∥fl (ey(t)) −ey(t)∥2 ≤
+γn
+ b
+X
+ · |eα(t)|
+
+2 ,
+14
+and hence
+∥fl (ey(t)) −ey(t)∥M ≤
+p
+λmax(M) ∥fl (ey(t)) −ey(t)∥2
+≤
+p
+λmax(M)
+γn
+ b
+X
+ · |eα(t)|
+
+2
+≤
+s
+λmax(M)
+λmin(M)
+γn
+ b
+X
+ · |eα(t)|
+
+M
+=
+p
+κ2(M)
+γn
+ b
+X
+ · |eα(t)|
+
+M .
+Finally, note that if no other floating-point errors occur when evaluating the
+rational approximant (4.2), fl (ey(t)) is indeed the final numerical result of the
+evaluation and we may write fl (ey(t)) = fl(y(t)).
+4.4
+Growth of the residues
+Let us briefly comment on the growth of the residues α(t) computed via solv-
+ing (3.6) involving the n × n Cauchy matrix C. We have
+∥α(t)∥∞≤∥α(t)∥2 = ∥C−1f(t)∥2 ≤∥f(t)∥2/σn(C).
+Clearly, ∥f(t)∥2 ≤√n with n interpolation points for the exponential function.
+The decay properties of the singular values of Cauchy (and other matrices
+with displacement structure) have been well studied [4].
+In particular, it is
+known that
+σn(C) ≤σ1(C)Zn−1([c, d], [0, +∞]),
+where Zn−1 is the Zolotarev number of order n−1 of the condenser ([c, d], [0, +∞]).
+Moreover, it is known that these numbers satisfy
+lim
+n→+∞(Zn([c, d], [0, +∞]))1/n = exp
+
+−
+1
+cap([c, d], [0, +∞])
+
+,
+where cap denotes the logarithmic capacity of a condenser.
+In our setting, it is easy to get an upper bound on σ1(C) since all entries of
+C are bounded by 1/|d|. By Hölder’s matrix inequality ∥C∥2 ≤
+p
+∥C∥1∥C∥∞,
+and the fact that
+∥C∥1 = max
+1≤j≤n
+n
+X
+i=1
+|Cij| ≤n
+|d|,
+∥C∥∞= max
+1≤i≤n
+n
+X
+j=1
+|Cij| ≤n
+|d|,
+we have
+σ1(C) = ∥C∥2 ≤n
+|d|.
+Unfortunately, the above results do only provide us with an exponentially de-
+caying upper bound on the smallest singular value σn(C). In order to obtain an
+15
+upper bound the growth of α(t), we would need a lower bound on σn(C). This
+bound would necessarily need to take into account that C is generated from opti-
+mal Zolotarev interpolation nodes and poles on the condenser ([c∗, d∗], [0, +∞)).
+We are currently not aware of such a lower bound on the singular values of
+Cauchy matrices with Zolotarev nodes and poles. But we observe numerically
+that σn(C) indeed decays exponentially at the expected rate and not faster.
+In any case, our situation is further complicated by the fact that the plate
+[c∗, d∗] of the condenser is not fixed but varies with n. The dependence on n is
+a complicated matter that is beyond the scope of this paper, and we leave this
+for future work.
+5
+Numerical experiments
+This section is dedicated to numerical experiments. Section 5.1 illustrates the
+approximation using concentrated real poles proposed in section 2. The remain-
+ing subsections concern the approximation using distinct real poles proposed in
+section 3. In particular, section 5.2 justifies the suitability of our proposed poles
+from the perspectives of Hermite integral formula. Section 5.3 presents an illus-
+tration of our error analysis from section 4. An application of our new poles to
+a transient electromagnetic (TEM) problem is provided in section 5.4, including
+a comparison to complex-valued RKFIT poles. Finally, section 5.5 presents an
+example demonstrating that the proposed uniform rational approximation of
+the matrix exponential maintains its high accuracy over a wide range of time
+intervals.
+All algorithms are implemented in MATLAB R2024b, and all experiments
+are performed on a Windows laptop equipped with an Intel i5-13500H CPU
+running at 2.6 GHz and 32 GB of RAM. The code for reproducing the numerical
+experiments is available at https://github.com/nla-group/uniform-in-t
+ime-exponential.
+5.1
+Approximation with a weight function
+We begin with an example of concentrated real-pole approximation. Here we
+use the time interval T = [10−3, 1], and for ease of comparison the same T will
+be used in most other experiments.
+Figure 5.1 shows the L∞-norm approximation error using the poles proposed
+in [19] which minimize the unweighted time-uniform error (1.3), and the poles
+given by (2.11) which minimize the weighted time-uniform error (1.4).
+We
+clearly see that introducing the weight function sacrifices accuracy at early times
+but yields a much higher level of accuracy at later times. This choice of weighted
+poles will be particularly suited to applications where ∥exp(−tA)b∥2 decays as
+t increases, and it is desirable to retain a high relative accuracy over the whole
+time interval T.
+16
+Figure 5.1: L∞-norm error using the unweighted optimal poles (left) and the
+weighted optimal poles (right).
+5.2
+Comparison with Zolotarev approximation
+We now provide examples of approximations using distinct real poles computed
+by our Zolotarev approach, illustrating the discussion at the beginning of sec-
+tion 3.
+Figure 5.2 shows the level curves of log10 | exp(−tz)/sn(z)| with t = tmin =
+10−3 and t = tmax = 1 over the square domain S = {z ∈C : | Re(z)| ≤
+10, | Im(z)| ≤10} for the degree n = 25 rational approximants computed us-
+ing Algorithm 2. In each plot, only five Zolotarev poles (black dots) and six
+interpolation points (red dots) are displayed, while the remaining poles and in-
+terpolation points are off-scale. For each choice of t = tmin and t = tmax, there
+exists a contour Γ where the order of | exp(−tz)/sn(z)| is at least uniformly be-
+low O(10−3). In view of the Hermite integral error formula (3.1), this illustrates
+the high accuracy of our rational approximants.
+-8
+-6
+-4
+-2
+0
+2
+Figure 5.2: Level curves of the base-10 logarithm of | exp(−tz)/sn(z)| for the
+degree n = 25 approximants computed using Algorithm 2. Left: t = tmin = 10−3.
+Right: t = tmax = 1.
+In Figure 5.3 we directly compare three different time-uniform approximants
+over T = [10−3, 1]. We find that 33 concentrated real poles from [19] are needed
+17
+Figure 5.3: To achieve four-digit accuracy over the interval T = [10−3, 1], we
+need 33 concentrated real poles, 21 Zolotarev real poles, or 18 complex RKFIT
+poles, respectively.
+to ensure that the time-uniform error over T is reduced to about 10−4, whereas
+the same can be achieved by using only 21 Zolotarev real poles. This is due to
+the extra flexibility with which the Zolotarev poles are placed on the negative
+real axis. A further advantage of Zolotarev poles is computational: distinct
+poles allow us to solve all the associated shifted linear systems in parallel.
+Figure 5.3 also includes a shared-pole family of RKFIT approximants with
+18 complex poles [6]. When evaluating these rational functions for matrix ar-
+guments, the number of required shifted linear systems is halved to 9 since the
+poles appear in conjugate pairs. Nevertheless, the complex arithmetic involved
+can still lead to an overall longer time for solving these shifted linear systems,
+despite the smaller number of systems required. This will be demonstrated in
+section 5.4.
+Finally, Figure 5.4 shows the time-uniform error (1.3) obtained using the
+proposed Zolotarev rational interpolant, compared to those obtained using the
+optimal concentrated-pole approximants and the RKFIT approximants, for de-
+grees n from 1 to 30, and time intervals T = [10−β, 1] with β = 1, 2, 3, 4.
+For β = 2, 3, 4, the errors of the Zolotarev rational interpolants consistently
+lie between that of the optimal concentrated-pole approximants and that of
+the RKFIT approximants. An exception occurs for β = 1 where the Zolotarev
+interpolants and the optimal concentrated-pole approximant yield almost in-
+distinguishable convergence. This is expected as for narrow time ranges (small
+values of β), we approach the single-time approximation problem for which the
+poles of the best real-pole approximants coalesce [9].
+5.3
+Illustration of the error analysis
+This section illustrates our floating-point error analysis in section 4. Figure 5.5
+shows the numerically computed relative error (left-hand side of (5.1)), its scalar
+18
+Figure 5.4: Time-uniform error obtained by the three types of approximants over
+different time intervals T, with the degrees n = 1, 2, . . . , 30.
+error bound (right-hand side of (5.1)),
+∥rt,n(A)b −exp(−tA)b∥2
+∥b∥2
+≤max
+z≥0 |rt,n(z) −exp(−tz)|
+(5.1)
+along with the floating-point error bounds given by Theorem 4.1, 4.2, 4.3 and
+their combination, for degree n = 25, 35, 45. In this example, we use a symmet-
+ric positive semidefinite tridiagonal matrix A ∈R1,000×1,000 and a normalized
+random vector b with i.i.d. Gaussian entries. We observe that the computed
+error decreases for n between 25 and 35, during which the floating-point error
+bounds are effectively controlled. However, for n between 35 and 45, the error
+no longer decreases because the combined floating-point error bound exceeds the
+scalar bound. In particular, for n = 45, where the floating-point error bounds
+fully dominate, the computed error exceeds its scalar bound as a consequence
+of this numerical instability.
+5.4
+TEM problem
+An important application of time-uniform approximation of the matrix expo-
+nential arising in geophysics with the transient electromagnetic method (TEM).
+Recall from Figure 5.3 that 21 real Zolotarev poles achieved about the same
+level of scalar time-uniform error as 18 RKFIT complex poles. The question
+then arises how factorizing and solving 21 real (positive definite) linear systems
+compares to solving 9 complex-shifted linear systems. Figure 5.6 compares the
+19
+(a) n = 25
+(b) n = 35
+(c) n = 45
+Figure 5.5: The computed error (red), the scalar bound (blue), and the floating-
+point error bounds derived in section 4 (black) over the time interval T =
+[10−3, 1] for degrees n = 25, 35, 45.
+We observe that the scalar error bound
+uniformly decreases as n is increased, while the floating-point error increases.
+Figure 5.6: Time required to solve each linear system using n = 21 real Zolotarev
+shifts (left) compared to 9 RKFIT complex shifts (right).
+The dashed lines
+indicate the average time per system.
+computation time for solving these systems (K −σiM)xi = q. Here, both K
+and M are real sparse finite element matrices of size N = 181, 302, correspond-
+ing to the tem181302 electromagnetic problem from [7]; also available in the
+SuiteSparse Matrix Collection [11]. The real Zolotarev shifts incur an average
+of 3.98s per system, totaling 83.51s, while the RKFIT complex shifts require an
+average of 34.67s per system, totaling 311.99s. So, in this case, the sequential
+linear solve speedup obtained with the Zolotarev approach is about 3.7-fold. If
+all linear solves are done in parallel, the parallel speedup with the Zolotarev
+approach is even 8.7-fold.
+As a generalization of the relative 2-norm error in (5.1), the left plot of
+Figure 5.7 shows the relative M-norm error
+rel. err =
+rt(M −1K)b −exp(−tM −1K)b
+
+M
+∥b∥M
+(5.2)
+at each time t, where we compute each exp(−tM −1K)b using the Carathéo-
+dory–Fejér complex-pole rational approximant with degree bn = 13. Applying [7,
+Theorem 3.2] and using the fact that M −1K is similar to a symmetric positive
+20
+Figure 5.7: Left: The relative M-norm error of the Zolotarev and RKFIT ap-
+proximants for the tem181302 problem. Right: The error curves of the Zolotarev
+and RKFIT approximants at tmax.
+semidefinite matrix, this is also bounded above by the scalar error
+rel. err ≤max
+z≥0 |rt,n(z) −exp(−tz)| .
+(5.3)
+In this example, we use a different time interval T = [10−6, 10−3], corresponding
+to the time scale of our TEM problem. However, this time range gives the same
+scalar error bound (5.3) as the previous time interval [10−3, 1], since the time
+ratio τ := tmax/tmin remains the same.
+We observe in Figure 5.7 (left) that the relative M-norm error with the
+Zolotarev poles is at least two orders of magnitude below that of using the
+RKFIT poles for late time points. This can be explained by the fact that the
+eigenvalues of M −1K are located mainly in the region where the scalar error of
+the RKFIT approximant is larger than that of the Zolotarev approximant for
+large values of t. The right plot of Figure 5.7 shows the scalar error functions of
+the two approximants at the final time point tmax, from which we can see that
+the error of the Zolotarev approximant decays to zero, filtering out the large
+eigenvalues of M −1K more quickly.
+5.5
+Total error bound
+The bounds (5.1) and (5.3) assume that the partial fraction is evaluated exactly.
+In practice, however, the floating-point error must be taken into account once
+the error incurred in evaluating the partial fraction becomes comparable to the
+scalar approximation error. We use the term total error bound to refer to the
+sum of the scalar approximation bound (the right-hand side of (5.1) or (5.3))
+and the floating-point error bound (the sum of the bounds on E1, E2, E3 derived
+in section 4).
+Figure 5.8 shows the total error bound for degrees n = 1, 2, . . . , 60 and
+time ratios τ ranging from 101 to 104. In this experiment, we make one slight
+modification: the optimal pole interval is chosen by minimizing an augmented
+objective function consisting of the discrete time-uniform error function (3.5)
+together with the floating-point error bound on E1 from Theorem 4.1, where
+21
+0
+10
+20
+30
+40
+50
+60
+10-6
+10-4
+10-2
+100
+Figure 5.8: Total error bound for various degrees n and time ratios tmax/tmin.
+Each data is taken from the maximum in the time interval.
+the residual norm of each shifted linear system is uniformly replaced by 10−15, a
+reasonable approximation for direct solvers with double-precision. The bounds
+on E2 and E3, given in Theorems 4.2 and 4.3, are not included in the augmented
+objective function because they are typically negligible compared to E1 due to
+the unit round-off factors involved. Moreover, both terms depend on the norms
+of the computed solution vectors, for which no uniform estimator is available.
+The matrix and vector used here are the same as in section 5.3.
+Figure 5.8 shows that, for all time ratios, the total error bound initially
+decays at essentially the same rate as the scalar time-uniform error in Figure 5.4.
+This is because the floating-point error is negligible for small degrees. As the
+degree increases, however, the total error bound ceases to decrease, eventually
+stagnating at approximately 10−6 for all time ratios. This demonstrates that the
+proposed uniform rational approximation of the matrix exponential guarantees
+at least six digits of accuracy, regardless of the length of the time interval.
+We emphasize that the total error bound is only an upper bound and may be
+conservative in practice. Nevertheless, it provides a useful guide for exploiting
+parallelism with direct solvers. For example, numerical experiments show that,
+for a time ratio of 103, the norm of residues can grow as large as O(109) for
+degree n = 30. Inspecting the bound on E1 in Theorem 4.1 then suggests that
+single-precision accuracy (about O(10−8)) in the final result can be achieved
+by solving the shifted linear systems with direct methods in double-precision
+arithmetic.
+6
+Conclusions
+We have proposed two new approaches for the uniform-in-time approximation
+of the matrix exponential with shared real poles. The first approach considers
+the case of concentrated poles, for which we derive an explicit formula for the
+22
+optimal pole when a suitable weight function is used. The second approach
+addresses the case of distinct poles, for which we provide a simple Zolotarev-
+based algorithm to eﬀiciently select near-optimal poles.
+Our floating-point error analysis shows that the partial fraction form of the
+Zolotarev approximants can be evaluated accurately when the shifted linear
+systems are solved using direct methods. The analysis demonstrates that time-
+uniform approximants can be evaluated in parallel with at least six digits of
+accuracy using double-precision arithmetic, over a wide range of time intervals.
+This analysis is based on upper bounds which may be quite pessimistic.
+In
+our experience, it is reasonable that with double-precision direct solvers we can
+expect at least single-precision accuracy in the solutions computed in parallel.
+We believe that this is an important result as it provides retrospective jus-
+tification of the common practice (e.g., in 3D geophysical simulations) of using
+double-precision direct solvers to compute quantities that are likely subject to
+much higher levels of discretization errors. We can now argue that this suppos-
+edly over-accurate solution of the linear systems actually enables a high degree
+of parallelization on the partial fraction level.
+Acknowledgments
+S. G. acknowledges funding from the UK’s Engineering and Physical Sciences
+Research Council (EPSRC grant EP/Z533786/1) and the Royal Society (RS In-
+dustry Fellowship IF/R1/231032). S. S. acknowledges a Dean’s Doctoral Schol-
+arship from the University of Manchester.
+References
+[1] Advanpix LLC, Multiprecision Computing Toolbox for MATLAB. https:
+//www.advanpix.com, 2024. Version 5.0.
+[2] A. H. Al-Mohy, Shared-pole Carathéodory–Fejér approximations for lin-
+ear combinations of φ-functions, Mathematics, 13 (2025), p. 3985.
+[3] J.-E. Andersson, Approximation of exp(−x) by rational functions with
+concentrated negative poles, Journal of Approximation Theory, 32 (1981),
+pp. 85–95.
+[4] B. Beckermann and A. Townsend, On the singular values of matrices
+with displacement structure, SIAM Journal on Matrix Analysis and Appli-
+cations, 38 (2017), pp. 1227–1248.
+[5] M. Benzi, E. Estrada, and C. Klymko, Ranking hubs and authorities
+using matrix functions, Linear Algebra and its Applications, 438 (2013),
+pp. 2447–2474.
+23
+[6] M. Berljafa and S. Güttel, The RKFIT algorithm for nonlinear ra-
+tional approximation, SIAM Journal on Scientific Computing, 39 (2017),
+pp. A2049–A2071.
+[7] R.-U. Börner, O. G. Ernst, and S. Güttel, Three-dimensional tran-
+sient electromagnetic modelling using rational Krylov methods, Geophysical
+Journal International, 202 (2015), pp. 2025–2043.
+[8] R.-U. Börner and S. Güttel, Fast parallel transient electromagnetic
+modeling using a uniform-in-time approximation to the exponential, Geo-
+physical Journal International, 243 (2025), p. ggaf319.
+[9] P. B. Borwein, Rational approximations with real poles to exp(−x)
+and xn, Journal of Approximation Theory, 38 (1983), pp. 279–283.
+[10] E. W. Cheney, Introduction to Approximation Theory, Mc Graw-Hill,
+1966.
+[11] T. A. Davis and Y. Hu, The University of Florida sparse matrix collec-
+tion, ACM Transactions on Mathematical Software, 38 (2011), pp. 1–25.
+[12] F. M. Dopico and J. M. Molera, Accurate solution of structured lin-
+ear systems via rank-revealing decompositions, IMA Journal of Numerical
+Analysis, 32 (2012), pp. 1096–1116.
+[13] V. Druskin, L. Knizhnerman, and M. Zaslavsky, Solution of large
+scale evolutionary problems using rational Krylov subspaces with optimized
+shifts, SIAM Journal on Scientific Computing, 31 (2009), pp. 3760–3780.
+[14] E. Estrada, N. Hatano, and M. Benzi, The physics of communicability
+in complex networks, Physics Reports, 514 (2012), pp. 89–119.
+[15] G. H. Golub and C. F. Van Loan, Matrix Computations, 4th edition.,
+JHU Press, 2013.
+[16] B. Gustavsen and A. Semlyen, Rational approximation of frequency
+domain responses by vector fitting, IEEE Transactions on Power Delivery,
+14 (2002), pp. 1052–1061.
+[17] S. Güttel, Rational Krylov methods for operator functions, PhD thesis,
+Technische Universität Bergakademie Freiberg, 2010.
+[18] S. Güttel, Rational Krylov approximation of matrix functions: Numerical
+methods and optimal pole selection, GAMM-Mitteilungen, 36 (2013), pp. 8–
+31.
+[19] S. Güttel and S. Shao, Concentrated real-pole uniform-in-time approxi-
+mation of the matrix exponential, arXiv preprint arXiv:2511.21858, (2025).
+[20] N. J. Higham, Accuracy and Stability of Numerical Algorithms, SIAM,
+2002.
+24
+[21] M. Hochbruck and A. Ostermann, Exponential integrators, Acta Nu-
+merica, 19 (2010), pp. 209–286.
+[22] T. Jahnke and W. Huisinga, Solving the chemical master equation for
+monomolecular reaction systems analytically, Journal of Mathematical Bi-
+ology, 54 (2007), pp. 1–26.
+[23] A. Li and Y. Li, A new rational approximation algorithm via the empirical
+interpolation method, SIAM Journal on Scientific Computing, 47 (2025),
+pp. A2559–A2582.
+[24] P. Lietaert, K. Meerbergen, J. Pérez, and B. Vandereycken,
+Automatic rational approximation and linearization of nonlinear eigenvalue
+problems, IMA Journal of Numerical Analysis, 42 (2022), pp. 1087–1115.
+[25] M. López-Fernández and C. Palencia, On the numerical inversion of
+the Laplace transform of certain holomorphic mappings, Applied Numerical
+Mathematics, 51 (2004), pp. 289–303.
+[26] M. López-Fernández, C. Palencia, and A. Schädle, A spectral or-
+der method for inverting sectorial Laplace transforms, SIAM Journal on
+Numerical Analysis, 44 (2006), pp. 1332–1350.
+[27] B. Munsky and M. Khammash, The finite state projection algorithm
+for the solution of the chemical master equation, The Journal of Chemical
+Physics, 124 (2006).
+[28] J. A. Nelder and R. Mead, A simplex method for function minimization,
+The Computer Journal, 7 (1965), pp. 308–313.
+[29] C. Qiu, S. Güttel, X. Ren, C. Yin, Y. Liu, B. Zhang, and
+G. Egbert, A block rational Krylov method for 3-D time-domain marine
+controlled-source electromagnetic modelling, Geophysical Journal Interna-
+tional, 218 (2019), pp. 100–114.
+[30] Y. Saad, Analysis of some Krylov subspace approximations to the ma-
+trix exponential operator, SIAM Journal on Numerical Analysis, 29 (1992),
+pp. 209–228.
+[31] J. L. Walsh, Interpolation and Approximation by Rational Functions in
+the Complex Domain, vol. 20, American Mathematical Soc., 1935.
+[32] J. Weideman and L. Trefethen, Parabolic and hyperbolic contours for
+computing the Bromwich integral, Mathematics of Computation, 76 (2007),
+pp. 1341–1356.
+25

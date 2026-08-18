@@ -1,0 +1,2139 @@
+1
+ClouDens: Operational Context-Aware Anomaly
+Detection for Large-scale Cloud System Monitoring
+Thu T. H. Doan, Mohammad Saiful Islam, Andriy Miranskyy, Ngoc-Thanh Nguyen,
+Rogardt Heldal, and Patrizio Pelliccione
+Abstract—With the rapid growth of cloud computing in-
+frastructures in scale and complexity, network monitoring for
+Large-scale Cloud Systems (LCSs) has become increasingly
+challenging, requiring automated and reliable anomaly detection
+to maintain service availability. Modern LCSs continuously
+generate telemetry logs from activities among distributed cloud
+services, producing high-dimensional multivariate time series that
+capture system operations. Detecting anomalies in this context
+remains difficult due to the extreme dimensionality of moni-
+toring telemetry data, complex dependencies among distributed
+components, and severe sparsity caused by intermittently active
+services. Taking these challenges into account, we first conduct an
+empirical study on telemetry logs from the IBM Cloud Console
+platform for managing LCSs, and then propose ClouDens, an
+anomaly detection framework tailored to LCS monitoring that
+leverages operational-context attributes encoded in the telemetry
+log schema to improve detection accuracy and early identification
+of anomalies. ClouDens partitions high-dimensional telemetry
+logs into domain-guided subsets, constructs a context-aware
+graph to model operational service dependencies, and employs
+Spatio-Temporal Graph Neural Networks for forecasting-based
+anomaly detection.
+We evaluate ClouDens on the recently released IBM Cloud
+Telemetry Dataset and provide practical insights into designing
+reliable anomaly detection solutions for LCS monitoring. Ex-
+perimental results demonstrate that ClouDens achieves higher
+NAB scores in count-based telemetry features, indicating more
+accurate and earlier anomaly detection with broader anomaly
+coverage than a GRU-based model. Beyond these improvements,
+our comprehensive empirical study reveals that telemetry feature
+subsets, operational-context modeling, scoring strategies, and
+telemetry sparsity imputation all substantially influence anomaly
+detection performance. These findings offer practical guidance
+for designing anomaly detection solutions and for fairly bench-
+marking existing and future approaches for monitoring LCSs.
+Index Terms—Network Monitoring, Large-scale Cloud Sys-
+tems, Multivariate Time Series Anomaly Detection.
+I. INTRODUCTION
+Modern cloud platforms have evolved into large-scale dis-
+tributed systems composed of thousands of interconnected mi-
+croservices that jointly deliver Internet-scale applications and
+services [1]–[5]. In this paper, we refer to such an environment
+Thu T. H. Doan and Patrizio Pelliccione are with the Department of
+Computer Science, Gran Sasso Science Institute, L’Aquila, Italy (e-mail:
+thihoaithu.doan@gssi.it; patrizio.pelliccione@gssi.it). Patrizio Pelliccione is
+also Adjunct Professor with the University of Bergen, Norway.
+Mohammad Saiful Islam and Andriy Miranskyy are with the Department of
+Computer Science, Toronto Metropolitan University, Toronto, Canada (e-mail:
+mohammad.s.islam@torontomu.ca; avm@torontomu.ca).
+Ngoc-Thanh Nguyen and Rogardt Heldal are with the Department of
+Computer Science, Electrical Engineering and Mathematical Sciences, West-
+ern Norway University of Applied Sciences, Bergen, Norway (e-mail:
+Ngoc.Thanh.Nguyen@hvl.no; Rogardt.Heldal@hvl.no).
+2. Telemetry aggregator
+[count, avg, min, max]
+a) Telemetry log records of RESTful 
+API calls with response time.
+API Response
+Service 1
+Service 2
+Service 3
+Client
+API Request
+1. Telemetry log collector
+Large-scale Cloud Systems (LCSs)
+b) Multivariate Time Series representing
+RESTful API activities across LCSs.
+3. Anomaly Detection Framework
+ClouDens
+Fig. 1: Overview of telemetry-driven anomaly detection for
+monitoring Large-scale Cloud Systems. Telemetry logs gener-
+ated by distributed RESTful API calls (example in (a), based
+on [9]) are aggregated into multivariate time series (b), which
+form the input to forecasting-based detection models.
+as a Large-scale Cloud System (LCS/LCSs), where software
+and hardware components are deployed across geographically
+distributed data centers. To ensure service reliability and
+operational availability, cloud providers continuously collect
+records of cloud service operations and interactions, compris-
+ing RESTful API activities, response time, request counts,
+and error statistics, among others [6]–[8]. As illustrated in
+Fig. 1(a), operational activities among distributed services in
+LCSs are recorded by a telemetry log collector, which captures
+RESTful API response time as an example of telemetry logs.
+These telemetry logs provide a comprehensive view of the
+operational behavior of cloud services and have become the
+primary data source for monitoring system health, diagnosing
+performance degradations, and identifying abnormal opera-
+tional behaviors, hereafter referred to as anomalies.
+Although continuous telemetry collection enables real-time
+anomaly detection [9]–[11], the growing scale and heterogene-
+ity of telemetry logs in LCSs [12] make manual monitoring
+and analysis impractical. Consequently, automated anomaly
+detection has become the main solution for maintaining ser-
+vice reliability, preventing cascading failures, and satisfy-
+ing Quality-of-Service (QoS) and Service Level Agreements
+(SLAs) [13], [14]. Despite significant advances in machine
+arXiv:2607.18127v1  [cs.NI]  20 Jul 2026
+2
+learning and deep learning techniques, anomaly detection
+in production environments remains challenging due to the
+dynamic nature of cloud services, the diversity of telemetry
+data, and the scale of modern distributed systems [15]–[18].
+These challenges have made anomaly detection for LCS
+monitoring an active research area, motivating reliable and
+scalable methods that explicitly account for the operational
+characteristics of distributed microservices while remaining
+practical for real-world deployment.
+Recent studies on the IBM Cloud platform have demon-
+strated the potential of machine learning for automated
+anomaly detection in LCSs with cloud telemetry data [9], [19].
+In particular, Islam et al. [11] released a publicly available
+telemetry dataset from the IBM Cloud Console, providing
+one of the first realistic benchmarks for anomaly detection in
+LCSs. The dataset exhibits key characteristics of production
+cloud telemetry, including high dimensionality, heterogeneous
+metrics, and severe sparsity. Although baseline methods based
+on Artificial Neural Networks (ANNs) and Gated Recurrent
+Units (GRUs) achieve promising results, accurately detecting
+diverse anomaly patterns without triggering excessive false
+alarms remains an open challenge, motivating anomaly detec-
+tion methods that better exploit the structural and operational
+characteristics of cloud telemetry.
+Based on this motivation, we conduct an empirical analysis
+of the IBM Cloud Telemetry Dataset [11] and propose an
+anomaly detection framework tailored for LCS monitoring that
+targets diverse anomaly pattern discovery, early detection, and
+low false alarms. Our analysis highlights several characteristics
+of telemetry logs in LCS monitoring that influence the design
+of anomaly detection solutions. First, anomalies in production
+cloud environments are often localized to a subset of services
+rather than affecting the entire system simultaneously. Second,
+different groups of telemetry metrics capture complementary
+aspects of system behavior and therefore exhibit different
+sensitivities to anomaly patterns. These observations suggest
+that treating all telemetry features uniformly may obscure
+important operational characteristics and limit anomaly detec-
+tion performance. Furthermore, when available, operational-
+context attributes describing cloud service activities can be
+leveraged to capture realistic operational dependencies, further
+improving detection accuracy.
+In this work, we propose ClouDens, an operational context-
+aware anomaly detection framework designed for cloud
+telemetry monitoring in LCSs. Rather than building a sin-
+gle anomaly detection model from the entire telemetry
+space, ClouDens partitions telemetry data into domain-guided
+telemetry subsets that capture different operational aspects
+of cloud services. For each subset, the framework con-
+structs a context-aware graph that models operational de-
+pendencies among monitored service activities and employs
+Spatio-Temporal Graph Neural Networks (ST-GNNs) for the
+forecasting-based detection backbone. Finally, the outputs
+from multiple telemetry subsets are combined through an
+ensemble strategy to improve anomaly coverage while control-
+ling the increase in alert volume. We evaluate ClouDens on the
+IBM Cloud Telemetry Dataset [11], comparing its performance
+against a GRU-based model [20] and showing improvements
+in NAB score, anomaly coverage, and early detection. Beyond
+this comparison, we also vary post-processing techniques,
+including scoring strategies and ensembling, to investigate the
+trade-off between anomaly coverage and false alarms in LCS
+monitoring.
+Our study does not introduce a new foundation ar-
+chitecture for time series anomaly detection. Instead, we
+investigate the unique characteristics of telemetry logs and
+use these insights to design an effective anomaly detection
+framework for monitoring distributed cloud services.
+Our main contributions are listed below.
+• We propose ClouDens, an operational context-aware
+anomaly detection framework for LCS monitoring that in-
+tegrates domain-guided telemetry feature decomposition,
+operational-context graph modeling, and spatio-temporal
+forecasting to improve anomaly detection performance.
+• We conduct an empirical study on the real-world IBM
+Cloud Telemetry Dataset [11] to systematically investi-
+gate how telemetry feature subsets, operational-context
+graph modeling, telemetry sparsity imputation, anomaly
+scoring strategies, and ensemble configurations influence
+anomaly detection performance. The resulting findings
+provide practical guidance for designing reliable anomaly
+detection frameworks for LCSs.
+• We release a replication package [21] containing the im-
+plementation, experimental results, and evaluation scripts
+to support reproducibility and future benchmarking of
+anomaly detection methods for cloud monitoring systems.
+Paper outline: The paper is organized as follows. Section II
+formulates the problem and describes the IBM Cloud Teleme-
+try Dataset. Section III reviews related work on cloud anomaly
+detection. Section IV introduces the ClouDens framework.
+Section V presents experimental results around three evalu-
+ation questions. Section VI discusses practical insights and
+threats to validity. Section VII concludes the paper.
+II. PRELIMINARIES AND PROBLEM FORMULATION
+This section formulates the anomaly detection problem in
+the context of LCS monitoring. Section II-A introduces the
+telemetry representation and its characteristics, while Sec-
+tion II-B formally defines the problem addressed in this paper.
+A. Cloud Telemetry Representation
+Cloud providers continuously collect telemetry logs from
+interactions among distributed microservices to monitor the
+operational state of LCSs. Fig. 1 illustrates the telemetry
+monitoring workflow considered in this study. As cloud
+services communicate through RESTful APIs, each activity
+generates a telemetry log record containing both operational-
+context information about the service behaviors and numerical
+performance measurements. These records are continuously
+collected and aggregated into multivariate time series using
+operational metrics such as request count, average response
+time, minimum response time, and maximum response time,
+providing the foundation for automated anomaly detection.
+Throughout this paper, we consider two complementary types
+3
+of information extracted from telemetry logs associated with
+RESTful API operations, as detailed below.
+(1) Operational-context attributes, which describe the se-
+mantic and operational characteristics of API activi-
+ties, including deployment location (e.g., data center
+or region), service ownership (e.g., microservice or
+component), and communication role (e.g., CLIENT
+or SERVER). Additional attributes such as URL pat-
+terns, HTTP methods, HTTP status codes, and er-
+ror types further characterize request semantics and
+execution
+outcomes.
+These
+metadata
+describe
+ser-
+vice dependencies and deployment topology, provid-
+ing operational-context information. Fig. 1(a) presents
+an example telemetry log record containing both con-
+textual attributes (e.g., appName, targetEndpoint,
+statusCode) and numerical performance measure-
+ments (e.g., responseTime).
+(2) Numerical performance metrics, which quantify the
+operational behavior of cloud services over time and
+constitute the primary input for anomaly detection. As
+illustrated in Fig. 1(b), telemetry records are periodically
+aggregated into operational metrics such as request count,
+average response time, minimum and maximum response
+time. These aggregated measurements naturally form
+Multivariate Time Series (MTS), where each telemetry
+feature represents the temporal evolution of a specific
+performance metric associated with an activity of APIs.
+Together, operational-context attributes and numerical per-
+formance metrics provide complementary views of cloud sys-
+tem behavior. Contextual information captures the operational
+relationships among cloud services, including deployment
+topology and service dependencies, thereby describing the
+spatial characteristics. In contrast, numerical performance met-
+rics characterize the temporal evolution of service activity by
+continuously recording operational measurements over time.
+Combining these two information sources enables anomaly
+detection models to jointly exploit spatial dependencies and
+temporal dynamics for LCS monitoring.
+Example: IBM Cloud Telemetry Dataset.
+In the context
+of anomaly detection for LCS monitoring, we perform a
+deeper analysis of the publicly available IBM Cloud Telemetry
+Dataset introduced by Islam et al. [11], with its corresponding
+artifact available on Zenodo [22]. The dataset was collected
+from the IBM Cloud Console, which serves as the primary
+management interface for IBM Cloud services.
+Compared with commonly used public benchmarks such
+as NAB [23], Microsoft [24], and Exathlon [25], the IBM
+dataset more closely reflects the characteristics of production
+cloud monitoring. While NAB and Microsoft contain relatively
+low-dimensional telemetry and Exathlon relies on synthetic
+anomaly generation, the IBM dataset contains telemetry col-
+lected from a real production cloud together with anomaly
+labels derived from multiple operational sources, including
+incident reports, testing logs, and operator messages [11].
+Specifically, each telemetry feature is identified by a structured
+naming convention that encodes contextual information about
+the monitored API activity, including deployment location,
+communication role (CLIENT/SERVER), host, HTTP method,
+HTTP status code, endpoint identifier, and aggregation type
+(e.g., count, avg, min, and max), as illustrated in Listing 1.
+This representation preserves deployment and service relation-
+ships that are later exploited to construct context-aware graphs.
+Additional details regarding the telemetry schema are available
+in Appendix B of [11].
+We selected this dataset because it combines production-
+scale telemetry logs with manually verified anomaly labels,
+providing a realistic benchmark for anomaly detection in oper-
+ational cloud environments. To the best of our knowledge, this
+is the first study to use the contextual structure encoded in the
+IBM Cloud Telemetry Dataset’s feature schema to construct
+graph representations for anomaly detection in LCSs. More
+importantly, the telemetry collected in this dataset reflects sev-
+eral characteristics commonly encountered in production cloud
+environments that complicate building an anomaly detection
+framework in LCSs:
+C1 High-dimensional Telemetry, resulting from the large
+number of monitored API activities and heterogeneous
+performance metrics.
+C2 Spatio-temporal Dependencies, arising from interac-
+tions among distributed cloud services and their deploy-
+ment topology.
+C3 Telemetry Sparsity, where many API activities exhibit
+intermittent or low activity, resulting in sparse telemetry
+matrices and highly imbalanced temporal activity patterns
+(see Appendix B in [11]).
+These characteristics motivate the design of ClouDens and
+provide the foundation for the comprehensive empirical study
+presented in this paper, which investigates anomaly detection
+performance under realistic production cloud conditions.
+B. Problem Formulation
+Time Series Notations. Let N denote the number of monitored
+API activities, M denote the number of numerical performance
+metrics collected for each interaction (e.g., request count,
+average response time), and T denote the total number of
+timestamps in the observation period. For an API activity e
+and numerical performance metric p, the temporal evolution
+of the metric is represented as a univariate time series
+xp
+e = [xp
+e(t1), xp
+e(t2), . . . , xp
+e(tT )] ∈RT ,
+(1)
+where xp
+e(ti) denotes the observed value of performance
+metric p at timestamp ti. Consider a cloud system with N
+monitored API activities, where M numerical performance
+metrics are continuously collected from each interaction. The
+per-metric telemetry matrix Xp and the complete telemetry
+matrix X are defined as
+Xp =
+
+
+xp
+e1...
+xp
+eN
+
+∈RN×T ,
+X =
+
+
+X1
+...
+XM
+
+∈R(N·M)×T .
+(2)
+Each row of X represents the temporal evolution of a nu-
+merical performance metric associated with an API activity,
+while each column captures the operational state of the cloud
+monitoring system at a particular timestamp.
+4
+Template: {location}_{kind}_{host}_{method}_{statusCode}_{endpoint}_{aggregated_stats_name}
+Example: datacenter1_CLIENT_component10_GET_200_endpoint865_count
+Listing 1: Pivot dataset column template and column name example in IBM Cloud Telemetry Dataset (see Appendix B in [11]).
+Forecasting-based Anomaly Detection. Given X representing
+telemetry monitoring data in LCSs, our objective is to develop
+an automated multivariate time-series anomaly detection (MT-
+SAD) solution that enables early identification and resolution
+of unexpected failures. As recent advances in MTSAD are
+largely driven by forecasting-based methods [26], [27], we
+formulate our task as a forecasting problem, in which fore-
+casting models are built to predict future telemetry records
+from historical observations, and significant forecasting errors
+indicate anomalous behavior. In this formulation, a row of X
+is also commonly referred to as an input feature in the machine
+learning community, where each feature represents a specific
+performance metric of an API endpoint in the context of
+telemetry monitoring in LCSs. Accordingly, we use the terms
+telemetry feature and input feature interchangeably throughout
+the remainder of this paper.
+Consider a subset of telemetry features with F features,
+where 1 ≤F ≤N · M, forming the matrix X′ ∈RF ×T .
+In the special case where the subset consists only of features
+associated with a single performance metric p, we have F =
+N, and the resulting telemetry feature matrix reduces to X′ =
+Xp ∈RN×T , as defined in Equation (2). Given a sliding
+window of w historical observations
+X′(t −w + 1), X′(t −w + 2), . . . , X′(t),
+(3)
+the objective is to predict the operational state ˆX′(t+1) ∈RF .
+The forecasting error vector is computed as
+E(t + 1) =
+ ˆ
+X′(t + 1) −X′(t + 1)
+ ∈RF .
+(4)
+Considering all timestamps with only F telemetry features
+being used, the forecasting error vectors form a matrix
+E = [E(1), E(2), . . . , E(T)] ∈RF ×T .
+(5)
+An anomaly scoring function g : RF ×T →RT transforms the
+forecasting error matrix to an anomaly score sequence
+s = g (E) = [s(1), s(2), . . . , s(T)] ∈RT,
+(6)
+where higher values of s(t) directly indicate a higher likeli-
+hood of anomalous system behavior. The resulting anomaly
+score sequence is subsequently thresholded to identify candi-
+date anomalous timestamps.
+Objective. Given the telemetry matrix X ∈R(N·M)×T ,
+which represents the operational behavior of monitored cloud
+services in LCSs, our objective is to build an effective,
+forecasting-based anomaly detection solution which satisfies
+two key operational requirements: (i) early detection, where
+anomalies are identified as soon as possible after their onset to
+enable timely intervention before cascading failures occur, and
+(ii) broad anomaly coverage, which reflects the effectiveness
+of the monitoring system, while keeping false alarms under
+control to reduce operational overhead. Achieving this objec-
+tive requires addressing the intrinsic characteristics of cloud
+telemetry logs, including high-dimensional feature spaces,
+spatio-temporal dependencies, and severe telemetry sparsity,
+corresponding to the three challenges C1, C2, and C3 intro-
+duced in Section II-A.
+III. RELATED WORK
+Anomaly detection is a fundamental capability of cloud
+monitoring because even short service disruptions can sig-
+nificantly affect application availability and operational cost.
+Cloud providers continuously collect telemetry data, including
+metrics, logs, and traces, to monitor service health and identify
+abnormal behaviors before they propagate across distributed
+services [9], [11], [14], [28], [29]. These telemetry records
+are typically represented as multivariate time series and often
+include contextual information such as service dependencies,
+deployment topology, and communication relationships. Re-
+cent surveys and benchmarking studies [14], [26], [27], [30]
+show that although numerous anomaly detection methods
+have been proposed, no single approach consistently performs
+well across different cloud environments because telemetry
+data differ substantially in dimensionality, sparsity, correlation
+structure, and operational characteristics.
+Early anomaly detection methods mainly relied on statistical
+models and traditional machine learning techniques, including
+clustering, Principal Component Analysis (PCA), Isolation
+Forest, and One-Class SVM [31]–[38]. These approaches are
+computationally efficient and relatively easy to deploy, but
+they generally assume static data distributions and therefore
+struggle to model the dynamic behavior of Large-scale Cloud
+Systems. Their performance further degrades when applied to
+high-dimensional and sparse telemetry commonly observed in
+production environments [39].
+To better capture nonlinear temporal patterns, recent studies
+have increasingly adopted deep learning techniques such as
+Convolutional Neural Networks (CNNs), Recurrent Neural
+Networks (RNNs), autoencoders, and Transformer-based ar-
+chitectures [11], [40]–[46]. These methods generally achieve
+higher detection accuracy by learning complex temporal de-
+pendencies directly from telemetry data. Nevertheless, most of
+them model cloud telemetry as independent feature sequences
+and therefore do not explicitly exploit the structural relation-
+ships among distributed cloud services.
+Graph Neural Networks (GNNs) have recently emerged
+as an effective solution for modeling relational dependen-
+cies in multivariate time series [47]–[49]. Graph Convolu-
+tional Networks (GCNs) [50] and Graph Attention Networks
+(GATs) [51] enable anomaly detection models to leverage ser-
+vice dependencies by representing telemetry features as graph
+nodes connected through operational relationships. Building
+on these developments, Spatio-Temporal Graph Neural Net-
+works (ST-GNNs) jointly model temporal dynamics and graph
+topology, making them particularly suitable for microservice-
+based cloud environments [52], [53]. Existing studies have
+demonstrated promising results for metric prediction and
+5
+5xx
+3xx
+2xx
+-1
+4xx
+1. Telemetry Decomposition and Pre-processing.
+count
+avg
+min
+max
+...
+1.2. Decomposition by
+statistical aggregations
+1.3. Data pre-processing
+Perform telemetry
+sparsity imputation
+Create sliding
+windows
+Create
+train/valid/test
+splits
+Scale data
+count
+Windowed
+data
+Pivoted
+Dataset
+1.1. Decomposition by
+HTTP status codes
+3. Anomaly Scoring with Ensemble 
+Post-processing
+ Likelihood
+Function
+Mahalanobis
+Distance
+2. Context-aware Spatio-Temporal Forecasting
+Weighted
+Adjacency Matrix
+2.1. Static Graph
+Representation
+Construction
+1
+0.6 0.8
+0
+0.6
+1
+0.2
+0
+0.8 0.2
+1
+0
+0
+0
+0
+1
+0
+1
+3
+2
+Nodes and
+Undirected Edges
+Trained ST-GNNs
+...
+2.2. ST-GNNs
+Training
+Evaluation
+Metrics
+Confusion
+Matrix
+NAB
+score
+Detected
+Anomalies
+Ensemble and
+Evaluation 
+Fig. 2: Workflow of ClouDens. The pivoted telemetry dataset is partitioned into telemetry subsets based on HTTP status code
+groups (4xx and 5xx) and aggregation functions (count, avg, min, and max). Each subset is processed independently by
+an ST-GNN, followed by anomaly scoring, thresholding, and subset-based ensemble decision to produce detected anomalies.
+anomaly detection, but most evaluations rely on simulated
+workloads or focus primarily on prediction accuracy.
+Despite these advances, several challenges remain insuf-
+ficiently addressed in production cloud monitoring, includ-
+ing extreme dimensionality, heterogeneous metrics, complex
+inter-service dependencies, and severe sparsity, with limited
+systematic investigation of context-aware modeling, anomaly
+scoring, and sparsity imputation on real-world telemetry. These
+challenges are clearly reflected in the IBM Cloud Telemetry
+Dataset [11]. Based on a deeper analysis of this dataset,
+we propose an anomaly detection framework tailored for
+LCSs and conduct an empirical study investigating how post-
+processing techniques, such as scoring strategies and ensem-
+bling, affect the trade-off between anomaly coverage and false
+alarms in LCS monitoring.
+IV. THE PROPOSED FRAMEWORK: CLOUDENS
+This section presents ClouDens, an operational context-
+aware anomaly detection framework for cloud telemetry col-
+lected from LCSs that jointly leverages contextual informa-
+tion and numerical performance metrics through telemetry
+feature decomposition, context-aware graph modeling, spatio-
+temporal forecasting, anomaly scoring, and ensemble post-
+processing. Section IV-A provides an overview of the frame-
+work, while the subsequent subsections describe each stage in
+detail.
+A. Overview
+Fig. 2 presents an overview of the proposed ClouDens
+framework, where the design aims to address the key chal-
+lenges of anomaly detection in LCSs, as outlined in Sec-
+tion II-A. It follows the common framework used in time-
+series anomaly detection [26], [27], which includes the stages
+of pre-processing, detection, anomaly scoring, and post-
+processing. As shown in Fig. 2, ClouDens organizes these
+stages into three main modules, combining the latter two stages
+into a single component. They are summarized as follows:
+(1) Telemetry Decomposition and Pre-processing. To ad-
+dress the high dimensionality of cloud telemetry (C1),
+ClouDens partitions telemetry data into semantically co-
+herent subsets based on the contextual information en-
+coded in API activity naming templates (Listing 1). This
+decomposition enables specialized detection models to
+model complementary aspects of cloud service behavior.
+(2) Context-aware
+Spatio-Temporal
+Forecasting.
+This
+stage learns the normal operational behavior of each
+telemetry feature subset through a forecasting-based ap-
+proach. To jointly capture temporal dynamics and service
+dependencies (C2), ClouDens constructs context-aware
+graphs from contextual information and employs Spatio-
+Temporal Graph Neural Networks (ST-GNNs) as the
+forecasting backbone.
+(3) Anomaly Scoring with Ensemble Post-processing.
+Forecasting errors are transformed into anomaly scores
+using statistical scoring strategies and thresholded to
+identify anomalous timestamps. The resulting anomaly
+decisions from selected telemetry subsets are then com-
+bined using a one-vote ensemble strategy to improve
+anomaly coverage and produce the final detection results.
+B. Telemetry Decomposition and Pre-processing
+In LCSs, telemetry logs collected from distributed microser-
+vices are often high-dimensional and heterogeneous (refer to
+C1 in Section II-A). In such settings, anomalies become diffi-
+cult to distinguish from normal behavior when analyzed in the
+full feature space. Furthermore, irrelevant or noisy attributes
+can obscure meaningful deviations, as abnormal patterns are
+often manifested within only a small subset of features rather
+than across the entire dimensionality [54]. In addition, training
+anomaly detection models on the full monitored data increases
+6
+computational cost and hinders fault localization. To deal with
+these issues, our approach leverages contextual information in
+telemetry logs to divide them into smaller, more manageable
+telemetry subsets. This module groups raw telemetry logs into
+semantically meaningful subsets, enabling more targeted and
+cost-effective model training.
+The contextual attributes associated with each API activity,
+including deployment location, communication role, HTTP
+status code, endpoint identifier, and aggregation type, provide
+semantic descriptions of cloud service operations. Our frame-
+work exploits these attributes to partition telemetry features
+into semantically coherent subsets. Using the IBM Cloud
+Telemetry Dataset as an example, we first group telemetry
+features according to HTTP status code categories (e.g., 4xx
+and 5xx) to separate client-side and server-side behaviors.
+Each status-code group is then further divided by aggregation
+type (e.g., count, average, minimum, and maximum), hereafter
+referred to as count, avg, min, and max. This decompo-
+sition produces multiple operationally meaningful telemetry
+subsets, allowing anomaly detection models to focus on homo-
+geneous behaviors while reducing the impact of irrelevant or
+noisy features. Fig. 2(1) illustrates this decomposition process.
+This decomposition offers several key advantages. First, it
+reduces input dimensionality while preserving semantic struc-
+ture, which lowers model complexity and improves training
+efficiency. Second, it enables fine-grained anomaly detection,
+as certain anomalies may manifest prominently in one subset
+(e.g., a spike in 5xx count) but remain undetectable in
+others. Overall, we perform this decomposition strategy to
+transform raw, high-dimensional, heterogeneous telemetry logs
+into multiple, small, and homogeneous telemetry subsets,
+forming the foundation of the ensemble-based architecture
+used in ClouDens. Each subset is subsequently preprocessed
+and independently processed by the context-aware forecasting
+stage described in the next subsection.
+C. Context-aware Spatio-Temporal Forecasting
+Recent advances in MTSAD have introduced a wide range
+of learning paradigms, including reconstruction-, forecasting-,
+and representation-based approaches [14], [26], [27]. Among
+these, forecasting-based methods have become one of the
+most effective paradigms because they learn normal sys-
+tem behavior from historical observations without relying
+on anomaly labels, making them particularly suitable for
+real-world applications, where labeled anomalies are scarce.
+Although many forecasting-based approaches have been pro-
+posed in the literature across different contexts [14], [26], [55],
+our study employs Spatio-Temporal Graph Neural Networks
+(ST-GNNs) as the main forecasting backbone because they
+jointly model temporal dynamics and dependencies among
+correlated variables [49]. This capability is particularly well
+suited to work with telemetry monitoring data from LCSs,
+where API activities exhibit complex relationships induced by
+deployment topology and service dependency. The remainder
+of this section presents the concept of applying ST-GNNs to
+a single telemetry subset produced by the previous module.
+Definition 1. Context-aware graph G: The operational con-
+text of telemetry monitoring data is described as G = (V, E),
+0.6
+0.2
+1
+0
+1
+1
+3
+1
+0.8
+2
+1
+datacenter2
+SERVER
+component2
+GET
+524
+endpoint989
+datacenter1
+CLIENT
+component1
+GET
+524
+endpoint865
+datacenter1
+CLIENT
+component1
+POST
+500
+endpoint865
+datacenter1
+SERVER
+component1
+POST
+500
+endpoint865
+Node 0 features
+metric value: 0.57
+missing flag: 0
+Node 2 features
+metric value: 0.0
+missing flag: 1
+Timestamp t
+Fig. 3: Context-aware graph: nodes are API activities; edge
+weights reflect the strength of shared operational-context at-
+tributes (e.g., component, endpoint).
+where V = {v1, v2, . . . , vN} is the set of N nodes representing
+N API activities. E is the set of edges, which reflects the
+operational-context relationships between API activities (e.g.,
+shared deployment location, service ownership, communica-
+tion role, HTTP method, or endpoint identifier). All of the
+relationship information is stored in the weighted adjacency
+matrix A ∈RN×N, where rows and columns are indexed by
+telemetry features, and the value of each entry indicates the
+degree of contextual correlation between the corresponding
+features. The entry value is zero if the two features share no
+common operational-context attributes, and positive otherwise,
+with larger values reflecting stronger operational relationships;
+self-loops are set to one.
+For each telemetry feature subset, ClouDens constructs a
+context-aware graph G following Definition 1. Fig. 3 illustrates
+an example of the proposed graph representation using teleme-
+try features from the IBM Cloud Telemetry Dataset. In this
+example, four representative nodes correspond to telemetry
+features identified by contextual attributes, including deploy-
+ment location, communication role, host, HTTP method, status
+code, endpoint identifier, and aggregation type. An undirected
+edge is established when two nodes share common operational
+attributes, indicating that the corresponding API activities are
+likely to exhibit correlated behavior. For example, nodes 0,
+1, and 2 are connected because they belong to the same
+deployment location (datacenter1), service component
+(component1), and endpoint (endpoint865), whereas
+node 3 remains isolated because it represents a different API
+activity. Furthermore, the edge between nodes sharing the
+same deployment location, host, HTTP method, and endpoint
+(nodes 0 and 2) receives a larger weight (0.8) than the edge
+between nodes differing in communication role or HTTP
+method (nodes 1 and 2), which receives a weight of 0.2, as
+shown in Fig. 3.
+Our purpose of constructing a context-aware graph is to en-
+able the forecasting model to exploit operational dependencies
+among distributed cloud services (Challenge C2, Section II-A),
+7
+rather than treating each API activity as an independent
+telemetry feature. This is particularly important for detecting
+localized anomalies, since a failure in one service component
+often propagates to correlated API activities, and jointly mod-
+eling these relationships alongside temporal patterns in the
+time series can improve detection performance.
+1) Node Feature Engineering: Each node in the context-
+aware graph corresponds to a telemetry feature, whose pri-
+mary attribute is the associated numerical performance metric.
+Since cloud telemetry is inherently sparse, with many API
+activities remaining inactive during substantial portions of the
+monitoring period, ClouDens optionally augments each node
+with a binary telemetry sparsity indicator. This auxiliary node
+feature enables the forecasting model to distinguish genuine
+operational behavior from values introduced through telemetry
+sparsity imputation.
+Consider X′ = Xp ∈RN×T to represent the telemetry
+matrix of a single feature subset of the performance metric p
+according to Equation 2, where X′
+e(t) represents the perfor-
+mance metric of node e at timestamp t. The corresponding
+sparsity indicator matrix M ∈{0, 1}N×T is defined as
+Me(t) =
+(
+1,
+if X′
+e(t) exhibits no activity,
+0,
+otherwise.
+(7)
+The node feature representation is then extended to
+˜X′ ∈RN×2×T ,
+(8)
+where the feature vector of node e at t is given by
+˜X′
+e(t) = [X′
+e(t), Me(t)] ∈R2.
+(9)
+Fig. 3 illustrates this representation. For example, node 0
+is represented by [0.57, 0], indicating a normalized teleme-
+try value of 0.57 with a valid observation, whereas node
+2 indicates a zero-imputed telemetry value together with a
+sparsity flag. By explicitly encoding sparsity, the forecasting
+model can distinguish sparse telemetry entries from normal
+operational behavior, improving detection capability under
+severe telemetry sparsity (Challenge C3, Section II-A).
+2) Forecasting-based models with ST-GNNs: The engi-
+neered node feature matrix ˜X′, together with the context-aware
+graph G, is provided as input to build the ST-GNN forecasting
+model. Given a sequence of historical graph snapshots, the
+model learns the normal operational behavior of cloud ser-
+vices by jointly exploiting temporal dynamics and operational-
+context dependencies to predict the telemetry monitored values
+at the next timestamp. Formally, the forecasting process is
+defined as
+ˆX′(t + 1) = fST-GNN
+
+˜X′(t −w + 1 : t), G
+
+,
+(10)
+where fST-GNN(·) denotes the forecasting model, ˜X′(t −w +
+1 : t) represents the sequence of engineered node features over
+a sliding window of length w, and G is the context-aware
+graph constructed according to Definition 1. The predicted
+value vector ˆX′(t + 1) is subsequently compared with the
+ground-truth observation X′(t+1) to compute the forecasting
+error vector, as defined in Equation 4.
+D. Anomaly Scoring with Ensemble Post-processing
+The forecasting models produce a prediction error sequence
+E(t) for each telemetry feature subset, which is subsequently
+transformed into anomaly scores before anomaly decisions
+are made. The choice of anomaly scoring strategy directly
+influences detection performance because different telemetry
+subsets exhibit distinct statistical characteristics and therefore
+respond differently to the same scoring function [56]–[58].
+To account for this variability, ClouDens evaluates two rep-
+resentative anomaly scoring strategies that provide comple-
+mentary perspectives on anomalous behavior. They are briefly
+described as follows.
+(1) Likelihood Function (LF) [23], [59]. The Likelihood
+Function estimates the anomaly likelihood by modeling
+the temporal distribution of forecasting errors using two
+rolling statistical windows of sizes W (long window)
+and W ′ (short window), which capture the historical
+and recent error distributions, respectively. The resulting
+likelihood at timestamp t, regarded as s(t) ∈(0, 1), is
+obtained by comparing these two distributions, and the
+timestamp is classified as anomalous when s(t) ≥Lt,
+where Lt is a user-defined threshold. The parameters W,
+W ′, and Lt control the sensitivity of detection perfor-
+mance and are optimized empirically.
+(2) Mahalanobis Distance (MD) [60]–[62]. The Maha-
+lanobis Distance measures how far the multivariate fore-
+casting error deviates from the historical error distribution
+while accounting for correlations among dimensions. It is
+computed as
+dM(E(t)) =
+q
+(E(t) −µ)⊤Σ−1(E(t) −µ) ∈R, (11)
+where E(t) denotes the forecasting error vector at times-
+tamp t, µ is the mean forecasting error, and Σ−1 is
+the inverse covariance matrix estimated from historical
+forecasting errors. Over the observation period, the Ma-
+halanobis Distance values form the sequence DM ∈RT ,
+min-max normalized to [0, 1] to obtain the anomaly score
+sequence s as defined in Equation 6. A timestamp t
+is classified as anomalous if s(t) ranks among the top
+(100 −ϵ)% of s, where ϵ ∈(0, 100).
+Since different telemetry subsets characterize complemen-
+tary operational aspects of cloud services, they often reveal
+different anomaly patterns. Rather than relying on a single
+detector, ClouDens aggregates the anomaly decisions from
+selected telemetry subsets using a one-vote ensemble strategy,
+where a timestamp is classified as anomalous if it is de-
+tected by at least one detector. This ensemble post-processing
+improves anomaly coverage, though typically at the cost
+of an increased false alarm rate. The influence of different
+scoring strategies and ensemble configurations is investigated
+in Section V.
+V. EVALUATION
+Our evaluation is organized around the following three
+evaluation questions, each investigating a key design aspect
+of ClouDens and providing practical guidance for developing
+reliable anomaly detection frameworks for LCSs.
+8
+EQ1: What is the impact of the context-aware graph on
+anomaly detection performance in LCSs?
+EQ2: How does anomaly detection performance vary across
+telemetry subsets and scoring strategies, and what
+trade-off between anomaly coverage and alert volume
+does ensembling produce?
+EQ3: What are the sensitivity and computational costs associ-
+ated with sliding window size and sparsity imputation?
+A. Datasets and Forecasting Models
+1) Datasets: The evaluation is conducted on the publicly
+available IBM Cloud Console telemetry dataset introduced
+by Islam et al. [11], [22]. As described in Section II-A,
+the dataset contains telemetry collected from a production
+cloud environment over approximately 4.5 months, comprising
+39,365 timestamps and 117,448 telemetry features. From a
+cloud monitoring perspective, we focus on telemetry features
+associated with HTTP 4xx and 5xx status codes because they
+directly capture client- and server-side failures, making them
+strong indicators of abnormal behavior in LCSs. Each status-
+code category is partitioned into four statistical aggregation
+subsets (count, avg, min, and max), resulting in eight
+telemetry subsets for evaluation. Each 5xx subset contains
+2,406 telemetry features with 99.02% sparsity, whereas each
+4xx subset contains 4,085 features with 94.74% sparsity.
+2) Forecasting Models: Following the problem formulation
+in Section II-B, anomaly detection is formulated as a one-step-
+ahead forecasting task [63], where anomalies are identified
+from deviations between predicted and observed telemetry.
+This formulation is well suited to cloud monitoring because
+streaming telemetry can be continuously evaluated against
+expected system behavior inferred from recent historical ob-
+servations. Although numerous forecasting models have been
+proposed for multivariate time-series anomaly detection, their
+effectiveness varies considerably across datasets, evaluation
+metrics, and application domains [27], [64]. Therefore, rather
+than proposing a new forecasting architecture, this work fo-
+cuses on understanding the characteristics of cloud telemetry
+and designing an anomaly detection framework tailored to
+LCSs. To evaluate the effectiveness of context-aware forecast-
+ing, we compare the following forecasting models.
+• GRU [20]: The Gated Recurrent Unit (GRU) is a recur-
+rent neural network that models temporal dependencies
+through update and reset gating mechanisms, enabling it
+to capture long- and short-term sequential patterns while
+mitigating the vanishing gradient problem.
+• A3T-GCN [65]: A3T-GCN is an attention-based Spatio-
+Temporal Graph Neural Network that combines temporal
+graph convolutions with an attention mechanism to jointly
+model temporal dynamics and structural dependencies
+among telemetry features. The weighted adjacency matrix
+is derived from the operational-context attributes (see
+Section II-A).
+Although A3T-GCN serves as the forecasting backbone of
+ClouDens, the proposed framework is model-agnostic and can
+readily incorporate other ST-GNN architectures according to
+empirical evaluation and application-specific requirements.
+B. Experimental settings
+1) Hardware and Environment: All experiments are con-
+ducted on a high-performance computing (HPC) cluster
+equipped with an NVIDIA A100 GPU (80 GB), running
+Python 3.11.6, PyTorch 2.12.1, and CUDA 12.6. ST-GNN
+models are implemented using PyTorch Geometric Tempo-
+ral [66]. Our reproducible package is publicly available at [21].
+TABLE I: Summary of Ground-Truth Anomalies by Source in
+the testing period used in [11], with an illustration in Fig. 4.
+Anomaly Source
+Count
+Anomaly IDs
+Issue Tracker
+3
+3, 12, 13
+Instant Messenger
+9
+0, 5, 6, 7, 8, 9, 14, 16, 17
+Test Log
+7
+1, 2, 4, 10, 11, 15, 18
+2) Dataset preparation: Following the experimental pro-
+tocol of Islam et al. [11], we use five weeks of telemetry
+(January 26, 2024 to February 29, 2024) for training and the
+subsequent three months (March 1, 2024 to May 31, 2024) for
+testing. We reserve 30% of the training data as a validation set
+to monitor training convergence and tune the hyperparameters
+of the scoring strategies. Ground-truth anomalies are obtained
+from three independent operational sources: the Issue Tracker,
+Test Log, and Instant Messenger. There are 25 annotated
+anomaly windows, of which 19 occur during the testing period.
+A summary of ground-truth anomalies in the testing period is
+provided in Table I, where each anomaly is assigned a unique
+identifier that is used consistently throughout the paper. Note
+that each ground-truth anomaly in this table is represented
+as a sequence of contiguous timestamps rather than a single
+point; the 19 ground-truth anomalies cover 967 of the 26,488
+testing-period timestamps, corresponding to an anomaly ratio
+of approximately 3.65%.
+Following the feature decomposition strategy described in
+Section IV-B, the telemetry data are partitioned into eight
+independent telemetry subsets according to two HTTP status
+code categories (4xx and 5xx) and four statistical aggregation
+types (count, avg, min, and max). The resulting subsets,
+namely 5xx count, 5xx avg, 5xx min, 5xx max, 4xx
+count, 4xx avg, 4xx min, and 4xx max, are evalu-
+ated independently to investigate the contribution of different
+telemetry feature groups to anomaly detection performance.
+To address the sparsity of cloud telemetry, all subsets are
+evaluated with three imputation strategies: zero, mean, and
+median. Before training, each feature subset is normalized
+using min–max scaling based on the training data and trans-
+formed into input-output pairs using a sliding window of
+length w. Following common practice in forecasting-based
+TABLE II: Cost profiles of NAB Score [23].
+Profile
+TP
+Weight
+FN
+Weight
+FP
+Weight
+TN
+Weight
+Standard
+1.00
+1.00
+0.11
+1.00
+Reward Low FN*
+1.00
+2.00
+0.11
+1.00
+* Hereafter, the Reward Low FN profile is abbreviated as Low FN.
+9
+anomaly detection, windows containing labeled anomalies are
+excluded from the training set to ensure that the forecasting
+models learn only normal operational behavior. The validation
+set is used for model selection and hyperparameter tuning,
+while the testing set is reserved exclusively for evaluation.
+3) Evaluation Metrics: To assess anomaly detection perfor-
+mance in the context of LCSs, we consider common practices
+in prior work [27], [67] and employ the Numenta Anomaly
+Benchmark (NAB) score [23] as the primary evaluation metric.
+We first report the confusion matrix, including True Pos-
+itives (TP), True Negatives (TN), False Positives (FP), and
+False Negatives (FN), to summarize the point-based detection
+results. In the context of anomaly detection, the positive
+class represents anomalies, and the negative class denotes
+normal behavior. Although point-based metrics derived from
+the confusion matrix, including Precision, Recall, F1-score,
+and AUC, are widely used in anomaly detection research [27],
+they are less suitable for evaluating anomaly detection in LCSs
+because they assess each timestamp independently. In practice,
+detecting at least one point within an anomaly window is often
+sufficient to identify an anomalous event and trigger corrective
+actions [59]. Compared with traditional point-based metrics,
+the NAB score, a window-based evaluation metric, provides a
+more realistic assessment for cloud service monitoring because
+it rewards early anomaly detection while penalizing delayed
+detections, missed anomalies, and false alarms.
+The NAB score rewards early detection while penalizing
+late or missed detections via a scaled sigmoid function. Any
+alert within an anomaly window is treated as a single TP,
+with its contribution determined by a scaled sigmoid curve:
+detections at the start of the window receive high scores, while
+detections near the end yield lower scores. Additional alerts
+within the same window are ignored. Missing an entire anoma-
+lous window results in one FN, and FPs decrease the computed
+score. We evaluate anomaly detection performance using the
+Standard and Reward Low FN NAB cost profiles [23] (see
+Table II). The Standard profile balances rewards for early
+detection against penalties for FPs and FNs. The Reward Low
+FN profile applies a stronger penalty on false negatives, which
+aligns with the context of LCSs where missing anomalies is
+considered critical. Using both NAB profiles provides DevOps
+teams with deeper insights into the trade-offs between early
+detection, missed anomalies, and false alarms, enabling more
+informed selection of anomaly detection configurations for
+different operational scenarios.
+4) Hyper-parameter Settings:
+a) Forecasting Models: Both the GRU baseline and the
+A3T-GCN forecasting model, applied independently to each
+subset, use the same empirically selected hyperparameters:
+a sliding window of 6 timestamps, a one-step forecasting
+horizon, 32 hidden channels, a batch size of 32, the Adam
+optimizer (lr = 0.001), and the MSE loss function. This
+configuration is used for EQ1 and EQ2, while EQ3 evaluates
+sliding window sizes of {6, 12, 18, 24, 30}. Although A3T-
+GCN serves as the forecasting backbone of ClouDens, the
+framework is model-agnostic and can readily incorporate other
+ST-GNN architectures depending on the application require-
+ments and the characteristics of the telemetry data.
+TABLE III: Optimized imputation and anomaly scoring hy-
+perparameters selected for each telemetry feature subset.
+Subset
+Sparsity
+Imputation
+Likelihood
+Function (LF)a
+Mahalanobis
+Distance (MD)
+4xx avg
+mean
+Lt = 0.999
+ϵ = 99.6
+4xx count
+mean
+Lt = 0.9997
+ϵ = 99.5
+4xx max
+median
+Lt = 0.999
+ϵ = 99.6
+4xx min
+zero
+Lt = 0.998
+ϵ = 99.9
+5xx avg
+mean
+Lt = 0.999
+ϵ = 99.8
+5xx count
+zero
+Lt = 0.99975
+ϵ = 99.8
+5xx max
+median
+Lt = 0.998
+ϵ = 99.6
+5xx min
+zero
+Lt = 0.9998
+ϵ = 99.7
+a W = 30 and W ′ = 2 are fixed for all subsets.
+b) Anomaly Scoring: Following Section IV-D, we eval-
+uate two anomaly scoring strategies: the Likelihood Func-
+tion (LF) and Mahalanobis Distance (MD). Both strategies
+transform forecasting errors into anomaly score sequences,
+which are subsequently thresholded to classify anomalous
+and normal timestamps. For brevity, they are referred to
+as LF and MD, respectively, throughout the remainder of
+this paper. The hyperparameters of the two scoring strate-
+gies were determined through a grid search on the vali-
+dation split. Specifically, for the LF scoring strategy, we
+evaluated the long window W
+∈{20, 25, 30, 35, 40, 50},
+the short window W ′
+∈
+{1, 2, 3, 4, 5}, and threshold
+Lt
+∈
+{0.998, 0.9985, 0.999, 0.9997, 0.99975, 0.9998}. For
+MD scoring strategy, the threshold was varied over ϵ ∈
+{99.5, 99.6, 99.7, 99.8, 99.9}. The configuration achieving the
+highest NAB score under the Low FN profile is considered the
+optimal choice, which is reported in Table III for each subset.
+After tuning the scoring hyperparameters, the forecasting
+models are retrained on the combined training and validation
+splits before final evaluation on the testing period.
+C. Experimental results
+1) EQ1: What is the impact of the context-aware graph on
+anomaly detection performance in LCSs? Table IV presents
+a performance comparison of ClouDens and GRU on the
+5xx count feature subset with respect to the ground-truth
+anomalies summarized in Table I. The results are reported
+using the optimal thresholds selected for each scoring strategy,
+as reported in Table III. Under the LF scoring strategy, GRU
+detects 6 TPs, covering 5 ground-truth anomalies (Anomaly 12
+in the Issue Tracker category and Anomaly 6, 7, 8, and 17 in
+the Instant Messenger category). GRU detects 53 FPs and 961
+FNs, yielding NAB scores of 6.58 under Standard profile and
+13.16 under Low FN profile. In contrast, ClouDens improves
+detection performance by identifying 7 TPs with fewer FPs
+(52) and FNs (960), increasing the NAB scores to 11.38
+and 18.11 for Standard and Low FN profiles, respectively.
+The result of detected ground-truth anomalies also shows
+that ClouDens successfully detects Anomaly 9 in the Instant
+Messenger category, which GRU fails to capture.
+Under the MD scoring strategy, GRU detects 13 TPs and
+produces 40 FPs, resulting in NAB scores of 5.89 and 10.95
+for Standard and Low FN NAB cost profiles, respectively.
+ClouDens again outperforms GRU by identifying 16 TPs
+while reducing FPs to 37, leading to substantially higher
+10
+TABLE IV: Comparison of ClouDens and GRU on the “5xx count” feature subset with a sliding window size of 6, using the
+Likelihood Function and Mahalanobis Distance scoring strategies.
+Scoring
+Strategy
+Model
+Confusion Matrixa
+NAB Score
+Detected Anomaliesb
+TP
+TN
+FP
+FN
+Standard
+Profile
+Low FN
+Profile
+Issue Tracker
+Instant Messenger
+Test Log
+Likelihood Function
+{W, W ′, Lt} = {30, 2, 0.99975}
+GRU
+6
+25468
+53
+961
+6.58
+13.16
+1/3
+4/9
+0/7
+[12]
+[6, 7, 8, 17]
+Mahalanobis Distance
+{ϵ} = {99.8}
+GRU
+13
+25481
+40
+954
+5.89
+10.95
+0/3
+4/9
+0/7
+0
+[6, 8, 14, 17]
+Likelihood Function
+{W, W ′, Lt} = {30, 2, 0.99975}
+ClouDens
+7
+25469
+52
+960
+11.38
+18.11
+1/3
+5/9
+0/7
+[12]
+[6, 7, 8, 9, 17]
+Mahalanobis Distance
+{ϵ} = {99.8}
+ClouDens
+16
+25483
+37
+952
+20.94
+26.24
+1/3
+6/9
+0/7
+[3]
+[6, 7, 8, 9, 14, 17]
+a The confusion matrix reports point-based results. b A ground-truth anomaly is considered detected if at least one TP is identified within its window.
+Fig. 4: Sum of count of 5xx count subset as MTS and several anomalies detected by ClouDens.
+Fig. 5: An illustration of detected anomalies from GRU and ClouDens.
+11
+NAB scores of 20.94 and 26.24 under the two cost profiles.
+The detected anomalies results further show that ClouDens
+captures additional anomalies, specifically Anomalies 7 and 9
+in the Instant Messenger category and Anomaly 3 in the
+Issue Tracker category which are not detected by the GRU
+model. These findings demonstrate that ClouDens improves
+both FP reduction and anomaly coverage, and they highlight
+that different scoring strategies can reveal different types of
+anomalies, underscoring the challenge of evaluating anomaly
+detection methods in LCSs.
+Qualitative Analysis. Fig. 4 visualizes the 5xx count
+subset, aggregated across all dimensions, together with the
+ground-truth anomalies. Fig. 5 provides a qualitative analysis
+between the GRU baseline and ClouDens on three repre-
+sentative anomalies from the 5xx count subset, including
+Anomalies 3, 9, and 17. The rows show, in order, the original
+telemetry, forecasting errors, and anomaly scores from both
+scoring strategies, along with the corresponding timestamps.
+The results show that incorporating context-aware graph
+modeling enables ClouDens to generate forecasting errors that
+more clearly distinguish anomalous behavior from normal
+operational patterns. For Anomaly 3, only ClouDens identifies
+the anomaly: its forecasting errors align closely with the
+anomalous region (Fig. 5(d)), producing a clearer anomaly
+score under the MD scoring strategy and successful detection
+at the selected threshold. GRU, in contrast, produces high
+anomaly scores in normal regions, resulting in a missed detec-
+tion under the same strategy. A more significant improvement
+is observed for Anomaly 9, where ClouDens successfully
+detects the anomaly using both scoring strategies (Figs. 5(h)
+and (k)), while GRU’s forecasting errors remain insufficiently
+discriminative (Fig. 5(e)). For Anomaly 17, both models iden-
+tify the anomaly under both scoring strategies, but ClouDens
+detects it earlier, as indicated by the green marker, contributing
+directly to the higher NAB scores reported in Table IV.
+These visualizations demonstrate that context-aware graph
+modeling improves anomaly detection from two complemen-
+tary perspectives. First, it produces more discriminative fore-
+casting errors by exploiting structural relationships among
+cloud services. Second, the resulting anomaly scores exhibit
+clearer separation between normal and anomalous behavior,
+enabling earlier and more reliable detection of localized ser-
+vice failures. These findings support the design of ClouDens,
+which explicitly incorporates contextual information to model
+dependencies among distributed cloud services.
+Answer to EQ1:
+Context-aware graph modeling signif-
+icantly improves anomaly detection in LCS monitoring,
+outperforming a GRU-based model in NAB score, false
+positive reduction, and anomaly coverage, while enabling
+earlier detection of localized service failures through more
+discriminative forecasting errors.
+2) EQ2: How does anomaly detection performance vary
+across telemetry subsets and scoring strategies, and what
+trade-off between anomaly coverage and alert volume does
+ensembling produce? To understand how different telemetry
+subsets influence anomaly detection performance, we inde-
+pendently evaluate each subset using three telemetry sparsity
+imputation strategies (zero, mean, and median) together with
+two anomaly scoring strategies, denoted as LF and MD.
+Fig. 6 summarizes the results obtained using the optimal
+configurations (see Table III). Specifically, Fig. 6(a) illustrates
+the anomalies detected by each telemetry subset using the
+LF and MD scoring strategies, while Fig. 6(b) reports the
+corresponding NAB scores under the Low FN profile. The
+complete experimental results for all evaluated configurations
+are available in our replication package [21].
+Our experimental results reveal that anomaly detection
+performance varies substantially across telemetry subsets, indi-
+cating that different telemetry metrics capture complementary
+aspects of cloud system behavior. As shown in Fig. 6(b), the
+5xx count and 4xx count subsets consistently achieve
+the highest NAB scores under the Low FN profile, reaching
+26.24 and 18.56 by using MD scoring strategy, respectively.
+These results have been presented in Table IV and suggest that
+count-based metrics, which directly quantify the frequency
+of server- and client-side errors, are particularly effective for
+identifying obviously abnormal behaviours. Although the 5xx
+count and 4xx count subsets achieve the highest NAB
+scores, Fig. 6(a) shows that they detect only 8 and 9 of the 19
+ground-truth anomalies during the testing period, respectively,
+indicating that the count-based subsets alone are insufficient
+to capture all anomaly patterns. The complementary role of the
+remaining telemetry subsets becomes evident from Fig. 6(a),
+where several anomalies are detected exclusively by the avg,
+min, and max subsets. For example, with the LF scoring
+strategy, the 5xx max subset uniquely detects Anomalies 4
+and 16, whereas the 4xx avg and 4xx min subsets identify
+Anomalies 3, 10, and 11.
+Fig. 6(b) further shows that the effectiveness of the anomaly
+scoring strategy depends on the underlying telemetry sub-
+set. Specifically, the MD scoring strategy achieves higher
+NAB scores for several subsets, including 4xx count, 5xx
+count, and 5xx avg, while LF performs better on the re-
+maining subsets such as 4xx avg and 5xx max. Moreover,
+the two anomaly scoring strategies capture different anomaly
+patterns within the same telemetry subset. For example, on
+the 4xx count subset, MD successfully identifies 8 ground-
+truth anomalies spanning all three anomaly sources, whereas
+LF detects only Anomalies 7 and 17.
+These findings indicate that the performance of different
+telemetry subsets and anomaly scoring strategies varies con-
+siderably in terms of NAB score and anomaly coverage, pro-
+viding complementary perspectives on cloud system behavior.
+Motivated by these observations, ClouDens exploits the com-
+plementary detection capabilities of different telemetry subsets
+through a subset-based ensemble strategy. Table V summa-
+rizes the performance of different ensemble configurations,
+highlighting the trade-off between anomaly coverage and false
+alarms. The two-subset ensemble combining 4xx count and
+5xx count achieves the highest NAB score under the Low
+FN profile (22.28), while detecting 10 of the 19 ground-truth
+anomalies, including 2 of 3 anomalies from the Issue Tracker,
+6 of 9 from the Instant Messenger, and 2 of 7 from the Test
+12
+Fig. 6: Detected anomalies captured by each subset.
+TABLE V: Performance of ClouDens with different ensemble configurations using Mahalanobis Distance .
+#
+Sub.
+List of subsets
+Confusion Matrix
+NAB Score
+Detected Anomalies
+Avg. Alerts
+per day
+(92 days)
+TP
+TN
+FP
+FN
+Standard
+Profile
+Low FN
+Profile
+Issue
+Tracker
+Instant Messenger
+Test Log
+2
+4xx avg, 5xx count
+24
+25387
+134
+943
+5.46
+19.43
+2/3
+[3, 12]
+7/9
+[0, 6, 7, 8, 9, 14, 17]
+0/7
+[]
+1.72
+2
+4xx count, 5xx count
+32
+25368
+153
+935
+7.11
+22.28
+2/3
+[3, 12]
+6/9
+[6, 7, 8, 9, 14, 17]
+2/7
+[1, 11]
+2.01
+3
+4xx avg, 5xx avg,
+5xx max
+24
+25330
+191
+943
+-15.34
+3.81
+1/3
+[12]
+6/9
+[0, 6, 7, 8, 14, 17]
+1/7
+[15]
+2.34
+4
+4xx avg, 5xx avg,
+5xx count, 5xx min
+31
+25296
+225
+936
+-15.69
+7.09
+3/3
+[3, 12, 13]
+7/9
+[0, 6, 7, 8, 9, 14, 17]
+0/7
+[]
+2.78
+4
+4xx max, 5xx avg,
+5xx count, 5xx min
+33
+25298
+223
+934
+-16.15
+6.78
+3/3
+[3, 12, 13]
+7/9
+[0, 6, 7, 8, 9, 14, 17]
+0/7
+[]
+2.78
+8
+All
+56
+25119
+402
+911
+-49.29
+-10.05
+3/3
+[3, 12, 13]
+7/9
+[0, 6, 7, 8, 9, 14, 17]
+3/7
+[1, 11, 15]
+4.98
+Log. This configuration also maintains relatively low false
+alarms (153 false positives) and generates only 2.01 alerts per
+day, representing the best balance between anomaly coverage
+and the increase of false alarm volume. Another two-subset
+combination, 4xx avg and 5xx count, achieves a lower
+NAB score but additionally detects Anomaly 0, while a three-
+subset combination (4xx avg, 5xx avg, and 5xx max)
+detects Anomaly 15. Increasing the ensemble size improves
+anomaly coverage but gradually increases the alert volume.
+For example, combining four complementary subsets (4xx
+avg, 5xx avg, 5xx count, and 5xx min) successfully
+detects all three Issue Tracker anomalies and 7 of 9 Instant
+Messenger anomalies. However, the number of false positives
+increases from 153 to 225, reducing the NAB score under the
+Low FN profile from 22.28 to 7.09 and increasing the average
+alert rate from 2.01 to 2.78 alerts per day. Replacing 4xx
+avg with 4xx max yields a similar alert volume and the
+same detected anomaly set, but a lower NAB score (e.g., 6.78
+under the Low FN profile), underscoring the need for careful
+subset selection in post-processing with ensembling.
+The complete subset ensemble, which combines all eight
+telemetry subsets (referred to as “All” in Table V), achieves
+the broadest anomaly coverage by detecting 13 of the 19
+ground-truth anomalies, including all anomalies from the Issue
+Tracker, 7 of 9 from the Instant Messenger, and 3 of 7 from
+the Test Log. This improvement comes with a significant trade-
+off, increasing the number of false positives to 402 and the
+average alert volume to 4.98 alerts per day, while reducing the
+NAB score under the Low FN profile to -10.05.
+Answer to EQ2:
+Detection performance varies substan-
+tially across telemetry subsets and anomaly scoring strate-
+gies. The 4xx count and 5xx count subsets achieve
+the highest NAB scores, detecting 9 and 8 of the 19 ground-
+truth anomalies, respectively. Other subsets reveal com-
+plementary anomaly patterns despite lower NAB scores.
+Additionally, the ensemble approach provides a balance
+between anomaly coverage and false alerts.
+3) EQ3: What are the sensitivity and computational costs
+associated with sliding window size and sparsity imputation?
+13
+Fig. 7: Impact of sliding windows and telemetry sparsity
+imputation on NAB Score.
+Fig. 8: Impact of sliding windows on Training/Inference Time.
+Detection Performance. Fig. 7 illustrates the impact of sliding
+window size and sparsity imputation strategy on the NAB
+score of ClouDens and GRU for the 4xx count and 5xx
+count subsets under the Low FN profile. Several observations
+emerge. Overall, detection performance varies considerably
+with the imputation strategy, and the best strategy differs by
+subset: on 4xx count, ClouDens performs best with mean
+imputation (Fig. 7(a) and (b)), whereas on 5xx count, it
+performs best with zero imputation across nearly all window
+sizes (Fig. 7(c) and (d)).
+For the 5xx count subset, ClouDens substantially out-
+performs GRU under zero imputation. Under the LF scoring
+strategy, ClouDens achieves an NAB score of 18.11 versus
+13.16 for GRU at a window size of 6 (consistent with Ta-
+ble IV), and this gap remains stable as window size increases.
+For the other imputation strategies, the two models show
+only small differences. Both models maintain stable NAB
+scores across window sizes under the LF strategy; under
+the MD strategy, ClouDens continues to outperform GRU
+with zero imputation, though its score drops sharply at a
+window size of 30. GRU shows modest gains with mean
+imputation but fluctuates considerably across window sizes,
+indicating unstable performance. For the 4xx count subset,
+ClouDens remains stable under both scoring strategies, while
+GRU fluctuates substantially under mean imputation with the
+LF strategy; both models are stable under the MD strategy.
+Mean imputation yields the best results for this subset, where
+ClouDens clearly outperforms GRU, reaching its highest NAB
+score of 24.11 at a window size of 30.
+Taken together, these results show that the optimal im-
+putation strategy for telemetry sparsity is subset-dependent
+rather than universal, and that ClouDens consistently delivers
+more stable NAB scores than GRU once paired with its best-
+performing imputation strategy for each subset. This highlights
+the need for careful empirical tuning when evaluating detection
+performance in LCSs, as sparsity imputation, sliding window
+sizes, and scoring functions can substantially affect results.
+Computation Costs. Fig. 8 compares training and inference
+time between the GRU forecasting model and ClouDens across
+different sliding window sizes, using the 5xx count and
+4xx count as representative subsets. The remaining subsets
+(avg, min, and max) share the same graph structure and
+dimensionality as their corresponding count subset within
+each status code category, and therefore exhibit nearly identi-
+cal runtime behavior; we omit them here for brevity.
+As expected, GRU consistently trains and infers faster
+than ClouDens, since the latter’s attention mechanisms and
+graph-based operators add computational overhead. GRU-
+based models require about 11.3–12.8 seconds for training
+and 1.3–1.4 seconds for inference on the 5xx count subset,
+and similar training and inference times on 4xx count,
+regardless of window size. ClouDens, however, scales roughly
+linearly with window size (6 to 30 timestamps): training time
+rises from 304.0 to 1907.1 seconds on 5xx count and
+487.8 to 2376.3 seconds on 4xx count, while inference time
+rises from 40.0 to 235.5 seconds and 67.5 to 316.1 seconds,
+respectively. Given a 26,488-timestamp testing period, per-
+timestamp inference time ranges from about 1.5 ms in the
+best case to 12 ms in the worst case. Thus, despite its
+higher computational cost, per-timestamp inference overhead
+of ClouDens remains practical for cloud service monitoring,
+where improved detection quality justifies the added cost.
+Answer to EQ3: Across varying sliding window sizes,
+ClouDens consistently achieves higher and more stable
+NAB scores than GRU once paired with its best-performing
+sparsity imputation strategy for each subset, though this
+comes at a proportionally higher computational cost for
+both training and testing stages.
+VI. DISCUSSION
+Despite the promising results achieved by ClouDens, several
+practical aspects deserve further consideration to guide its
+application in real-world cloud environments.
+14
+Practical Insights. The experimental results provide several
+practical insights for designing anomaly detection frameworks
+in LCSs. First, incorporating operational-context attributes
+encoded in API activity telemetry substantially improves de-
+tection performance by enabling forecasting models to exploit
+structural dependencies among distributed cloud services (as
+shown in EQ1). This results in more discriminative anomaly
+scores, higher detection accuracy, and earlier detection than
+purely temporal models.
+Second, different telemetry subsets capture complementary
+aspects of operational behaviors in LCSs. count-based met-
+rics are generally more effective for identifying clear anomaly
+patterns, whereas other statistical aggregations (avg, min, and
+max) reveal anomalies that may be missed by count-based
+subsets alone. Moreover, detection performance is highly
+sensitive to telemetry sparsity imputation and anomaly scoring
+strategies (as shown in EQ2 and EQ3). This sensitivity poses
+a major challenge in anomaly detection for LCSs, making
+fair comparisons difficult. Consequently, benchmarks for LCSs
+should systematically evaluate these design choices rather than
+relying on a single evaluation setting.
+Finally,
+combining
+complementary
+telemetry
+subsets
+through an ensemble strategy improves anomaly coverage,
+particularly under evaluation metrics such as the NAB
+score, which rewards early detection and supports different
+operational
+priorities
+through
+configurable
+cost
+profiles.
+However,
+the
+ensemble
+post-processing
+also
+raises
+the
+number of false positives. Therefore, effective ensemble
+design should prioritize complementary telemetry subsets that
+maximize anomaly coverage while maintaining an acceptable
+alert volume, rather than simply aggregating all available
+detectors (as shown in EQ2).
+Limitations. Although ClouDens demonstrates significant
+improvements for count-based telemetry subsets, several
+limitations still remain. First, the current framework relies
+on manually designed telemetry feature decomposition and
+context-aware graph construction, which may require domain
+knowledge when applied to other cloud platforms. Second,
+selecting appropriate imputation strategies for telemetry spar-
+sity, anomaly scoring functions, and ensemble configurations
+still requires empirical investigation. Third, we employ A3T-
+GCN only to demonstrate the benefit of operational-context
+attributes for monitoring services in LCSs, not to establish it as
+the optimal backbone; other graph-based models have not been
+investigated. Since detection performance varies considerably
+across telemetry subsets, imputation strategies, and scoring
+strategies, a systematic benchmark of forecasting backbones in
+the context of monitoring services in LCSs remains important
+to discover. We leave these limitations for future research.
+Threats to Validity. Despite careful experimental design,
+this study is subject to several threats to validity [68], [69].
+• Internal Validity: Our results may be affected by model
+configuration, hyperparameter tuning, and threshold se-
+lection. Although we evaluated multiple configurations
+for ClouDens, the search space was not exhaustive, and
+alternative settings may yield different results. To facili-
+tate verification and replication, we publicly release our
+implementation and experimental results [21].
+• External Validity: The evaluation is conducted on a single
+real-world IBM Cloud Telemetry Dataset. Although the
+dataset represents a production cloud environment and
+has been recognized as a critical case study [11], [69],
+our findings may not generalize to all cloud platforms or
+telemetry sources. Nevertheless, the proposed methodol-
+ogy and evaluation protocol are applicable to other cloud
+telemetry datasets.
+• Construct Validity: We evaluate anomaly detection us-
+ing the NAB score and confusion-matrix-based metrics.
+While these metrics are widely adopted, the completeness
+of ground-truth anomaly labels may affect the measured
+performance, particularly for subtle or previously un-
+known anomalies.
+VII. CONCLUSIONS
+Building reliable and effective anomaly detection solutions
+in the context of cloud network monitoring remains chal-
+lenging. This is clearly reflected in the recent IBM Cloud
+Telemetry Dataset released by Islam et al. [11], which exhibits
+three key characteristics: high-dimensional telemetry perfor-
+mance metrics, complex temporal and spatial dependencies
+among distributed cloud services, and severe telemetry spar-
+sity. Motivated by these observations, we conducted a deeper
+empirical investigation of the dataset to better understand
+the challenges of cloud network monitoring with telemetry
+logs and developed ClouDens, an operational context-aware
+anomaly detection framework for LCSs. To deal with these
+challenges, ClouDens integrates telemetry feature decomposi-
+tion, operational-context graph modeling, and spatio-temporal
+forecasting, and further examines different post-processing
+techniques, including two scoring strategies and ensembling.
+Our experimental results demonstrate that ClouDens outper-
+forms a GRU-based forecasting baseline by achieving higher
+NAB scores, broader anomaly coverage, and earlier detection.
+Practical Guidelines: Our empirical study shows that
+telemetry
+feature
+subsets,
+operational-context
+modeling,
+telemetry sparsity imputation, anomaly scoring strategies, and
+ensemble configurations all substantially influence anomaly
+detection performance in LCSs. These findings demonstrate
+that the effectiveness of anomaly detection depends not only
+on the forecasting model but also on telemetry representation
+and post-processing design choices, which should therefore be
+systematically considered when designing and benchmarking
+anomaly detection methods for LCS monitoring.
+Future Work. The empirical study highlights several op-
+portunities for future research. Promising directions include
+extending ClouDens to investigate dynamic graph structures
+that adapt to evolving service topologies, developing adaptive
+methods for selecting anomaly scoring strategies and ensem-
+ble configurations, and integrating root-cause localization to
+facilitate automated fault diagnosis. Furthermore, evaluating
+ClouDens across additional cloud platforms and real-time
+deployment scenarios would provide a broader assessment of
+its practical applicability for LCS monitoring.
+Reproducible package. Our code and experimental results
+are publicly available at [21].
+15
+ACKNOWLEDGEMENTS
+This work has been partially funded by (a) the MUR (Italy)
+Department of Excellence 2023 - 2027, (b) the European
+HORIZON-KDT-JU research project MATISSE “Model-based
+engineering of Digital Twins for early verification and valida-
+tion of Industrial Systems”, HORIZON-KDT-JU-2023-2-RIA,
+Proposal number: 101140216-2, KDT232RIA 00017, (c) the
+SFI Smart Ocean project (https://sfismartocean.no).
+REFERENCES
+[1] J. Xu, Y. Wang, P. Chen, and P. Wang, “Lightweight and adaptive service
+api performance monitoring in highly dynamic cloud environment,” in
+2017 IEEE International Conference on Services Computing (SCC),
+2017, pp. 35–43.
+[2] I. A. T. Hashem, I. Yaqoob, N. B. Anuar, S. Mokhtar, A. Gani, and
+S. Ullah Khan, “The rise of “big data” on cloud computing: Review and
+open research issues,” Information Systems, 2015. [Online]. Available:
+https://www.sciencedirect.com/science/article/pii/S0306437914001288
+[3] T. Hagemann and K. Katsarou, “A systematic review on anomaly
+detection for cloud computing environments,” in Proceedings of the 2020
+3rd Artificial Intelligence and Cloud Computing Conference, ser. AICCC
+’20. New York, NY, USA: Association for Computing Machinery, 2021,
+p. 83–96. [Online]. Available: https://doi.org/10.1145/3442536.3442550
+[4] R. Xin, H. Liu, P. Chen, and Z. Zhao, “Robust and accurate
+performance anomaly detection and prediction for cloud applications: a
+novel ensemble learning-based framework,” J. Cloud Comput., vol. 12,
+no. 1, Jan. 2023. [Online]. Available: https://doi.org/10.1186/s13677-0
+22-00383-6
+[5] Gartner, Inc. (2024, Nov. 19) Gartner forecasts worldwide public
+cloud end-user spending to total $723 billion in 2025. 2024. [Online].
+Available: https://www.gartner.com/en/newsroom/press-releases/2024-1
+1-19-gartner-forecasts-worldwide-public-cloud-end-user-spending-to-t
+otal-723-billion-dollars-in-2025
+[6] R. T. Fielding and R. N. Taylor, “Architectural styles and the de-
+sign of network-based software architectures,” Ph.D. dissertation, 2000,
+aAI9980887.
+[7] A. Lercher, J. Glock, C. Macho, and M. Pinzger, “Microservice api
+evolution in practice: A study on strategies and challenges,” Journal of
+Systems and Software, vol. 215, p. 112110, 2024. [Online]. Available:
+https://www.sciencedirect.com/science/article/pii/S0164121224001559
+[8] M. Otero, J. M. Garcia, and P. Fernandez, “Towards a lightweight dis-
+tributed telemetry for microservices,” in 2024 IEEE 44th International
+Conference on Distributed Computing Systems Workshops (ICDCSW),
+2024, pp. 75–82.
+[9] M. S. Islam, W. Pourmajidi, L. Zhang, J. Steinbacher, T. Erwin, and
+A. Miranskyy, “Anomaly detection in a large-scale cloud platform,” in
+2021 IEEE/ACM 43rd International Conference on Software Engineer-
+ing: Software Engineering in Practice (ICSE-SEIP).
+IEEE, 2021.
+[10] L. Toka, G. Dobreff, D. Haja, and M. Szalay, “Predicting cloud-native
+application failures based on monitoring data of cloud infrastructure,”
+in 2021 IFIP/IEEE International Symposium on Integrated Network
+Management (IM), 2021, pp. 842–847.
+[11] M.
+S.
+Islam,
+M.
+S.
+Rakha,
+W.
+Pourmajidi,
+J.
+Sivaloganathan,
+J. Steinbacher, and A. Miranskyy, “Anomaly detection in large-scale
+cloud systems: An industry case and dataset,” in 2025 IEEE/ACM
+47th International Conference on Software Engineering: Software
+Engineering in Practice (ICSE-SEIP).
+IEEE, Apr. 2025. [Online].
+Available: http://dx.doi.org/10.1109/ICSE-SEIP66354.2025.00039
+[12] G. Aceto, A. Botta, W. De Donato, and A. Pescap`e, “Survey cloud
+monitoring: A survey,” Comput. Netw., vol. 57, no. 9, p. 2093–2115, Jun.
+2013. [Online]. Available: https://doi.org/10.1016/j.comnet.2013.04.001
+[13] Z. Chkirbene, A. Erbad, R. Hamila, A. Gouissem, A. Mohamed,
+and M. Hamdi, “Machine learning based cloud computing anomalies
+detection,” Netwrk. Mag. of Global Internetwkg., vol. 34, no. 6, p.
+178–183, Nov. 2020. [Online]. Available: https://doi.org/10.1109/MN
+ET.011.2000097
+[14] A. Hrusto, N. b. Ali, E. Engstr¨om, and Y. Wang, “Monitoring data
+for anomaly detection in cloud-based systems: A systematic mapping
+study,” ACM Trans. Softw. Eng. Methodol., vol. 35, no. 4, Mar. 2026.
+[Online]. Available: https://doi.org/10.1145/3744556
+[15] A.
+Miranskyy,
+A.
+Hamou-Lhadj,
+E.
+Cialini,
+and
+A.
+Larsson,
+“Operational-log analysis for big data systems: Challenges and solu-
+tions,” IEEE Software, vol. 33, no. 2, pp. 52–59, 2016.
+[16] W.
+Pourmajidi,
+J.
+Steinbacher,
+T.
+Erwin,
+and
+A.
+Miranskyy,
+“On
+challenges
+of
+cloud
+monitoring,”
+in
+Proceedings
+of
+the
+27th Annual International Conference on Computer Science and
+Software
+Engineering,
+2017,
+pp.
+259–265.
+[Online].
+Available:
+https://arxiv.org/abs/1806.05914
+[17] W. Pourmajidi, A. Miranskyy, J. Steinbacher, T. Erwin, and D. Godwin,
+“Dogfooding: Using ibm cloud services to monitor ibm cloud infras-
+tructure,” in Proceedings of the 29th Annual International Conference
+on Computer Science and Software Engineering, 2019, pp. 344–353.
+[18] W. Pourmajidi, L. Zhang, A. Miranskyy, J. Steinbacher, D. Godwin,
+and T. Erwin, “The challenging landscape of cloud monitoring,” in
+Knowledge Management in the Development of Data-Intensive Systems.
+CRC Press, 2021, pp. 157–189.
+[19] M. S. Islam and A. Miranskyy, “Anomaly detection in cloud compo-
+nents,” in 2020 IEEE 13th international conference on cloud computing
+(CLOUD).
+IEEE, 2020, pp. 1–3.
+[20] K. Cho, B. van Merrienboer, D. Bahdanau, and Y. Bengio, “On the
+properties of neural machine translation: Encoder-decoder approaches,”
+2014. [Online]. Available: https://arxiv.org/abs/1409.1259
+[21] Thu T. H. Doan, “Replication package of ClouDens,” https://github.c
+om/doanthihoaithu/cloudens.git, 2026.
+[22] M.
+S.
+Islam,
+M.
+S.
+Rakha,
+W.
+Pourmajidi,
+J.
+Sivaloganathan,
+J. Steinbacher, and A. Miranskyy, “Dataset for the paper ”anomaly
+detection in large-scale cloud systems: An industry case and dataset”,”
+Nov. 2024. [Online]. Available: https://doi.org/10.5281/zenodo.14062
+900
+[23] A. Lavin and S. Ahmad, “Evaluating real-time anomaly detection
+algorithms – the numenta anomaly benchmark,” in 2015 IEEE 14th
+International Conference on Machine Learning and Applications
+(ICMLA).
+IEEE, Dec. 2015. [Online]. Available: http://dx.doi.org/10.
+1109/ICMLA.2015.141
+[24] Microsoft, “Microsoft cloud monitoring dataset,” 2023, https://github.c
+om/microsoft/cloud-monitoring-dataset.
+[25] V. Jacob, F. Song et al., “Exathlon: A benchmark for explainable
+anomaly detection over time series,” Proceedings of the VLDB Endow-
+ment, vol. 14, no. 11, pp. 2613–2626, 2021.
+[26] P. Boniol, Q. Liu, M. Huang, T. Palpanas, and J. Paparrizos, “Dive
+into time-series anomaly detection: A decade review,” 2024. [Online].
+Available: https://arxiv.org/abs/2412.20512
+[27] J. Paparrizos, P. Boniol, Q. Liu, and T. Palpanas, “Advances in
+time-series anomaly detection: Algorithms, benchmarks, and evaluation
+measures,” in Proceedings of the 31st ACM SIGKDD Conference on
+Knowledge Discovery and Data Mining V.2, ser. KDD ’25.
+New York,
+NY, USA: Association for Computing Machinery, 2025, p. 6151–6161.
+[Online]. Available: https://doi.org/10.1145/3711896.3736565
+[28] R. Gatev, Observability: Logs, Metrics, and Traces.
+Berkeley, CA:
+Apress, 2021, pp. 233–252. [Online]. Available: https://doi.org/10.100
+7/978-1-4842-6998-5 12
+[29] G. Chu, J. Wang, Q. Qi, H. Sun, Z. Zhuang, B. He, Y. Jing,
+L. Zhang, and J. Liao, “Anomaly detection on interleaved log data
+with semantic association mining on log-entity graph,” IEEE Trans.
+Softw. Eng., vol. 51, no. 2, p. 581–594, Feb. 2025. [Online]. Available:
+https://doi.org/10.1109/TSE.2025.3527856
+[30] M. S. Islam and A. Miranskyy, “Benchmarking anomaly detection
+across heterogeneous cloud telemetry datasets,” 2026, arXiv preprint
+arXiv:2602.13288. [Online]. Available: https://arxiv.org/abs/2602.13288
+[31] C. C. Aggarwal and P. S. Yu, “Outlier detection for high dimensional
+data,” SIGMOD Rec., vol. 30, no. 2, p. 37–46, May 2001. [Online].
+Available: https://doi.org/10.1145/376284.375668
+[32] F. Schmidt, F. Suri-Payer, A. Gulenko, M. Wallschl¨ager, A. Acker,
+and O. Kao, “Unsupervised anomaly event detection for vnf service
+monitoring using multivariate online arima,” in 2018 IEEE International
+Conference on Cloud Computing Technology and Science (CloudCom),
+2018, pp. 278–283.
+[33] A. Hany Fawzy, K. Wassif, and H. Moussa, “Framework for automatic
+detection of anomalies in devops,” Journal of King Saud University -
+Computer and Information Sciences, vol. 35, no. 3, pp. 8–19, 2023.
+[Online]. Available: https://www.sciencedirect.com/science/article/pii/
+S1319157823000393
+[34] Q. Du, T. Xie, and Y. He, “Anomaly detection and diagnosis for
+container-based microservices with performance monitoring,” in Algo-
+rithms and Architectures for Parallel Processing, J. Vaidya and J. Li,
+Eds.
+Cham: Springer International Publishing, 2018, pp. 560–572.
+[35] L. Traini and V. Cortellessa, “Delag: Using multi-objective optimization
+to enhance the detection of latency degradation patterns in service-based
+systems,” IEEE Transactions on Software Engineering, p. 1–28, 2023.
+[Online]. Available: http://dx.doi.org/10.1109/TSE.2023.3266041
+16
+[36] P. S. Kalaki, A. Shameli-Sendi, and B. K. E. Abbasi, “Anomaly detection
+on openstack logs based on an improved robust principal component
+analysis model and its projection onto column space,” Software:
+Practice and Experience, vol. 53, no. 3, pp. 665–681, 2023. [Online].
+Available: https://onlinelibrary.wiley.com/doi/abs/10.1002/spe.3164
+[37] S.
+Kardani-Moghaddam,
+R.
+Buyya,
+and
+K.
+Ramamohanarao,
+“Performance
+anomaly
+detection
+using
+isolation-trees
+in
+hetero-
+geneous
+workloads
+of
+web
+applications
+in
+computing
+clouds,”
+Concurrency and Computation: Practice and Experience, vol. 31,
+no.
+20,
+p.
+e5306,
+2019,
+e5306
+cpe.5306.
+[Online].
+Available:
+https://onlinelibrary.wiley.com/doi/abs/10.1002/cpe.5306
+[38] S. Nan, R. Xie, and L. Chen, “Anomaly detection of system behavior in
+cloud computing environments based on one-class svm,” in Proceedings
+of the 2023 6th International Conference on Artificial Intelligence and
+Pattern Recognition, ser. AIPR ’23.
+New York, NY, USA: Association
+for Computing Machinery, 2024, p. 1504–1510. [Online]. Available:
+https://doi.org/10.1145/3641584.3641811
+[39] S. Thudumu, P. Branch, J. Jin, and J. Singh, “A comprehensive survey
+of anomaly detection techniques for high dimensional big data,” Journal
+of Big Data, vol. 7, no. 1, p. 42, 2020.
+[40] R. Kale, Z. Lu, K. W. Fok, and V. L. L. Thing, “A hybrid deep
+learning anomaly detection framework for intrusion detection,” in
+2022 IEEE 8th Intl Conference on Big Data Security on Cloud
+(BigDataSecurity), IEEE Intl Conference on High Performance and
+Smart Computing, (HPSC) and IEEE Intl Conference on Intelligent
+Data and Security (IDS).
+IEEE, May 2022. [Online]. Available:
+http://dx.doi.org/10.1109/BigDataSecurityHPSCIDS54978.2022.00034
+[41] M. Abdelsalam, R. Krishnan, and R. Sandhu, “Online malware
+detection in cloud auto-scaling systems using shallow convolutional
+neural networks,” in Data and Applications Security and Privacy
+XXXIII: 33rd Annual IFIP WG 11.3 Conference, DBSec 2019,
+Charleston,
+SC,
+USA,
+July
+15–17,
+2019,
+Proceedings.
+Berlin,
+Heidelberg: Springer-Verlag, 2019, p. 381–397. [Online]. Available:
+https://doi.org/10.1007/978-3-030-22479-0 20
+[42] M. Du, F. Li, G. Zheng, and V. Srikumar, “Deeplog: Anomaly
+detection and diagnosis from system logs through deep learning,”
+in Proceedings of the 2017 ACM SIGSAC Conference on Computer
+and Communications Security, ser. CCS ’17.
+New York, NY, USA:
+Association for Computing Machinery, 2017, p. 1285–1298. [Online].
+Available: https://doi.org/10.1145/3133956.3134015
+[43] J. Liu, X. Song, Y. Zhou, X. Peng, Y. Zhang, P. Liu, and D. Wu,
+“Deep anomaly detection in packet payload,” 2019. [Online]. Available:
+https://arxiv.org/abs/1912.02549
+[44] T.
+Hagemann
+and
+K.
+Katsarou,
+“Reconstruction-based
+anomaly
+detection for the cloud: A comparison on the yahoo! webscope s5
+dataset,” in Proceedings of the 2020 4th International Conference on
+Cloud and Big Data Computing, ser. ICCBDC ’20.
+New York, NY,
+USA: Association for Computing Machinery, 2020, p. 68–75. [Online].
+Available: https://doi.org/10.1145/3416921.3416934
+[45] H. Guo, X. Fan, A. Cao, G. Outhred, and J. Heidemann, “Peek inside
+the closed world: Evaluating autoencoder-based detection of ddos to
+cloud,” 2020. [Online]. Available: https://arxiv.org/abs/1912.05590
+[46] Y. Liu, T. Hu, H. Zhang, H. Wu, S. Wang, L. Ma, and M. Long,
+“itransformer: Inverted transformers are effective for time series
+forecasting,” 2024. [Online]. Available: https://arxiv.org/abs/2310.06625
+[47] J. Chen, F. Liu, J. Jiang, G. Zhong, D. Xu, Z. Tan, and S. Shi, “Tracegra:
+A trace-based anomaly detection for microservice using graph deep
+learning,” Computer Communications, vol. 204, pp. 109–117, 2023.
+[Online]. Available: https://www.sciencedirect.com/science/article/pii/
+S0140366423001135
+[48] H. Zeng, N. Chen, and T. Deng, “Lstd-mts: Anomaly detection with
+capturing long-term spatio-temporal dependence for multi-dimensional
+time series,” in Proceedings of the 15th Asia-Pacific Symposium on
+Internetware, ser. Internetware ’24.
+New York, NY, USA: Association
+for Computing Machinery, 2024, p. 397–406. [Online]. Available:
+https://doi.org/10.1145/3671016.3671383
+[49] M. Jin, H. Y. Koh, Q. Wen, D. Zambon, C. Alippi, G. I. Webb,
+I. King, and S. Pan, “A survey on graph neural networks for time
+series: Forecasting, classification, imputation, and anomaly detection,”
+2024. [Online]. Available: https://arxiv.org/abs/2307.03759
+[50] M. Defferrard, X. Bresson, and P. Vandergheynst, “Convolutional
+neural networks on graphs with fast localized spectral filtering,” 2017.
+[Online]. Available: https://arxiv.org/abs/1606.09375
+[51] P. Veliˇckovi´c, G. Cucurull, A. Casanova, A. Romero, P. Li`o, and
+Y. Bengio, “Graph attention networks,” 2018. [Online]. Available:
+https://arxiv.org/abs/1710.10903
+[52] A. Golovkina, D. Mogilnikov, and V. Ruzhnikov, “Graph neural net-
+works for metrics prediction in microservice architecture,” in Com-
+putational Science and Its Applications – ICCSA 2024 Workshops,
+O. Gervasi, B. Murgante, C. Garau, D. Taniar, A. M. A. C. Rocha,
+and M. N. Faginas Lago, Eds.
+Cham: Springer Nature Switzerland,
+2024, pp. 343–357.
+[53] K. O’Shea, S. Yan, M. Yu, X. Chen, S. Mauceri, B. Dhariyal, L. Xu,
+N. O’Connor, and M. Liu, “Explainable graph ensemble learning for
+multivariate time series anomaly detection in cloud microservice archi-
+tectures,” IEEE Transactions on Cloud Computing, pp. 1–15, 2025.
+[54] A. Zimek, E. Schubert, and P. Kr¨oger, “A survey on unsupervised outlier
+detection in high-dimensional numerical data,” Statistical Analysis and
+Data Mining, vol. 5, pp. 363–387, 10 2012.
+[55] F. Corradini, F. Gerosa, M. Gori, C. Lucheroni, M. Piangerelli, and
+M. Zannotti, “A systematic literature review of spatio-temporal graph
+neural network models for time series forecasting and classification,”
+2025. [Online]. Available: https://arxiv.org/abs/2410.22377
+[56] P. Malhotra, L. Vig, G. M. Shroff, and P. Agarwal, “Long short
+term memory networks for anomaly detection in time series,” in The
+European Symposium on Artificial Neural Networks, 2015. [Online].
+Available: https://api.semanticscholar.org/CorpusID:43680425
+[57] K. Ye, “Anomaly detection in clouds: Challenges and practice,”
+in Proceedings of the First Workshop on Emerging Technologies
+for Software-Defined and Reconfigurable Hardware-Accelerated Cloud
+Datacenters, ser. ETCD’17.
+New York, NY, USA: Association for
+Computing Machinery, 2017. [Online]. Available: https://doi.org/10.1
+145/3129457.3129497
+[58] H. Hewamalage, K. Ackermann, and C. Bergmeir, “Forecast evaluation
+for data scientists: Common pitfalls and best practices,” 2022. [Online].
+Available: https://arxiv.org/abs/2203.10716
+[59] S. Ahmad, A. Lavin, S. Purdy, and Z. Agha, “Unsupervised real-time
+anomaly detection for streaming data,” Neurocomputing, 2017, online
+Real-Time Learning Strategies for Data Streams. [Online]. Available:
+https://www.sciencedirect.com/science/article/pii/S0925231217309864
+[60] P. C. Mahalanobis, “Reprint of: Mahalanobis, p.c. (1936) ”on the
+generalised distance in statistics.”,” Sankhya A, vol. 80, 2018. [Online].
+Available: https://api.semanticscholar.org/CorpusID:239595337
+[61] C. Leys, O. Klein, Y. Dominicy, and C. Ley, “Detecting multivariate
+outliers: Use a robust variant of the mahalanobis distance,” Journal
+of Experimental Social Psychology, vol. 74, 2018. [Online]. Available:
+https://www.sciencedirect.com/science/article/pii/S0022103117302123
+[62] J. Pang, D. Liu, Y. Peng, and X. Peng, “Temporal dependence
+mahalanobis distance for anomaly detection in multivariate spacecraft
+telemetry series,” ISA Transactions, vol. 140, pp. 354–367, 2023.
+[Online]. Available: https://www.sciencedirect.com/science/article/pii/
+S0019057823002574
+[63] S. B. Taieb, G. Bontempi, A. Atiya, and A. Sorjamaa, “A review and
+comparison of strategies for multi-step ahead time series forecasting
+based on the nn5 forecasting competition,” 2011. [Online]. Available:
+https://arxiv.org/abs/1108.3259
+[64] P. Wenig, S. Schmidl, and T. Papenbrock, “Anomaly detectors for
+multivariate time series: The proof of the pudding is in the eating,”
+in 2024 IEEE 40th International Conference on Data Engineering
+Workshops (ICDEW), 2024, pp. 96–101.
+[65] J. Zhu, Y. Song, L. Zhao, and H. Li, “A3t-gcn: Attention temporal
+graph convolutional network for traffic forecasting,” 2020. [Online].
+Available: https://arxiv.org/abs/2006.11583
+[66] B. Rozemberczki, P. Scherer, Y. He, G. Panagopoulos, A. Riedel,
+M.
+Astefanoaei,
+O.
+Kiss,
+F.
+Beres,
+G.
+L´opez,
+N.
+Collignon,
+and R. Sarkar, “Pytorch geometric temporal: Spatiotemporal signal
+processing with neural machine learning models,” in Proceedings of
+the 30th ACM International Conference on Information & Knowledge
+Management, ser. CIKM ’21.
+New York, NY, USA: Association
+for Computing Machinery, 2021, p. 4564–4573. [Online]. Available:
+https://doi.org/10.1145/3459637.3482014
+[67] S. Sørbø and M. Ruocco, “Navigating the metric maze: A taxonomy
+of evaluation metrics for anomaly detection in time series,” 2023.
+[Online]. Available: https://arxiv.org/abs/2303.01272
+[68] C. Wohlin, P. Runeson, M. H¨ost, M. Ohlsson, B. Regnell, and
+A. Wessl´en, Experimentation in Software Engineering, ser. Computer
+Science.
+Springer Berlin Heidelberg, 2012.
+[69] R. Yin, Case Study Research: Design and Methods, ser. Applied Social
+Research Methods.
+SAGE Publications, 2009.

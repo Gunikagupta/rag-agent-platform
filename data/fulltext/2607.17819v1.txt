@@ -1,0 +1,2557 @@
+Field-of-values analysis of augmented Krylov
+methods for matrix φ-function actions∗
+Xiaobo Liu†
+Marcel Schweitzer‡
+Abstract. We revisit established Krylov subspace methods for linear combinations of
+matrix φ-function actions from the viewpoint of the block triangular formulation of
+Al-Mohy and Liu [SIAM J. Sci. Comput., 48 (2026), pp. A726–A747]. In algorithms
+such as KIOPS [J. Comput. Phys., 372 (2018), pp. 236–255], one uses an augmentation
+approach based on evaluating the exponential of a slightly larger matrix that contains
+the operant vectors in its off-diagonal block, and its field of values may therefore grow
+substantially with these vectors. Typical convergence estimates for Krylov subspace
+methods result from bounding the error of polynomial approximations for the expo-
+nential on the field of values, so that only very pessimistic convergence estimates are
+available for these methods, in spite of their good practical performance. In contrast,
+the larger block formulation established by Al-Mohy and Liu involves an operator whose
+field of values is independent of the operant vectors, leading to more favorable conver-
+gence bounds. We work out the details of how these two approaches are connected to
+each other, which allows us to transfer the convergence bounds from the latter to the
+former, thus better explaining the observed performance.
+Keywords. matrix exponential, matrix φ-functions, Krylov subspace method, expo-
+nential integrators, field of values
+MSC codes. 65F60, 15A16, 15A60, 65L05
+1
+Introduction
+Exponential integrators are widely used for stiff and highly oscillatory systems of ordi-
+nary differential equations
+dy
+dt = Ay(t) + g(t, y(t)),
+y(t0) = y0,
+y ∈Cn,
+t ≥t0,
+(1.1)
+∗Version of July 20, 2026.
+†Max Planck Institute for Dynamics of Complex Technical Systems, Magdeburg, 39106, Germany
+(xliu@mpi-magdeburg.mpg.de).
+‡School of Mathematics and Natural Sciences, Bergische Universit¨at Wuppertal, 42097 Wuppertal,
+Germany (marcel@uni-wuppertal.de).
+1
+arXiv:2607.17819v1  [math.NA]  20 Jul 2026
+where A ∈Cn×n is typically a large sparse Jacobian or a linearized spatial discretization
+of a PDE [11, 25, 26]. Their construction is based on the variation-of-constants formula
+y(t) = e(t−t0)Ay0 +
+Z t
+t0
+e(t−τ)Ag(τ, y(τ)) dτ.
+(1.2)
+When the nonlinear term in (1.2) is expanded locally [33, Lem. 5.1], the resulting
+integrators involve the exponential-like matrix functions [23, 26]
+φk(A) =
+∞
+X
+j=0
+Aj
+(j + k)!,
+k ≥0,
+(1.3)
+with φ0(A) = eA. Hence a central computational kernel is the linear combination of
+actions
+y := φ0(A)b0 + φ1(A)b1 + · · · + φs(A)bs,
+(1.4)
+where the vectors bj depend on the specific time-stepping formula that is employed.
+We assume throughout that bs̸ = 0; otherwise, we can redefine s as the largest index j
+for which bj̸ = 0.
+Evaluating the kernel (1.4) typically incurs the dominant cost in exponential integra-
+tor implementations, and has motivated various methods for computing the φ-function
+actions; see, e.g., [1, 2, 4, 9, 10, 14, 16, 30, 34] and the references therein.
+An influential approach to evaluate (1.4) is to embed it into the exponential of an
+augmented matrix. This approach was first considered for the special case of computing
+the action of φ1(A) in [37], and was later generalized to further cases in [34, 38] and fi-
+nally in [16, Thm. 1]. Specifically, the KIOPS algorithm [16] uses the (n+s)-dimensional
+matrix
+K =
+A
+B
+0
+Js(0)
+
+,
+B =
+
+bs
+bs−1
+. . .
+b1
+
+∈Cn×s,
+(1.5)
+where Js(0) is the s-dimensional Jordan block associated with eigenvalue zero, and
+then applies an adaptive Krylov method with incomplete orthogonalization. KIOPS
+is widely regarded as a fast, state-of-the-art matrix-free Krylov solver for the linear
+combination (1.4); see [1, 10, 14]. At the same time, the augmented matrix underlying
+KIOPS contains the operant vectors bj, j = 1, 2, . . . , s, in its off-diagonal block. There-
+fore, the Euclidean norm and field of values of K are properties not only of A and s,
+but also of the particular operant vectors. This can make standard field-of-values con-
+vergence estimates like [7, Prop. 3.1] look much worse than the observed performance
+of KIOPS.
+A different block formulation was derived by Al-Mohy and Liu [5, Thm. 2.1] for
+the simultaneous computation of the matrix φ-functions themselves, rather than their
+actions on vectors. The augmented matrix in this approach is of size (s+1)n×(s+1)n
+and has the form
+W =
+A
+E
+0
+J
+
+,
+E =
+
+In
+0
+. . .
+0
+
+∈Cn×sn,
+J = Js(0) ⊗In,
+(1.6)
+2
+where In denotes the identity matrix of order n and ⊗denotes the Kronecker prod-
+uct. We stress that this larger augmentation is not attractive as the basis for a direct
+matrix-free Krylov implementation, because its auxiliary block has dimension sn, thus
+substantially increasing the length of vectors one would have to work with. Its ad-
+vantage is analytical: in contrast to K in (1.5), the operator W is independent of the
+vectors b1, . . . , bs. Thus its field of values can be bounded in terms of the field of values
+of A, the nilpotent block J, and the fixed coupling E with ∥E∥2 = 1.
+The purpose of this paper is to connect these two viewpoints. We show that the
+KIOPS matrix K is not a different augmented operator in the polynomial approximation
+problem.
+Rather, it is the representation of the block matrix W restricted to the
+invariant subspace
+Cn ⊕Ks(J, b),
+b = [b∗
+1, . . . , b∗
+s]∗∈Cns,
+(1.7)
+written in the nonorthogonal Jordan-chain basis [Js−1b, . . . , Jb, b] for the lower Krylov
+space. Hence every polynomial in K acting on the KIOPS starting vector gives, af-
+ter projection onto the first n entries, exactly the same vector as the corresponding
+polynomial in W acting on the starting vector b. The coordinate map from KIOPS
+variables into the larger block formulation induces an inner product and motivates a
+different metric on field-of-values convergence bounds. This metric field of values of K
+is contained in the standard field of values of W and avoids the pessimistic right-hand
+side dependent enlargement seen in the Euclidean field of values of the KIOPS matrix.
+The rest of this paper is organized as follows. We start in Section 2 with a brief
+review of polynomial Krylov approximations and the two augmented formulations for
+evaluating (1.4). Section 3 develops the basis-dependent block formulation and recovers
+the KIOPS matrix as a particular coordinate choice. Particularly, the conditioning of
+the KIOPS basis is discussed. Section 4 introduces the metric induced by the basis and
+characterizes the associated metric distortion, including the effect of common right-
+hand-side scaling. In Section 5, we transfer field-of-values polynomial approximation
+bounds from the larger block matrix to the reduced coordinate formulation via the in-
+duced metric and specialize the result to KIOPS. The resulting convergence bounds are
+illustrated in numerical experiments in Section 6. Conclusions are drawn in Section 7.
+2
+Polynomial Krylov subspace method
+For a given function f and vector b, the polynomial Krylov method approximates f(A)b
+in the Krylov subspace Km(A, b) = span{b, Ab, . . . , Am−1b}, for which the backbone is
+the Arnoldi method [6], presented in Algorithm 2.1.1 Initialized with v1 = b/∥b∥2, it
+builds an orthonormal basis Vm = [v1, v2, . . . , vm] of Km(A, b) which fulfills the Arnoldi
+relation
+AVm = VmHm + hm+1,mvm+1e∗
+m,
+(2.1)
+where Hm is m × m upper Hessenberg and em is the last column of the m × m identity
+matrix.
+The resulting Arnoldi approximation ym ≈f(A)b is obtained by Galerkin
+1We note that when A is Hermitian, the Arnoldi method turns into the short-recurrence Lanczos
+method [31], which we do not cover here in detail as the considered augmentation techniques necessarily
+lead to non-Hermitian operators.
+3
+projection onto Km(A, b) [24, Eq. (2.3)] and evaluation of f on the m × m matrix Hm,
+ym := Vmf(V †
+mAVm)V †
+mb = Vmf(Hm)e1∥b∥2,
+(2.2)
+where V †
+m = (V ∗
+mVm)−1V ∗
+m denotes the Moore–Penrose pseudoinverse [35] of Vm (which
+coincides with V ∗
+m when Vm has orthonormal columns).
+A standard way of obtaining bounds for the error of the Arnoldi approximation is
+by relating it to the error of the best uniform polynomial approximations of f on the
+field of values
+F(A) =
+z∗Az
+z∗z : z̸ = 0
+
+= {z∗Az : ∥z∥2 = 1} ;
+see, e.g., [7, 8, 24, 42]. In particular, when f is analytic on a neighborhood of F(A),
+∥f(A)b −ym∥2 ≤2Ccr∥b∥2Em−1(f, F(A)),
+(2.3)
+where for a compact set Ω,
+Em−1(f, Ω) :=
+min
+p∈Pm−1 max
+ζ∈Ω|f(ζ) −p(ζ)|,
+(2.4)
+with Pm−1 the space of polynomials of degree at most m −1, and where Ccr ≤1 +
+√
+2
+is a constant independent of A. This result can be obtained straightforwardly from the
+famous Crouzeix–Palencia theorem, which states that
+∥f(A)∥2 ≤Ccr max
+ζ∈F(A) |f(ζ)|;
+(2.5)
+see [12, 13].
+Clearly, the bound (2.3) deteriorates more and more for growing F(A).
+2.1
+Two block formulations
+As mentioned in Section 1, one can evaluate a linear combination of φ-functions (1.4)
+by constructing a Krylov subspace associated with an augmented matrix. The KIOPS
+algorithm [16] evaluates (1.4) by applying a polynomial Krylov approximation to the
+augmented exponential action, such that
+y =
+
+In
+0
+
+eKc,
+c =
+b0
+es
+
+,
+(2.6)
+where es is the last column of the s-by-s identity matrix and K is defined in (1.5). In
+practice, the augmented matrix need not be assembled. For x ∈Cn and w ∈Cs,
+K
+x
+w
+
+=
+Ax + Bw
+Js(0)w
+
+=
+Ax + Ps
+j=1 ws+1−jbj
+Js(0)w
+
+.
+Hence each Krylov step requires one product with A and a short linear combination of
+the data vectors bj. The algorithm further combines this matrix-free augmented action
+4
+Algorithm 2.1 Arnoldi iteration with modified Gram–Schmidt orthogonalization.
+Input: A ∈Cn×n, b ∈Cn, number of Arnoldi steps m.
+Output: Orthonormal basis [v1, v2, . . . , vm] of Km(A, b), upper Hessenberg matrix
+Hm = (hi,j) ∈Cm×m.
+1: v1 ←b/∥b∥2
+2: for j = 1, . . . , m do
+3:
+w ←Avj
+4:
+for i = 1, . . . , j do
+5:
+hij ←v∗
+i w
+6:
+w ←w −hijvi
+7:
+end for
+8:
+hj+1,j ←∥w∥2
+9:
+if hj+1,j = 0 then
+10:
+terminate
+▷happy breakdown
+11:
+end if
+12:
+vj+1 ←w/hj+1,j
+13: end for
+with adaptive substepping and incomplete orthogonalization, which is one reason for
+its observed efficiency in exponential integrator computations [1, 10, 14, 16].
+On the other hand, with the block formulation (1.6), the vector (1.4) is obtained
+from the first n components of eWb, where b = [b∗
+0, b
+∗]∗, and W and b are defined in (1.6)
+and (1.7), respectively; see [5, Thm. 2.1].
+We may assume b̸ = 0, since if b = 0, then no matrix φ-functions beyond the
+exponential are required in (1.4); this is a degenerate case that is not considered in this
+paper.
+3
+Basis-dependent Krylov approximation
+The lower-right block J in W from (1.6) has size sn × sn, but inherits the nilpotency
+of the s-dimensional Jordan block, so that the dimension of any Krylov subspace with
+respect to J is bounded by s. More generally, we have the following lemma.
+Lemma 3.1. Let b be defined as in (1.7) and let m ≥s. Then, if bs̸ = 0, we have
+dim Km(J, b) = s. More generally, if q = max{j : bj̸ = 0}, then dim Km(J, b) = q.
+Proof. For k ≥s, it holds Jk = (Js(0) ⊗In)k = Js(0)k ⊗In = 0, which directly yields
+dim Km(J, b) ≤s.
+For k = 0, . . . , s −1, the Kronecker structure of J = Js(0) ⊗In gives
+Jkb =
+
+b∗
+k+1
+b∗
+k+2
+. . .
+b∗
+s
+0∗
+. . .
+0∗∗.
+Suppose first that bs̸ = 0 and Ps−1
+k=0 αkJkb = 0. Inspecting the last block row of this
+vector identity gives α0bs = 0, hence α0 = 0. Inspecting the next block row gives
+α1bs = 0, and so α1 = 0. Continuing upward yields α0 = · · · = αs−1 = 0. Hence the set
+5
+of s vectors {b, Jb, . . . , Js−1b} is linearly independent, which implies dim Ks(J, b) = s.
+If the last nonzero block of b is bq, the same argument applied to the truncated chain
+b, Jb, . . . , Jq−1b gives dim Ks(J, b) = q.
+Since in our setting, bs̸ = 0 is assumed, we have dim Ks(J, b) = s. Let X ∈Cns×s
+be any full-rank matrix whose columns form a basis of Ks(J, b). Since this space is
+J-invariant, i.e., JKs(J, b) ⊂Ks(J, b), there exists a unique matrix N ∈Cs×s such that
+JX = XN.
+(3.1)
+Moreover, b ∈range(X), so there exists γ ∈Cs such that b = Xγ. If X has orthonormal
+columns, then N = X∗JX and γ = X∗b. Otherwise, we have N = X†JX and γ = X†b.
+Define
+KX :=
+A
+BX
+0
+N
+
+,
+BX := EX,
+cX :=
+b0
+γ
+
+,
+(3.2)
+and
+QX =
+In
+0
+0
+X
+
+.
+(3.3)
+Clearly, range(QX) = Cn ⊕Ks(J, b). Equation (3.2) represents the fundamental basis-
+dependent framework. The subscript X indicates the representation induced by the
+basis map from the coefficient space to the Krylov subspace associated with the lower-
+right block
+X : Cs →Ks(J, b) ⊂Cns,
+γ 7→Xγ,
+where the vector γ stores the coefficients of the embedded vector Xγ ∈Ks(J, b). Ac-
+cordingly, the one-to-one coordinate map
+QX : Cn ⊕Cs →Cn ⊕Cns
+embeds the reduced augmented coefficient space into the larger augmented coefficient
+space.
+A crucial element of our forthcoming analysis is the following relation between
+Krylov spaces built with W and KX.
+Theorem 3.2. Let W, QX and KX be defined as in (1.6), (3.2) and (3.3), respectively,
+and let b = QXcX. Then for any polynomial p,
+p(W)b = QX p(KX)cX.
+(3.4)
+In particular,
+Km(W, b) = QXKm(KX, cX).
+(3.5)
+Proof. A simple calculation shows that
+WQX =
+A
+EX
+0
+JX
+
+=
+A
+BX
+0
+XN
+
+=
+In
+X
+ A
+BX
+0
+N
+
+= QXKX,
+(3.6)
+where the second equality follows from (3.1). Repeatedly applying (3.6) shows
+W kQX = QXKk
+X, for all k ≥1,
+(3.7)
+which directly implies (3.4). The identity (3.5) directly follows from the representation
+Km(W, b) = {p(W)b : p ∈Pm−1}.
+6
+Corollary 3.3. Let the assumptions of Theorem 3.2 hold and define the first-block
+projection matrices ΠK = [In, 0] ∈Cn×(n+s) and ΠW = [In, 0] ∈Cn×(n+ns). Then
+eWb = QXeKXcX,
+ΠWeWb = ΠKeKXcX,
+(3.8)
+and, for any polynomial p,
+ΠK(eKX −p(KX))cX = ΠW(eW −p(W))b.
+(3.9)
+Proof. We begin by noting that
+ΠWQX = [In, 0]
+In
+0
+0
+X
+
+= ΠK.
+(3.10)
+Using the Taylor series of the exponential together with the relation (3.7), we have
+eWQX =
+∞
+X
+ℓ=0
+W ℓQX
+ℓ!
+= QX
+∞
+X
+ℓ=0
+Kℓ
+X
+ℓ! = QXeKX.
+The first equality in (3.8) follows by using b = QXcX, and the second one then fol-
+lows from the first one via (3.10). Equation (3.9) now follows from (3.8) and the fact
+that (3.4) together with (3.10) implies ΠWp(W)b = ΠKp(KX)cX.
+The identities (3.4) and (3.8) imply that the desired vector in (1.4) can be obtained
+by evaluating the action of the exponential for the reduced augmented matrix KX on
+the vector cX defined in (3.2), and the resulting projected polynomial error is exactly
+the projected error of the larger block formulation (1.6) for the same polynomial.
+The Krylov subspace generated by the reduced pair, Km(KX, cX) ⊂Cn ⊕Cs, is
+embedded in the larger augmented space as QXKm(KX, cX) ⊂Cn ⊕Cns.
+Different
+choices of X only change the coordinate representations BX, N, and γ of (3.2), but
+preserve the projected actions (3.4) and (3.8).
+3.1
+The basis choice of KIOPS
+Define
+XK =
+
+Js−1b
+Js−2b
+· · ·
+Jb
+b
+
+=
+
+
+bs
+bs−1
+. . .
+. . .
+b1
+0
+bs
+...
+b2
+...
+...
+...
+...
+...
+...
+...
+bs
+bs−1
+0
+. . .
+. . .
+0
+bs
+
+
+∈Cns×s,
+(3.11)
+which has a block upper triangular Toeplitz structure. By Lemma 3.1, the columns
+of XK form a nonorthogonal Jordan-chain basis of Ks(J, b). Moreover, for every v =
+XKγ ∈Ks(J, b), the coefficient vector of Jv with respect to this basis is Js(0)γ. Specif-
+ically,
+JXK = XKJs(0),
+EXK = [bs, bs−1, . . . , b1],
+b = XKes,
+7
+and so the coordinate matrix in (3.2) becomes the augmented matrix K of KIOPS
+in (1.5). The connection with the larger block formulation in (1.6) is
+WQK = QKK,
+b = QKc = QK
+b0
+es
+
+,
+QK =
+In
+0
+0
+XK
+
+,
+(3.12)
+where c is defined in (2.6).
+As we have discussed above, different choices of basis X change the pair (BX, N)
+in (3.2). An orthonormal basis gives a bounded coupling ∥BX∥2 ≤1, but generally pro-
+duces a dense nilpotent matrix N. The KIOPS basis XK yields the standard nilpotent
+Jordan representation G = Js(0) and the simple coupling BX = [bs, . . . , b1], at the cost
+of a nonorthogonal embedding QK.
+The relations derived in Theorem 3.2 and Corollary 3.3 remain applicable for the
+specific choice of KIOPS basis XK. Note that we distinguish quantities associated with
+the KIOPS basis from those associated with a general basis by using the subscripts K
+and X, respectively.
+3.1.1
+Conditioning of the KIOPS basis
+The block triangular Toeplitz structure in the XK of (3.11) immediately implies that
+it has full column rank if and only if bs̸ = 0, which is our standard assumption that we
+have made based on (1.4). This KIOPS basis matrix XK can therefore be ill-conditioned
+if the diagonal vector bs is small relative to the other vectors bj. But what more can
+be said about how this conditioning depends on the right-hand-side vectors bj? To this
+end, we look at the Gram matrix of XK, which, by the block upper triangular Toeplitz
+structure, is given explicitly as
+GK := X∗
+KXK,
+(GK)ij =
+min{i,j}
+X
+ℓ=1
+b∗
+s−i+ℓbs−j+ℓ,
+1 ≤i, j ≤s,
+(3.13)
+where the (i, j) entry is obtained by taking the inner product of columns i and j of XK
+and then summing over their common nonzero block rows.
+Now suppose that b1 = b2 = · · · = bs = v̸ = 0.2 We have, from (3.13),
+GK = ∥v∥2
+2Ms,
+(Ms)ij = min{i, j},
+1 ≤i, j ≤s,
+where Ms is the minij matrix from the MATLAB gallery. It is known that Ms has a
+tridiagonal inverse, and that the eigenvalues are given by
+λk(Ms) =
+1
+2 −2 cos((2k −1)π/(2s + 1)),
+k = 1, . . . , s,
+so that κ2(Ms) ∼16s2/π2; see [36]. It follows that the condition number of XK grows
+linearly in s,
+κ2(XK) =
+p
+κ2(GK) =
+p
+κ2(Ms) ∼4s/π.
+2Of course, this is an academic example, as in the case b1 = · · · = bs = v, the action of all φ-
+functions could be approximated in the same (standard) Krylov space Ks(A, v), so that there is no
+need for augmenting the matrix at all.
+8
+It appears from the above example that the conditioning of XK has little to do with
+the collinearity of the vectors bj. On the other hand, a common scaling bj 7→βbj for
+all j, with β̸ = 0, replaces XK by βXK and hence will leave κ2(XK) unchanged, since
+each block entry of XK depends linearly on the bj.
+4
+Basis-induced metric
+Returning to the general basis-dependent framework of (3.2), the identity WQX =
+QXKX of (3.6) shows that KX and W describe the same action after embedding. To be
+precise, for every reduced coordinate vector u = [ν∗, γ∗]∗∈Cn ⊕Cs, applying KX to u
+and then embedding with QX gives the same vector as first embedding u into Cn ⊕Cns
+and then applying W. However, the embedding QX of (3.3) does not generally preserve
+Euclidean distance. Indeed, it does so if and only if X∗X = I, since
+∥QXu∥2
+2 = ∥ν∥2
+2 + ∥Xγ∥2
+2,
+∥u∥2
+2 = ∥ν∥2
+2 + ∥γ∥2
+2.
+(4.1)
+We therefore equip the reduced coordinate space HX := Cn ⊕Cs with the inner
+product induced by the embedding QX,
+⟨z, u⟩MX := (QXz)∗(QXu) = z∗MXu,
+MX := Q∗
+XQX.
+(4.2)
+Since QX has full column rank, MX is Hermitian positive definite, and hence ⟨·, ·⟩MX
+defines an inner product on HX. The corresponding MX-induced norm is
+∥z∥2
+MX := z∗MXz = ∥QXz∥2
+2,
+(4.3)
+which is effectively the Euclidean norm of the embedded vector in the larger block
+space. In particular, since ΠKz = ΠWQXz and ∥ΠW∥2 = 1 for the projections defined
+in Corollary 3.3, we have
+∥ΠKz∥2 = ∥ΠWQXz∥2 ≤∥QXz∥2 = ∥z∥MX.
+(4.4)
+Finally, since MX is Hermitian positive definite, its principal square root exists and
+is itself Hermitian positive definite, and hence nonsingular [23, Chap. 6]. We denote
+the principal square root by
+RX := M 1/2
+X .
+(4.5)
+In particular, MX = R2
+X = R∗
+XRX.
+It follows, analogously to (4.3), that ∥z∥MX =
+∥RXz∥2. Therefore, the induced matrix norm satisfies
+∥A∥MX := max
+z̸=0
+∥Az∥MX
+∥z∥MX
+= max
+z̸=0
+∥RXAz∥2
+∥RXz∥2
+.
+With the change of variables u = RXz, this gives
+∥A∥MX = max
+u̸=0
+∥RXAR−1
+X u∥2
+∥u∥2
+= ∥RXAR−1
+X ∥2,
+(4.6)
+which identifies the MX-induced matrix norm with the Euclidean norm of the similar
+matrix RXAR−1
+X . Note that QX is generally rectangular and therefore cannot be used
+in place of RX in (4.6).
+9
+4.1
+Metric distortion
+Having defined the MX-induced metric in (4.3), it is natural to ask how much it can
+deviate from the Euclidean metric on the reduced coordinates, and under what cir-
+cumstances this distortion becomes substantial. For u = [ν∗, γ∗]∗, subtracting the two
+expressions in (4.1) gives
+∥u∥2
+MX −∥u∥2
+2 = ∥Xγ∥2
+2 −∥γ∥2
+2,
+(4.7)
+which shows that the squared difference between the induced and Euclidean squared
+norms is governed by the extent to which the basis matrix X fails to be an isometry.
+More generally, the following result characterizes the metric distortion, in both additive
+and multiplicative forms, in terms of the singular values of X.
+Theorem 4.1. For any full-rank matrix X ∈Cns×s whose columns form a basis of
+Ks(J, b) and u = [ν∗, γ∗]∗∈Cn ⊕Cs, the MX-induced norm (4.3) and the Euclidean
+norm satisfy
+sup
+u̸=0
+∥u∥2
+MX −∥u∥2
+2
+
+∥u∥2
+2
+= max
+i
+|σi(X)2 −1|,
+(4.8)
+where the supremum is attained by vectors with ν = 0. Moreover,
+sup
+u̸=0
+∥u∥MX
+∥u∥2
+= max{1, σmax(X)},
+sup
+u̸=0
+∥u∥2
+∥u∥MX
+= max{1, 1/σmin(X)}.
+(4.9)
+Proof. Define G = X∗X. Then ∥u∥2
+MX −∥u∥2
+2 = γ∗(G −I)γ by (4.7). Hence
+∥u∥2
+MX −∥u∥2
+2
+
+∥u∥2
+2
+= |γ∗(G −I)γ|
+∥ν∥2
+2 + ∥γ∥2
+2
+.
+For each fixed γ, the numerator is independent of ν, while the denominator is minimized
+when ν = 0. Therefore
+sup
+u̸=0
+∥u∥2
+MX −∥u∥2
+2
+
+∥u∥2
+2
+= sup
+γ̸=0
+|γ∗(G −I)γ|
+∥γ∥2
+2
+.
+(4.10)
+Since G −I is Hermitian, the Rayleigh–Ritz characterization [27, sect. 4.2] gives
+sup
+γ̸=0
+γ∗(G −I)γ
+
+γ∗γ
+= ∥G −I∥2 = max
+i
+|σi(X)2 −1|,
+(4.11)
+where the last equality follows because the eigenvalues of G −I are σi(X)2 −1. Com-
+bining (4.10) and (4.11) proves (4.8). The supremum is attained by taking γ to be an
+eigenvector of G−I corresponding to an eigenvalue of largest absolute value and setting
+ν = 0.
+Finally, recall from (3.3) and (4.2) that MX is block diagonal with eigenvalues 1 and
+σi(X)2. For the first ratio in (4.9),
+
+sup
+u̸=0
+∥u∥MX
+∥u∥2
+2
+= sup
+u̸=0
+u∗MXu
+u∗u
+= λmax(MX) = max{1, σmax(X)2}.
+10
+For the second ratio, taking v = M 1/2
+X u gives
+
+sup
+u̸=0
+∥u∥2
+∥u∥MX
+2
+= sup
+v̸=0
+v∗M −1
+X v
+v∗v
+= λmax(M −1
+X ) = max{1, 1/σmin(X)2}.
+Taking square roots proves (4.9).
+Theorem 4.1 shows that induced and Euclidean metrics are close when the singular
+values of X are clustered near one, whereas some singular values of X being far from
+one lead to a corresponding distortion of lengths in the reduced coordinates.
+4.1.1
+Sensitivity of KIOPS basis to right-hand-side scaling
+For the KIOPS basis X = XK of (3.11), the special structure enables a more explicit
+analysis of how the metric distortion depends on the right-hand-side scaling. A common
+scaling bj 7→βbj with β̸ = 0 replaces XK by βXK and hence maps every singular value
+from σi(XK) to βσi(XK). The following Corollary 4.2 describes how this scaling can
+change the metric distortion relative to the fixed Euclidean metric.
+Corollary 4.2. Let b1, . . . , bs be a family of right-hand-side vectors, and let XK be the
+corresponding KIOPS basis matrix of (3.11). For the scaled right-hand-side vectors
+bj = βbj, β > 0 we can define the corresponding β-dependent induced norm by
+∥u∥2
+MK(β) := u∗MK(β)u,
+MK(β) =
+In
+β2X∗
+KXK
+
+.
+Then
+sup
+u̸=0
+∥u∥2
+MK(β) −∥u∥2
+2
+
+∥u∥2
+2
+= max
+i
+|β2σi(XK)2 −1|
+(4.12)
+and
+sup
+u̸=0
+∥u∥MK(β)
+∥u∥2
+= max{1, βσmax(XK)},
+sup
+u̸=0
+∥u∥2
+∥u∥MK(β)
+= max{1, 1/(βσmin(XK))}.
+(4.13)
+Proof. Define the KIOPS basis matrix corresponding to the scaled vectors bj as XK(β) :=
+βXK, and set the Gram matrix to be GK(β) := XK(β)∗XK(β) = β2GK, recalling
+from (3.13) that GK = X∗
+KXK. Therefore, we can define the scaled embedding matrix
+and the corresponding metric matrix as
+QK(β) =
+In
+0
+0
+XK(β)
+
+,
+MK(β) = QK(β)∗QK(β) =
+In
+0
+0
+β2X∗
+KXK
+
+.
+The expressions (4.12) and (4.13) are obtained by applying Theorem 4.1 to the scaled
+basis XK(β) and noting that σi(XK(β)) = βσi(XK) for every i.
+11
+The scaling effect on the metric distortion discussed in this subsection depends on
+the locations of the singular values relative to one. It should therefore not be conflated
+with the effect on the conditioning κ2(XK), which measures only the spread of the
+singular values.
+As discussed in Section 3.1.1, a common scaling bj 7→βbj leaves
+κ2(XK) unchanged.
+5
+Field-of-values equivalence
+As outlined in Section 2, the field of values plays a crucial role in understanding the
+convergence behavior of Krylov subspace methods; see in particular (2.3). We therefore
+now investigate how the fields of values of the different operators under consideration
+are related to each other.
+To do so, we begin by presenting a simple, auxiliary result on the field of values of
+block upper triangular matrices.
+Proposition 5.1. Let
+M =
+A
+C
+0
+D
+
+.
+Then
+F(M) ⊆conv
+ F(A) ∪F(D)
+
++ {ζ ∈C : |ζ| ≤1
+2∥C∥2},
+(5.1)
+where conv(·) denotes the convex hull of a set.
+Proof. Let z = [x∗, w∗]∗be a unit vector, with sizes of x and w consistent with the
+block partitioning of M. We then have
+F(M) = {x∗Ax + w∗Dw + x∗Cw: ∥x∥2
+2 + ∥w∥2
+2 = 1}.
+If x, w̸ = 0, then
+x∗Ax + w∗Dw = ∥x∥2
+2
+x∗Ax
+∥x∥2
+2
++ ∥w∥2
+2
+w∗Dw
+∥w∥2
+2
+,
+where
+x∗Ax
+∥x∥2
+2
+∈F(A),
+w∗Dw
+∥w∥2
+2
+∈F(D).
+This shows x∗Ax + w∗Dw form a convex combination of points in F(A) and F(D).
+The cases x = 0 or w = 0 are also included by the same argument. Moreover,
+|x∗Cw| ≤∥C∥2∥x∥2∥w∥2 ≤1
+2(∥x∥2
+2 + ∥w∥2
+2)∥C∥2 = 1
+2∥C∥2,
+which yields the inclusion (5.1).
+Applying Proposition 5.1 to the full block matrix W of (1.6) gives
+F(W) ⊆conv
+ F(A) ∪F(J)
+
++ {ζ ∈C: |ζ| ≤1
+2},
+(5.2)
+12
+because ∥E∥2 = 1. On the other hand, applying the same inclusion to the KIOPS
+matrix of (1.5) yields
+F(K) ⊆conv
+ F(A) ∪F(Js(0))
+
++ {ζ ∈C : |ζ| ≤1
+2∥[bs, . . . , b1]∥2}.
+(5.3)
+Since J = Js(0) ⊗In is unitarily similar to In ⊗Js(0) = diag(Js(0), . . . , Js(0)) via a
+permutation matrix (see [23, sect. B.13]), we have
+F(J) = F
+ diag(Js(0), . . . , Js(0))
+
+= conv
+ F(Js(0))
+
+= F(Js(0)).
+This field of values is explicitly given by
+F(J) = F(Js(0)) = {ζ ∈C: |ζ| ≤cos( π
+s+1)},
+(5.4)
+the closed disk centered at the origin with radius cos( π
+s+1); see, e.g., [22, Prop. 1].
+Unlike (5.2), the bound for F(K) involves ∥[bs, . . . , b1]∥2 and is therefore not uniform
+in the right-hand side data. In comparison, (5.2) enlarges conv(F(A)∪F(J)) only by the
+fixed disk of radius 1/2. This contrast can be interpreted using the metric introduced
+in Section 4, which we now use to compare the field of values of the reduced coordinate
+matrix with that of the full block formulation.
+5.1
+Metric field of values induced by the basis
+The induced inner product (4.2) motivates the metric field of values [17, 20]
+FMX(KX) =
+⟨z, KXz⟩MX
+⟨z, z⟩MX
+: z̸ = 0
+
+,
+MX = Q∗
+XQX =
+In
+0
+0
+X∗X
+
+.
+(5.5)
+When X has orthonormal columns, MX = I and the metric field of values agrees with
+the standard Euclidean field of values of KX.
+The following result characterizes FMX(KX) as the Euclidean numerical range of
+a matrix that is similar to KX and furthermore shows that it is always contained in
+F(W).
+Lemma 5.2. The metric field of values satisfies
+FMX(KX) = F(RXKXR−1
+X )
+(5.6)
+where RX is defined in (4.5). Furthermore,
+FMX(KX) ⊆F(W).
+(5.7)
+Proof. Let u = RXz. Then z̸ = 0 if and only if u̸ = 0, and
+z∗MXz = z∗R∗
+XRXz = u∗u,
+while
+z∗MXKXz = z∗R∗
+XRXKXz = u∗RXKXR−1
+X u.
+13
+Hence, equation (5.6) follows via
+FMX(KX) =
+z∗MXKXz
+z∗MXz
+: z̸ = 0
+
+=
+u∗RXKXR−1
+X u
+u∗u
+: u̸ = 0
+
+= F(RXKXR−1
+X ).
+(5.8)
+Substituting (3.6) into the first equality in (5.8) and rewriting MX as Q∗
+XQX gives
+FMX(KX) =
+(QXz)∗W(QXz)
+∥QXz∥2
+2
+: z̸ = 0
+
+⊆F(W),
+where the inclusion uses the full column rank of QX, so that QXz̸ = 0 whenever z̸ = 0.
+This proves (5.7) and thus concludes the proof.
+5.1.1
+KIOPS specialization
+We now apply the preceding metric field-of-values comparison to the KIOPS basis
+matrix XK. For this choice, the general coordinate matrix KX in (3.2) is the KIOPS
+matrix K in (1.5), and the embedding is QK from (3.12). Thus MK = Q∗
+KQK, and the
+corresponding metric field of values is
+FMK(K) = F(RKKR−1
+K ),
+R∗
+KRK = MK =
+In
+0
+0
+X∗
+KXK
+
+,
+(5.9)
+for the principal matrix square root RK = M 1/2
+K ; cf. (4.5). Taking X = XK in (5.7)
+gives
+FMK(K) ⊆F(W).
+Consequently, the metric field of values of the KIOPS coordinate matrix is controlled
+by the block-matrix bound (5.2). This is the appropriate comparison with the em-
+bedded formulation: the field of values is invariant under unitary similarity, but not
+under a general non-unitary similarity. Therefore, the Euclidean field of values of the
+coordinate matrix K is not expected to match that of W.
+Indeed, the elementary
+estimate (5.3) shows that F(K) may grow with the size of the right-hand-side block
+B = [bs, . . . , b1]. The metric field of values FMK(K) removes this coordinate distortion
+by measuring a reduced vector z through the embedded norm ∥QKz∥2 = ∥z∥MK. As
+analyzed in Section 4.1, the difference between this embedded metric and the Euclidean
+metric is governed by the singular values of the basis matrix, here XK.
+The same viewpoint explains the effect of uniform right-hand-side scaling.
+Let
+bj = βbj, B = βB, and
+K(β) =
+
+A
+B
+0
+Js(0)
+
+.
+The Euclidean field of values F
+ K(β)
+
+can become dominated by the scaled off-diagonal
+block B, which is the behavior anticipated by (5.3). In contrast, let GK = X∗
+KXK be the
+Gram matrix in (3.13), and let its principal square root be CK := G1/2
+K . By Corollary 4.2,
+the scaled metric is MK(β) = diag(In, β2GK) and we have
+RK(β) := diag(In, βCK) = MK(β)1/2.
+14
+Therefore, by Lemma 5.2,
+FMK(β)(K(β)) = F
+ RK(β)K(β)RK(β)−1
+= F
+A
+BC−1
+K
+0
+CKJs(0)C−1
+K
+
+,
+(5.10)
+which is independent of β.
+Hence, uniform right-hand-side scaling may change the
+Euclidean field of values of the scaled KIOPS matrix, whereas the corresponding scaled
+metric field of values stays invariant.
+5.2
+Polynomial approximation bounds
+As outlined in Section 2, best uniform polynomial approximations play an important
+role in studying the convergence behavior of Krylov methods. Thus, the inclusion (5.7)
+is useful for understanding the error of Krylov approximations for the augmented matrix
+formulations.
+The following result uses the above ingredients to bound the norm of the projected
+error (3.9) in terms of best polynomial approximation on the metric field of values.
+Theorem 5.3. We have
+inf
+p∈Pm−1 ∥ΠKX(eKX −p(KX))cX∥2 ≤Ccr∥b∥2Em−1
+ ez, F(W)
+
+,
+(5.11)
+Proof. Applying the bound (2.5) to RXKXR−1
+X gives, for every function f analytic on
+a neighborhood of F(RXKXR−1
+X ),
+∥f(RXKXR−1
+X )∥2 ≤Ccr
+max
+ζ∈F(RXKXR−1
+X ) |f(ζ)|,
+where, by (4.6), the left-hand side satisfies
+∥f(RXKXR−1
+X )∥2 = ∥RXf(KX)R−1
+X ∥2 = ∥f(KX)∥MX.
+Using (5.6), we obtain
+∥f(KX)∥MX ≤Ccr
+max
+ζ∈FMX(KX) |f(ζ)|,
+(5.12)
+which is, in fact, the Crouzeix–Palencia bound (2.5) applied in the finite-dimensional
+Hilbert space HX defined in (4.2); see [13]. Taking f(ζ) = eζ −p(ζ) in (5.12), with
+p ∈Pm−1, yields
+∥(eKX −p(KX))cX∥MX ≤Ccr∥cX∥MX
+max
+ζ∈FMK(KX) |eζ −p(ζ)|.
+(5.13)
+Substituting the bound (4.4) into the left-hand side of (5.13) and using ∥cX∥MX =
+∥QXcX∥2 = ∥b∥2, we obtain, for every p ∈Pm−1,
+∥ΠKX(eKX −p(KX))cX∥2 ≤Ccr∥b∥2
+max
+ζ∈FMX(KX) |eζ −p(ζ)|.
+15
+Taking the infimum over p ∈Pm−1 now gives
+inf
+p∈Pm−1 ∥ΠKX(eKX −p(KX))cX∥2 ≤Ccr∥b∥2Em−1
+ ez, FMX(KX)
+
+≤Ccr∥b∥2Em−1
+ ez, F(W)
+
+,
+where the second inequality follows from FMX(KX) ⊆F(W) in (5.7).
+The following corollary specializes the above result to the basis choice used in
+KIOPS.
+Corollary 5.4. For the approximant (2.6) produced by KIOPS (in the usual Euclidean
+space), we have the error bound
+inf
+p∈Pm−1 ∥ΠK(eK −p(K))c∥2 ≤Ccr∥b∥2Em−1
+ ezF(W)
+
+.
+(5.14)
+Proof. The result immediately follows by using XK as the basis X in (5.11).
+Since F(W) is bounded as in (5.2), the approximation region in (5.14) is independent
+of the individual norms of b1, . . . , bs. These vectors appear only through the scale factor
+∥b∥2. The bound (5.14) is the basic mechanism by which field-of-values information for
+the larger block formulation (1.6) can be used for the KIOPS formulation (1.5).
+Standard techniques for bounding the best uniform polynomial approximation error
+Em−1
+ ez, F(W)
+
+involve conformal mappings and the Faber transform; see, e.g., [7].
+However, due to the non-trivial shape of the field of values of the augmented matrix,
+the respective conformal mappings are typically not known in closed form. Therefore,
+explicitly evaluating (5.14) will in general involve numerically computing a conformal
+mapping, or estimating the polynomial approximation error via, e.g., a Remez-type
+algorithm or an approach as described in Appendix A. Even in the arguably simplest
+case that A is Hermitian negative semidefinite, so that F(A) reduces to an interval on
+the negative real line, it is impossible to explicitly construct a conformal mapping for
+the enclosing set on the right-hand side of (5.2).
+The following auxiliary result demonstrates how to obtain an upper bound for the
+error by further enclosing this set in a Bernstein ellipse and using a truncated Chebyshev
+series for estimating the error. Note that one cannot expect this bound to be sharp,
+as the actual spectral region is replaced by a slightly larger set. However, as we will
+demonstrate, it at least yields an error bound that is much more reminiscent of the
+actual behavior than what one would obtain from a bound on F(K).
+Proposition 5.5. Let A be negative semidefinite with F(A) = [−α, 0], α > 0. Then
+Em−1(ez, F(W)) ≤e−h
+∞
+X
+k=m
+Bk(h)
+ χk
+s + χ−k
+s
+
+,
+where Bk denotes the modified Bessel function of the first kind and
+χs := 1 + Rs
+h +
+s
+Rs
+h
+
+2 + Rs
+h
+
+,
+h := α
+2 ,
+Rs := rs + 1
+2,
+rs = cos
+
+π
+s + 1
+
+.
+16
+Proof. We recall from (5.4) that F(J) = {ζ ∈C: |ζ| ≤rs}, so that conv
+ [−α, 0] ∪
+F(J)
+
+= conv
+ {−α} ∪{ζ ∈C: |ζ| ≤rs}
+
+. Moreover, by standard properties of the
+Minkowski sum, we have
+conv
+ {−α} ∪{ζ ∈C: |ζ| ≤rs}
+
+⊆[−α, 0] + {ζ ∈C: |ζ| ≤Rs} =: Ss.
+We now further enclose the Bunimovich stadium Ss in a Bernstein ellipse Es with foci
+at −α and 0 and semi-axes
+as := h + Rs,
+bs :=
+p
+a2
+s −h2 =
+p
+Rs(2h + Rs),
+i.e., we take
+Es =
+
+−h + h
+2
+ ζ + ζ−1
+: |ζ| ≤χs
+
+,
+where
+χs = as + bs
+h
+= h + Rs +
+p
+Rs(2h + Rs)
+h
+= 1 + Rs
+h +
+s
+Rs
+h
+
+2 + Rs
+h
+
+.
+We now estimate the polynomial approximation error on Es. Note that via the affine
+change of variables
+ζ = −h + hξ,
+ξ = ζ + h
+h
+,
+the ellipse Es is mapped to the standard Bernstein ellipse
+Eχs =
+1
+2
+ ξ + ξ−1
+: |ξ| ≤χs
+
+.
+The Chebyshev expansion of ehξ is
+ehξ = B0(h) + 2
+∞
+X
+k=1
+Bk(h)Tk(ξ),
+where Tk denotes the Chebyshev polynomial of degree k; see, e.g., [32, Chapter 5]. We
+define a polynomial approximation pm−1 for eζ by truncating the Chebyshev expansion
+of eζ = e−h+hξ = e−hehξ after the mth term, i.e.,
+pm−1(ζ) := e−h
+"
+B0(h) + 2
+m−1
+X
+k=1
+Bk(h)Tk
+ζ + h
+h
+#
+.
+For ξ ∈Eχs,
+|Tk(ξ)| ≤χk
+s + χ−k
+s
+2
+.
+Therefore, for ζ ∈Es, we have
+|eζ −pm−1(ζ)| ≤2e−h
+∞
+X
+k=m
+Bk(h)
+Tk
+ζ + h
+h
+ ≤e−h
+∞
+X
+k=m
+Bk(h)
+ χk
+s + χ−k
+s
+
+.
+17
+5
+10
+15
+20
+25
+30
+Krylov dimension m
+10-15
+10-10
+10-5
+100
+Relative error and -eld-of-values estimate
+error
+bound based on F(K)
+bound based on F(W)
+bound based on Proposition 5.5
+Figure 5.1: Comparison of bounds based on best polynomial approximation on F(K)
+and F(W) (which require numerically solving a polynomial approximation problem),
+as well as the a priori bound from Proposition 5.5 for the poisson model problem. See
+the description in Section 6.1 for details on the experimental setup.
+Finally, since
+F(W) ⊆Ss ⊆Es,
+the same estimate holds on F(W). Since pm−1 ∈Pm−1, taking the infimum over all
+degree-(m −1) polynomials gives the stated bound for Em−1(ez, F(W)).
+In the proof of Proposition 5.5, a Bunimovich stadium appears as intermediate
+enclosure for F(W). We refer to [41] for an in-depth discussion of the fact that the cor-
+responding conformal mapping does not have a closed form. The technique of further
+embedding a Bunimovich stadium into an ellipse to obtain convergence estimates, simi-
+lar to our derivations above, was previously used in the context of an inexact shift-invert
+method for Stieltjes matrix functions in [21, Appendix A].
+To illustrate the bound obtained from Proposition 5.5, we perform a small numer-
+ical experiment. The setup is the same as for the poisson test problem considered
+in Section 6 below; see the description there for details. In Figure 5.1 we plot the ac-
+tual Krylov error for approximating the action of φ-functions, together with the bounds
+obtained from Proposition 5.5 as well as the bounds obtained via optimal polynomial
+approximation on F(K) and F(W) (computed as described in Appendix A). First, we
+observe that the bound based on polynomial approximation on F(W) very accurately
+predicts the actual convergence behavior of the Krylov method, while the bound ob-
+tained for F(K) is not predictive at all, having a wrong slope and overestimating the
+magnitude of the error by several orders of magnitude. The bound from Proposition 5.5
+lies in between these two, as expected. Being based on polynomial approximation on a
+set that is larger than F(W), it overestimates the magnitude of the error a bit more and
+also does not predict the convergence slope completely correctly, in particular in the
+second phase of faster convergence. Still, it represents a substantial improvement over
+the bound based on F(K), and, in contrast to the other two bounds, can be cheaply
+18
+Real part
+-20
+-15
+-10
+-5
+0
+5
+10
+15
+Imaginary part
+-15
+-10
+-5
+0
+5
+10
+15
+F(K)
+FMK(K)
+F(W)
+F(A)
+bound on F(K)
+bound on F(W)
+6(K)
+5
+10
+15
+20
+25
+30
+Krylov dimension m
+10-15
+10-10
+10-5
+100
+Relative error and -eld-of-values estimate
+KIOPS basis (K)
+Block formulation (W)
+Orthonormal basis (KX)
+bound based on F(K)
+bound based on FMK(K)
+bound based on F(W)
+Figure 6.1: Negative Poisson matrix from a two-dimensional finite-difference Laplacian.
+evaluated without the need to numerically solve complicated polynomial approximation
+problems.
+6
+Numerical experiments
+In this section we demonstrate the effectiveness of the new error bounds and results
+derived in the previous sections. We compare error bounds obtained from different
+field-of-values sets using characteristic numerical examples of modest size.
+This is
+necessary for the sampled boundary computations and the discrete minimax problems
+in Appendix A to remain feasible within a reasonable amount of time.
+All experiments were run using MATLAB R2025b Update 5 on a Mac laptop
+equipped with a 2.0 GHz quad-core Intel Core i5-1038NG7 processor and 16 GiB of
+RAM. The code we used to produce the results in this section is available on GitHub3.
+For all experiments below, the input matrix A is scaled as A ←αA/∥A∥2 with
+α = 6.
+This moderate scaling is not special, but makes the sizes of the fields of
+values comparable across different experiments (since the field of values scales linearly).
+The Poisson example has dimension 49 while the rest have dimension 40.
+All test
+matrices are signed or shifted so that their spectra lie in the left half-plane, reflecting
+the dissipative linear operators arising in applications of exponential integrators [26].
+We take s = 5 in (1.4), a modest augmented KIOPS dimension such that the
+auxiliary Jordan block is large enough to produce a visible disk F(Js(0)) in (5.4). The
+entries of the vector b0 are drawn from a Gaussian distribution and normalized to unit
+2-norm. The remaining vectors are chosen from the family
+bj = β
+q + δrj
+∥q + δrj∥2
+,
+j = 1, . . . , s,
+(6.1)
+where q and the rj are unit vectors obtained by normalizing independent standard
+Gaussian vectors. The common factor β scales the upper-right block of the KIOPS
+3https://github.com/xiaobo-liu/phimv_krylov_aug.
+19
+Real part
+-20
+-15
+-10
+-5
+0
+5
+10
+15
+Imaginary part
+-15
+-10
+-5
+0
+5
+10
+15
+F(K)
+FMK(K)
+F(W)
+F(A)
+bound on F(K)
+bound on F(W)
+6(K)
+5
+10
+15
+20
+25
+30
+Krylov dimension m
+10-15
+10-10
+10-5
+100
+Relative error and -eld-of-values estimate
+KIOPS basis (K)
+Block formulation (W)
+Orthonormal basis (KX)
+bound based on F(K)
+bound based on FMK(K)
+bound based on F(W)
+Figure 6.2: Hermitian negative definite Kac–Murdock–Szeg¨o Toeplitz matrix.
+matrix K in (1.5) linearly, and the collinearity of the bj is affected by the perturbation
+level δ. A larger β may enlarge F(K) and make the estimate in (5.3) more pessimistic,
+because the Euclidean field of values is sensitive to the scaled off-diagonal block. In
+contrast, it leaves F(W) and the corresponding scaled metric field of values unchanged,
+since the scaling is compensated by the metric MK(β) from Corollary 4.2; see (5.10).
+For the five model examples considered in Section 6.1, we take β = 10 and δ = 10−1
+in (6.1). The right-hand-side sensitivity tests in Section 6.2 then vary either δ or β
+while keeping the other parameter fixed at this reference value.
+6.1
+Model examples
+We first compare three Arnoldi formulations for computing the same projected expo-
+nential action associated with (1.4):
+• KIOPS basis: Arnoldi is applied to the KIOPS matrix K in (1.5).
+• Full block formulation: Arnoldi is applied to the block matrix W in (1.6).
+• Orthonormal basis: Arnoldi is applied to the matrix KX in (3.2) with X = XKC−1
+K ,
+where CK = (X∗
+KXK)1/2 and XK is defined in (3.11).
+In all three cases, the Arnoldi iteration uses modified Gram–Schmidt orthogonalization
+with one reorthogonalization pass. To isolate the effects of the Arnoldi formulation
+and the associated field-of-values bounds, the adaptive substepping and incomplete
+orthogonalization of the practical KIOPS algorithm [16] are not implemented. Note that
+the full block and orthonormal-basis formulations differ only by an isometric coordinate
+representation of the invariant subspace in Theorem 3.2.
+We discuss five model experiments, each displayed in a two-panel figure. The left
+panel compares the sampled boundaries of F(K), F(W), and FMK(K), along with
+F(A) (filled in light color), which enables us to see how the augmentation enlarges the
+20
+geometry of the spectral region of the original matrix. It also shows the enclosing re-
+gions from (5.2) and (5.3), together with the eigenvalues of K. The right panel reports
+the relative error ∥ym −y∥2/∥y∥2 for the three Arnoldi realizations for m = 1, . . . , 30,
+where the reference solution vector y of (1.4) is computed by (2.6) with explicit assem-
+bly of the augmented matrix K and the matrix exponential computed by MATLAB’s
+expm [3]. These errors are compared with the corresponding bounds computed from the
+sampled sets F(K), FMK(K), and F(W) by the discrete best polynomial approximation
+(computed as described in Appendix A).
+Example 1
+The first model problem uses -gallery(’poisson’,7), the five-point
+discretization of the negative two-dimensional Laplacian on a 7×7 grid. It corresponds
+to the discretized dissipative diffusion operator arising in heat and reaction–diffusion
+equations [25] and is a standard test problem for actions of the matrix exponential and
+φ-functions in exponential integrators [4]. Here, A is negative definite and F(A) is an
+interval, which is precisely when Proposition 5.5 is applicable; see Figure 5.1 for the
+error bound obtained from it.
+The results are presented in Figure 6.1. In the left panel, F(W) and the metric set
+FMK(K) are small enlargements of the interval F(A) on the negative real axis, while
+F(K) expands into a much larger region. We clearly observe that FMK(K) ⊆F(W)
+(with FMK(K) nearly filling F(W), in fact), as proved in Lemma 5.2. In the right panel,
+the behavior of the three Arnoldi realizations is almost indistinguishable, reaching unit
+roundoff accuracy after about 20 steps. The bounds based on F(W) and FMK(K) follow
+the observed error decay throughout, whereas the bounds based on F(K) are always
+at least several orders of magnitude too pessimistic.
+Example 2
+We use the Kac–Murdock–Szeg¨o Toeplitz matrix [28] with entries aij =
+−(0.88|i−j|), generated by -gallery(’kms’,40,0.88). The value 0.88 of the correlation
+parameter is not special; it makes the scaled spectrum stretch from −6 to a point close
+to the origin with strong spectral clustering, in contrast with the more evenly spread
+spectrum of the Poisson example above.
+Here F(A) is also an interval, and the field-of-values plot on the left of Figure 6.2
+exhibits very similar geometry as in Example 1.
+The sets F(W) and FMK(K) are
+only slightly larger than F(A), unlike F(K), and the block-based enclosure in (5.2)
+again provides fairly good bounds for F(W) and FMK(K). While the bound (5.3) is
+a less tight enclosure than (5.2), it still predicts the relevant region of the complex
+plane reasonably well. In the convergence plot of Figure 6.2, the error decay phase is
+slightly shorter than in the Poisson case, with about 15 steps. The behavior is very
+accurately predicted by the metric and the larger block bounds in the initial phase of
+slower convergence, but the bounds become less tight once convergence speeds up after
+a few iterations. The bound based on F(K), on the contrary, remains not informative
+at all.
+Example 3
+Our third example uses the Grcar matrix [19], a standard nonnormal
+Toeplitz example in the study of pseudospectra and behavior of nonnormal matri-
+21
+Real part
+-20
+-15
+-10
+-5
+0
+5
+10
+15
+Imaginary part
+-20
+-15
+-10
+-5
+0
+5
+10
+15
+20
+F(K)
+FMK(K)
+F(W)
+F(A)
+bound on F(K)
+bound on F(W)
+6(K)
+5
+10
+15
+20
+25
+30
+Krylov dimension m
+10-15
+10-10
+10-5
+100
+Relative error and -eld-of-values estimate
+KIOPS basis (K)
+Block formulation (W)
+Orthonormal basis (KX)
+bound based on F(K)
+bound based on FMK(K)
+bound based on F(W)
+Figure 6.3: Shifted Grcar matrix, a nonnormal Toeplitz test problem.
+Real part
+-20
+-15
+-10
+-5
+0
+5
+10
+15
+Imaginary part
+-15
+-10
+-5
+0
+5
+10
+15
+F(K)
+FMK(K)
+F(W)
+F(A)
+bound on F(K)
+bound on F(W)
+6(K)
+5
+10
+15
+20
+25
+30
+Krylov dimension m
+10-15
+10-10
+10-5
+100
+Relative error and -eld-of-values estimate
+KIOPS basis (K)
+Block formulation (W)
+Orthonormal basis (KX)
+bound based on F(K)
+bound based on FMK(K)
+bound based on F(W)
+Figure 6.4: Negative Dorr matrix, a nonsymmetric ill-conditioned tridiagonal test prob-
+lem.
+ces [8, 39, 40], especially for demonstrating that eigenvalue information alone can be
+misleading for the convergence of Krylov methods. The test matrix we use is generated
+by gallery(’grcar’,40)-2*eye(40), where the shift by −2I keeps the eigenvalues
+in the left half-plane after scaling, yet the field of values still protrudes substantially
+farther to the right than the spectrum.
+As we can see from Figure 6.3, in the left panel, F(A) is already two-dimensional
+and visibly nonnormal, but F(W) and FMK(K) still remain close to each other, whereas
+F(K) is much larger. In the right panel, the error decreases more gradually than in the
+previous Hermitian examples, and the metric and the larger block bounds reproduce
+this slower slope of convergence far better than the bound based on F(K).
+Example 4
+The fourth example uses the negative of the Dorr matrix [15], gener-
+ated by -gallery(’dorr’,n). This matrix is tridiagonal, row diagonally dominant,
+22
+Real part
+-20
+-15
+-10
+-5
+0
+5
+10
+15
+Imaginary part
+-15
+-10
+-5
+0
+5
+10
+15
+F(K)
+FMK(K)
+F(W)
+F(A)
+bound on F(K)
+bound on F(W)
+6(K)
+5
+10
+15
+20
+25
+30
+Krylov dimension m
+10-15
+10-10
+10-5
+100
+Relative error and -eld-of-values estimate
+KIOPS basis (K)
+Block formulation (W)
+Orthonormal basis (KX)
+bound based on F(K)
+bound based on FMK(K)
+bound based on F(W)
+Figure 6.5: Shifted triangular Toeplitz matrix with strongly nonnormal behavior.
+and ill-conditioned, presenting a finite-difference-type but nonsymmetric matrix from a
+singular perturbation problem. Although the eigenvalues of A lie on the negative real
+axis, the nonsymmetry makes F(A) two-dimensional and allows part of F(A) to cross
+the imaginary axis. We are therefore testing whether the error bounds respond to the
+rightmost extent of the field of values, a feature absent from the Hermitian examples,
+where F(A) is just the convex hull of the eigenvalues.
+In Figure 6.4, despite this non-Hermitian field-of-values geometry, the field-of-values
+and Krylov convergence plots show trends rather similar to those observed in the Poisson
+example.
+Example 5
+The final experiment concerns a shifted version of the triangular Toeplitz
+matrix discussed by Kahan [29] and by Golub and Wilkinson [18], generated via the
+command gallery(’triw’,40)-1.5*eye(40). After scaling, all eigenvalues of A coin-
+cide at near −0.12 on the negative real axis, while the field-of-values extends to a much
+larger region and comes close to the imaginary axis. This presents a difficult nonnor-
+mal case in which the spectrum gives little information about the geometry relevant to
+field-of-values and pseudospectral convergence estimates [8, 39, 42].
+The results in Figure 6.5 show that, even for this highly nonnormal example, F(W)
+and FMK(K) are again only slight enlargements of F(A) and are well approximated by
+the enclosure in (5.2), whereas F(K) is very pessimistic. On the other hand, the error
+of the Krylov methods drops rapidly to unit round-off level, while the bounds based on
+F(W) and FMK(K) are too conservative, not able to accurately capture the slope of
+convergence. The F(K)-based bound is again dominated by the enlargement caused by
+using the ordinary Euclidean inner product on the nonorthogonal KIOPS coordinate
+basis.
+23
+Real part
+-20
+-15
+-10
+-5
+0
+5
+10
+Imaginary part
+-15
+-10
+-5
+0
+5
+10
+15
+/ = 0
+Real part
+-20
+-15
+-10
+-5
+0
+5
+10
+Imaginary part
+-15
+-10
+-5
+0
+5
+10
+15
+/ = 0:001
+Real part
+-20
+-15
+-10
+-5
+0
+5
+10
+Imaginary part
+-15
+-10
+-5
+0
+5
+10
+15
+/ = 0:1
+Real part
+-15
+-10
+-5
+0
+5
+10
+Imaginary part
+-8
+-6
+-4
+-2
+0
+2
+4
+6
+8
+/ = 10
+F(K)
+FMK(K)
+F(W)
+F(A)
+bound on F(K)
+bound on F(W)
+5
+10
+15
+20
+25
+30
+Krylov dimension m
+10-15
+10-10
+10-5
+100
+Relative error and -eld-of-values estimate
+/ = 0
+error
+bound based on F(K)
+bound based on FMK(K)
+5
+10
+15
+20
+25
+30
+Krylov dimension m
+10-15
+10-10
+10-5
+100
+Relative error and -eld-of-values estimate
+/ = 0:001
+5
+10
+15
+20
+25
+30
+Krylov dimension m
+10-15
+10-10
+10-5
+100
+Relative error and -eld-of-values estimate
+/ = 0:1
+5
+10
+15
+20
+25
+30
+Krylov dimension m
+10-15
+10-10
+10-5
+100
+Relative error and -eld-of-values estimate
+/ = 10
+Figure 6.6: Right-hand-side sensitivity test for the Poisson matrix with fixed β = 10
+and varying δ.
+6.2
+Sensitivity to right-hand-side scaling and collinearity
+The second set of experiments tests the dependence of the field of values and convergence
+bounds on the scaling and collinearity of the right-hand side vectors. We use the Poisson
+and Grcar matrices previously used in the experiments of Section 6.1, representing
+the Hermitian and nonnormal cases, respectively. For each matrix, a single random
+realization of q and the vectors rj of (6.1) is generated and then reused throughout the
+sensitivity tests, so that the observed changes are due only to the prescribed values of β
+and δ. In the sensitivity test on δ, β = 10 is fixed and δ is chosen as {0, 10−3, 10−1, 10},
+while in the sensitivity test on β, we set δ = 10−1 throughout and β takes values from
+{1, 4, 10, 25}.
+For the Poisson matrix, Figures 6.6 and 6.7 show the effect of the right-hand side
+parameters in a setting where F(A) is an interval. When δ is varied with β = 10
+fixed, the vectors bj move from an exactly collinear configuration at δ = 0 to increas-
+ingly separated directions, and we have ∥B∥2 ≤∥B∥F = √sβ ≈22.36. We found
+that σmin(XK) ≈5.21 and σmax(XK) ≈35.13 for δ = 0 and δ = 10−3, but this sin-
+gular value gap shrinks to approximately [9.91, 22.41] for δ = 10. This explains the
+slight contraction of the Euclidean set F(K) as δ increases, shown on the left panel
+of Figure 6.6. By Theorem 4.1, the reduction in the extremal singular values makes
+the metric field-of-values less anisotropic and more aligned to the standard Euclidean
+metric. In all cases, the metric set FMK(K) remains close to the block field of values
+F(W). This varying field-of-values behavior is reflected in the convergence plot, where
+the error bound based on F(K) is less pessimistic as δ increases, although it remains a
+few orders of magnitude above the observed error as the Krylov dimension grows.
+When β is varied with δ = 0.1 fixed, Figure 6.7 showcases a much more dra-
+matic effect. In this case, increasing β from 1 to 25 changes ∥B∥2 linearly from about
+2.23 to about 55.68 and scales [σmin(XK), σmax(XK)] from approximately [0.54, 3.50] to
+[13.59, 87.54]. The Euclidean field of values F(K) and its enclosure in (5.3) become in-
+24
+Real part
+-8
+-6
+-4
+-2
+0
+2
+Imaginary part
+-2
+-1.5
+-1
+-0.5
+0
+0.5
+1
+1.5
+2
+- = 1
+Real part
+-10
+-5
+0
+5
+Imaginary part
+-6
+-4
+-2
+0
+2
+4
+6
+- = 4
+Real part
+-20
+-15
+-10
+-5
+0
+5
+10
+Imaginary part
+-15
+-10
+-5
+0
+5
+10
+15
+- = 10
+Real part
+-40
+-20
+0
+20
+40
+Imaginary part
+-30
+-20
+-10
+0
+10
+20
+30
+- = 25
+F(K)
+FMK(K)
+F(W)
+F(A)
+bound on F(K)
+bound on F(W)
+5
+10
+15
+20
+25
+30
+Krylov dimension m
+10-15
+10-10
+10-5
+100
+Relative error and -eld-of-values estimate
+- = 1
+error
+bound based on F(K)
+bound based on FMK(K)
+5
+10
+15
+20
+25
+30
+Krylov dimension m
+10-15
+10-10
+10-5
+100
+Relative error and -eld-of-values estimate
+- = 4
+5
+10
+15
+20
+25
+30
+Krylov dimension m
+10-15
+10-10
+10-5
+100
+Relative error and -eld-of-values estimate
+- = 10
+5
+10
+15
+20
+25
+30
+Krylov dimension m
+10-10
+100
+1010
+Relative error and -eld-of-values estimate
+- = 25
+Figure 6.7: Right-hand-side sensitivity test for the Poisson matrix with fixed δ = 10−1
+and varying β.
+creasingly pessimistic as the right-hand-side scaling factor β increases. Correspondingly,
+the convergence bound based on F(K) rapidly fails to provide any useful prediction of
+the true error. In contrast, the metric set FMK(β) shown in the plots is insensitive to
+the scaling; this is the plotted version of the scaled-metric invariance in (5.10), with K
+and MK understood for the current scaled data.
+The sensitivity tests on the Grcar matrix, presented in Figures 6.8 and 6.9, confirm
+the same mechanism in the presence of nonnormal A, and a two-dimensional F(A).
+The metric artifact in the Euclidean coordinate representation is exposed mainly by
+right-hand-side scaling β, and to a lesser extent by the collinearity of the right-hand-
+side vectors, controlled by δ in the experiments. As this scaling increases, F(K) and
+the associated convergence bound deteriorate, whereas the associated metric field of
+values FMK(K) stays tied to that of the block formulation (1.6) and yields improved
+Krylov error bounds.
+A somewhat surprising observation from Figure 6.9 is that for β = 1, the bound
+based on F(K) lies slightly below the bound based on the metric field of values, despite
+the latter set being a subset of the former. This is due to the fact that the prefactor in
+the bound based on F(K) involves ∥c∥2 =
+p
+∥b0∥2
+2 + 1, while the bound based on the
+metric field of values involves the possibly larger constant ∥b∥2 =
+q
+∥b0∥2
+2 + ∥b∥2
+2. In
+a situation like here, where the metric field of values is only very slightly smaller than
+F(K), this prefactor can thus make a difference in determining which of the bounds is
+tighter.
+7
+Conclusions
+We have revisited Krylov subspace methods for computing linear combinations of ma-
+trix φ-function actions via the exponential of an augmented matrix, focusing on the
+25
+Real part
+-20
+-15
+-10
+-5
+0
+5
+10
+Imaginary part
+-20
+-15
+-10
+-5
+0
+5
+10
+15
+20
+/ = 0
+Real part
+-20
+-15
+-10
+-5
+0
+5
+10
+Imaginary part
+-20
+-15
+-10
+-5
+0
+5
+10
+15
+20
+/ = 0:001
+Real part
+-20
+-15
+-10
+-5
+0
+5
+10
+Imaginary part
+-20
+-15
+-10
+-5
+0
+5
+10
+15
+20
+/ = 0:1
+Real part
+-10
+-5
+0
+5
+10
+Imaginary part
+-15
+-10
+-5
+0
+5
+10
+15
+/ = 10
+F(K)
+FMK(K)
+F(W)
+F(A)
+bound on F(K)
+bound on F(W)
+5
+10
+15
+20
+25
+30
+Krylov dimension m
+10-15
+10-10
+10-5
+100
+Relative error and -eld-of-values estimate
+/ = 0
+error
+bound based on F(K)
+bound based on FMK(K)
+5
+10
+15
+20
+25
+30
+Krylov dimension m
+10-15
+10-10
+10-5
+100
+Relative error and -eld-of-values estimate
+/ = 0:001
+5
+10
+15
+20
+25
+30
+Krylov dimension m
+10-15
+10-10
+10-5
+100
+Relative error and -eld-of-values estimate
+/ = 0:1
+5
+10
+15
+20
+25
+30
+Krylov dimension m
+10-15
+10-10
+10-5
+100
+Relative error and -eld-of-values estimate
+/ = 10
+Figure 6.8: Right-hand-side sensitivity test for the Grcar matrix with fixed β = 10 and
+varying δ.
+established KIOPS algorithm [16] in light of the recent block triangular formulation de-
+veloped in [5]. We showed that the KIOPS matrix K in (1.5) is the coordinate represen-
+tation of the block matrix W of (1.6) restricted to the invariant subspace Cn ⊕Ks(J, b)
+and identified an embedding relation between the Krylov spaces built with K and W;
+see Theorem 3.2 and Corollary 3.3. Thus, for every polynomial p, applying p(K) and
+p(W) to the respective starting vectors gives the same result after projection onto the
+first n components.
+Viewing the basis produced by an augmentation scheme such as KIOPS as a coor-
+dinate representation of the larger block formulation motivates the use of a different
+inner product, and hence a different metric for the field of values. We showed that the
+difference between this induced metric and the (ordinary) Euclidean metric is governed
+by the singular values of the basis matrix; see Theorem 4.1. For the KIOPS basis,
+this implies that scaling the input vectors bj can substantially change the metric dis-
+tortion and hence affects the associated Krylov error bound based on the Euclidean
+metric; see Corollary 4.2. In comparison, the error bounds based on the corresponding
+scaled metric field of values in (5.10) are invariant under this scaling. We then proved
+that, for a general basis matrix X, the metric field of values FMX(KX) is contained in
+F(W), the Euclidean field of values of W; see Lemma 5.2. This leads to much better
+convergence bounds than those based on the Euclidean field of values F(K), which
+depends on the input vectors bj. When the input matrix A is negative semidefinite, we
+derived an easily computable bound for best polynomial approximation on F(W) via
+an enclosing Bernstein ellipse and the associated truncated Chebyshev series estimate;
+see Proposition 5.5.
+Numerical experiments on various types of problems using a set of different param-
+eters confirmed our analyses and showed that the bounds based on F(W) and FMK(K)
+lie very close together and almost always present a substantial improvement over the
+bounds obtained from F(K). In most cases, the bounds based on F(W) and FMK(K)
+26
+Real part
+-6
+-4
+-2
+0
+2
+4
+Imaginary part
+-8
+-6
+-4
+-2
+0
+2
+4
+6
+8
+- = 1
+Real part
+-10
+-5
+0
+5
+Imaginary part
+-10
+-8
+-6
+-4
+-2
+0
+2
+4
+6
+8
+10
+- = 4
+Real part
+-20
+-15
+-10
+-5
+0
+5
+10
+Imaginary part
+-20
+-15
+-10
+-5
+0
+5
+10
+15
+20
+- = 10
+Real part
+-40
+-20
+0
+20
+40
+Imaginary part
+-40
+-30
+-20
+-10
+0
+10
+20
+30
+40
+- = 25
+F(K)
+FMK(K)
+F(W)
+F(A)
+bound on F(K)
+bound on F(W)
+5
+10
+15
+20
+25
+30
+Krylov dimension m
+10-15
+10-10
+10-5
+100
+Relative error and -eld-of-values estimate
+- = 1
+error
+bound based on F(K)
+bound based on FMK(K)
+5
+10
+15
+20
+25
+30
+Krylov dimension m
+10-15
+10-10
+10-5
+100
+Relative error and -eld-of-values estimate
+- = 4
+5
+10
+15
+20
+25
+30
+Krylov dimension m
+10-15
+10-10
+10-5
+100
+Relative error and -eld-of-values estimate
+- = 10
+5
+10
+15
+20
+25
+30
+Krylov dimension m
+10-10
+100
+1010
+Relative error and -eld-of-values estimate
+- = 25
+Figure 6.9: Right-hand-side sensitivity test for the Grcar matrix with fixed δ = 10−1
+and varying β.
+captured the convergence behavior closely, indicating that these spectral sets, in fact,
+appear to be the minimal regions of the complex plane governing the convergence behav-
+ior of the Krylov method, confirming the value of the analysis conducted in Sections 3
+to 5, which reflects the intrinsic block geometry inherited from W. The new bounds
+seem to be suboptimal only on strongly nonnormal test examples, for which improved
+analyses and tighter bounds remain directions of further study.
+Acknowledgment
+Both authors are members of the scientific network “The f(A)bulous scientific network
+on matrix functions and exponential integrators”, supported by Deutsche Forschungs-
+gemeinschaft (DFG, German Research Foundation) under project number 566049107.
+A
+Numerically estimating the polynomial approxi-
+mation error on the field of values
+In order to estimate Em−1(eζ, Ω) for some compact set Ωwhen evaluating the respective
+error bounds, we use the following approach: For any polynomial p, the function p(ζ)−eζ
+is holomorphic, so it attains its maximum modulus on the boundary of Ω(since in our
+setting Ωis the closure of a bounded domain). Thus, we discretize the boundary, using
+points ζ1, . . . , ζN ∈∂Ω. We choose
+η := 1
+2
+
+min
+j
+Re ζj + max
+j
+Re ζj
+
++ i
+2
+
+min
+j
+Im ζj + max
+j
+Im ζj
+
+,
+ρ := max
+1≤j≤N |ζj −η|
+and work in the scaled variables ξj := ζj−η
+ρ , j = 1, . . . , N. The approximating poly-
+nomial is represented in a discrete Arnoldi basis generated on these scaled boundary
+27
+nodes,
+p(ζ) =
+m−1
+X
+k=0
+γkqk
+ζ −η
+ρ
+
+,
+Qj,k+1 = qk(ξj),
+so that Q ∈CN×m and γ ∈Cm.
+We collect the polynomial approximation errors
+p(ζi) −eζi in the vector r(γ) := Qγ −x, where x = [eζ1, . . . , eζN]T. The exact minimax
+problem on the finite grid can then be written as
+EN := min
+γ∈Cm max
+1≤j≤N
+
+m−1
+X
+k=0
+γkqk(ξj) −eζj
+ = min
+γ∈Cm max
+1≤j≤N |rj(γ)|,
+which is a discrete analogue of the continuous minimax problem on ∂Ω. Equivalently,
+in epigraph form,
+EN =
+min
+γ∈Cm, Θ∈R
+Θ,
+subject to
+|rj(γ)| ≤Θ,
+j = 1, . . . , N.
+For fixed γ, the smallest admissible value of Θ is precisely maxj |rj(γ)|.
+Each constraint |rj(γ)| ≤Θ describes a disk in the complex plane, or equivalently a
+two-dimensional second-order cone constraint. To obtain a linear program, we approxi-
+mate this disk by the L half-plane constraints defining a regular circumscribed polygon.
+Thus, with
+θℓ= 2πℓ
+L ,
+ℓ= 0, . . . , L −1,
+we impose
+Re
+ e−iθℓrj(γ)
+
+≤Θ,
+j = 1, . . . , N,
+ℓ= 0, . . . , L −1.
+This gives the real linear program
+bEN,L :=
+min
+γ∈Cm, Θ∈R
+Θ,
+subject to
+Re
+ 
+e−iθℓ
+"m−1
+X
+k=0
+γkqk(ξj) −eζj
+#!
+≤Θ,
+j = 1, . . . , N,
+ℓ= 0, . . . , L −1.
+After splitting γ into real and imaginary parts, all constraints are linear over the real
+variables. Since the circumscribed polygon has inradius Θ and circumradius
+Θ
+cos(π/L),
+the solution bγ of the linear program satisfies
+bEN,L ≤EN ≤max
+1≤j≤N |rj(bγ)| ≤
+bEN,L
+cos(π/L).
+Thus the polyhedral approximation changes the discrete minimax value by at most the
+factor
+1
+cos(π/L), which is close to one for the values of L used in the computations.
+28
+To improve accuracy, the linear program is solved in a residual-correction form.
+Starting from a least-squares polynomial, we repeatedly solve a linear program for a
+correction to the current residual, rescaling the residual at each step to keep the linear
+program well conditioned. After solving on the current grid, the resulting polynomial
+is evaluated on a much finer boundary grid; points where the largest errors occur are
+added to the optimization grid, and the process is repeated. The final reported value
+is the maximum error of the computed polynomial on the fine validation grid.
+The linear programs are solved in MATLAB with the built-in function linprog from
+the Optimization Toolbox. By default, we call linprog with the dual-simplex algo-
+rithm; in case of failure for a particular instance, the code retries with the interior-point
+algorithm.
+References
+[1] Awad H. Al-Mohy. Computing linear combinations of φ-function actions for expo-
+nential integrators. ArXiv:2509.26475 [math.NA], September 2025.
+[2] Awad H. Al-Mohy. Shared-pole carath´eodory–fej´er approximations for linear com-
+binations of φ-functions. Mathematics, 13(24):3985, 2025.
+[3] Awad H. Al-Mohy and Nicholas J. Higham. A new scaling and squaring algorithm
+for the matrix exponential. SIAM J. Matrix Anal. Appl., 31(3):970–989, 2009.
+[4] Awad H. Al-Mohy and Nicholas J. Higham. Computing the action of the matrix
+exponential, with an application to exponential integrators. SIAM J. Sci. Comput.,
+33(2):488–511, 2011.
+[5] Awad H. Al-Mohy and Xiaobo Liu. A scaling and recovering algorithm for the
+matrix φ-functions. SIAM J. Sci. Comput., 48(2):A726–A747, 2026.
+[6] W. Edwin Arnoldi. The principle of minimized iterations in the solution of the
+matrix eigenvalue problem. Q. Appl. Math., 9(1):17–29, 1951.
+[7] Bernhard Beckermann and Lothar Reichel. Error estimates and evaluation of ma-
+trix functions via the Faber transform. SIAM J. Numer. Anal., 47(5):3849–3883,
+2009.
+[8] Michele Benzi. Some uses of the field of values in numerical analysis. Boll. Unione
+Mat. Ital., 14:159–177, 2021.
+[9] Mike A. Botchev, Leonid A. Knizhnerman, and Eugene E. Tyrtyshnikov. Residual
+and restarting in Krylov subspace evaluation of the φ function.
+SIAM J. Sci.
+Comput., 43(6):A3733–A3759, 2021.
+[10] Marco Caliari, Fabio Cassini, and Franco Zivcovich. BAMPHI: Matrix-free and
+transpose-free action of linear combinations of φ-functions from exponential inte-
+grators. J. Comput. Appl. Math., 423:114973, 2023.
+29
+[11] S.M. Cox and P.C. Matthews. Exponential time differencing for stiff systems. J.
+Comput. Phys., 176(2):430–455, 2002.
+[12] Michel Crouzeix. Numerical range and functional calculus in Hilbert space. J.
+Funct. Anal., 244(2):668–690, 2007.
+[13] Michel Crouzeix and C´esar Palencia. The numerical range is a (1 +
+√
+2)-spectral
+set. SIAM J. Matrix Anal. Appl., 38(2):649–655, 2017.
+[14] Pranab J. Deka, Lukas Einkemmer, and Mayya Tokman. LeXInt: Package for
+exponential integrators employing Leja interpolation. SoftwareX, 21:101302, 2023.
+[15] Fred W. Dorr. An example of ill-conditioning in the numerical solution of singular
+perturbation problems. Math. Comput., 25(114):271–283, 1971.
+[16] St´ephane Gaudreault, Greg Rainwater, and Mayya Tokman. KIOPS: A fast adap-
+tive Krylov subspace solver for exponential integrators. J. Comput. Phys., 372(1):
+236–255, 2018.
+[17] Wallace Givens. Fields of values of a matrix. Proc. Amer. Math. Soc., 3:206–209,
+1952.
+[18] Gene H. Golub and James H. Wilkinson. Ill-conditioned eigensystems and the
+computation of the Jordan canonical form. SIAM Rev., 18(4):578–619, 1976.
+[19] Joseph F. Grcar. Operator coefficient methods for linear equations. Technical
+Report SAND89-8691, Sandia National Laboratories, Albuquerque, NM, 1989.
+[20] Karl E. Gustafson and Duggirala K. M. Rao.
+Numerical Range: The Field of
+Values of Linear Operators and Matrices. Springer, New York, 1997. xiv+190 pp.
+ISBN 978-1-4613-8498-4.
+[21] Stefan G¨uttel and Marcel Schweitzer. A comparison of limited-memory Krylov
+methods for Stieltjes functions of Hermitian matrices. SIAM J. Matrix Anal. Appl.,
+42(1):83–107, 2021.
+[22] Uffe Haagerup and Pierre de la Harpe. The numerical radius of a nilpotent operator
+on a Hilbert space. Proc. Amer. Math. Soc., 115(2):371–379, 1992.
+[23] Nicholas J. Higham. Functions of Matrices: Theory and Computation. SIAM,
+Philadelphia, PA, USA, 2008. xx+425 pp. ISBN 978-0-898716-46-7.
+[24] Marlis Hochbruck and Christian Lubich. On Krylov subspace approximations to
+the matrix exponential operator. SIAM J. Numer. Anal., 34(5):1911–1925, 1997.
+[25] Marlis Hochbruck, Christian Lubich, and Hubert Selhofer. Exponential integrators
+for large systems of differential equations. SIAM J. Sci. Comput., 19(5):1552–1574,
+1998.
+30
+[26] Marlis Hochbruck and Alexander Ostermann. Exponential integrators. Acta Nu-
+merica, 19:209–286, 2010.
+[27] Roger A. Horn and Charles R. Johnson. Matrix Analysis. 2nd edition, Cambridge
+University Press, Cambridge, UK, 2013. xviii+643 pp. ISBN 978-0-521-83940-2.
+[28] Mark Kac, W. L. Murdock, and Gabor Szeg¨o.
+On the eigen-values of certain
+Hermitian forms. J. Rational Mech. Anal., 2(4):767–800, 1953.
+[29] William Kahan. Numerical linear algebra. Canad. Math. Bull., 9:757–801, 1966.
+[30] Emil Krieger and Marcel Schweitzer. A general framework for Krylov ODE resid-
+uals with applications to randomized Krylov methods. arXiv:2510.17538, 2025.
+[31] C. Lanczos. An iteration method for the solution of the eigenvalue problem of
+linear differential and integral operators. J. Res. Natl. Stand., 45:255–282, 1950.
+[32] John C. Mason and David C. Handscomb. Chebyshev Polynomials. Chapman and
+Hall/CRC, Boca Raton, FL, 2002.
+[33] Borislav V. Minchev and Will M. Wright. A review of exponential integrators
+for first order semi-linear problems. Tech. Report 2/05, Norwegian University of
+Science and Technology, Trondheim, Norway, 2005.
+[34] Jitse Niesen and Will M. Wright. Algorithm 919: A Krylov subspace algorithm
+for evaluating the φ-functions appearing in exponential integrators. ACM Trans.
+Math. Softw., 38(3):22:1–22:19, 2012.
+[35] Roger Penrose. A generalized inverse for matrices. Proc. Cambridge Philos. Soc.,
+51(3):406–413, 1955.
+[36] Daniel Edwin Rutherford. Some continuant determinants arising in physics and
+chemistry—II. Proc. Royal Soc. Edin., 63(A):232–241, 1952.
+[37] Yousef Saad.
+Analysis of some Krylov subspace approximations to the matrix
+exponential operator. SIAM J. Numer. Anal., 29(1):209–228, 1992.
+[38] Roger B. Sidje. Expokit: A software package for computing matrix exponentials.
+ACM Trans. Math. Software, 24(1):130–156, 1998.
+[39] Lloyd N. Trefethen. Pseudospectra of matrices. In Numerical Analysis 1991, D. F.
+Griffiths and G. A. Watson, editors, volume 260 of Pitman Research Notes in
+Mathematics Series, Longman Scientific and Technical, Harlow, UK, 1992, pages
+234–266.
+[40] Lloyd N. Trefethen and Mark Embree. Spectra and Pseudospectra: The Behavior
+of Nonnormal Matrices and Operators. Princeton University Press, Princeton, NJ,
+2005. ISBN 978-0-691-11946-5.
+31
+[41] Vipin Kerala Varma. Conformal map and harmonic measure of the Bunimovich
+stadium. Technical report, 2014. arXiv:1410.4932.
+[42] Hao Wang and Qiang Ye.
+Error bounds for the krylov subspace methods for
+computations of matrix exponentials. SIAM J. Matrix Anal. Appl., 38(1):155–187,
+2017.
+32

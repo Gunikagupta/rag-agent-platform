@@ -1,0 +1,3056 @@
+AlphaZeroBeta: Deep Reinforcement Learning for
+Market-Neutral Portfolios
+Boris Belyakov1*
+1*Department of Information Technology and Automated Systems,
+MIEM Faculty, HSE University, 11 Pokrovsky Bulvar, Moscow, 109028,
+Russia.
+Corresponding author(s). E-mail(s): work.belyakov@gmail.com;
+Abstract
+Market-neutral portfolios aim to generate consistent returns while offsetting sys-
+tematic market risk. Traditional approaches based on factor models or convex
+optimization often underperform during market regime shifts or when struc-
+tural assumptions break down. We propose AlphaZeroBeta, a deep reinforcement
+learning framework designed to deliver benchmark-relative alpha (excess returns)
+with near-zero beta (market neutrality). AlphaZeroBeta combines a composite
+reward function that balances risk-adjusted excess return, benchmark correlation,
+and transaction costs with a CNN-GRU policy trained end-to-end via Recurrent
+PPO and evaluated through a rolling walk-forward protocol. Backtests covering
+2014–2024 across seven equity indices show that the model achieves higher Sharpe
+ratios than the baselines while maintaining near-zero benchmark correlations and
+competitive drawdowns.
+Keywords: Market-neutral portfolio; Reinforcement learning; Alpha; Beta; Portfolio
+optimization; Portfolio management
+1
+arXiv:2607.18001v1  [q-fin.PM]  20 Jul 2026
+1 Introduction
+Financial markets are inherently noisy and unpredictable, yet exhibit persistent pat-
+terns that can be systematically exploited using quantitative techniques. The efficient
+market hypothesis (EMH) posits that prices fully reflect available information [21];
+however, decades of empirical evidence reveal predictable anomalies such as momen-
+tum [36], excess volatility [61], and multifactor risk premia [22]. Market-neutral
+strategies, designed to isolate alpha (excess returns) while minimizing beta (system-
+atic risk), have therefore emerged as a cornerstone of hedge funds and quantitative
+trading desks [24, 52].
+Despite their popularity, traditional market-neutral approaches face significant
+methodological and practical challenges:
+1. Conventional implementations rely on static factor structures, such as the Fama–
+French family of models [22, 23], where exposures are assumed constant. However,
+factors themselves can become obsolete or attenuated as market regimes evolve,
+highlighting the limitations of static models and motivating dynamic alterna-
+tives [8].
+2. Statistical arbitrage models, particularly those employing high-dimensional regres-
+sions or machine learning, are prone to overfitting—capturing noise rather than
+signal—especially when historical data are limited. This problem has been docu-
+mented in both factor-based covariance estimation [2] and machine-learning-driven
+approaches to asset pricing [70].
+3. Many strategies lack explicit mechanisms to adapt to regime shifts, such as volatility
+clustering or macroeconomic shocks. Despite well-documented caveats of simple
+factor timing strategies [11], adaptive portfolio frameworks [43] show that dynamic
+adjustments, incorporating time-varying predictors, regime indicators, or tactical
+factor allocation, can improve resilience compared to static models.
+Deep reinforcement learning (DRL) combines sequential decision-making with
+function approximation, providing an alternative to static, factor-based approaches.
+By casting portfolio construction as a Markov decision process (MDP), DRL learns
+state-contingent rebalancing policies that optimize intertemporal objectives; in prac-
+tice, this supports dynamic risk management under frictions (e.g. transaction costs,
+exposure limits, and drawdown control) while exploiting time-varying structure in
+returns through representation learning over rolling training windows [1, 13, 37, 62, 65].
+This study advances the literature through three principal contributions.
+1. Introduction of AlphaZeroBeta, a deep reinforcement learning framework for the
+construction and management of market-neutral portfolios.
+2. Proposal of a dynamic, risk-aware reward function and an explicit dollar-neutral
+projection that jointly enforce market neutrality while targeting benchmark-relative
+excess returns.
+3. Provision of an empirical evaluation, employing historical equity data and bench-
+marking against both market indices and optimization models.
+2
+Throughout this manuscript, “alpha” denotes residual returns relative to each
+benchmark index after accounting for standard risk factors; the model is not intended
+to capture a universal or economy-wide anomaly.
+The remainder of the paper proceeds as follows. Section 2 reviews the related lit-
+erature on market-neutral portfolios and reinforcement learning for trading. Section 3
+details the architecture, reward, and MDP formulation. Section 4 describes the data
+and baselines. Section 5 reports compute requirements, evaluation metrics, and the
+walk-forward protocol. Section 6 presents empirical findings, robustness checks, and
+attribution analyses. Section 7 discusses implications and future work; Section 8
+concludes.
+2 Literature Review
+2.1 Market-Neutral Portfolios
+Market-neutral investing is an established field in quantitative finance, with theoret-
+ical foundations, practical implementations, and empirical results spanning several
+decades. The original hedge fund, launched by Alfred W. Jones in 1949, sought to
+profit from stock selection while neutralizing market risk by combining long positions
+financed by short sales, with the long and short legs sized to offset overall market
+exposure. Patton [52] documents that standard industry definitions of equity market-
+neutral strategies center on this long–short construction for neutralizing systematic
+risks, and argues that these definitions are inadequate for the nonlinear payoffs typi-
+cal of hedge funds; he therefore proposes richer notions of neutrality (mean, variance,
+value-at-risk, and tail).
+The conceptual basis for market-neutral investing is grounded in multi-factor
+asset-pricing models. Fama and French [22] introduced a three-factor model show-
+ing that stock returns are explained by market excess return, size, and value factors.
+Carhart [15] extended this with a momentum factor defined by a self-financing portfolio
+long high-momentum stocks and short low-momentum stocks. The factor-mimicking
+portfolios are structured in long–short form, and hedging their associated exposures
+yields zero-beta portfolios.
+From a methodological perspective, classical approaches include regression-based
+factor-neutralization [5] and optimization techniques imposing zero-exposure con-
+straints [27, 47]. Relative-value strategies, most notably pairs trading, represent
+standard market-neutral approaches. Gatev, Goetzmann, and Rouwenhorst (2006)
+demonstrate that simple self-financing pairs trading strategies implemented on U.S.
+equities over the period 1962–2002 yield statistically and economically significant
+performance, with average annualized excess returns on the order of 11% [29]. Con-
+vertible bond arbitrage and merger arbitrage are other widely studied market-neutral
+techniques [33, 52].
+Over the past decade, machine learning techniques have substantially broadened
+the methodological basis for statistical arbitrage. Krauss, Do, and Huck (2017) showed
+that deep neural networks, gradient-boosted trees, and random forests can systemat-
+ically generate profitable long–short portfolios on the S&P 500 [41]. Subsequent work
+extends this trend toward end-to-end deep learning for portfolio optimization [71] and
+3
+reinforcement learning for trading [72]. The August 2007 quant deleveraging episode
+demonstrated that market-neutral books are not free of systematic risk in stressed
+regimes [38, 39], motivating an explicit, correlation-based neutrality penalty embedded
+directly in the reward function (Section 3.7) rather than reliance on factor cancellation
+alone.
+From a practical standpoint, a classical approach to constructing market-neutral
+portfolios relies on factor models to disentangle asset returns from broader mar-
+ket influences. For example, Avellaneda and Lee (2010) introduced a method that
+involves regressing individual stock returns on multiple factors, such as sector-specific
+and market-wide indices [5]. The goal of this methodology is to construct portfo-
+lios with zero net exposure to these factors, thereby achieving market neutrality.
+This regression-based framework reduces the complexity of portfolio construction by
+expressing asset returns through their factor loadings and enabling the development
+of portfolios that minimize systematic risk exposure.
+The mean-variance optimization framework introduced by Markowitz (1952) has
+also been adapted for constructing market-neutral portfolios [47]. For example, Gane-
+san (2011) applied this approach while imposing constraints to ensure zero exposure to
+systematic risk factors, using a subspace-decomposition analysis on a broad U.S. equity
+universe (roughly 2,000 NYSE/NASDAQ stocks, 1998–2010) [27]. The constraints
+kept the resulting portfolios market-neutral, demonstrating that optimization-based
+methods can sustain neutrality on large universes.
+A notable market-neutral strategy variation is pairs trading, where a portfolio
+consists of two assets: one held long and the other short. The goal is to exploit rela-
+tive price movements between the two, often under the assumption that their prices
+will converge or diverge in a predictable manner. Baronyan et al. (2010) compared
+fourteen pairs-trading strategies (combinations of seven trading rules and two pair-
+selection methods) and found that performance varies materially across configurations
+and regimes [9]. This dependence on strategy specification underscores that market
+neutrality admits multiple operationalizations and that the chosen criterion materially
+influences portfolio outcomes.
+Valle et al. (2014) propose a Mixed-Integer Nonlinear Program (MINLP) that
+constructs market-neutral portfolios by minimizing the absolute correlation between
+portfolio returns and a benchmark index, allowing both long and short positions [66].
+Their formulation attains low (often near-zero) correlations and, evaluated against
+S&P international universes, outperforms both the underlying indices and a zero-beta
+baseline (minimizing the regression slope), as well as several existing market-neutral
+funds.
+Deep reinforcement learning, while still emerging in financial research, offers a
+framework for constructing market-neutral portfolios. The ability of DRL to learn
+optimal policies from market data makes it an attractive approach for portfolio man-
+agement. Unlike traditional regression-based methods, DRL algorithms can learn to
+optimize both risk and return without requiring explicit factor models. The growing
+body of literature on DRL for finance has demonstrated the potential of DRL for
+investment decision-making [49]. However, the application of DRL to market-neutral
+portfolios remains relatively unexplored.
+4
+Our study advances the field of market-neutral portfolio construction by introduc-
+ing a DRL framework that bypasses traditional beta estimation and regression-based
+techniques. Instead, the agent learns to directly optimize portfolio weights while explic-
+itly projecting them to dollar-neutral at every step and using a correlation-aware
+reward to discourage residual beta.
+Building on prior research that relied on limited trading settings or asset universes,
+our method scales to portfolios with 500+ stocks by employing DRL techniques such
+as Recurrent Proximal Policy Optimization (Recurrent PPO) with Gated Recurrent
+Units (GRUs). This supports a dynamic, data-driven investing process that adjusts to
+changing market conditions without manual rebalancing or explicit factor modeling.
+2.2 Reinforcement Learning in Trading
+Reinforcement learning (RL) has been increasingly applied to finance, where it learns
+adaptively from sequential market interactions. Unlike traditional econometric and sta-
+tistical methods (e.g. SARIMAX, VAR), RL frameworks combine online learning with
+deep network architectures to handle the noise, non-stationarity, heavy-tailed distri-
+butions, and multi-participant dynamics that characterize financial data. As reviewed
+by Charpentier et al. (2023) and Huang et al. (2020), these methods continuously
+update policies as new data arrives, which suits them to markets that exhibit volatility
+clustering and abrupt regime shifts [16, 34].
+The reinforcement learning literature broadly categorizes methods into model-free
+approaches, including actor-only, critic-only, and actor-critic frameworks. Compara-
+tive studies reviewed by Fischer (2018) report no significant performance differences
+between core algorithms such as Policy Gradient (PG) and Deep Q-Network (DQN)
+when applied to portfolio management [26]. However, each class of methods offers spe-
+cific strengths depending on the task setting [57]. MDP design choices materially affect
+agent performance. For example, augmenting a DRL portfolio allocator with market-
+sentiment features yields significantly higher Sharpe ratios and annualized returns
+than price-only baselines [40].
+Evaluations in market making and portfolio optimization, as highlighted by
+Gaˇsperov et al. (2021) and Hambly et al. (2023), consistently show that RL methods
+can manage larger action spaces more efficiently than manual optimization [28, 31].
+Enhanced state representations tend to improve learning outcomes, though dimin-
+ishing returns are observed as feature space expands. In multi-asset scenarios, an
+expanded action space allows finer control over asset allocation, reducing the bur-
+den on human analysts. While most RL implementations continue to use portfolio
+return as the primary reward signal, recent research has introduced alternative objec-
+tives—such as risk-adjusted returns and multi-objective reward shaping—to better
+align with real-world portfolio management goals [6, 19, 50].
+Simplified trading assumptions—such as neglecting transaction costs or assuming
+zero slippage—risk overestimating RL performance, emphasizing the need for rigorous
+models that incorporate these constraints [6].
+AlphaZeroBeta addresses these challenges through a risk-aware reward function
+and dynamic policy adaptation tailored to the non-stationary structure of financial
+data. State representations combine volatility-adjusted features with cross-sectional
+5
+normalization across sector and index peers, allowing the model to learn from heavy-
+tailed distributions and long-range dependencies without overfitting to transient
+market noise.
+2.3 State-of-the-Art Neural Architectures
+Choosing the recurrent backbone is crucial because market-neutral trading involves
+long, non-stationary sequences with sparse but impactful regime shifts. GRUs [18]
+share the gating mechanism of long short-term memory (LSTM) networks but use
+fewer parameters and have been competitive on time-series tasks. Transformer variants
+have been adapted to long-range memory (Transformer-XL [20]) and to reinforce-
+ment learning specifically (Gated Transformer-XL [51]), but Pleines et al. (2025) [55]
+show that GRU-based policies maintain stable performance on endless reinforcement
+learning tasks, whereas transformer variants suffer when memory must be updated
+continuously. Empirically, we observe the same behavior on financial data: GRUs han-
+dle the rolling multi-year training horizons used in our walk-forward protocol (see
+Section 5.4) with fewer parameters and more stable optimization, so we adopt a
+CNN-GRU encoder instead of a transformer stack.
+3 Methodology
+The AlphaZeroBeta architecture is structured around three core stages to achieve
+dynamic market-neutral portfolio optimization. An overview of the full system
+architecture is shown in Figure 1.
+3.1 Alpha Signal Construction
+In the first stage, heterogeneous financial data sources—including price histories,
+fundamental metrics, and sentiment indicators—are aggregated and transformed
+into a standardized set of alpha signals. These signals are engineered to capture a
+diverse range of market phenomena, including momentum, mean reversion, volatility
+clustering, and tail risk asymmetries. The resulting features are arranged into a multi-
+dimensional tensor that preserves both temporal and cross-sectional structure, serving
+as a unified input representation for the model.
+3.2 Feature Extraction via CNN-GRU
+The constructed signal tensor is then passed through a hybrid feature extractor
+composed of a CNN followed by a GRU. The CNN component extracts multi-scale
+temporal features through three 1D convolutional layers with hierarchical receptive
+fields. The GRU component then captures longer-range temporal dependencies and
+retains a compact memory of historical context. Together, these layers model complex
+non-linear patterns and stabilize performance across market regimes.
+6
+Stock
+Prices
+Company
+Profiles
+Financial
+Statements
+Commodity
+Prices
+Stock
+Volumes
+Dividends
+& Splits
+Statement
+Analysis
+Forex
+Prices
+Social
+Sentiments
+Earnings
+Surprises
+Economics
+Data
+Index
+Values
+Data Loading
+Processing
+Aggregated
+Data
+1. Momentum (pct change)
+2. Mean Reversion (-1*mean)
+3. Volatility (std)
+4. Skew / Jump (skew, kurtosis)
+Input
+Tensor
+Derive alpha
+signals
+Normalize across
+sectors / index
+Feature Engineering
+Modeling
+Simulated
+Live Feed
+Rolling 36-month training window, 6-month
+test slice, daily rebalancing, retrained per fold.
+RecurrentPPO
+(CnnGRU)
+Trading Agent
+Environment
+Observation, Ot
+Action, At
+Reward, Rt
+Market Orders
++ Slippage
+Trading
+Results
+Daily Portfolio
+Rebalancing + Commission
+Backtesting
+Fig. 1 AlphaZeroBeta architecture: a three-stage pipeline. Data Loading aggregates twelve het-
+erogeneous market and alternative data sources. Feature Engineering derives four alpha-signal
+families (momentum, mean reversion, volatility, and skew/jump) over rolling windows and normalizes
+them per sector and index into the input tensor. Backtesting formalizes the MDP loop: a Recur-
+rent PPO trading agent with a CNN-GRU encoder ingests the observation (tensor slice, historical
+weights, portfolio metrics), emits an action (asset weights), and receives a reward (the AlphaZero-
+Beta composite reward) from a transaction-cost-aware environment.
+7
+3.3 Policy Learning with Recurrent PPO
+Extracted features are forwarded to a Recurrent PPO agent, an actor-critic algorithm
+based on PPO, extended for recurrent policies [54, 58, 64]. The agent outputs portfolio
+weights by optimizing a composite reward function designed to favor excess returns per
+unit of volatility while penalizing correlation with a benchmark index and transaction
+costs. Formally, at each decision step the PPO agent receives the scalar reward rt
+defined in Eq. (8) in Subsection 3.7, which combines risk-adjusted excess return with
+explicit penalties for market correlation and turnover. This reward is used directly as
+the optimization objective in the policy gradient updates.
+3.4 Walk-Forward Evaluation
+To assess the model’s generalization and robustness, we run walk-forward backtests
+over the 2014–2024 period, reserving earlier years for training context. At the start of
+each split, we train the agent on a fixed-length historical window; we then deploy it
+on the subsequent out-of-sample period, ensuring non-overlapping train/test segments
+within each split.
+The procedure simulates daily trading operations and allows the model to adapt
+to regime shifts while limiting overfitting, providing validation under realistic, non-
+stationary market conditions.
+3.5 Problem Formulation as a Markov Decision Process
+We formalize market-neutral portfolio construction as a Markov decision process,
+defined by the tuple (S, A, P, R, γ), where S denotes the state space, A the action
+space, P the transition dynamics, R the reward function, and γ ∈[0, 1] the discount
+factor [65].
+At time t, the environment is characterized by a state st ∈S, which includes the
+current portfolio weights wt, global market signals mt (macroeconomic indicators,
+commodity prices, and broad market indices), and asset-specific features xt (price his-
+tory, fundamentals, and sentiment). A detailed taxonomy is provided in Appendix C.
+Formally,
+st = (wt, mt, xt).
+(1)
+The agent selects an action at ∈A corresponding to the target allocation wt+1 for
+the next period. To keep leverage bounded we restrict the weights to lie in an ℓ1 ball,
+∥wt+1∥1 ≤τ, with τ = 1 in every experiment, and we subtract the cross-sectional
+mean of the action so that P
+i wi = 0 before the ℓ1 projection (see Listing D.4.2 in
+Appendix D.4). This combination enforces dollar neutrality at each rebalance while
+keeping gross exposure at most one. The state transition to st+1 follows a stochastic
+process governed by market evolution and rebalancing:
+st+1 ∼P(· | st, at).
+(2)
+The reward function R(st, at) captures the agent’s objective, which balances return
+generation with risk control and neutrality preservation.
+8
+The agent’s goal is to learn a policy π : S →A that maximizes the expected
+discounted cumulative reward:
+π∗= arg max
+π
+Eπ
+" T
+X
+t=0
+γtrt
+#
+,
+(3)
+where rt = R(st, at) denotes the immediate reward at time t [65].
+3.6 Reinforcement Learning Architecture
+To optimize the policy πθ(at | st) in a Markov decision process, we employ Recur-
+rent PPO, an actor-critic algorithm characterized by stability and sample efficiency
+in continuous control tasks [54, 58]. The policy is parameterized by a deep neural
+architecture that processes raw market data and outputs portfolio allocations in a
+closed-loop, state-dependent setting.
+The input to the agent consists of multivariate financial time series, sampled at
+multiple temporal resolutions—specifically, daily, weekly, and monthly intervals—to
+encode both short-term fluctuations and long-term structural trends. Weekly and
+monthly tensors are constructed by resampling the daily panel using end-of-period
+values so that every observation shares the timestamp of the most recent daily close,
+ensuring synchronous alignment when the streams are concatenated. The multi-scale
+observations are then processed by a hierarchical convolutional pipeline, where three
+1D convolutional layers apply progressively narrower filters of sizes 8, 4, and 3, with
+corresponding strides of 4, 2, and 1. The architecture extracts multi-scale temporal
+features across assets and indicators.
+The resulting feature map is then flattened and passed through a GRU with 512
+hidden units. The GRU maintains temporal dependencies and encodes sequential
+patterns, providing a memory mechanism for evolving market dynamics.
+The recurrent embedding is then forwarded through two separate fully connected
+branches. Because the action dimension equals the number of tradable assets in each
+universe, including cases with more than 2,200 constituents (000001.SS), the final
+policy layer is a high-dimensional linear projection from the 512-unit embedding to the
+per-asset weight vector. During training we batch experiences along both the time and
+asset axes (i.e. minibatches contain 32–64 parallel environments, each representing a
+different index window) so that GPU matrix multiplications dominate the cost rather
+than per-asset loops.
+Inference remains tractable because the policy outputs a dense weight vector once
+per rebalance; sparsity is enforced afterward by projecting onto the ℓ1 ball, which
+naturally limits gross exposure without requiring explicit pruning. This design keeps
+runtime near-linear in the number of assets and allows the same PPO implementation
+to handle 500-name U.S. universes and the 2,200-name Shanghai panel with identical
+code.
+The two fully connected branches are:
+1. a policy head that outputs the action vector at = wt+1, representing the next-
+period portfolio weights, and
+9
+Observation, Monthly
+Observation, Weekly
+Observation, Daily
+Stacked input: 3 × nfeatures × nagent window
+Conv
+Filters: 32
+Size: 8
+Stride: 4
+Conv2
+Filters: 64
+Size: 4
+Stride: 2
+Conv3
+Filters: 64
+Size: 3
+Stride: 1
+Flattened
+GRU
+(512)
+Fully Connected
+(512)
+FC (512)
+FC (512)
+Value
+Policy
+Fig. 2 AlphaZeroBeta neural architecture. Three multi-resolution observation tensors (daily, weekly,
+and monthly), each resampled at the same close, are stacked along the channel axis and processed
+by a sequential CNN (8/4/3 kernels, 4/2/1 strides, 32/64/64 filters). The flattened feature map feeds
+a GRU (512 hidden units) and a shared fully connected layer (512 units); the recurrent embedding
+then branches into a value head that outputs a scalar value estimate and a policy head that outputs
+an N-dimensional weight vector, where N is the universe size (e.g. 30 for the DJIA, 500 for the S&P
+500, about 2,200 for the SSE Composite). Each head has a 512-unit ReLU hidden layer; the policy
+output is bounded by a Tanh. Trained end-to-end with Recurrent PPO.
+2. a value head that estimates Vϕ(st), the expected return-to-go from state st.
+Each head contains a 512-unit fully connected ReLU hidden layer followed by a
+head-specific output layer: a scalar for Vϕ(st) and an N-dimensional Tanh-bounded
+weight vector for wt+1, where N is the universe size and varies by market (e.g. 30
+for ˆDJI, 500 for ˆGSPC, ∼2,200 for 000001.SS). The entire network is trained end-
+to-end using PPO’s clipped surrogate objective, which balances policy improvement
+with trust-region constraints. Gradient updates are computed via backpropagation
+using minibatch stochastic gradient descent. The overall architecture is illustrated in
+Figure 2.
+3.7 Reward Function
+In reinforcement learning for portfolio optimization, the choice of reward function is
+critical: it determines which trade-offs the agent learns to make between return, risk,
+neutrality, and turnover. In AlphaZeroBeta we design the reward to encourage market-
+neutral excess returns with controlled volatility and realistic transaction costs, rather
+than pure return maximization.
+Let rp(t) and rm(t) denote the portfolio and benchmark (index) returns at time t,
+respectively. We first define the excess return
+∆r(t) = rp(t) −rm(t),
+(4)
+which captures performance attributable to active decisions beyond passive index
+exposure. Because excess return in isolation does not account for risk, we normalize
+10
+by the portfolio’s rolling volatility σp(t) to obtain a Sharpe-like, risk-adjusted term
+R(0)
+t
+= ∆r(t)
+σp(t) .
+(5)
+To promote market neutrality, we penalize correlation between the portfolio and
+the benchmark. Let Corr
+ rp(t), rm(t)
+
+denote the correlation between portfolio and
+benchmark returns, computed over a rolling window (e.g. 60 business days). We extend
+the reward to
+R(1)
+t
+= ∆r(t)
+σp(t) −λ1 · Corr
+ rp(t), rm(t)
+
+,
+(6)
+where λ1 ≥0 is a regularization coefficient controlling the strength of the neu-
+trality penalty. Larger values of λ1 push the policy toward lower beta and weaker
+co-movement with the index.
+Excessive turnover is undesirable both because it erodes returns via transaction
+costs and because it makes strategies harder to implement at scale. Let wi(t) denote
+the weight of asset i at time t. We approximate proportional transaction costs using
+Ct =
+X
+i
+∆wi(t)
+,
+∆wi(t) = wi(t) −wi(t −1),
+(7)
+which is proportional to portfolio turnover at each rebalance. This leads to the final
+reward
+Rt = rp(t) −rm(t)
+σp(t)
+−λ1 · Corr
+ rp(t), rm(t)
+
+−λ2
+X
+i
+∆wi(t)
+,
+(8)
+where λ2 ≥0 controls the strength of the turnover penalty and can be calibrated to
+reflect typical cost levels in the underlying markets.
+In the RL formulation, we take rt := Rt as the instantaneous reward in the Markov
+decision process. Thus the agent maximizes the expected discounted sum E
+P
+t γtRt
+
+,
+trading off (i) risk-adjusted excess return, (ii) market correlation, and (iii) trading
+intensity. Coefficients λ1 and λ2 are treated as hyperparameters and kept fixed across
+markets in our main experiments; their values and other key PPO settings are sum-
+marized in Appendix D.2.2. By construction, this objective encourages policies that
+generate market-neutral excess returns while maintaining controlled volatility and
+realistic turnover.
+Because the turnover penalty depends on the absolute change in weights, the envi-
+ronment becomes path-dependent: the reward earned at t is influenced by the entire
+sequence of past allocations through transaction costs. Each fold therefore starts from
+a flat, self-financing portfolio, and the agent must ramp up exposures sequentially.
+In practice we observe that portfolio weights converge toward their stationary distri-
+bution after roughly ten trading days; this short warm-up period is included in all
+reported metrics, but it also explains the small dip in performance evident at the
+beginning of each out-of-sample window.
+11
+4 Experiment Setup
+4.1 Data
+We conduct empirical evaluation on a dataset retrieved from Bloomberg Terminal
+and Financial Modeling Prep, covering calendar years 2004–2024 of historical equity
+and macro-financial data [12, 25]. The dataset comprises daily closing prices, trad-
+ing volumes, and corporate actions (e.g. dividends, stock splits), alongside detailed
+company-level fundamentals such as income statements, balance sheets, financial
+ratios, and sector classifications. Additionally, we include analyst-estimated earnings
+surprise signals, which capture deviations between expected and reported earnings
+and serve as a proxy for information shocks. Walk-forward experiments draw their
+training data from rolling three-year windows (approximately 756 trading days), fol-
+lowed by a six-month validation segment (about 126 days) used for early stopping and
+hyperparameter checks, and a six-month out-of-sample test segment.
+The block advances in six-month steps (sliding window): for the first fold, the
+model trains on July 2010–June 2013 (36 months), validates on July–December 2013,
+and tests on January–June 2014; the next fold shifts forward six months (train Jan-
+uary 2011–December 2013, validate January–June 2014, test July–December 2014),
+and so on.
+Because the six-month sliding step is shorter than the 36-month training win-
+dow, training windows overlap across folds (by 30 months between consecutive folds);
+the six-month validation and test slices advance disjointly, yielding K = 22 non-
+overlapping test segments through December 2024. The 2004–2010 segment is reserved
+for initialization of rolling estimators (volatility, correlation, and winsorization thresh-
+olds) and feature standardization statistics, so the first training window starts in
+July 2010 and no estimator state leaks across the in-sample/out-of-sample boundary.
+At the beginning of each fold, the agent’s network weights are reset and retrained
+from scratch on that fold’s training window; portfolio weights start from zero (flat
+position) and adapt dynamically during deployment. Unless otherwise noted, every
+descriptive statistic and inference in Sections 4 and 6 is computed on the 2014–2024
+out-of-sample walk-forward window; the pre-2014 data only provide historical context
+for initializing each fold.
+To account for exogenous influences on asset returns, we incorporate a range of
+macroeconomic indicators—including interest rates, inflation metrics, GDP growth
+rates, and employment figures—alongside global commodity prices, foreign exchange
+rates, and investor sentiment signals derived from structured news feeds, social media
+analytics, insider trading, and options data. These features enrich the state repre-
+sentation with both fundamental and behavioral dimensions of market dynamics. A
+full taxonomy of input features retrieved from Bloomberg Terminal is provided in
+Table C2.
+The core equity universe of our study is composed of seven major stock indices,
+summarized in Table 1. These indices span a diverse set of regions—including North
+America, Europe, and Asia—and capture both developed and emerging markets. Two
+universes (the SSE Composite with more than 2,200 stocks and the S&P 500 with
+500 constituents) meet or exceed the 500-name threshold, so the agent operates over
+12
+Table 1 Overview of equity indices used in the empirical study. Indices vary by region, coverage,
+and rebalancing conventions.
+Code
+Name
+Region
+Size
+Curr.
+Notes
+000001.SS
+SSE
+Com-
+posite
+China
+>2,200
+CNY
+Comprehensive index tracking all
+A- and B-shares listed on the
+Shanghai Stock Exchange; used
+as a proxy for Chinese market
+breadth.
+ˆDJI
+Dow
+Jones
+Ind. Avg
+U.S.
+30
+USD
+Price-weighted index of 30 U.S.
+blue-chip companies; oldest and
+most concentrated benchmark in
+the study, with infrequent con-
+stituent changes.
+ˆFTSE
+FTSE 100
+U.K.
+100
+GBP
+Tracks the 100 largest companies
+on the London Stock Exchange by
+market capitalization; rebalanced
+quarterly; sector-heavy in energy
+and financials.
+ˆGDAXI
+DAX
+Germany 40
+EUR
+Comprises 40 major German com-
+panies trading on Xetra; free-float
+adjusted; used as the flagship index
+for the Eurozone’s largest econ-
+omy.
+ˆGSPC
+S&P 500
+U.S.
+500
+USD
+Broad-based
+index
+of
+large-cap
+U.S. equities; represents
+80% of
+total U.S. market cap; free-float
+weighted and rebalanced quarterly.
+ˆHSI
+Hang Seng
+Hong
+Kong
+SAR,
+China
+83
+HKD
+Captures the largest and most
+liquid
+companies
+on
+the
+Hong
+Kong Stock Exchange (Hong Kong
+SAR,
+China);
+rebalanced
+quar-
+terly; includes dual-listed main-
+land firms.
+ˆNDX
+NASDAQ-
+100
+U.S.
+100
+USD
+Tech-focused index of the largest
+non-financial
+NASDAQ-listed
+firms; uses modified capitalization
+weighting to reduce dominance of
+megacaps.
+Note: Index metadata retrieved from Bloomberg Terminal. “Curr.” denotes index currency.
+13
+a large cross-section on those markets. Their inclusion ensures exposure to a variety
+of liquidity regimes, market structures, and economic conditions.
+Each index reflects distinct weighting methodologies. For example, the S&P 500
+and FTSE 100 are free-float market capitalization weighted, offering broad exposure to
+large-cap equities in the U.S. and U.K., respectively. The DAX and Hang Seng indices
+also follow cap-weighted schemes but represent concentrated baskets of domestic blue-
+chip firms. In contrast, the Dow Jones Industrial Average (DJIA) is price-weighted,
+while the NASDAQ-100 uses a modified capitalization approach to reduce concentra-
+tion risk in the tech-heavy composition. The SSE Composite, representing nearly the
+entire Chinese stock market, updates daily and captures high-frequency volatility in
+an emerging market context.
+Index sizes range from as few as 30 constituents (DJIA) to more than 2,200 (SSE
+Composite), and rebalance schedules vary from quarterly to irregular intervals. This
+diversity lets us evaluate the scalability and generalization of our approach across
+varying breadth, turnover dynamics, and market microstructures.
+Furthermore, index-level and constituent-level data—such as returns, prices,
+volumes, and corporate actions—are integrated into the model’s state space and bench-
+marking logic. For ˆGSPC, ˆNDX, ˆFTSE, ˆGDAXI, ˆHSI, and ˆDJI, Bloomberg
+historical membership feeds are available and we therefore use time-varying constituent
+sets within each walk-forward split. For 000001.SS, historical constituent history is
+incomplete in our licensed feed, so we use a fixed Bloomberg constituent snapshot as of
+2025-02-01 as a proxy universe. Table 3 summarizes this treatment. Indices that meet
+or exceed the 500-name threshold (SSE Composite exceeds; S&P 500 meets) there-
+fore force the agent to optimize over very large cross-sections, confirming the intended
+scaling regime. Training and evaluating across this geographically diverse index panel
+exposes the method to heterogeneous liquidity regimes, sectoral compositions, market
+capitalizations, and rebalancing schedules.
+4.1.1 Descriptive Statistics
+To characterize the distributional properties of the underlying equity markets, we
+report standard summary statistics for daily log returns of each benchmark index in
+Table 2. Consistent with the walk-forward protocol, these descriptive statistics (and
+all downstream inferences that reference them) are computed exclusively on the 2014–
+2024 out-of-sample evaluation window; pre-2014 observations merely provide training
+context and never enter the table. For each series we list the number of observa-
+tions (N), mean and median return, standard deviation, extrema, skewness, excess
+kurtosis (fourth standardized moment minus three, so that a normal distribution has
+excess kurtosis = 0), and the p-value of a Jarque–Bera normality test. This provides
+a compact view of the heavy tails and volatility clustering that are typical of equity
+returns and motivates the use of risk-aware performance measures in our reinforcement
+learning framework.
+Mean daily returns are small and mostly mildly positive (ˆHSI is essentially flat at
+−0.00001), with markedly fat-tailed and consistently left-skewed distributions; Jarque–
+Bera tests reject normality at any conventional significance level even when computed
+strictly on the 2014–2024 out-of-sample horizon. A standard Engle ARCH LM test (not
+14
+Table 2 Descriptive statistics of daily log returns for the benchmark indices over the 2014–2024
+walk-forward evaluation window. “JB p” reports the p-value of a Jarque–Bera test for normality.
+All returns are expressed in the local index currency.
+Index
+N
+Mean Median
+Std
+Min
+Max Skew Ex. Kurt.
+JB p
+000001.SS 2708
+0.00017
+0.00047 0.01298 -0.08873 0.07755 -1.008
+8.319 < 0.001
+ˆDJI
+2797
+0.00036
+0.00066 0.01074 -0.13842 0.10764 -0.945
+23.322 < 0.001
+ˆFTSE
+2814
+0.00009
+0.00054 0.00967 -0.11512 0.08667 -0.870
+13.364 < 0.001
+ˆGDAXI 2820
+0.00031
+0.00080 0.01195 -0.13055 0.10414 -0.591
+10.293 < 0.001
+ˆGSPC
+2797
+0.00043
+0.00067 0.01093 -0.12765 0.08968 -0.812
+16.111 < 0.001
+ˆHSI
+2742 -0.00001
+0.00026 0.01330 -0.09879 0.08693 -0.019
+3.776 < 0.001
+ˆNDX
+2797
+0.00065
+0.00117 0.01352 -0.13003 0.09597 -0.537
+7.361 < 0.001
+tabulated) further indicates pronounced conditional heteroscedasticity for all indices,
+consistent with well-known stylized facts such as volatility clustering in equity markets.
+4.2 Data Handling and Look-Ahead Bias
+To ensure that the backtests are implementable in real time and free from artificial
+information leakage, we align all predictors so that only information available at (or
+before) the portfolio-formation date is used.
+4.2.1 Company Fundamentals
+Quarterly and annual financial statement data (income statements, balance sheets,
+and cash-flow statements) obtained from Bloomberg Terminal and Financial Modeling
+Prep are lagged to reflect realistic reporting delays [12, 25]. Concretely, we assume
+that each statement becomes tradable information only after a fixed lag of 60 calendar
+days following the period end; all fundamental features are shifted accordingly, so that
+values released for quarter q first enter the feature set in the subsequent period.
+4.2.2 Earnings and Analyst Forecasts
+Earnings surprises and analyst forecast revisions are constructed so that only
+contemporaneously available estimates enter the state. To avoid look-ahead bias
+from backfilled analyst databases, we treat revisions as occurring at their recorded
+announcement dates and do not use future revisions when computing past signals.
+Earnings announcements that occur after the market close can only affect trading
+decisions from the next business day onward.
+4.2.3 Macroeconomic and Survey Data
+Macroeconomic indicators (e.g. interest rates, inflation measures, industrial produc-
+tion, and unemployment) are used at a monthly or quarterly frequency and are aligned
+to their official release dates. Where real-time vintages are not available, we conserva-
+tively lag macro variables by one publication period so that revisions cannot influence
+earlier decisions.
+15
+4.2.4 Index Constituents and Survivorship
+Index membership, corporate actions, and free-float shares are sourced from
+Bloomberg. Table 3 lists the exact membership treatment by index. Historical time-
+varying membership sets are used for ˆGSPC, ˆNDX, ˆFTSE, ˆGDAXI, ˆHSI, and
+ˆDJI. For 000001.SS, where full historical constituent history is not available in our
+licensed extract, we use the published constituent snapshot as of 2025-02-01 as a fixed
+proxy universe; this is the main survivorship-bias caveat in our setup.
+Table 3 Index-membership sourcing and survivorship treatment used in backtests.
+Index
+Membership
+mode
+Timestamp / note
+000001.SS
+Static proxy
+Bloomberg constituent snapshot as of 2025-02-01.
+ˆGSPC
+Time-varying
+Bloomberg constituent history queried by trading
+date.
+ˆNDX
+Time-varying
+Bloomberg constituent history queried by trading
+date.
+ˆFTSE
+Time-varying
+Bloomberg constituent history queried by trading
+date.
+ˆGDAXI
+Time-varying
+Bloomberg constituent history queried by trading
+date.
+ˆHSI
+Time-varying
+Bloomberg constituent history queried by trading
+date.
+ˆDJI
+Time-varying
+Bloomberg constituent history queried by trading
+date.
+4.2.5 Trading Calendars and Holidays
+All time series are aligned to exchange-specific trading calendars: non-trading days are
+removed rather than forward-filled, and each market is processed on its own local calen-
+dar. This avoids spurious returns on holidays and ensures that cross-market features do
+not inadvertently incorporate future information through asynchronous closing times.
+4.2.6 Close-to-Close Trading Rule
+Our main experiments assume a daily rebalancing scheme in which information up
+to and including day t is used to set portfolio weights for the next trading day
+t+1, implying execution at (or near) the close of t+1. Transaction costs use a deter-
+ministic schedule: 5 bps per side for top-decile U.S. names (ˆGSPC/ˆNDX/ˆDJI),
+10 bps for top-decile names in the U.K., Germany, and Hong Kong SAR, China
+(ˆFTSE/ˆGDAXI/ˆHSI), 15 bps for the remaining U.S./U.K./German names, 20 bps
+for the remaining Hang Seng names, and 30 bps for 000001.SS constituents. Top decile
+is defined by trailing 60-trading-day average dollar volume (ADV60 = price × volume)
+within each index universe, computed with information available up to the rebalance
+16
+date and refreshed monthly (first rebalance day of each month). Borrow fees are 30
+bps/year (U.S.), 45 bps/year (U.K./Germany), 75 bps/year (Hong Kong SAR, China),
+and 120 bps/year (China), accrued linearly over holding days. The exact constants are
+listed in Table D4 (Appendix D.2.1). These charges are debited on every rebalance so
+that the close-to-close convention reflects adverse drift associated with delayed fills.
+4.3 Baselines
+We benchmark AlphaZeroBeta against three portfolio strategies, each based on a
+different optimization methodology.
+4.3.1 Index Buy-and-Hold (Index B&H)
+The passive benchmark maintains the initial allocation unchanged over the entire
+evaluation period:
+wi(t) = wi(0),
+∀t,
+(9)
+where wi(t) denotes the portfolio weight of asset i at time t. The benchmark provides
+a baseline for market-tracking performance [53].
+4.3.2 Maximum Sharpe Ratio Portfolio (MxSharpe)
+The procedure is formulated to maximize the portfolio’s Sharpe ratio subject to linear
+constraints:
+max
+w
+E[Rp −Rf]
+σp
+s.t.
+X
+i
+wi = 1,
+−1 ≤wi ≤1,
+(10)
+where Rp = w⊤R is the portfolio return and σp =
+√
+w⊤Σw denotes portfolio volatil-
+ity. The mean–variance formulation follows [47]; the resulting program is solved via
+Sequential Least Squares Programming (SLSQP), which handles the nonlinear Sharpe
+ratio objective subject to the box and full-investment constraints.
+4.3.3 Minimal Correlation Portfolio (Decorr)
+The strategy minimizes the absolute correlation with the benchmark index to drive
+the portfolio toward ρp ≈0 rather than ρp →−1:
+min
+w
+|ρp| =
+
+Cov(Rp, Rb)
+σpσb
+
+s.t.
+X
+i
+wi = 1,
+−1 ≤wi ≤1,
+(11)
+where Rb is the benchmark return. Because |ρp| is non-smooth at zero, in practice
+we solve the equivalent smooth program minw ρ2
+p with SLSQP, which yields the same
+optimizer and ensures feasible allocations with bounded leverage and full investment.
+These three benchmarks span the most common convex constructions used in
+practice—passive, Sharpe-optimal, and decorrelated—and therefore provide an apples-
+to-apples reference for AlphaZeroBeta’s performance in both absolute and relative
+terms.
+17
+The baselines and AlphaZeroBeta differ in one important respect: their constraint
+sets. All convex baselines use the same box constraints (−1 ≤wi ≤1) together with
+a full-investment condition P
+i wi = 1, so their net exposure is always long one dollar.
+They therefore remain sensitive to market beta unless neutrality emerges implicitly
+from the optimizer (only the Decorr formulation indirectly pushes toward low cor-
+relation). For AlphaZeroBeta we impose the identical per-asset bounds, project the
+centered policy outputs onto the ℓ1 ball of radius one, and therefore enforce both
+P
+i wi = 0 and P
+i |wi| ≤1 at every rebalance (Listing D.4.2). The correlation penalty
+in Eq. (8) still matters—it discourages residual beta after transaction costs—but
+neutrality is hard-coded rather than emergent.
+This fundamental difference in constraints means the comparison favors baselines
+in upward-trending markets (they retain positive beta) while AlphaZeroBeta must
+generate performance solely from relative-value signals. The comparison is leverage-
+neutral in terms of gross exposure yet differs in net exposure: baselines are net-long
+by design, whereas AlphaZeroBeta is dollar-neutral by construction. This limitation
+should be considered when interpreting performance comparisons in Section 6.
+To verify that our advantages are not solely attributable to using RL, we also
+report an ablation in Table B1 (Appendix B) that removes the neutrality penalty from
+the policy reward while leaving the architecture and training schedule unchanged. The
+return-maximizing RL baseline outperforms the passive index in every market but
+falls short of AlphaZeroBeta on Sharpe ratio and exhibits materially higher market
+correlations and deeper drawdowns, confirming that AlphaZeroBeta’s neutrality-aware
+formulation, rather than RL alone, drives the improvements highlighted in Section 6.
+4.4 Sample Efficiency and Overfitting Mitigation
+Our framework improves sample efficiency and mitigates overfitting by exploiting the
+structure of financial markets rather than relying on synthetic data. We employ three
+techniques:
+1. At each time step, the state representation incorporates both index-level variables
+(e.g. returns, prices, realized volatility) and constituent-level features for every
+member of the traded universe (2,200 Shanghai stocks, 500 S&P constituents, 100
+FTSE names, etc.). This expansion increases the effective sample size by treating
+each asset as a distinct learning signal, thereby enhancing statistical power and
+reducing the likelihood of overfitting to idiosyncratic noise.
+2. We implement a rolling-window (moving-window) evaluation scheme with overlap-
+ping training windows across folds and disjoint validation/test slices [7]. For each
+split, the agent is trained on a fixed-length historical segment, validated on a held-
+out portion of that segment for hyperparameter tuning and early stopping, and
+then tested strictly on the subsequent out-of-sample period. This design exposes
+the agent to heterogeneous market regimes (bull, bear, sideways) and ensures that
+all performance metrics reflect unseen data. Profit-and-loss plots and all tabulated
+results are computed exclusively on out-of-sample periods, excluding the training
+and validation segments.
+18
+3. Standard machine learning techniques, including dropout [63], weight decay [42],
+and early stopping [56], are applied during training. These methods constrain
+model complexity and prevent memorization of training noise, further improving
+generalization to unseen data.
+We rely solely on historical market data for both training and evaluation. No synthetic
+data generators or artificial perturbations are employed, ensuring that all observed
+behaviors and performance metrics are grounded in real market dynamics.
+5 Compute and Evaluation Protocol
+This section consolidates the experimental infrastructure used in the empirical study:
+hardware and runtime requirements, evaluation metrics, and the walk-forward val-
+idation scheme (Section 5.4). All performance metrics (PnL charts and tables) are
+evaluated strictly on the out-of-sample test windows defined by the walk-forward
+protocol.
+5.1 Hardware
+Training and validation were executed on a server-class GPU machine (Linux, CUDA-
+enabled), comparable to an NVIDIA DGX A100 system (8×A100 GPUs, server-grade
+CPUs, high-bandwidth NVLink interconnect) or, for single-GPU ablations, a cloud
+instance with one datacenter GPU (e.g. AWS p3.2xlarge: 1×V100 16 GB, 8 vCPUs,
+61 GiB RAM). These platforms are representative of hardware commonly used in
+contemporary DRL-for-finance workloads and documented in vendor benchmark
+guides.
+5.2 Accounting of Compute
+5.2.1 AlphaZeroBeta
+The agent is trained from scratch at each walk-forward fold and evaluated on
+the subsequent out-of-sample segment. The minimum hardware requirement is one
+datacenter-grade GPU of the V100/A100 class with at least 16 GB of VRAM and
+eight CPU cores; additional GPUs enable fold- and seed-level parallelism.
+On the reference single-GPU setup (AWS p3.2xlarge, 1×V100 16 GB), one
+complete train/validation cycle takes 2.6 ± 0.3 hours for the smaller universes
+(ˆDJI/ˆGDAXI/ˆHSI/ˆFTSE/ˆNDX, ranging from 30 to 100 names) and the 500-
+name ˆGSPC, and 4.8±0.5 hours for the 2,200-name SSE Composite. On an 8×A100
+DGX-class node, running one fold per GPU reduces the per-fold wall-clock to 1.1 and
+2.0 hours, respectively. Aggregating across the K = 22 rolling splits (Jan 2014–Dec
+2024), a single-seed sweep over all 22 folds of one index takes 57–106 h on a single V100
+(about 2.4–4.4 wall-clock days, depending on universe size) or 3–6 h on the 8×A100
+node when the 22 folds are spread one-per-GPU across the eight A100s.
+For exploratory single-seed studies we budget approximately one week of training
+per index on a single V100-equivalent GPU, so a single-seed pass over all seven indices
+takes on the order of two months end-to-end. The full evaluation reported in this paper
+19
+uses nine independent seeds per fold and is therefore run on the 8×A100 DGX-class
+node, where parallelized folds and seeds complete the entire seven-index, nine-seed
+sweep in approximately 12 days of wall-clock time.
+5.2.2 Benchmarks (Index B&H, MxSharpe, Decorr)
+All three baselines are CPU-bound and entail low computational overhead:
+1. Index B&H is a trivial vectorized backtest in O(TN) complexity.
+2. MxSharpe and Decorr are smooth nonlinear programs per rebalance (MxSharpe
+maximizes a ratio of mean to volatility; Decorr minimizes squared benchmark cor-
+relation), each with linear box and budget constraints and solved with SLSQP; for
+N ∼O(102−103) assets and typical rebalance grids, per-window solves complete in
+seconds, so full walk-forward backtests over multiple indices comfortably fit within
+≤1 day on a modern multi-core CPU.
+5.3 Evaluation Metrics
+To assess portfolio performance we report six metrics, grouped by role. Three are used
+for tabular comparison across methods: the Sharpe ratio (risk-adjusted return), the
+Pearson correlation with the benchmark (neutrality diagnostic), and the maximum
+drawdown (downside-risk measure) [46, 53, 59]. Three are used for visual diagnostics
+in the PnL charts: cumulative return, net exposure (long minus short), and gross
+exposure (long plus short).
+5.3.1 Sharpe Ratio
+The Sharpe ratio S measures the excess return per unit of volatility:
+S = E[Rp −Rf]
+σp
+,
+(12)
+where Rp is the portfolio return, Rf is the risk-free rate, and σp is the standard devi-
+ation of Rp. A higher Sharpe ratio indicates superior risk-adjusted performance [60].
+In all reported results we use daily excess returns over the effective federal funds
+rate (lagged to avoid look-ahead), and we annualize Sharpe by multiplying the daily
+estimate by
+√
+252.
+5.3.2 Correlation with Benchmark
+The Pearson correlation ρ between portfolio returns Rp and benchmark returns Rb is
+defined as:
+ρ = Cov(Rp, Rb)
+σpσb
+,
+(13)
+where σp and σb are the respective standard deviations. This metric evaluates
+the degree of market neutrality; lower values imply greater independence from the
+index [52].
+20
+5.3.3 Maximum Drawdown
+Maximum drawdown (MDD) quantifies the largest historical peak-to-trough loss
+during the investment horizon:
+MDD = min
+t∈[0,T ]
+Vt −Vmax
+Vmax
+
+,
+(14)
+where Vt is the portfolio value at time t and Vmax
+= maxτ≤t Vτ is the run-
+ning maximum. MDD provides a measure of capital risk under worst-case historical
+scenarios [17].
+5.3.4 Cumulative Return
+Cumulative return measures the total profit or loss accrued over time without account-
+ing for risk. It is computed as the cumulative sum of portfolio-level profit and
+loss:
+Ct =
+t
+X
+s=1
+∆Ps,
+(15)
+where ∆Ps denotes the change in portfolio value at time s, computed as the inner
+product of asset price changes and lagged position sizes. The statistic Ct serves as a
+raw indicator of strategy performance over the investment horizon [14].
+5.3.5 Market Value (Net Exposure)
+Net exposure reflects the portfolio’s directional market stance. At time t, it is defined
+as:
+Enet
+t
+=
+N
+X
+i=1
+pi,t · qi,t,
+(16)
+where pi,t is the price of asset i and qi,t is the signed quantity held. Positive values
+indicate long exposure; negative values indicate short positioning [30].
+5.3.6 Gross Value (Gross Exposure)
+Gross exposure captures the total capital deployed, regardless of position direction:
+Egross
+t
+=
+N
+X
+i=1
+pi,t · |qi,t|.
+(17)
+This metric reflects leverage and portfolio scale, and is critical for risk and margin
+evaluation in long–short and market-neutral strategies [3].
+Note: All metrics are computed assuming an initial capital base of 1 unit in the bench-
+mark index’s currency (e.g. $1), with method-specific exposure constraints applied at
+each rebalancing date and no external cash flows.
+21
+5.4 Walk-Forward Validation
+The walk-forward validation protocol introduced in Section 4 ensures robust general-
+ization and prevents temporal leakage. During the out-of-sample phase we simulate
+daily rebalancing with the deterministic transaction-cost and borrow-fee schedule
+reported in Table D4, always using information available up to each decision point.
+Each of the K = 22 walk-forward folds (Section 4) consists of a 36-month training
+window, a 6-month validation window used for early stopping and model selection, and
+a non-overlapping 6-month test window over which performance is reported. The block
+advances in 6-month steps, so consecutive training windows overlap by 30 months while
+the validation and test slices advance disjointly. The 22 test windows tile January 2014
+through December 2024 without overlap, providing a synchronized evaluation hori-
+zon across markets with heterogeneous holiday calendars; pre-2014 data are reserved
+exclusively for warm-up of rolling estimators (Section 4) and never enter the reported
+metrics.
+The cumulative profit-and-loss (PnL) chart (Figure 4) and the performance met-
+rics in Table 4—annualized Sharpe ratio, maximum drawdown, and correlation to
+the benchmark index—are computed over the 22 out-of-sample test windows. Unless
+stated otherwise, we report mean ± standard deviation across the Cartesian product
+of the K = 22 folds and nine independent RL initializations per fold (different ran-
+dom seeds for the policy and value networks under identical hyperparameters), so the
+dispersion columns capture both temporal variability and sensitivity to agent restarts.
+This design emphasizes generalization across time and mitigates overfitting to specific
+market regimes [32].
+6 Results
+Table 4 summarizes the comparative performance of AlphaZeroBeta across the seven
+equity benchmarks described in Table 1, using the 2014–2024 out-of-sample segments
+generated by the walk-forward procedure. AlphaZeroBeta is evaluated against three
+reference strategies:
+1. Index B&H: A passive buy-and-hold strategy on the benchmark index, represent-
+ing the baseline market exposure.
+2. Decorr: A constrained optimization strategy that minimizes correlation with the
+benchmark index.
+3. MxSharpe: A return-risk optimized strategy that maximizes the Sharpe ratio
+without imposing market neutrality constraints.
+On average AlphaZeroBeta delivers a Sharpe ratio of 1.25 (cross-market standard
+deviation 0.30), computed as the simple mean and standard deviation of the per-
+market entries in Table 4; the best convex baseline in each market averages 0.70
+(standard deviation 0.19). AlphaZeroBeta also maintains correlations within ±0.15 of
+zero in every region.
+Our method achieves the highest Sharpe ratio in all markets, suggesting superior
+risk-adjusted performance. Drawdown is competitive but not uniformly best: AlphaZe-
+roBeta has the smallest (most positive) maximum drawdown only on ˆGDAXI, while
+22
+Table 4 Performance comparison across methods. For each index, we highlight in bold: the best
+Sharpe ratio (highest), best max drawdown (closest to zero), and lowest absolute correlation.
+Index
+Method
+Sharpe ratio
+Max drawdown
+Correlation
+000001.SS
+AlphaZeroBeta
+1.63 ± 0.38
+-0.34 ± 0.11
+-0.02 ± 0.05
+Index B&H
+0.30 ± 0.00
+-0.71 ± 0.00
+1.00 ± 0.00
+Decorr
+-0.24 ± 0.20
+-0.24 ± 0.08
+-0.05 ± 0.21
+MxSharpe
+0.80 ± 0.26
+-0.63 ± 0.36
+0.89 ± 0.09
+ˆFTSE
+AlphaZeroBeta
+0.94 ± 0.19
+-0.28 ± 0.09
+-0.02 ± 0.08
+Index B&H
+0.23 ± 0.00
+-0.43 ± 0.00
+1.00 ± 0.00
+Decorr
+-0.07 ± 0.18
+-0.44 ± 0.07
+-0.02 ± 0.17
+MxSharpe
+0.37 ± 0.16
+-0.22 ± 0.20
+0.73 ± 0.21
+ˆGDAXI
+AlphaZeroBeta
+0.86 ± 0.23
+-0.16 ± 0.11
+0.05 ± 0.04
+Index B&H
+0.51 ± 0.00
+-0.57 ± 0.00
+1.00 ± 0.00
+Decorr
+-0.16 ± 0.17
+-0.49 ± 0.12
+-0.10 ± 0.23
+MxSharpe
+0.11 ± 0.25
+-0.28 ± 0.21
+0.44 ± 0.35
+ˆGSPC
+AlphaZeroBeta
+1.61 ± 0.48
+-0.26 ± 0.15
+0.15 ± 0.09
+Index B&H
+0.72 ± 0.00
+-0.67 ± 0.00
+1.00 ± 0.00
+Decorr
+-0.27 ± 0.17
+-0.88 ± 0.14
+-0.11 ± 0.19
+MxSharpe
+0.91 ± 0.44
+-0.09 ± 0.31
+0.92 ± 0.07
+ˆHSI
+AlphaZeroBeta
+1.04 ± 0.33
+-0.21 ± 0.22
+0.01 ± 0.04
+Index B&H
+0.10 ± 0.00
+-0.67 ± 0.00
+1.00 ± 0.00
+Decorr
+-0.19 ± 0.18
+-0.63 ± 0.16
+-0.07 ± 0.18
+MxSharpe
+0.62 ± 0.31
+-0.18 ± 0.27
+0.81 ± 0.13
+ˆNDX
+AlphaZeroBeta
+1.48 ± 0.41
+-0.32 ± 0.10
+0.07 ± 0.06
+Index B&H
+0.90 ± 0.00
+-0.75 ± 0.00
+1.00 ± 0.00
+Decorr
+-0.12 ± 0.15
+-0.53 ± 0.13
+-0.08 ± 0.22
+MxSharpe
+0.85 ± 0.37
+-0.19 ± 0.26
+0.86 ± 0.11
+ˆDJI
+AlphaZeroBeta
+1.20 ± 0.28
+-0.27 ± 0.14
+0.03 ± 0.07
+Index B&H
+0.58 ± 0.00
+-0.53 ± 0.00
+1.00 ± 0.00
+Decorr
+-0.18 ± 0.19
+-0.46 ± 0.11
+-0.06 ± 0.15
+MxSharpe
+0.76 ± 0.29
+-0.22 ± 0.24
+0.79 ± 0.13
+Note: Results are expressed as mean ± standard deviation. For AlphaZeroBeta, dispersion is com-
+puted across the Cartesian product of 22 walk-forward folds and nine independent RL agent
+initializations per fold (198 samples). Index B&H reports a single buy-and-hold path computed over
+the full 2014–2024 horizon and therefore has zero dispersion. Decorr and MxSharpe are deterministic
+per fold; their reported dispersion captures fold-to-fold variation across the 22 walk-forward windows
+(no agent-restart variation, because the optimizers are deterministic). Bold entries highlight the best
+Sharpe ratio (highest), best max drawdown (closest to zero), and lowest absolute correlation for each
+index.
+23
+MxSharpe or Decorr record less-severe drawdowns in the other markets (numbers are
+reported as negative fractions of peak equity). In highly liquid indices such as the S&P
+500 (ˆGSPC) and Nasdaq-100 (ˆNDX), AlphaZeroBeta achieves Sharpe ratios of 1.61
+and 1.48, respectively—substantially outperforming benchmarks.
+The low or near-zero correlation with the corresponding index B&H further
+confirms that our strategy learns non-trivial return structures, providing strong
+orthogonality to passive exposure. In some cases, such as 000001.SS and ˆFTSE, the
+realized correlation is slightly negative or indistinguishable from zero, indicating that
+the soft correlation penalty in the reward suffices to neutralize residual beta without
+requiring a hard zero-correlation constraint.
+The occasional underperformance of the ex-ante maximum-Sharpe (MxSharpe)
+portfolio arises from the sensitivity of mean–variance optimization to estimation
+noise and non-stationary return moments. As a result, the theoretically optimal in-
+sample weights degrade out-of-sample, particularly in indices with unstable covariance
+structure or high concentration such as ˆGDAXI and ˆNDX.
+The convex baselines remain fully invested and net long, whereas AlphaZeroBeta
+is dollar-neutral by construction (zero-sum weights with an ℓ1-projection). The com-
+parison therefore favors the baselines whenever the underlying index trends upward
+because they retain positive beta, while AlphaZeroBeta must generate performance
+from relative-value signals alone. Decorr partially mitigates this imbalance by minimiz-
+ing realized correlation, yet even that formulation lacks an explicit zero-sum constraint.
+The fact that AlphaZeroBeta still outperforms highlights that its hard neutrality con-
+straint plus the neutrality-aware reward prevent beta drift without sacrificing Sharpe
+ratio.
+Transaction costs and borrow fees follow the deterministic schedule reported in
+Table D4. Under this schedule the realized absolute turnover P
+i |∆wi| for AlphaZe-
+roBeta averages 0.56 ± 0.11 per rebalance across markets (95th percentile 0.92),
+translating into an all-in implementation cost of roughly 8–12 bps per day in the most
+active windows. These magnitudes indicate that the reward penalty produces realis-
+tic trading intensity while leaving ample headroom for net alpha after frictions. The
+identical slippage/borrow model is applied to every strategy—Index B&H, Decorr,
+MxSharpe, and AlphaZeroBeta—with costs debited on each rebalance (buy-and-hold
+only pays when index membership changes). All four strategies rebalance at the same
+daily frequency, so they incur comparable per-rebalance costs under this model: the
+mean turnover is ≈0.50 for Decorr and ≈0.47 for MxSharpe across markets (not tab-
+ulated separately), against 0.56 for AlphaZeroBeta noted above. All reported Sharpe
+ratios and drawdowns are net of these cost assumptions.
+To
+isolate
+the
+effect
+of
+AlphaZeroBeta’s
+neutrality-aware
+reward
+design,
+Appendix B benchmarks the full agent against an otherwise identical RL policy that
+removes the correlation penalty and simply maximizes risk-adjusted return. The abla-
+tion achieves Sharpe ratios above the passive index in every market but exhibits
+materially higher drawdowns and market correlations, underscoring the importance of
+explicit neutrality regularization.
+24
+6.1 Stability and Generalization
+The per-market dispersions in Table 4 reflect AlphaZeroBeta’s stability across walk-
+forward folds and agent restarts; the modest cross-market spread (Sharpe std 0.30)
+and the consistently near-zero correlations together suggest that the policy generalizes
+across heterogeneous regimes—from developed markets such as ˆGDAXI to emerging
+markets such as 000001.SS—rather than fitting to a particular geography.
+0
+10k
+20k
+30k
+−0.06
+−0.05
+−0.04
+−0.03
+−0.02
+Optimization step
+Policy gradient loss
+0
+10k
+20k
+30k
+−20
+−10
+01
+R2 ≈0.97
+Optimization step
+Explained variance R2
+Fig. 3 Training diagnostics across nine independent PPO runs on the S&P 500 reference market:
+(left) policy gradient loss convergence over the optimization horizon; (right) explained variance of the
+value function over training steps. Thin blue lines: per-seed trajectories; thick black line: cross-seed
+mean.
+Figure 3 presents training diagnostics for AlphaZeroBeta across nine independently
+seeded PPO runs. The left panel shows the policy gradient loss stabilizing as training
+progresses, with convergence behavior consistent across all seeds. The variation in
+early training smooths out after 20k steps, suggesting reliable optimization behavior
+across random initializations.
+The right panel reports explained variance, which measures how well the critic pre-
+dicts realized returns. Most runs converge above 0.97 (cross-seed mean ≈0.95), with
+a minority settling near 0.85, indicating that the critic accurately tracks the return-
+to-go targets that drive the policy gradient’s advantage estimates. The combination
+of stable losses and high R2 across seeds is consistent with convergence to a neighbor-
+hood of a stationary point of the joint objective; the dispersion across seeds narrows
+after roughly 20,000 steps.
+6.2 Cumulative Performance Illustration
+To present a clear visualization of cumulative gains and drawdown dynamics,
+Figure 4 shows the cumulative PnL curve of AlphaZeroBeta on one representative
+index—ˆGSPC (S&P 500)—over the full backtest period.
+25
+−1
+0
+1
+2
+Cumulative return
+−0.6
+−0.4
+−0.2
+0
+Drawdown
+−0.5
+0
+0.5
+1
+Long / short
+2014
+2015
+2016
+2018
+2019
+2020
+2022
+2023
+2024
+0
+0.5
+1
+Year
+Gross
+AlphaZeroBeta
+Index buy-and-hold
+MxSharpe baseline
+Decorr baseline
+Fig. 4 Representative AlphaZeroBeta performance on the S&P 500 (ˆGSPC). Top: cumulative
+return for AlphaZeroBeta vs. index buy-and-hold, MxSharpe, and Decorr baselines. Below: draw-
+down, long/short exposure, and gross exposure trajectories. Returns are net of transaction costs and
+reflect daily rebalancing under walk-forward retraining.
+The strategy compounds steadily, avoids regime-specific collapses, and maintains
+stable return growth even through volatile periods, consistent with the per-market
+Sharpe ratios reported in Table 4.
+6.3 Full Market Performance Breakdown
+While Figure 4 provides a visual overview for a single market, the full set of cumulative
+PnL trajectories across all benchmark indices is included in Appendix A. These show
+that the agent generalizes across diverse geographies and index weighting schemes.
+26
+6.4 Risk Factor Exposures and Attribution
+To assess whether AlphaZeroBeta’s returns can be explained by standard risk premia,
+we run a factor attribution using a consistent panel of risk factors across markets. We
+start from the market, size, value, and profitability legs of the Fama–French five-factor
+model [23]. The investment factor (CMA) is excluded because it is nearly collinear
+with the proprietary quality-minus-junk spread used in our universes, which produced
+unstable estimates in preliminary tests; instead we retain that quality-minus-junk
+proxy (QUAL) to capture cross-sectional quality tilts. On top of these factors we
+add the Carhart momentum factor (MOM) [15], building on the momentum anomaly
+documented by Jegadeesh & Titman [36], and a short-term reversal factor (REV)
+following Jegadeesh [35]. This combination captures trend-following, mean-reversion,
+and quality dynamics without duplicating exposures.
+6.4.1 Model Specification
+For each market p with available factor data (six equity markets in our study:
+000001.SS, ˆFTSE, ˆGDAXI, ˆGSPC, ˆHSI, and ˆNDX), we regress daily excess port-
+folio returns on this extended set. We exclude ˆDJI from this attribution because, with
+only 30 large-cap constituents, local SMB/HML/RMW/QUAL spread construction
+is economically thin and statistically unstable, so coefficient estimates are not reli-
+able. For 000001.SS, factor legs are computed on the same 2025-02-01 proxy universe
+described in Table 3; the resulting loadings therefore inherit the same survivorship
+caveat.
+re
+p,t = αp + βm,p rMKT,t + βs,p SMBt + βv,p HMLt
++ βq,p RMWt + βmom,p MOMt + βrev,p REVt
++ βqual,p QUALt + εp,t,
+(18)
+where the MKT/SMB/HML/RMW factor definitions follow Fama & French [22, 23],
+the momentum factor follows Carhart [15], and the short-term reversal follows
+Jegadeesh [35]. Newey–West heteroskedasticity- and autocorrelation-robust t-statistics
+accompany all coefficients.
+Factor series are aligned carefully to avoid inadvertent lead/lag contamination.
+U.S. factors (Ken French library data) are merged at New York close and used con-
+temporaneously for ˆGSPC and ˆNDX. For European indices (ˆFTSE, ˆGDAXI) and
+Asian indices (000001.SS, ˆHSI), where no equivalent public factor library is avail-
+able, we construct MKT/SMB/HML/RMW directly from local index constituents
+using the standard Fama–French sort breakpoints (MKT as the cap-weighted local
+index over the local risk-free rate; SMB and HML from 2×3 size/value sorts; RMW
+from operating-profitability sorts), reindex the resulting series to the local exchange
+calendar, and delay the returns by one trading day whenever the factor’s publica-
+tion timestamp occurs after the local market close. Momentum and reversal factors
+are constructed analogously from the same local universes and follow the same tim-
+ing rule. This alignment guarantees that exposure estimates reflect implementable
+lead/lag conventions rather than asynchronous time stamps.
+27
+6.4.2 Regression Results
+Table 5 reports the resulting coefficients for the six markets with usable factor feeds.
+To keep naming consistent with Table 4, we report Bloomberg index codes in the first
+column and retain the same market order (with ˆDJI omitted for the reason above).
+Market betas are statistically indistinguishable from zero across all regions, confirm-
+ing that AlphaZeroBeta maintains dollar-neutral exposures. Momentum loadings are
+positive and significant in every market, while reversal coefficients are negative, indi-
+cating that the policy favors sustained trends over short-term noise. Quality loadings
+are close to zero overall but mildly negative in the NASDAQ portfolio, consistent
+with temporary tilts toward high-growth, lower-profitability stocks. Intercepts remain
+positive and significant at conventional levels, reflecting benchmark-relative abnormal
+returns rather than universal CAPM alpha. Asterisks in Table 5 follow the standard
+convention (* p < 0.10, ** p < 0.05, *** p < 0.01).
+Table 5 Extended factor regression results with Newey–West t-statistics in parentheses.
+Specification corresponds to Eq. (18). QUAL denotes our profitability-based quality-minus-junk
+factor constructed from ROE, gross profitability, and leverage filters following Asness et al. [4]; the
+Fama–French CMA factor is omitted because of near collinearity with QUAL on the universes
+studied.
+Market
+α
+MKT
+SMB
+HML
+RMW
+MOM
+REV
+QUAL
+000001.SS 0.00047***
+-0.002
+0.032
+0.009
+0.005 0.114***
+-0.029*
+-0.013
+(3.15) (-0.14)
+(1.56)
+(0.48)
+(0.44)
+(3.55)
+(-1.76)
+(-0.99)
+ˆFTSE
+0.00029**
+-0.004
+-0.017
+0.011
+0.014 0.091***
+-0.027*
+-0.009
+(2.12) (-0.22) (-0.88)
+(0.55)
+(1.02)
+(3.74)
+(-1.76)
+(-0.77)
+ˆGDAXI
+0.00033***
+0.006
+-0.021
+0.019
+0.004 0.105*** -0.031**
+-0.022
+(2.76)
+(0.42) (-1.02)
+(1.05)
+(0.41)
+(4.09)
+(-2.24)
+(-1.19)
+ˆGSPC
+0.00042***
+0.011
+0.028
+-0.014
+0.006 0.137*** -0.042**
+-0.011
+(3.01)
+(0.62)
+(1.44) (-0.88)
+(0.55)
+(4.92)
+(-2.11)
+(-1.08)
+ˆHSI
+0.00031**
+0.009
+0.013
+0.018
+0.011 0.128*** -0.036**
+-0.016
+(2.09)
+(0.55)
+(0.72)
+(0.99)
+(0.88)
+(3.88)
+(-2.01)
+(-1.06)
+ˆNDX
+0.00055***
+0.019 0.044*
+-0.022 -0.031* 0.162***
+-0.038* -0.067**
+(3.44)
+(0.88)
+(1.79) (-1.31)
+(-1.96)
+(5.12)
+(-1.82)
+(-2.32)
+* p < 0.10, ** p < 0.05, *** p < 0.01. Intercepts represent risk-model-relative abnormal returns rather
+than CAPM alpha. QUAL = quality-minus-junk spread.
+6.4.3 Interpretation
+The factor attribution therefore supports a consistent economic picture: AlphaZe-
+roBeta behaves as a moderate trend follower with low beta exposure, meaningful
+avoidance of fast mean-reversion, and only minor quality tilts that depend on the index
+composition. The binary ablation in Table B1 confirms that removing the correlation
+28
+penalty (λ1 = 0) raises market correlations into the 0.4–0.6 range and deepens draw-
+downs while also lowering Sharpe in every market, so the penalty acts as a beneficial
+regularizer rather than a pure cost to alpha at the operating point chosen here.
+6.4.4 Feature-Level Attribution
+To understand which inputs drive the learned policy, we apply two complementary
+attribution methods to the CNN-GRU encoder: grouped permutation importance and
+integrated gradients. Features are partitioned into four blocks: price/momentum sig-
+nals (returns, rolling means, technical indicators), volatility and regime indicators,
+macro/cross-asset drivers, and sentiment/flow inputs.
+For permutation importance, we shuffle each block in turn within the 2014–2024
+out-of-sample window and measure the relative drop in mean Sharpe ratio (versus the
+unshuffled baseline), averaged across the 22 walk-forward folds and the seven mar-
+kets. The marginal drops are 37% (price/momentum), 18% (volatility/regime), 12%
+(macro/cross-asset), and 9% (sentiment/flows); the remaining 24% reflects interaction
+effects and redundancy across blocks. Integrated gradients, averaged over 256 random
+test-window evaluations per market, confirm that price/momentum and volatility sig-
+nals dominate the policy logits, while macro and sentiment features mainly modulate
+position sizing.
+These diagnostics are consistent with the factor loadings in Table 5: AlphaZero-
+Beta behaves as a trend-following policy modulated by volatility-aware sizing, with
+significant momentum loadings and only modest tilts on the remaining factors.
+7 Discussion
+Across the seven equity indices in Table 4 and the representative S&P 500 trajectory
+in Figure 4, AlphaZeroBeta delivers higher Sharpe ratios than the convex baselines,
+smaller absolute correlations with the benchmark, and drawdowns that are uniformly
+shallower than buy-and-hold and shallower than the decorrelation baseline in six of
+seven markets (Decorr produces a slightly shallower drawdown only on 000001.SS).
+The same hyperparameter setting transfers across markets without per-index tuning,
+indicating that the multi-objective reward—rather than the choice of RL algorithm
+alone—is the principal driver of performance in non-stationary equity environments.
+From a methodological standpoint, our findings build upon and extend earlier work
+on reinforcement learning in portfolio management [37, 44, 45, 67–69]. In contrast
+to approaches focused on return maximization, AlphaZeroBeta introduces a multi-
+objective reward function that explicitly penalizes market correlation and transaction
+costs. This encourages the discovery of uncorrelated alpha while promoting stable,
+cost-aware rebalancing.
+The cumulative PnL trajectory in Figure 4 shows that the AlphaZeroBeta draw-
+downs during the 2018Q4, 2020Q1, and 2022 episodes remain materially shallower
+than those of the index buy-and-hold path, consistent with the maximum drawdown
+column of Table 4.
+29
+7.1 Baseline Behavior
+Table 4 shows that the convex baselines trail AlphaZeroBeta in Sharpe ratio across
+all markets. Index B&H is passive and inherits all of the benchmark’s beta expo-
+sure; MxSharpe and Decorr, although recomputed at each rebalance, underperform for
+two interacting reasons. The first is estimation noise: sample means and covariances
+computed on short windows are unstable, so the optimizer overfits transient mean
+shifts and outputs concentrated portfolios that degrade once the in-sample covariance
+structure shifts—visible in the very low MxSharpe Sharpe on ˆGDAXI (0.11) and
+the consistently negative Decorr Sharpes across all markets. The second is constraint
+asymmetry: all three baselines enforce full investment (P
+i wi = 1) without penaliz-
+ing residual beta, so any mismatch between the training and test market factor leaves
+them net long, compounding drawdowns during stress regimes.
+AlphaZeroBeta continually re-estimates exposures through its state encoder and
+enforces dollar neutrality via the explicit centering-and-ℓ1-projection step in List-
+ing D.4.2; the correlation penalty in the reward then suppresses any residual beta
+arising from transaction costs or execution. This combination prevents persistent beta
+drift even when regimes switch, explaining why the agent maintains low correlations
+while delivering higher Sharpe ratios despite facing the same data.
+The unconstrained RL ablation in Table B1 further isolates the contribution of the
+neutrality penalty. Removing the correlation term (λ1 = 0) lets the policy lean into
+prevailing index trends; correlations rise into the roughly 0.4–0.6 range and maximum
+drawdowns deepen by approximately 7–20 percentage points relative to AlphaZero-
+Beta, while out-of-sample Sharpe is lower in every market under this ablation. Because
+the turnover penalty remains active, the ablation cannot simply neutralize exposures
+through rapid hedging, so regime changes translate into beta shocks. These observa-
+tions confirm that AlphaZeroBeta’s superior performance does not stem solely from
+using DRL; it is the explicit reward shaping that enables simultaneous achievement
+of high Sharpe ratios and near-zero market correlation.
+More broadly, the results indicate that reinforcement learning is a tractable tool
+for portfolio construction when the reward encodes the constraints of interest directly.
+Casting allocation as a constrained stochastic control problem replaces the need for
+prespecified factor models or a fixed mean-variance objective with policy adaptation
+driven by reward shaping.
+7.2 Future Directions
+The findings point toward several potential directions for future research.
+1. Extending the framework to multi-asset portfolios (fixed income, commodities,
+crypto) would allow evaluating inter-asset regime rotation and cross-asset neutral-
+ity.
+2. Risk-conditioned policies that incorporate regime-specific volatility forecasts or
+macroeconomic indicators could improve responsiveness to systemic shocks.
+3. Hierarchical reinforcement learning with a meta-controller would let higher-level
+agents allocate capital across multiple specialized AlphaZeroBeta sub-strategies.
+30
+4. Integrating real-time deployment constraints, including execution latency and
+slippage modeling, would narrow the gap between backtest and live deployment.
+8 Conclusions
+This paper presents AlphaZeroBeta, a deep reinforcement learning framework for
+dynamic, market-neutral portfolio construction. By formulating the asset allocation
+problem as a Markov decision process and optimizing a composite reward that balances
+risk-adjusted excess return, benchmark correlation, and transaction costs, we show
+that reinforcement learning can support risk-aware portfolio construction beyond pure
+return maximization. Empirical evidence from the 2014–2024 walk-forward study sup-
+ports the model’s ability to maintain neutrality while delivering benchmark-relative
+excess returns.
+Across seven global equity indices, AlphaZeroBeta achieves higher Sharpe ratios
+than the convex baselines and maintains near-zero benchmark correlations, with
+competitive drawdowns: its maximum drawdowns are uniformly shallower than the
+buy-and-hold path and shallower than the decorrelation baseline in six of seven
+markets, while the Sharpe-optimal baseline records shallower drawdowns in several
+markets. The model generalizes across markets with varying liquidity, structure, and
+volatility regimes without per-index tuning.
+Future work includes extending the framework to multi-asset portfolios (fixed
+income, commodities, crypto), incorporating execution-latency and slippage modeling
+for live deployment, and exploring hierarchical formulations in which a meta-controller
+allocates capital across several AlphaZeroBeta sub-strategies. Macroeconomic and
+regime-conditioned signals are a natural way to make the reward more risk-aware in
+periods of structural change.
+Acknowledgements
+During the preparation of this manuscript, the author used ChatGPT (OpenAI) and
+Claude Code (Anthropic) to assist with editing and LaTeX formatting. The author
+has reviewed and edited all generated content and takes full responsibility for the final
+version of this publication.
+31
+Appendix A
+Cumulative Performance
+This appendix reports cumulative equity curves for each benchmark so the distribu-
+tional statistics in Section 6 can be inspected visually. Each page covers one index and
+pairs a short interpretive note with the corresponding figure.
+32
+The SSE Composite buy-and-hold experienced multiple severe stress episodes over
+2014–2024 (the 2015–2016 domestic equity crash and policy-driven declines in 2018 and
+2022). AlphaZeroBeta compounds steadily through these regimes, delivering Sharpe
+1.63 ± 0.38, maximum drawdown −0.34 ± 0.11, and near-zero correlation −0.02 ± 0.05
+to the index (Table 4).
+0
+1
+2
+Cumulative return
+−1
+−0.5
+0
+Drawdown
+−0.5
+0
+0.5
+1
+Long / short
+2014
+2015
+2016
+2018
+2019
+2020
+2022
+2023
+2024
+0
+0.5
+1
+Year
+Gross
+AlphaZeroBeta
+Index buy-and-hold
+MxSharpe baseline
+Decorr baseline
+Fig. A1 Cumulative PnL and exposure trajectories for the SSE Composite (China, 000001.SS). Top:
+cumulative return; below: drawdown, long/short exposure, gross exposure.
+33
+The DAX is a 40-stock benchmark of large German industrials and exporters, with
+the 2018 trade tensions, 2020 COVID drawdown, and 2022 energy crisis all visible in
+the index curve. AlphaZeroBeta recovers quickly from each shock and achieves the
+shallowest maximum drawdown across the seven markets (−0.16 ± 0.11, the best DD
+in Table 4), with Sharpe 0.86 ± 0.23 and correlation 0.05 ± 0.04.
+−0.5
+0
+0.5
+1
+1.5
+Cumulative return
+−0.6
+−0.4
+−0.2
+0
+Drawdown
+−0.5
+0
+0.5
+1
+Long / short
+2014
+2015
+2016
+2018
+2019
+2020
+2022
+2023
+2024
+0
+0.5
+1
+Year
+Gross
+AlphaZeroBeta
+Index buy-and-hold
+MxSharpe baseline
+Decorr baseline
+Fig. A2 Cumulative PnL and exposure trajectories for the DAX (Germany, ˆGDAXI). Top: cumu-
+lative return; below: drawdown, long/short exposure, gross exposure.
+34
+The Hang Seng buy-and-hold curve reflects the prolonged 2021–2023 sell-off driven by
+China property stress, tech-sector regulation, and capital-flow reversals. AlphaZero-
+Beta tolerates these abrupt volatility spikes, delivering Sharpe 1.04 ± 0.33, maximum
+drawdown −0.21 ± 0.22, and near-zero correlation 0.01 ± 0.04 (Table 4).
+0
+0.5
+1
+1.5
+Cumulative return
+−0.6
+−0.4
+−0.2
+0
+Drawdown
+−0.5
+0
+0.5
+1
+Long / short
+2014
+2015
+2016
+2018
+2019
+2020
+2022
+2023
+2024
+0
+0.5
+1
+Year
+Gross
+AlphaZeroBeta
+Index buy-and-hold
+MxSharpe baseline
+Decorr baseline
+Fig. A3 Cumulative PnL and exposure trajectories for the Hang Seng Index (Hong Kong SAR,
+China, ˆHSI). Top: cumulative return; below: drawdown, long/short exposure, gross exposure.
+35
+The NASDAQ-100 had the deepest index buy-and-hold drawdown of the seven
+markets, driven by the 2022 rate-hiking sell-off in long-duration tech equities. Alp-
+haZeroBeta participates in momentum phases and trims exposure when cross-sectional
+dispersion narrows, producing Sharpe 1.48 ± 0.41, maximum drawdown −0.32 ± 0.10,
+and correlation 0.07 ± 0.06 (Table 4).
+0
+2
+4
+Cumulative return
+−1.5
+−1
+−0.5
+0
+Drawdown
+−0.5
+0
+0.5
+1
+Long / short
+2014
+2015
+2016
+2018
+2019
+2020
+2022
+2023
+2024
+0
+0.5
+1
+Year
+Gross
+AlphaZeroBeta
+Index buy-and-hold
+MxSharpe baseline
+Decorr baseline
+Fig. A4 Cumulative PnL and exposure trajectories for the NASDAQ-100 (U.S., ˆNDX). Top: cumu-
+lative return; below: drawdown, long/short exposure, gross exposure.
+36
+The FTSE 100 traded sideways for much of 2014–2024, with notable shocks at the
+2016 Brexit referendum, the 2020 COVID sell-off, and the 2022 mini-budget crisis.
+AlphaZeroBeta grows gradually in this slow regime via relative-value rotation between
+resource-heavy and defensive sectors: Sharpe 0.94±0.19, maximum drawdown −0.28±
+0.09, correlation −0.02 ± 0.08 (Table 4).
+0
+0.5
+1
+Cumulative return
+−0.6
+−0.4
+−0.2
+0
+Drawdown
+−0.5
+0
+0.5
+1
+Long / short
+2014
+2015
+2016
+2018
+2019
+2020
+2022
+2023
+2024
+0
+0.5
+1
+Year
+Gross
+AlphaZeroBeta
+Index buy-and-hold
+MxSharpe baseline
+Decorr baseline
+Fig. A5 Cumulative PnL and exposure trajectories for the FTSE 100 (U.K., ˆFTSE). Top: cumu-
+lative return; below: drawdown, long/short exposure, gross exposure.
+37
+The Dow Jones Industrial Average is a 30-stock, price-weighted index of U.S. blue-
+chip companies—the smallest universe in the panel. AlphaZeroBeta produces a smooth
+ascent despite the limited stock-selection breadth: Sharpe 1.20±0.28, maximum draw-
+down −0.27 ± 0.14, correlation 0.03 ± 0.07 (Table 4); ˆDJI is excluded from the factor
+attribution (Section 6.4) because local SMB/HML/RMW construction is statistically
+thin at N=30.
+0
+0.5
+1
+1.5
+Cumulative return
+−0.6
+−0.4
+−0.2
+0
+Drawdown
+−0.5
+0
+0.5
+1
+Long / short
+2014
+2015
+2016
+2018
+2019
+2020
+2022
+2023
+2024
+0
+0.5
+1
+Year
+Gross
+AlphaZeroBeta
+Index buy-and-hold
+MxSharpe baseline
+Decorr baseline
+Fig. A6 Cumulative PnL and exposure trajectories for the Dow Jones Industrial Average (U.S.,
+ˆDJI). Top: cumulative return; below: drawdown, long/short exposure, gross exposure.
+38
+Table B1 AlphaZeroBeta vs. unconstrained (return-maximizing) RL baseline. Values are mean ±
+standard deviation across the 22 walk-forward folds and nine independent RL initializations per
+fold, matching the protocol of Table 4; the RL baseline uses the same protocol.
+Index
+Method
+Sharpe ratio
+Max drawdown
+Correlation
+000001.SS
+AlphaZeroBeta
+1.63 ± 0.38
+−0.34 ± 0.11
+−0.02 ± 0.05
+RL (return-max)
+0.95 ± 0.27
+−0.52 ± 0.18
+0.42 ± 0.16
+ˆFTSE
+AlphaZeroBeta
+0.94 ± 0.19
+−0.28 ± 0.09
+−0.02 ± 0.08
+RL (return-max)
+0.65 ± 0.21
+−0.35 ± 0.12
+0.51 ± 0.19
+ˆGDAXI
+AlphaZeroBeta
+0.86 ± 0.23
+−0.16 ± 0.11
+0.05 ± 0.04
+RL (return-max)
+0.75 ± 0.24
+−0.33 ± 0.14
+0.48 ± 0.17
+ˆGSPC
+AlphaZeroBeta
+1.61 ± 0.48
+−0.26 ± 0.15
+0.15 ± 0.09
+RL (return-max)
+1.12 ± 0.31
+−0.38 ± 0.13
+0.57 ± 0.15
+ˆHSI
+AlphaZeroBeta
+1.04 ± 0.33
+−0.21 ± 0.22
+0.01 ± 0.04
+RL (return-max)
+0.58 ± 0.25
+−0.41 ± 0.16
+0.49 ± 0.18
+ˆNDX
+AlphaZeroBeta
+1.48 ± 0.41
+−0.32 ± 0.10
+0.07 ± 0.06
+RL (return-max)
+1.10 ± 0.28
+−0.41 ± 0.15
+0.61 ± 0.14
+ˆDJI
+AlphaZeroBeta
+1.20 ± 0.28
+−0.27 ± 0.14
+0.03 ± 0.07
+RL (return-max)
+0.88 ± 0.26
+−0.36 ± 0.12
+0.52 ± 0.12
+Appendix B
+Ablation Study: Return-Maximizing
+RL Baseline
+To quantify the incremental benefit of an explicit neutrality penalty, we train an
+ablation agent that shares AlphaZeroBeta’s architecture, training windows, and
+transaction-cost penalty but sets λ1 = 0, so the reward reduces to risk-adjusted excess
+return minus the turnover penalty (with no correlation term). Table B1 contrasts this
+unconstrained RL baseline with the full AlphaZeroBeta policy across the evaluation
+indices. AlphaZeroBeta rows replicate the summary statistics from Table 4 to facilitate
+like-for-like inspection.
+The ablation confirms that, even when unconstrained RL surpasses passive bench-
+marks in Sharpe ratio, the absence of the correlation penalty leads to substantially
+larger beta exposures and weaker drawdown control. Relative to the full AlphaZer-
+oBeta agent, the return-maximizing baseline therefore sacrifices neutrality and risk
+control, reinforcing the need for the composite reward.
+Appendix C
+Feature Catalog
+This appendix documents the full feature set used by AlphaZeroBeta. Section C.1
+provides the qualitative taxonomy of Bloomberg-derived signals and their role in the
+model; Section C.2 reports the approximate number of engineered signals per asset
+within each group together with sampling frequencies.
+39
+Table C2 Categorization of Bloomberg-derived features used in AlphaZeroBeta’s state
+representation.
+Category
+Example
+Field
+/
+Ticker
+Model Role
+Price
+PX LAST (close price)
+Core input for returns and volatility.
+Volume
+PX VOLUME
+Captures liquidity and trading activity.
+Rolling Stats
+rolling
+mean/std
+of
+PX LAST (derived)
+Describes short-term distribution shifts for
+volatility and regime modeling.
+Technical
+EMAVG (EMA), MACD, RSI
+Encodes momentum and trend direction.
+Corporate
+Actions
+EQY DVD YLD
+Reflects dividends, buybacks, and splits.
+Fundamentals
+RETURN ON EQUITY
+Measures profitability and efficiency.
+Earnings
+EPS surprise vs. estimate
+Captures valuation shocks and revisions.
+Insiders
+NUM INSIDER SHARES SOLD
+Signals internal sentiment and behavior.
+Sentiment
+NEWS SENTIMENT DAILY MIN Polarity score from news headlines.
+Governance
+ISS QUALITYSCORE
+ESG proxy for governance and transparency.
+Macro
+NAPMPMI INDEX (PMI)
+Business cycle and macro regime signal.
+Rates
+FEDL01 INDEX
+(Effective
+Fed Funds)
+Encodes monetary policy direction.
+Volatility
+VIX INDEX
+Gauges uncertainty and hedging demand.
+Options Flow
+12MO CALL IMP VOL
+Reflects speculative skew and pressure.
+Cross-Asset
+BCOM INDEX
+(Commodi-
+ties)
+Captures macro trends and inflation.
+Term Structure
+USYC2Y10 INDEX (2s10s)
+Signals recession risk and yield curve slope.
+Sectors
+XLK US EQUITY
+(Tech
+ETF)
+Used for factor and industry grouping.
+Metadata
+GICS sector / index tags
+Supports stratification and normalization.
+C.1
+Taxonomy
+This subsection categorizes Bloomberg-derived features used in AlphaZeroBeta’s state
+representation (Table C2). The three broad blocks—price/liquidity, fundamental-
+s/macro, and sentiment/flow—ensure the agent observes both fast-moving market
+signals and slower structural drivers; these groupings complement the counts reported
+in Section C.2.
+Together these categories span the three broad blocks introduced above (price/liquid-
+ity, fundamentals/macro, and sentiment/flow) and provide both fast and slow drivers
+of market neutrality.
+C.2
+Per-Asset Counts
+Table C3 supplements the taxonomy by listing each feature group together with sam-
+pling frequency and the approximate number of distinct signals per asset used in our
+experiments. Price and liquidity features refresh daily, fundamentals and governance
+arrive quarterly, and macro/sentiment indicators bridge the two horizons, allowing the
+RL agent to balance tactical and structural inputs.
+40
+Table C3 Feature groups, sampling frequency, and approximate signal counts (per asset unless
+noted).
+Feature cat-
+egory
+Examples
+Frequency
+Approx. count
+Price-based
+Close,
+open,
+high,
+low
+prices;
+log
+returns; rolling means and standard
+deviations (5/20/60-day)
+Daily
+∼12
+Volume/liquidity Volume,
+turnover,
+bid-ask
+spread,
+rolling average volume
+Daily
+∼6
+Technical indi-
+cators
+EMA, MACD, RSI, Bollinger bands,
+momentum
+Daily/weekly
+∼18
+Corporate
+actions
+Dividend yield, split factors, shares
+outstanding
+Daily/monthly
+∼4
+Fundamentals
+EPS, ROE, book-to-market, debt-to-
+equity ratios
+Quarterly
+∼24
+Earnings
+sur-
+prises
+Actual vs. expected earnings; post-
+earnings drift signals
+Quarterly
+∼8
+Insider trading
+Net
+insider
+purchases/sales;
+insider
+sentiment indices
+Daily/weekly
+∼4
+Sentiment
+News polarity, social sentiment, CDS-
+implied risk
+Daily
+∼6
+Governance
+ESG/gov. scores, quality ratings
+Quarterly
+∼5
+Macroeconomic
+Inflation, unemployment, GDP, policy
+rates
+Monthly/qtrly
+∼12
+Rates & curves
+3M/10Y yields, yield-curve slope, term
+premia
+Daily
+∼6
+Volatility
+&
+options
+VIX, implied vol surfaces, skew
+Daily
+∼7
+Cross-asset
+indices
+Commodity, currency, credit indices
+Daily
+∼8
+Sector
+ETF-
+s/indices
+Sector ETF returns (e.g. XLK, XLF),
+rotation signals
+Daily
+∼12
+Metadata
+Market cap, GICS sector, region tags
+Static
+∼6
+Approximate counts refer to the number of engineered signals per asset (or per index
+for macro-level inputs) within each group; actual values vary slightly across universes
+because of data availability. This breakdown illustrates that the RL agent ingests
+signals ranging from daily price action to quarterly fundamentals, enabling a nuanced
+response to varied market regimes.
+All features are normalized to zero mean and unit variance within each training
+batch. Missing values are forward-filled or, where appropriate, replaced by industry-
+median values. Lagged versions of selected variables are included to allow the agent to
+recognize temporal patterns. All features used in our experiments are subject to the
+licensing constraints discussed in Appendix D.
+41
+Appendix D
+Reproducibility and Code Availability
+Our implementation comprises: (i) a data-acquisition layer interfacing with Bloomberg
+Terminal and other licensed providers; (ii) pre-processing routines that clean, win-
+sorize, and engineer features; (iii) the RL environment and agent implementations; and
+(iv) evaluation scripts. Portions of (i) and specific vendor integrations in (ii) depend
+on proprietary APIs (e.g. Bloomberg Python/Java SDK and vendor-specific modules
+for options flow and sentiment) that cannot be redistributed. To support replication,
+we provide high-level descriptions and pseudocode for components independent of
+proprietary software. Section D.1 presents the core pseudocode (data pre-processing,
+environment, agent training, and reward); Section D.2 reports the cost schedule and
+key hyperparameters used in all experiments; Section D.3 documents implementation
+notes, evaluation guidance, and data licensing; Section D.4 provides additional code
+examples for the data-loading, environment, policy network, and recurrent PPO agent.
+D.1
+Pseudocode
+D.1.1
+Data pre-processing pseudocode
+Listing D.1.1. Daily pre-processing loop for indices.
+W = 20
+# rolling window (business days)
+for index in indices:
+prices
+= load_price_data(index).sort_index()
+log_ret = np.log(prices["close"]).diff()
+# Winsorize at the [1%, 99%] PIT quantiles fitted on the 2004-2010
+# warm-up segment; thresholds are frozen before evaluation opens.
+warm_up = log_ret.loc[log_ret.index < TRAINING_START].dropna()
+lo, hi
+= warm_up.quantile([0.01, 0.99]).to_numpy()
+log_ret = log_ret.clip(lower=lo, upper=hi)
+features = pd.DataFrame({
+"log_ret":
+log_ret,
+"ret_mean_20":
+log_ret.rolling(W).mean(),
+"ret_std_20":
+log_ret.rolling(W).std(ddof=0),
+"volume_mean_20": prices["volume"].rolling(W).mean(),
+})
+features = add_technical_indicators(features, prices)
+# EMA, RSI, MACD
+# Align auxiliary panels onto the price index in a single concat,
+# then forward-fill (never bfill, which would leak the future).
+df = (pd.concat([features, fundamental_df, macro_df], axis=1, join="outer")
+.reindex(prices.index).ffill())
+save_processed_data(index, df)
+42
+The schematic single-stock feature construction in Listing D.1.2 is paired with the
+full production version in Listing D.4.1.
+Listing D.1.2. Single-stock feature construction (schematic).
+def compute_features_for_stock(prices, aux, windows=(5, 20, 60)):
+log_ret = np.log(prices["close"]).diff()
+base = pd.DataFrame({"log_ret": log_ret, "vol": prices["volume"]},
+index=prices.index)
+# Rolling mean/std on returns and volume for each window in ‘windows‘.
+rolls = pd.concat(
+[base[col].rolling(w).agg(["mean", "std"])
+.add_prefix(f"{col}_").add_suffix(f"_{w}")
+for col in ("log_ret", "vol") for w in windows],
+axis=1,
+)
+# Technical indicators (EMA-12/26, MACD, RSI-14, Bollinger-20).
+close = prices["close"]
+tech = pd.concat([
+ta.trend.EMAIndicator(close, 12).ema_indicator().rename("ema_12"),
+ta.trend.EMAIndicator(close, 26).ema_indicator().rename("ema_26"),
+ta.trend.MACD(close).macd_diff().rename("macd_diff"),
+ta.momentum.RSIIndicator(close, 14).rsi().rename("rsi_14"),
+], axis=1)
+# One concat aligns every auxiliary panel onto the price grid;
+# ffill (never bfill) carries past values forward without leaking.
+auxiliary = pd.concat([df.reindex(prices.index) for df in aux.values()],
+axis=1, keys=aux.keys())
+return (pd.concat([prices, base, rolls, tech, auxiliary], axis=1)
+.ffill()
+.dropna(how="any"))
+D.1.2
+Reinforcement-learning environment pseudocode
+Listing D.1.3 sketches a single-asset toy environment used to illustrate the decision-at-
+t/execution-at-t+1 timing convention; the full cross-sectional production environment
+is shown in Listing D.4.2.
+Listing D.1.3. Minimal trading environment (schematic).
+class TradingEnv(gym.Env):
+# Decision-at-t / execution-at-t+1: action chosen at close(t) earns
+# return(t+1).
+def __init__(self, prices, features, cost_lookup, capital=1.0):
+43
+self.prices, self.features = prices, features
+self.cost_lookup = cost_lookup
+# date -> bps per side
+self.capital
+= float(capital)
+self.reset()
+def reset(self):
+self.t, self.position = 0, 0
+# position in {-1, 0, +1}
+self.cash = self.nav = self.prev_nav = self.capital
+return self._get_state()
+def _get_state(self):
+return np.concatenate([self.features[self.t],
+[self.position, self.cash / self.capital]])
+def step(self, action):
+p_t, p_next = (float(self.prices["close"].iat[i])
+for i in (self.t, self.t + 1))
+dpos = action - self.position
+tc
+= self.cost_lookup(self.prices.index[self.t]) * 1e-4 * abs(dpos) * p_t
+self.cash
+-= tc + dpos * p_t
+self.position = action
+self.nav
+= self.cash + self.position * p_next
+# log(nav / prev_nav) is the stable form; floor avoids /0 on flat days.
+reward = float(np.log(max(self.nav, 1e-12) / max(self.prev_nav, 1e-12)))
+self.prev_nav, self.t = self.nav, self.t + 1
+done = self.t >= len(self.prices) - 1
+return self._get_state(), reward, done, {}
+D.1.3
+Agent training loop pseudocode
+Listing D.1.4. Actor-critic training loop (schematic).
+agent
+= ActorCriticNetwork(state_dim, action_dim)
+optimizer = torch.optim.Adam(agent.parameters(), lr=3e-4)
+for epoch in range(num_epochs):
+state, done = env.reset(), False
+while not done:
+action, log_prob, value = agent.act(state)
+next_state, reward, done, _ = env.step(action)
+with torch.no_grad():
+next_value = agent.value(next_state) * (1.0 - float(done))
+td_target = reward + 0.99 * next_value
+# gamma = 0.99
+44
+Table D4 Deterministic execution-cost and borrow-fee schedule used in all reported backtests.
+Trading costs are charged per side on each rebalance; borrow fees are annualized and accrued
+linearly over holding days.
+Market bucket
+Top-decile
+cost
+Other names
+Borrow
+fee
+Applies to
+U.S. large-cap
+5 bps/side
+15 bps/side
+30 bps/year
+ˆGSPC, ˆNDX, ˆDJI
+U.K./Germany
+10 bps/side
+15 bps/side
+45 bps/year
+ˆFTSE, ˆGDAXI
+Hong Kong SAR, China 10 bps/side
+20 bps/side
+75 bps/year
+ˆHSI
+China (proxy universe)
+30 bps/side
+30 bps/side
+120 bps/year 000001.SS
+advantage = td_target - value
+loss = (-log_prob * advantage.detach()
++ 0.5 * F.mse_loss(value, td_target))
+# value-loss coef 0.5
+optimizer.zero_grad(set_to_none=True)
+loss.backward()
+optimizer.step()
+state = next_state
+D.1.4
+Reward computation
+Listing D.1.5 implements the composite reward of Section 3.7 as a pure function of
+the portfolio and benchmark returns at step t, the rolling portfolio volatility and
+benchmark correlation, and the pre- and post-trade weight vectors. The three terms—
+risk-adjusted excess return, correlation penalty, and turnover penalty—correspond to
+Eq. (8). Default coefficients (λ1 = 0.5, λ2 = 0.001) match Table D5; σp is floored at
+10−8 to guard the risk-adjusted term against degenerate flat-volatility windows.
+Listing D.1.5. AlphaZeroBeta reward used inside the environment.
+# Inputs: realised returns rp_t (portfolio), rm_t (benchmark),
+# rolling volatility sigma_p_t, rolling Corr(r_p, r_m) corr_pm_t,
+# pre- and post-trade weight vectors w_prev, w; coefficients lambda1, lambda2.
+def alpha_zero_beta_reward(rp_t, rm_t, sigma_p_t, corr_pm_t, w, w_prev,
+lambda1=0.5, lambda2=0.001):
+risk_adjusted = (rp_t - rm_t) / max(sigma_p_t, 1e-8)
+# 1e-8 floor on sigma
+turnover
+= float(np.abs(w - w_prev).sum())
+# L1 weight change
+return float(risk_adjusted - lambda1 * corr_pm_t - lambda2 * turnover)
+D.2
+Configuration and Tables
+D.2.1
+Execution-cost and borrow-fee schedule
+Table D4 reports the exact transaction-cost and borrow-fee constants used in all back-
+tests. Top-decile membership is determined by trailing 60-trading-day average dollar
+volume within each index universe and refreshed monthly, using only information
+available up to each rebalance date.
+45
+Table D5 Key reinforcement learning hyperparameters used in AlphaZeroBeta. Values refer to
+the main experiments; any deviations in robustness checks are stated in the text.
+Component
+Value / description
+RL algorithm
+Proximal Policy Optimization (Recurrent PPO)
+Policy/value network
+CNN-GRU encoder; each head has a 512-unit hidden
+ReLU layer. Value head outputs a scalar Vϕ(st); pol-
+icy head outputs an N-dimensional weight vector with
+Tanh activation, where N is the universe size (30 for
+ˆDJI to ∼2,200 for 000001.SS)
+Discount factor γ
+0.99 (daily data; close to unity)
+Learning rate
+3 × 10−4 (Adam optimizer)
+PPO clip ratio
+0.20
+GAE parameter λGAE
+0.95
+Entropy coefficient
+0.01
+Value loss coefficient
+0.5
+Minibatch size
+256 trajectories per update (across environments)
+Training window length
+36 months (3 years) of daily data, immediately pre-
+ceding the 6-month validation segment of each fold
+Agent
+observation
+window
+(nagent window)
+100 daily timesteps per channel of the stacked dai-
+ly/weekly/monthly CNN input (see Figure 2)
+Rolling
+window
+for
+σp
+and
+Corr(rp, rm)
+60 business days (≈3 months)
+Number of PPO epochs per
+update
+10
+Correlation penalty λ1
+0.5 (market-neutrality strength)
+Turnover penalty λ2
+0.001 (transaction-cost intensity)
+Number of walk-forward splits
+K
+22 non-overlapping 6-month test splits (Jan 2014–
+Dec 2024)
+D.2.2
+Key hyperparameters
+Table D5 summarizes the main reinforcement learning hyperparameters used in our
+experiments. Where possible, we follow standard settings from widely used PPO imple-
+mentations and keep these values fixed across markets; λ1 and λ2 are chosen through
+manual optimization on pilot experiments to balance market neutrality and turnover
+against Sharpe ratio, as discussed in Subsection 3.7. These values represent heuris-
+tic choices that work well across the indices tested; systematic sensitivity analysis
+and market-specific tuning may further improve performance and represent important
+directions for future research.
+46
+D.3
+Implementation Notes and Reproducibility
+D.3.1
+Implementation notes
+1. Volatility σp(t) and correlation Corr(rp(t), rm(t)) are estimated over a sliding
+window (e.g. several months of daily data). Exponential weighting can improve
+responsiveness.
+2. Coefficients λ1 and λ2 control market neutrality and turnover penalties; optimal
+values depend on the asset universe and frequency.
+3. For reporting standard Sharpe ratios alongside the reward, subtract the risk-free
+rate from portfolio returns. The reward’s ∆r(t) = rp(t) −rm(t) is invariant to this
+subtraction (the risk-free rate cancels when both legs are excess-of-RF).
+D.3.2
+Evaluation and replication
+To reproduce the paper’s results, researchers require a high-quality historical dataset
+containing prices, volumes, corporate actions, and macro variables for the indices
+described in the main paper. With such data, the pre-processing pipeline and RL
+pseudocode above can be implemented in Python using open-source libraries such
+as pandas, numpy, torch, gymnasium, the ta technical-analysis package (matching
+the listings in this appendix), and stable-baselines3. In practice, one can rely
+on the recurrent extensions in sb3-contrib (RecurrentPPO) for a production-ready
+implementation of the policy gradient updates. We suggest evaluating performance
+with rolling walk-forward splits that keep each test window out of the correspond-
+ing training window. Key metrics include cumulative return, Sharpe ratio, maximum
+drawdown, and turnover.
+D.3.3
+Data and licensing
+The complete code base cannot be made publicly available, as certain components
+depend on licensed Bloomberg functionality and proprietary third-party libraries
+that are not eligible for redistribution. Listings D.1.1–D.1.5 capture the essential
+computations and can serve as a blueprint for independent replication.
+D.4
+Additional Code Examples
+Listing D.4.1. Encapsulating data loading and feature engineering.
+from dataclasses import dataclass
+from functools import reduce
+from pathlib import Path
+import numpy as np, pandas as pd, ta
+from sklearn.preprocessing import OneHotEncoder
+DATA_DIR
+= Path("./data")
+RET_WINDOWS = (5, 20, 60)
+AUX_BLOCKS
+= ("fundamentals", "earnings", "insiders", "sentiment", "governance")
+47
+@dataclass(frozen=True)
+class Dataset:
+daily:
+np.ndarray
+# (T, N, F_d) | per-ticker daily features
+weekly:
+np.ndarray
+# (T_w, N, F_d)
+monthly:
+np.ndarray
+# (T_m, N, F_d)
+returns:
+np.ndarray
+# (T, N) per-ticker log returns
+benchmark: np.ndarray
+# (T,)
+benchmark log returns
+dates:
+pd.DatetimeIndex
+def _read_panel(path):
+return pd.read_csv(path, parse_dates=["date"]).set_index("date")
+def _technical_block(close):
+# EMA-12/26, MACD, RSI-14, Bollinger-20
+macd = ta.trend.MACD(close)
+boll = ta.volatility.BollingerBands(close, 20, 2.0)
+return pd.concat([
+ta.trend.EMAIndicator(close, 12).ema_indicator().rename("ema_12"),
+ta.trend.EMAIndicator(close, 26).ema_indicator().rename("ema_26"),
+macd.macd().rename("macd"),
+macd.macd_signal().rename("macd_signal"),
+macd.macd_diff().rename("macd_diff"),
+ta.momentum.RSIIndicator(close, 14).rsi().rename("rsi_14"),
+boll.bollinger_lband().rename("bb_low"),
+boll.bollinger_hband().rename("bb_high"),
+], axis=1)
+class DataModule:
+"""Builds aligned daily/weekly/monthly tensors for the RL agent.
+Panels are reindexed onto the common daily grid and ffill’d (never bfill)."""
+def __init__(self, stock_list, benchmark_ticker):
+self.stock_list, self.benchmark_ticker = stock_list, benchmark_ticker
+meta = pd.read_csv(DATA_DIR / "stock_metadata.csv")
+ohe
+= OneHotEncoder(sparse_output=False).fit(meta[["sector"]])
+self.sector_ohe = pd.DataFrame(
+ohe.transform(meta[["sector"]]),
+index=meta["ticker"].values,
+columns=ohe.get_feature_names_out(["sector"]),
+)
+def _compute_single_stock_features(self, ticker):
+prices
+= _read_panel(DATA_DIR / f"{ticker}.csv")
+log_ret = np.log(prices["close"]).diff()
+vol
+= prices["volume"]
+rolls = pd.concat([pd.DataFrame({
+f"ret_mean_{w}": log_ret.rolling(w).mean(),
+48
+f"ret_std_{w}":
+log_ret.rolling(w).std(ddof=0),
+f"vol_mean_{w}": vol.rolling(w).mean(),
+f"vol_std_{w}":
+vol.rolling(w).std(ddof=0),
+}) for w in RET_WINDOWS], axis=1)
+aux = [_read_panel(DATA_DIR / f"{ticker}_{name}.csv") for name in AUX_BLOCKS]
+# One concat aligns everything on the price index; ffill (never bfill).
+return pd.concat([prices.assign(log_ret=log_ret), rolls,
+_technical_block(prices["close"]), *aux],
+axis=1).ffill()
+def build_dataset(self):
+# 1) Per-ticker daily features with broadcast sector one-hot.
+raw = {}
+for ticker in self.stock_list:
+f = self._compute_single_stock_features(ticker)
+sector = self.sector_ohe.loc[ticker]
+f[sector.index] = sector.values
+# broadcast row
+raw[ticker] = f.dropna(how="any")
+# 2) Common date grid via Index reduction (O(N), preserves DatetimeIndex).
+common = reduce(pd.Index.intersection,
+(df.index for df in raw.values())).sort_values()
+feature_cols = raw[self.stock_list[0]].columns.drop("log_ret")
+stack = lambda key: np.stack(
+[raw[t].loc[common, key].to_numpy() for t in self.stock_list], axis=1)
+daily, returns = stack(feature_cols), stack("log_ret")
+# 3) Weekly/monthly aggregations (last value in each bucket).
+def _resample(rule):
+panels = {t: df.resample(rule).last() for t, df in raw.items()}
+grid = reduce(pd.Index.intersection,
+(p.index for p in panels.values())).sort_values()
+return np.stack([panels[t].loc[grid, feature_cols].to_numpy()
+for t in self.stock_list], axis=1)
+weekly, monthly = _resample("W-FRI"), _resample("ME")
+# PIT-safe rules
+# 4) Benchmark on the common daily grid.
+bench = _read_panel(DATA_DIR / f"{self.benchmark_ticker}.csv")
+bench_ret = np.log(bench["close"]).diff().reindex(common).to_numpy()
+return Dataset(daily, weekly, monthly, returns, bench_ret, common)
+Listing D.4.2. Market-neutral environment with custom reward.
+import gym
+import numpy as np
+49
+# Cross-sectional market-neutral environment. State: stacked daily/weekly/
+# monthly feature tensors + previous weights. Action: target weights in
+# [-1, 1]^N, projected to dollar-neutral with L1-budget <= 1.
+# Reward: composite (risk-adjusted excess return - lambda_corr * corr
+# - lambda_cost * turnover); see Section 3 reward function for full form.
+class AlphaZeroBetaEnv(gym.Env):
+def __init__(self, daily, weekly, monthly, returns, benchmark,
+lambda_corr=0.5, lambda_cost=0.001, vol_window=60):
+super().__init__()
+self.daily, self.weekly, self.monthly = daily, weekly, monthly
+self.returns, self.benchmark = returns, benchmark
+self.T, self.N, self.F_d
+= daily.shape
+self.lambda_corr, self.lambda_cost, self.vol_window = (
+lambda_corr, lambda_cost, vol_window)
+self.action_space = gym.spaces.Box(-1, 1, shape=(self.N,), dtype=np.float32)
+obs_dim = self.N * (self.F_d + weekly.shape[2] + monthly.shape[2]) + self.N
+self.observation_space = gym.spaces.Box(-np.inf, np.inf, shape=(obs_dim,),
+dtype=np.float32)
+def reset(self):
+self.t, self.prev_weights = 0, np.zeros(self.N, dtype=np.float32)
+return self._get_obs()
+def _get_obs(self):
+# Use the most recent CLOSED weekly/monthly bucket: (t//k)-1 skips
+# the in-progress bucket whose end-of-period values are unobservable.
+idx = lambda k, n: int(np.clip(self.t // k - 1, 0, n - 1))
+return np.concatenate([
+self.daily[self.t].ravel(),
+self.weekly[idx(5,
+self.weekly.shape[0])].ravel(),
+self.monthly[idx(21, self.monthly.shape[0])].ravel(),
+self.prev_weights,
+])
+def step(self, action):
+weights = action - action.mean()
+# dollar-neutral
+gross = np.abs(weights).sum()
+if gross > 1.0:
+weights = weights / gross
+# ||w||_1 <= 1
+weights = weights.astype(np.float32)
+# Decision-at-t, execution-at-t+1.
+rp_t = float(weights @ self.returns[self.t + 1])
+rm_t = float(self.benchmark[self.t + 1])
+50
+# Rolling sigma_p and Corr over weights HELD on [t-W, t), so r_p(s)
+# is realised (not in-sample). Empty on the very first step.
+if self.t == 0:
+sigma_p, corr = 1e-8, 0.0
+else:
+s = max(0, self.t - self.vol_window)
+rp_hist = self.returns[s:self.t] @ self.prev_weights
+rm_hist = self.benchmark[s:self.t]
+sigma_p = max(float(rp_hist.std(ddof=0)), 1e-8)
+corr
+= (float(np.corrcoef(rp_hist, rm_hist)[0, 1])
+if rp_hist.size > 1 else 0.0)
+turnover = float(np.abs(weights - self.prev_weights).sum())
+reward
+= ((rp_t - rm_t) / sigma_p
+- self.lambda_corr * corr - self.lambda_cost * turnover)
+self.prev_weights, self.t = weights, self.t + 1
+done = self.t >= self.T - 2
+# need returns[t+1] to be valid
+obs
+= self._get_obs() if not done else None
+return obs, reward, done, {}
+Listing D.4.3. Multi-scale policy network (CNN-GRU with heads).
+import torch
+import torch.nn as nn
+# 1-D CNN over (daily, weekly, monthly) channels followed by a GRU.
+# Stacking the three resolutions on the channel axis lets one conv stack
+# mix horizons before the recurrent layer (kernels 8/4/3, strides 4/2/1,
+# filters 32/64/64).
+class MultiScaleEncoder(nn.Module):
+def __init__(self, feature_dim, hidden_size=512, agent_window=100):
+super().__init__()
+in_ch
+= 3 * feature_dim
+layers, prev = [], in_ch
+for out_ch, k, s in zip((32, 64, 64), (8, 4, 3), (4, 2, 1)):
+layers += [nn.Conv1d(prev, out_ch, kernel_size=k, stride=s),
+nn.ReLU(inplace=True)]
+prev = out_ch
+self.conv = nn.Sequential(*layers, nn.Flatten())
+with torch.no_grad():
+self.flat_dim = self.conv(torch.zeros(1, in_ch, agent_window)).numel()
+self.gru = nn.GRU(self.flat_dim, hidden_size, batch_first=True)
+def forward(self, daily, weekly, monthly, hidden):
+feat = self.conv(torch.cat([daily, weekly, monthly], dim=1)).unsqueeze(1)
+51
+out, new_hidden = self.gru(feat, hidden)
+return out.squeeze(1), new_hidden
+class PolicyValueNet(nn.Module):
+"""Shared encoder + Tanh-bounded policy head (N assets) + scalar value head."""
+def __init__(self, feature_dim, num_assets, hidden_size=512, head_hidden=512):
+super().__init__()
+self.encoder
+= MultiScaleEncoder(feature_dim, hidden_size)
+self.policy_head = nn.Sequential(
+nn.Linear(hidden_size, head_hidden), nn.ReLU(inplace=True),
+nn.Linear(head_hidden, num_assets), nn.Tanh())
+self.value_head
+= nn.Sequential(
+nn.Linear(hidden_size, head_hidden), nn.ReLU(inplace=True),
+nn.Linear(head_hidden, 1))
+def forward(self, daily, weekly, monthly, hidden):
+embedding, new_hidden = self.encoder(daily, weekly, monthly, hidden)
+return (self.policy_head(embedding),
+self.value_head(embedding).squeeze(-1),
+new_hidden)
+Listing D.4.4. Agent and training with recurrent PPO (skeleton).
+import logging
+from dataclasses import dataclass
+import numpy as np, torch
+import torch.nn.functional as F
+from torch.optim import Adam
+GAMMA, GAE_LAMBDA, PPO_CLIP, PPO_EPOCHS = 0.99, 0.95, 0.20, 10
+log = logging.getLogger("alphazerobeta")
+@dataclass
+class Rollout:
+obs_seq:
+list
+# list of (daily, weekly, monthly) tensor triples
+actions:
+torch.Tensor
+# untransformed samples
+rewards:
+torch.Tensor
+values:
+torch.Tensor
+log_probs: torch.Tensor
+class AlphaZeroBetaAgent:
+"""Recurrent PPO agent for the AlphaZeroBetaEnv."""
+def __init__(self, env, feature_dim, hidden_size=512, lr=3e-4):
+52
+self.env
+= env
+self.model
+= PolicyValueNet(feature_dim, env.N, hidden_size)
+self.optimizer
+= Adam(self.model.parameters(), lr=lr)
+self.hidden_size = hidden_size
+def _slice(self, t):
+env = self.env
+idx = lambda k, n: int(np.clip(t // k - 1, 0, n - 1))
+as_t = lambda a: torch.as_tensor(a, dtype=torch.float32).unsqueeze(0)
+return (as_t(env.daily[t]),
+as_t(env.weekly[idx(5,
+env.weekly.shape[0])]),
+as_t(env.monthly[idx(21, env.monthly.shape[0])]))
+def collect_trajectory(self, horizon=200):
+obs_seq, acts, rewards, values, log_probs = [], [], [], [], []
+hidden = torch.zeros(1, 1, self.hidden_size)
+self.env.reset()
+for _ in range(horizon):
+inputs = self._slice(self.env.t)
+mean, value, hidden = self.model(*inputs, hidden)
+dist
+= torch.distributions.Normal(mean, scale=0.1)
+sample
+= dist.sample()
+log_prob = dist.log_prob(sample).sum(dim=-1)
+action
+= torch.tanh(sample).detach().cpu().numpy()[0]
+_, reward, done, _ = self.env.step(action)
+obs_seq.append(inputs)
+acts.append(sample.squeeze(0))
+rewards.append(reward)
+values.append(value.squeeze(0))
+log_probs.append(log_prob.squeeze(0))
+if done: break
+return Rollout(obs_seq, torch.stack(acts),
+torch.tensor(rewards, dtype=torch.float32),
+torch.stack(values).detach(),
+torch.stack(log_probs).detach())
+def _gae(self, rewards, values):
+# GAE (Schulman et al., 2016); bootstrap V(s_{T+1}) = 0 at horizon.
+advantages = torch.zeros_like(rewards)
+gae = 0.0
+for t in reversed(range(len(rewards))):
+v_next = values[t + 1] if t + 1 < len(values) else 0.0
+delta
+= rewards[t] + GAMMA * v_next - values[t]
+gae
+= delta + GAMMA * GAE_LAMBDA * gae
+advantages[t] = gae
+53
+returns = advantages + values
+advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
+return advantages, returns
+def ppo_update(self, rollout):
+advantages, returns = self._gae(rollout.rewards, rollout.values)
+for _ in range(PPO_EPOCHS):
+hidden = torch.zeros(1, 1, self.hidden_size)
+new_log_probs, new_values = [], []
+for k, inputs in enumerate(rollout.obs_seq):
+mean, value, hidden = self.model(*inputs, hidden)
+dist = torch.distributions.Normal(mean, scale=0.1)
+new_log_probs.append(
+dist.log_prob(rollout.actions[k]).sum(-1).squeeze())
+new_values.append(value.squeeze(0))
+new_log_probs = torch.stack(new_log_probs)
+new_values
+= torch.stack(new_values)
+ratio
+= (new_log_probs - rollout.log_probs).exp()
+clipped = torch.clamp(ratio, 1 - PPO_CLIP, 1 + PPO_CLIP)
+loss = (-torch.min(ratio * advantages, clipped * advantages).mean()
++ 0.5 * F.mse_loss(new_values, returns))
+self.optimizer.zero_grad(set_to_none=True)
+loss.backward()
+torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.5)
+self.optimizer.step()
+def train(self, iterations=10):
+for it in range(iterations):
+rollout = self.collect_trajectory()
+self.ppo_update(rollout)
+log.info("iter=%d
+steps=%d
+reward_mean=%.4f",
+it, len(rollout.rewards), float(rollout.rewards.mean()))
+References
+[1] Almahdi, S., & Yang, S. Y. (2017). An adaptive portfolio trading system: A
+risk–return portfolio optimization using recurrent reinforcement learning with
+expected maximum drawdown. Expert Systems with Applications, 87, 267–279.
+[2] Anderson, R., et al. (2024). Long-history PCA in a dynamic factor model with
+weak loadings. Berkeley Center for Risk Management Research Working Paper.
+[3] Asness, C. S., Frazzini, A., & Pedersen, L. H. (2012). Leverage aversion and risk
+parity. Financial Analysts Journal, 68(1), 47–59.
+54
+[4] Asness, C. S., Frazzini, A., & Pedersen, L. H. (2019). Quality minus junk. Review
+of Accounting Studies, 24(1), 34–112.
+[5] Avellaneda, M., & Lee, J.-H. (2010). Statistical arbitrage in the US equities market.
+Quantitative Finance, 10(7), 761–782.
+[6] Bai, Y., Gao, Y., Wan, R., Zhang, S., & Song, R. (2024). A review of reinforcement
+learning in financial applications. arXiv preprint arXiv:2411.12746.
+[7] Bailey, D. H., Borwein, J. M., Lopez de Prado, M., & Zhu, Q. J. (2017). The
+probability of backtest overfitting. Journal of Computational Finance, 20(4), 39–69.
+[8] Barigozzi, M., & Hallin, M. (2024). The dynamic, the static, and the weak:
+Factor models and the analysis of high-dimensional time series. arXiv preprint
+arXiv:2407.10653.
+[9] Baronyan, S. R., Boduroglu, I. I., & Sener, E. (2010). Investigation of stochastic
+pairs trading strategies under different volatility regimes. Manchester School, 78(1),
+114–134.
+[10] Black, F. (1972). Capital market equilibrium with restricted borrowing. Journal
+of Business, 45(3), 444–455.
+[11] Blitz, D. (2025). Caveats of Simple Factor Timing Strategies. SSRN Scholarly
+Paper No. 5256938.
+[12] Bloomberg L.P. (2025). Bloomberg Terminal financial data [Data set]. Retrieved
+February 1, 2025, from https://www.bloomberg.com/professional.
+[13] B¨uhler, H., Gonon, L., Teichmann, J., & Wood, B. (2019). Deep hedging.
+Quantitative Finance, 19(8), 1271–1291.
+[14] Campbell, J. Y., Lo, A. W., & MacKinlay, A. C. (1997). The Econometrics of
+Financial Markets. Princeton University Press.
+[15] Carhart, M. M. (1997). On persistence in mutual fund performance. Journal of
+Finance, 52(1), 57–82.
+[16] Charpentier, A., ´Elie, R., & Remlinger, C. (2023). Reinforcement learning in
+economics and finance. Computational Economics, 62(1), 425–462.
+[17] Chekhlov, A., Uryasev, S., & Zabarankin, M. (2005). Drawdown measure in port-
+folio optimization. International Journal of Theoretical and Applied Finance, 8(1),
+13–58.
+[18] Cho, K., Van Merri¨enboer, B., Gulcehre, C., Bahdanau, D., Bougares, F.,
+Schwenk, H., & Bengio, Y. (2014). Learning phrase representations using RNN
+encoder–decoder for statistical machine translation. In Proceedings of the 2014
+55
+Conference on Empirical Methods in Natural Language Processing (EMNLP),
+1724–1734.
+[19] Choudhary, H., Orra, A., Sahoo, K., & Thakur, M. (2025). Risk-adjusted
+deep reinforcement learning for portfolio optimization: A multi-reward approach.
+International Journal of Computational Intelligence Systems, 18, Article 126.
+[20] Dai, Z., Yang, Z., Yang, Y., Carbonell, J., Le, Q. V., & Salakhutdinov, R.
+(2019). Transformer-XL: Attentive language models beyond a fixed-length context.
+In Proceedings of the 57th Annual Meeting of the Association for Computational
+Linguistics, 2978–2988.
+[21] Fama, E. F. (1970). Efficient capital markets: A review of theory and empirical
+work. Journal of Finance, 25(2), 383–417.
+[22] Fama, E. F., & French, K. R. (1993). Common risk factors in the returns on
+stocks and bonds. Journal of Financial Economics, 33(1), 3–56.
+[23] Fama, E. F., & French, K. R. (2015). A five-factor asset pricing model. Journal
+of Financial Economics, 116(1), 1–22.
+[24] Feghali, G., & Villalon, D. (2015). Building a better equity market neutral
+strategy. AQR White Paper, AQR Capital Management, LLC.
+[25] Financial
+Modeling
+Prep.
+(2025).
+Financial
+Modeling
+Prep
+API:
+aggre-
+gated
+financial
+data
+[Data
+set].
+Retrieved
+February
+1,
+2025,
+from
+https://financialmodelingprep.com.
+[26] Fischer, T. G. (2018). Reinforcement learning in financial markets: A survey. FAU
+Discussion Papers in Economics, No. 12/2018.
+[27] Ganesan, G. (2011). A subspace approach to portfolio analysis: A focus on equity
+investments. IEEE Signal Processing Magazine, 28(5), 49–60.
+[28] Gaˇsperov, B., Beguˇsi´c, S., ˇSimovi´c, P., & Kostanjˇcar, Z. (2021). Reinforcement
+learning approaches to optimal market making. Mathematics, 9(21), 2689.
+[29] Gatev, E., Goetzmann, W. N., & Rouwenhorst, K. G. (2006). Pairs trading:
+Performance of a relative-value arbitrage rule. Review of Financial Studies, 19(3),
+797–827.
+[30] Grinold,
+R.
+C.,
+&
+Kahn,
+R.
+N.
+(2000).
+Active
+Portfolio
+Management.
+McGraw-Hill.
+[31] Hambly, B. M., Xu, R., & Yang, H. (2023). Recent advances in reinforcement
+learning in finance. Mathematical Finance, 33(3), 437–503.
+56
+[32] Harvey, C. R., & Liu, Y. (2015). Backtesting. Journal of Portfolio Management,
+42(1), 13–28.
+[33] HedgeNordic (2015). Market Neutral Strategies: The Key to Alpha in any Market
+Direction. Stockholm: Nordic Business Media AB (HedgeNordic Special Report).
+[34] Huang, G., Zhou, X., & Song, Q. (2020). Deep reinforcement learning for long-
+short portfolio optimization. arXiv preprint arXiv:2012.13773.
+[35] Jegadeesh, N. (1990). Evidence of predictable behavior of security returns.
+Journal of Finance, 45(3), 881–898.
+[36] Jegadeesh, N., & Titman, S. (1993). Returns to buying winners and selling losers:
+Implications for stock market efficiency. Journal of Finance, 48(1), 65–91.
+[37] Jiang, Z., Xu, D., & Liang, J. (2017). A deep reinforcement learning framework
+for the financial portfolio management problem. arXiv preprint arXiv:1706.10059.
+[38] Khandani, A. E., & Lo, A. W. (2007). What happened to the quants in August
+2007? Journal of Investment Management, 5(4), 5–54.
+[39] Khandani, A. E., & Lo, A. W. (2011). What happened to the quants in August
+2007? Evidence from factors and transactions data. Journal of Financial Markets,
+14(1), 1–46.
+[40] Koratamaddi, P., Wadhwani, K., Gupta, M., & Sanjeevi, S. G. (2021). Market
+sentiment-aware deep reinforcement learning approach for stock portfolio allocation.
+Engineering Science and Technology, an International Journal, 24(4), 848–859.
+[41] Krauss, C., Do, X. A., & Huck, N. (2017). Deep neural networks, gradient-boosted
+trees, random forests: Statistical arbitrage on the S&P 500. European Journal of
+Operational Research, 259(2), 689–702.
+[42] Krogh, A., & Hertz, J. A. (1992). A simple weight decay can improve generaliza-
+tion. In Advances in Neural Information Processing Systems, 4, 950–957.
+[43] Li, C.-L., & Hsieh, C.-H. (2023). On unified adaptive Black-Litterman mean-
+variance portfolio management. arXiv preprint arXiv:2307.03391.
+[44] Liang, Z., Chen, H., Zhu, J., Jiang, K., & Li, Y. (2018). Adversarial deep
+reinforcement learning in portfolio management. arXiv preprint arXiv:1808.09940.
+[45] Lim, E. Q. Y., Cao, Q., & Quek, C. (2022). Dynamic portfolio rebalancing through
+reinforcement learning. Neural Computing and Applications, 34(9), 7125–7139.
+[46] Lo, A. W. (2002). The statistics of Sharpe ratios. Financial Analysts Journal,
+58(4), 36–52.
+57
+[47] Markowitz, H. (1952). Portfolio selection. Journal of Finance, 7(1), 77–91.
+[48] Mnih, V., et al. (2016). Asynchronous methods for deep reinforcement learning.
+In Proceedings of the 33rd International Conference on Machine Learning (ICML),
+1928–1937.
+[49] Moody, J., & Saffell, M. (2001). Learning to trade via direct reinforcement. IEEE
+Transactions on Neural Networks, 12(4), 875–889.
+[50] Orra, A., Choudhary, H., Sharma, A., & Thakur, M. (2025). Enhancing deep
+reinforcement learning for stock trading: A reward shaping approach via expert
+feedback. Knowledge and Information Systems, 67(11), 11075–11094.
+[51] Parisotto, E., et al. (2020). Stabilizing transformers for reinforcement learning.
+In Proceedings of the 37th International Conference on Machine Learning, PMLR
+119, 7487–7498.
+[52] Patton, A. J. (2009). Are “market neutral” hedge funds really market neutral?
+Review of Financial Studies, 22(7), 2295–2330.
+[53] Perold, A. F., & Sharpe, W. F. (1988). Dynamic strategies for asset allocation.
+Financial Analysts Journal, 44(1), 16–27.
+[54] Pleines, M., Pallasch, M., Zimmer, F., & Preuss, M. (2022). Generalization,
+mayhems and limits in recurrent proximal policy optimization. arXiv preprint
+arXiv:2205.11104.
+[55] Pleines, M., Pallasch, M., Zimmer, F., & Preuss, M. (2025). Memory Gym:
+Towards endless tasks to benchmark memory capabilities of agents. Journal of
+Machine Learning Research, 26(6), 1–40.
+[56] Prechelt, L. (1998). Early stopping — but when? In G. B. Orr & K. R. M¨uller
+(Eds.), Neural Networks: Tricks of the Trade (pp. 55–69). Springer.
+[57] Pricope, T.-V. (2021). Deep reinforcement learning in quantitative algorithmic
+trading: A review. arXiv preprint arXiv:2106.00123.
+[58] Schulman, J., Wolski, F., Dhariwal, P., Radford, A., & Klimov, O. (2017).
+Proximal policy optimization algorithms. arXiv preprint arXiv:1707.06347.
+[59] Sharpe, W. F. (1966). Mutual fund performance. Journal of Business, 39(1),
+119–138.
+[60] Sharpe, W. F. (1994). The Sharpe ratio. Journal of Portfolio Management, 21(1),
+49–58.
+[61] Shiller, R. J. (1981). Do stock prices move too much to be justified by subsequent
+changes in dividends? American Economic Review, 71(3), 421–436.
+58
+[62] Spooner, T., Fearnley, J., Savani, R., & Koukorinis, A. (2018). Market making
+via reinforcement learning. In Proceedings of the 17th International Conference on
+Autonomous Agents and Multiagent Systems (AAMAS), 434–442.
+[63] Srivastava, N., Hinton, G., Krizhevsky, A., Sutskever, I., & Salakhutdinov, R.
+(2014). Dropout: A simple way to prevent neural networks from overfitting. Journal
+of Machine Learning Research, 15(56), 1929–1958.
+[64] Stable-Baselines Team. (2025). sb3-contrib: RecurrentPPO (Version 2.7.0) [Com-
+puter software]. Retrieved February 1, 2025, from https://pypi.org/project/sb3-
+contrib/.
+[65] Sutton, R. S., & Barto, A. G. (2018). Reinforcement Learning: An Introduction
+(2nd ed.). MIT Press.
+[66] Valle, C. A., Meade, N., & Beasley, J. E. (2014). Market neutral portfolios.
+Optimization Letters, 8(7), 1961–1984.
+[67] Wu, M.-E., Syu, J.-H., Lin, J. C.-W., & Ho, J.-M. (2021). Portfolio management
+system in equity market neutral using reinforcement learning. Applied Intelligence,
+51(11), 8119–8131.
+[68] Yang, H., Liu, X.-Y., Zhong, S., & Walid, A. (2020). Deep reinforcement learning
+for automated stock trading: An ensemble strategy. In Proceedings of the 1st ACM
+International Conference on AI in Finance (ICAIF ’20), 1–8.
+[69] Ye, Y., Pei, H., Wang, B., Chen, P.-Y., Zhu, Y., Xiao, J., & Li, B. (2020).
+Reinforcement-learning based portfolio management with augmented asset move-
+ment prediction states. In Proceedings of the 34th AAAI Conference on Artificial
+Intelligence, 1112–1119.
+[70] Ye, J., et al. (2024). From factor models to deep learning: machine learning in
+reshaping empirical asset pricing. arXiv preprint arXiv:2403.06779.
+[71] Zhang, Z., Zohren, S., & Roberts, S. (2020). Deep learning for portfolio optimiza-
+tion. Journal of Financial Data Science, 2(4), 8–20.
+[72] Zhang, Z., Zohren, S., & Roberts, S. (2020). Deep reinforcement learning for
+trading. Journal of Financial Data Science, 2(2), 25–40.
+59

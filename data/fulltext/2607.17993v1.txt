@@ -1,0 +1,1347 @@
+1
+System-Level Evaluation of LEO Satellite
+Communications Under Service-Driven Trafﬁc
+Dynamics
+Miyeon Lee, Graduate Student Member, IEEE, Dong-Hyun Jung, Member, IEEE, Sucheol Kim, Member, IEEE,
+Hwanjin Kim, Member, IEEE, and Junil Choi, Senior Member, IEEE
+Abstract—As low Earth orbit (LEO) satellite communications
+take shape on a global scale, system-level evaluation has become
+essential for a rigorous understanding of their performance
+characteristics. Most existing studies have relied on a full-buffer
+assumption, which obscures the heterogeneity and intermittency
+that characterize actual user equipment (UE) trafﬁc. This article
+evaluates the performance of LEO satellite communications
+under realistic service conditions through the incorporation of
+non-full-buffer trafﬁc models. To this end, we develop a system-
+level simulator that complies with the channel modeling and
+evaluation methodologies speciﬁed in 3rd Generation Partnership
+Project (3GPP) technical reports 38.811 and 38.821. Three key
+system-level performance metrics are considered: UE throughput,
+resource block (RB) allocation ratio, and packet delay, which are
+evaluated across 3GPP LEO satellite study cases under diverse
+trafﬁc models. The throughput results characterize the distribu-
+tion of achievable data-rates, which delineates the practical oper-
+ating boundaries of the system. The RB allocation analysis reveals
+patterns of resource consumption as UE density varies, which
+provides a quantitative basis for assessing system capability.
+Furthermore, the delay analysis characterizes latency behavior,
+which is of particular importance in satellite environments
+where substantial propagation delays are inherent and must be
+examined to ensure service feasibility. These evaluations provide
+a realistic performance outlook for non-full-buffer LEO satellite
+communications and provide insight into the user experience
+under practical operating conditions.
+I. INTRODUCTION
+Satellite communications are poised to become a corner-
+stone of 6G wireless systems, serving as a key enabler of ubiq-
+uitous connectivity. Despite the rapid global expansion of 5G
+Miyeon Lee and Dong-Hyun Jung contributed equally to this work.
+This work was supported in part by Korea Research Institute for defense
+Technology planning and advancement(KRIT) grant funded by the Korea
+government(DAPA(Defense Acquisition Program Administration))(KRIT-CT-
+22-040, Heterogeneous Satellite constellation based ISR Research Center,
+2022), in part by the InnoCORE program of the Ministry of Science and
+ICT(N10250155), and in part by Basic Science Research Program through
+the National Research Foundation of Korea(NRF) funded by the Ministry of
+Education(RS-2024-00395824).
+Miyeon Lee and Junil Choi are with the School of Electrical Engineering,
+Korea Advanced Institute of Science and Technology, Daejeon, 34141, South
+Korea (e-mail: {mylee0031; junil}@kaist.ac.kr).
+Dong-Hyun Jung is with the School of Electronic Engineering, Soongsil
+University, Seoul, 06978, South Korea (e-mail: dhjung@ssu.ac.kr).
+Sucheol Kim is with the Satellite Communication Research Division, Elec-
+tronics and Telecommunications Research Institute, Daejeon, 34129, South
+Korea (e-mail: loehcusmik@etri.re.kr).
+Hwanjin Kim is with the School of Electronics Engineering, Kyungpook
+National University, Daegu 41566, South Korea (e-mail: hwanjin@knu.ac.kr).
+networks, a signiﬁcant digital divide remains. Low Earth orbit
+(LEO) satellite constellations have been deployed to address
+this disparity by offering global coverage at signiﬁcantly lower
+infrastructure costs than terrestrial-only network expansion.
+Interest in LEO satellite systems is driven by both commer-
+cial viability and operational advantages. Commercially, the
+industry has shifted toward cost-efﬁcient manufacturing and
+shortened lead times, with compact satellite platforms sig-
+niﬁcantly reducing launch expenditures. Operationally, LEO
+satellites operate at altitudes between 300 km and 2,000 km,
+enabling lower propagation loss and reduced latency compared
+to geostationary orbit (GEO) satellites at 35,786 km. While
+GEO satellite communications offer broader coverage, their
+inherent latency limits support for delay-sensitive services.
+Medium Earth orbit (MEO) satellites occupy an intermediate
+zone but remain largely limited to maritime platforms, aero-
+nautical communication, and specialized backhaul applications
+due to stringent antenna and terminal power requirements.
+Consequently, investment momentum has increasingly con-
+centrated on LEO satellite communications, including private
+deployments such as SpaceX’s Starlink and OneWeb, as well
+as government-supported initiatives such as the European
+Union’s infrastructure for resilience, interconnection and se-
+curity by satellites (IRIS2) program and China’s GuoWang
+constellation [1]. These efforts reﬂect a growing consensus
+that LEO satellite communications offer a favorable balance
+among coverage, latency, and deployability.
+Despite these advantages, the technical challenges inher-
+ent to LEO satellite communication systems necessitate a
+rigorous and comprehensive performance assessment. Such
+an assessment extends beyond veriﬁcation of link budget
+sufﬁciency, which ensures adequate received power at the
+antenna front end [2], and must also establish whether per-
+formance objectives can be met under multi-user equipment
+(UE) operation across wide service areas. To enable this evalu-
+ation, a hierarchical simulation framework that integrates link-
+level and system-level simulations is employed [3]. Link-level
+simulation evaluates the end-to-end physical-layer processing
+chain, including modulation, channel coding, and receiver
+algorithms, to quantify the achievable performance of a single
+communication link. However, this does not capture the inter-
+actions between multiple UEs that contend for shared time
+and frequency resources. System-level simulation addresses
+this limitation by modeling resource management and trafﬁc
+arXiv:2607.17993v1  [eess.SP]  20 Jul 2026
+2
+㋍㋍
+㋍㋌
+㋍㋐
+㋎㋎
+㋊
+㋋
+㋌
+㋍
+㋎
+㋏
+㋐
+㋑
+㋊㋒
+㋋㋋
+㋍㋋
+㋋㋌
+㋊㋉
+㋒
+㋋㋎
+㋋㋍
+㋍㋎
+㋍㋏
+㋋㋏
+㋊㋋
+㋊㋊
+㋋㋑
+㋊㋌
+㋋㋐
+㋋㋒
+㋊㋍
+㋌㋊
+㋊㋏
+㋊㋎
+㋌㋉
+㋎㋌
+㋎㋍
+㋌㋋
+㋌㋍
+㋌㋎
+㋊㋑
+㋊㋐
+㋌㋌
+㋎㋐
+㋎㋑
+㋎㋏
+㋋㋉
+㋋㋊
+㋌㋐
+㋌㋏
+㋎㋒
+㋍㋊
+㋍㋉
+㋏㋎
+㋌㋒
+㋌㋑
+㋏㋊
+㋒㋐
+㋏㋉
+㋊㋉㋎
+㋍㋑
+㋐㋌
+㋍㋒
+㋎㋉
+㋎㋊
+㋊㋊㋎
+㋎㋋
+㋑㋉
+㋏㋍
+㋏㋋
+㋏㋌
+㋒㋊
+㋒㋉
+㋑㋒
+㋊㋋㋍
+㋊㋊㋏
+㋒㋏
+㋒㋎
+㋒㋍
+㋒㋌
+㋒㋋
+㋊㋋㋐
+㋊㋋㋏
+㋊㋋㋎
+㋐㋊
+㋐㋋
+㋊㋉㋍
+㋑㋊
+㋑㋋
+㋊㋉㋏
+㋐㋐
+㋐㋍
+㋐㋎
+㋐㋏
+㋐㋑
+㋐㋒
+㋊㋊㋍
+㋊㋊㋋
+㋊㋉㋒
+㋊㋊㋉
+㋊㋊㋊
+㋊㋊㋌
+㋊㋉㋐
+㋊㋉㋑
+㋏㋒
+㋊㋉㋊
+㋊㋉㋋
+㋐㋉
+㋊㋉㋌
+㋊㋊㋐
+㋑㋌
+㋊㋊㋑
+㋑㋍
+㋊㋊㋒
+㋊㋉㋉
+㋏㋑
+㋏㋐
+㋒㋒
+㋒㋑
+㋏㋏
+㋑㋑
+㋊㋋㋌
+㋑㋐
+㋊㋋㋋
+㋑㋏
+㋊㋋㋊
+㋑㋎
+㋊㋋㋉
+`
+Beam Deployment 
+UE Drop
+Large-scale Channel 
+Generation
+Serving Beam 
+Association
+SINR Calculation 
+CQI Report 
+HARQ Process Handling 
+Scheduling
+Performance Evaluation
+FRF=3
+=
+㋍㋍
+㋍㋌
+㋍㋐
+㋋㋋
+㋍㋋
+㋋㋌
+㋋㋎
+㋋㋍
+㋍㋎
+㋍㋏
+㋋㋏
+㋋㋐
+㋋㋊
+㋍㋊
+㋍㋉
+㋏㋎
+㋌㋒
+㋒㋐
+㋉㋎
+㋍㋑
+㋐㋌
+㋍㋒
+㋏㋍
+㋏㋋
+㋏㋌
+㋒
+㋐㋊
+㋐㋋
+㋊㋉㋍
+㋐㋍
+㋐㋎
+㋉㋒
+㋏㋒
+㋊㋉㋊
+㋊㋉㋋
+㋐㋉
+㋊㋉㋌
+㋊㋉㋉
+㋏㋑
+㋏㋐
+㋒㋒
+㋒㋑
+㋏㋏
+㋌
+㋊㋉
+㋒
+㋊㋋
+㋊㋊
+㋊㋌
+㋊
+㋋
+㋍
+㋑
+㋊㋍
+㋉
+㋌㋑
+㋒
+㋋㋑
+㋎㋉
+㋐㋏
+㋋㋉
+㋏㋋
+㋋
+㋍
+㋋㋑
+㋐㋏
+UE
+LEO satellite 
+Small-scale Channel 
+Evolution
+Transport Block 
+Decoding
+Performance Metric  
+Calculation
+Small-scale Channel 
+Generation
+RTT later 
+Traffic Generation 
+Channel Modeling
+㋍㋍
+㋍㋌
+㋍㋐
+㋎㋎
+㋊
+㋋
+㋌
+㋍
+㋎
+㋏
+㋐
+㋑
+㋊㋒
+㋋㋋
+㋍㋋
+㋋㋌
+㋊㋉
+㋒
+㋋㋎
+㋋㋍
+㋍㋎
+㋍㋏
+㋋㋏
+㋊㋋
+㋊㋊
+㋋㋑
+㋊㋌
+㋋㋐
+㋋㋒
+㋊㋍
+㋌㋊
+㋊㋏
+㋊㋎
+㋌㋉
+㋎㋌
+㋎㋍
+㋌㋋
+㋌㋍
+㋌㋎
+㋊㋑
+㋊㋐
+㋌㋌
+㋎㋐
+㋎㋑
+㋎㋏
+㋋㋉
+㋋㋊
+㋌㋐
+㋌㋏
+㋎㋒
+㋍㋊
+㋍㋉
+㋌㋒
+㋌㋑
+㋏㋊
+㋏㋉
+㋍㋑
+㋍㋒
+㋎㋉
+㋎㋊
+㋎㋋
+FRF=1
+Queue 1
+Priority 2
+Queue 2
+Priority 3
+Queue 3
+Priority 1
+First In, First Out (FIFO)
+Scheduling
+Leave queue
+400 B
+400 B
+400 B
+140 B
+280 B
+100 B
+140 B
+Bit-by-bit
+100 B
+100 B
+100 B
+Composition of Traffic Models 
+Fig. 1: System-level simulation methodology, presenting the system model (left) and the procedural ﬂow (right).
+dynamics across multiple beams and UEs, thereby enabling
+evaluation of network-wide metrics such as throughput and
+quality of service (QoS) [4], [5]. Within this hierarchical
+framework, link-level simulation is used to derive performance
+models that map physical-layer operating conditions to link
+performance metrics. These models are then incorporated into
+the system-level simulation to reﬂect physical-layer effects
+without explicit waveform-level processing, which maintains
+physical-layer ﬁdelity while enabling scalable evaluation of
+multi-user interactions and higher-layer protocols.
+A standardized framework for system-level evaluation of
+LEO satellite communications has been established by the
+3rd Generation Partnership Project (3GPP) through Release 15
+technical report (TR) 38.811 [6] and its extension in Re-
+lease 16 TR 38.821 [7]. TR 38.811 speciﬁes satellite geometry,
+mobility, Doppler characteristics, propagation delay models,
+and key channel components, while TR 38.821 deﬁnes cali-
+bration assumptions and beam layouts and provides calibration
+study cases that span variations in orbital altitude, satellite pa-
+rameters, beam elevation, frequency band, and frequency reuse
+factor (FRF). Together, these documents form the primary
+reference framework for reproducible and methodologically
+consistent system-level simulation.
+In operational deployments, LEO satellite systems must be
+evaluated under both throughput and latency requirements for
+delay-sensitive services. However, most system-level simula-
+tion studies of LEO satellite communications reported to date
+have relied on a full-buffer trafﬁc model, including analyses
+of beam hopping [8] and performance evaluation based on
+ITU requirements [9]. Although this assumption simpliﬁes
+analysis, it fails to represent the bursty and intermittent nature
+of practical trafﬁc and therefore obscures queueing behav-
+ior and scheduling delays. Existing packet-level simulation
+frameworks, including SNS3 [10] and Hypatia [11], provide
+capabilities for non-full-buffer trafﬁc analysis. However, SNS3
+is mainly oriented toward Digital Video Broadcasting Satellite
+Second Generation (DVB-S2)/2nd Generation Interactive DVB
+Satellite System (DVB-RCS2)-based satellite scenarios and
+long range (LoRa)-based Internet of Things (IoT) scenarios,
+whereas Hypatia focuses on Transmission Control Protocol
+(TCP)/User Datagram Protocol (UDP) ﬂows over dynamic
+LEO network topologies.
+This article addresses this lacuna by developing a 3GPP-
+compliant system-level evaluation framework for LEO satellite
+communications under service-driven non-full-buffer trafﬁc
+models, incorporating stochastic trafﬁc processes that capture
+packet inter-arrival time variability, packet size diversity, and
+intermittent activity patterns. The study focuses on the prior-
+itized calibration study cases 9 and 10 deﬁned in TR 38.821,
+which correspond to S-band handheld terminals with FRF = 1
+and FRF = 3, respectively. System performance is assessed in
+terms of UE throughput, resource block (RB) allocation ratio,
+and packet delay.
+II. OVERVIEW OF SYSTEM-LEVEL SIMULATOR
+Following the design principles speciﬁed in TR 38.811
+and 38.821, the system-level simulator for LEO satellite
+communications is organized into a set of interdependent
+modules that include the beam layout model, the channel
+model, the stochastic trafﬁc model, and auxiliary components
+for performance evaluation. This section explains the mod-
+eling assumptions that underlie these modules and describes
+their implementation within our proprietary MATLAB-based
+system-level simulator.
+3
+A. Beam Layout Model
+The methodologies speciﬁed in TR 38.821 describe beam
+layout structures that are determined by the FRF, with FRF = 1
+and FRF = 3, as illustrated in Fig. 1. These layouts provide
+the basis for a range of service beam conﬁgurations that
+commonly include single-beam, 7-beam, 19-beam, and 36-
+beam topologies. An increase in the number of service beams
+improves the ﬁdelity of inter-beam interference (IBI) represen-
+tation, as it could generate realistic interference from neigh-
+boring beams. However, too large number of beams entails
+a substantial increase in simulation complexity, which arises
+from the repeated conﬁguration and execution that system-
+level calibration requires. By contrast, conﬁgurations that rely
+on a small number of service beams reduce computational
+burden but fail to capture the interference experienced by UEs,
+particularly in outer beams, which have fewer neighboring
+beams than those in the inner region. To address this limitation,
+wraparound techniques that follow the methodology described
+in TR 38.821 are employed. Through this approach, beams
+within the central cluster experience interference comparable
+to those in large-scale deployments, without requiring an
+excessively large simulation domain.
+B. Channel Model
+The fast fading model speciﬁed in TR 38.901 [12] can be
+extended to LEO satellite communication scenarios through
+appropriate adjustments of cluster parameters. Compared to
+terrestrial environments, satellite channels exhibit substantially
+smaller multipath clusters due to line-of-sight propagation
+dominance and sparse local scatterers. To account for these
+characteristics, angular spread scaling is applied during cluster
+generation, through which the resulting clusters represent the
+reduced scattering conditions that are intrinsic to LEO satellite
+channels.
+TR 38.811 further speciﬁes channel parameters for LEO
+satellite communications, which include delay spread, angle
+spread, shadow fading, and the Rician K-factors for dense
+urban, urban, suburban, and rural environments. In addition to
+these parameters, several propagation effects are incorporated
+to obtain an accurate channel representation. Phase rotation
+that arises from time-varying Doppler shift is applied to each
+ray, as both the satellite and the UE exhibit time-dependent
+motion. Faraday rotation is also incorporated to capture the
+rotation of the polarization plane that arises when the electro-
+magnetic wave propagates through the ionized medium in the
+presence of Earth’s magnetic ﬁeld. This effect is applied to
+the channel coefﬁcients of all rays within each cluster, which
+reﬂects the polarization changes introduced by the ionosphere
+along spaceborne communication paths.
+C. Non-full-buffer Trafﬁc Models
+As LEO satellite communication services expand and their
+application domains diversify, trafﬁc models that capture
+heterogeneous service characteristics have become essential.
+To reﬂect such diversity within a system-level simulation
+framework, four stochastic trafﬁc models are deﬁned, each
+corresponding to a distinct service pattern.
+The ﬁrst two trafﬁc models are based on Poisson pro-
+cesses with ﬁxed and random packet sizes, respectively. A
+homogeneous Poisson process is adopted to model sporadic
+short-packet services, such as small web-object downloads,
+IoT control messages, and text-based short messages. Al-
+though highly bursty services may require non-homogeneous
+Poisson processes, the homogeneous Poisson process captures
+random packet arrivals and the memoryless nature of these
+services through exponentially distributed inter-arrival times.
+This trafﬁc modeling choice is consistent with 3GPP evalua-
+tion methodologies, including the ﬁle transfer protocol model
+speciﬁed in TR 36.814 [13]. Within this framework, packet
+sizes are treated as either ﬁxed or variable, depending on
+the service characteristics. Fixed-size packets represent small
+web-object downloads and IoT control messages, whereas
+variable-size packets provide a more appropriate abstraction
+for text-based short messages. This model enables assessment
+of throughput stability, scheduling efﬁciency, and packet delay
+under sporadic packet arrivals across different packet size
+regimes.
+The third trafﬁc model is deﬁned as a two-state Markov-
+modulated on/off process that represents delay-sensitive ser-
+vices such as group call scenarios. This stochastic formulation
+supports an evaluation of packet delay behavior, as well as
+throughput stability and scheduling efﬁciency, under conver-
+sational trafﬁc conditions. In a group call scenario, multiple
+users alternate between talkspurt (on) and listening or silence
+(off) states, where the on and off durations can be modeled by
+exponential distributions. During a talkspurt, the active talker
+generates uplink (UL) voice packets, while users in the off
+state receive constant-bit-rate downlink (DL) packets that are
+generated every 20 ms by standard voice codecs. Since only
+one user can speak at a time, an attempt to transition from
+the off state to the on state is blocked when another user is
+speaking and is rescheduled after a newly sampled silence
+interval. This structure reﬂects the contention dynamics and
+talkspurt behavior observed in conversational voice trafﬁc.
+The ﬁnal trafﬁc model is a mixed trafﬁc conﬁguration that
+combines Poisson processes with ﬁxed and variable packet
+sizes and a Markov-modulated process, which reﬂects practical
+network environments in which a single system simultaneously
+supports multiple services with distinct trafﬁc characteristics.
+In this model, the three previously described trafﬁc generators
+operate concurrently, and packets that originate from different
+services are enqueued in per-service queues that follow a ﬁrst-
+in-ﬁrst-out manner, while scheduling across queues follows a
+strict priority policy, as illustrated in Fig. 1. Under strict prior-
+ity scheduling, packets in lower-priority queues are transmitted
+only after all packets in higher-priority queues have been
+served. Consequently, lower-priority queues may experience
+starvation, i.e., they receive no service, when higher-priority
+queues remain persistently backlogged. To mitigate this effect,
+a starvation threshold is introduced to ensure that packet delays
+in low-priority queues remain within acceptable limits.
+In contrast to the full-buffer assumption, which presumes
+inﬁnite backlog and ignores packet arrival timing, the consid-
+ered trafﬁc models introduce application-driven load variations
+that reﬂect practical service behavior. By incorporating packet
+4
+arrival patterns and state-dependent activity processes, the
+simulator enables an evaluation of QoS metrics, including
+packet delay, that cannot be captured under the full-buffer
+trafﬁc assumption.
+D. Evaluation Framework
+To quantify the system-level performance, a time-driven
+simulation framework that is consistent with 3GPP methodol-
+ogy is employed, as illustrated on the right side of Fig. 1. The
+simulator is designed to represent the time evolution of the DL
+channel, trafﬁc arrivals, and scheduling decisions, so that the
+combined effects of physical-layer behavior and higher-layer
+mechanisms can be examined within a uniﬁed framework.
+At each simulation step, the instantaneous link quality at the
+RB level is determined by time-varying channel conditions,
+which include large-scale path loss, small-scale fading, and
+IBI. Instead of performing full physical-layer decoding, stan-
+dard physical-layer abstraction techniques are applied, through
+which RB-level channel conditions are mapped to an effective
+measure of link reliability. Channel quality indicator (CQI)
+feedback that is subject to round-trip time (RTT) delay is then
+used to guide transmission decisions at the satellite, which
+reﬂects the delayed feedback inherent in LEO satellite systems.
+In parallel, stochastic non-full-buffer trafﬁc is modeled to
+represent downlink service demand, resulting in time-varying
+queue occupancy at the LEO satellite scheduler for each
+UE and introducing queueing and delay dynamics. RBs are
+allocated through a proportional fair (PF) scheduling process
+that balances instantaneous channel opportunities with long-
+term fairness across UEs. In addition, hybrid automatic re-
+peat request (HARQ) mechanisms are employed to ensure
+robustness against decoding errors through retransmissions.
+These components jointly form a closed-loop process in which
+channel variations, trafﬁc dynamics, scheduling decisions, and
+retransmission events continuously inﬂuence one another over
+time.
+System-level performance metrics are derived from these
+cross-layer interactions. Throughput is computed by accumu-
+lating decoded transport blocks over the simulation time. The
+simulator also records the RB allocation ratio, which is deﬁned
+as the fraction of allocated RBs relative to the total available
+RBs and serves as an indicator of spectrum utilization. Packet
+delay is measured as the elapsed time between packet arrival at
+the scheduler-side queue for each UE at the LEO satellite and
+successful decoding at the UE, which captures the combined
+effects of queueing, scheduling, HARQ retransmissions, and
+RTT.
+III. SYSTEM-LEVEL SIMULATION SETUPS
+In this section, we describe the simulation conﬁgurations
+and assumptions adopted in our system-level simulator for
+LEO satellite communications. The setup follows the calibra-
+tion study cases deﬁned in 3GPP TR 38.821, with a speciﬁc
+focus on study cases 9 and 10 that differ in FRF value of 1 and
+3, respectively, and are designated as high-priority scenarios
+for system-level performance evaluation.
+TABLE I: Simulation conﬁgurations.
+Parameters
+Value
+Satellite parameter
+Altitude
+600 km (LEO)
+Payload
+Transparent payload
+Frequency band
+S-band (2 GHz)
+Channel bandwidth
+30 MHz
+Subcarrier spacing
+15 kHz
+Maximum antenna gain
+30 dBi
+3 dB beam width
+4.4127◦
+EIRP density
+34 dBW/MHz
+G/T
+1.1 dB/K
+Antenna aperture
+2 m
+Antenna polarization conﬁguration
+Circular
+Central beam elevation
+90◦
+Antenna pattern
+Sec. 6.4.1 in TR 38.811
+UE parameter
+Conﬁguration
+Handheld
+Antenna polarization
+Linear: ±45◦-pol
+Antenna gain
+0 dBi
+Noise ﬁgure
+7 dB
+Antenna conﬁguration
+(1, 1, 2) with omni-directional
+antenna
+Distribution
+Outdoor; 10 UEs/beam
+Environment
+Rural
+Velocity
+3 km/h
+Channel parameter
+Propagation conditions
+Clear sky, line-of-sight
+Large-scale fading
+Sec. 6.6 in TR 38.811
+Small-scale fading
+Table 6.1.1.1-7 in TR 38.821
+Scintillation loss
+2.2 dB
+Simulation settings
+FRF
+1 (study case 9) or 3 (study
+case 10)
+Wraparound
+Two-tiers (FRF = 1) or four-tiers
+(FRF = 3)
+UE attachment
+Based on reference signal
+received power
+Receiver type
+Minimum mean square
+error-interference rejection
+combining
+Processing and scheduling delay
+3 ms
+HARQ
+Enabled
+Scheduler
+PF
+Number of UE drops
+5
+The deployment scenario considered in this article corre-
+sponds to a direct access satellite-to-handheld link in the S-
+band at 2 GHz, a conﬁguration widely regarded as one of the
+most prominent broadband use cases for 3GPP non-terrestrial
+networks. As depicted on the left side of Fig. 1, the system
+consists of a multi-beam LEO satellite serving UEs distributed
+within the coverage areas of the individual beams. Each beam
+serves 10 UEs uniformly distributed within its footprint. The
+central 19 beams are designated as the region of interest for
+evaluating the statistical system performance.
+To address the underestimation of IBI, which is particu-
+larly pronounced for outer beams, a wraparound technique is
+employed to introduce interference contributions from neigh-
+boring beams. The number of surrounding beam tiers is
+5
+TABLE II: Trafﬁc models with scenario-speciﬁc packet size and generation characteristics.
+Trafﬁc model
+Trafﬁc type
+Packet size (Bytes)
+IAT (ms)
+Generation logic
+Scenario 1
+Scenario 2
+1
+Poisson process
+400
+800
+100
+Fixed packet size
+2
+Poisson process
+140 per segment with Kmax = 3
+200
+Variable packet size
+P (K) =
+{0.8, 0.1, 0.1}
+P (K) =
+{0.1, 0.8, 0.1}
+3
+Markov-modulated on/off process
+100
+200
+20
+Ton = 2 s, Toﬀ= 1 s
+4
+Composite of trafﬁc models 1-3
+Integration of scenario-speciﬁc parameters
+Priority: Trafﬁc model 3 > Trafﬁc
+model 1 > Trafﬁc model 2
+Note: IAT denotes inter-arrival time. For trafﬁc model 2, P (K) represents the probability distribution {P (K = 1), P (K = 2), P (K = 3)}.
+determined by the FRF. For the FRF = 1 conﬁguration, a
+two-tier wraparound structure is applied, in which the central
+19 beams are surrounded by two layers of 42 beams, resulting
+in a total of 61 beams. For the FRF = 3 conﬁguration, a four-
+tier wraparound structure is adopted, where 108 additional co-
+channel beams reusing the same frequency bands are arranged
+in four tiers around the central 19 beams, yielding a total of
+127 beams. The remaining simulation parameters are aligned
+with the system-level calibration speciﬁcations in TR 38.821,
+which include satellite, UE, and channel characteristics, as
+well as key simulation assumptions. These parameters are
+summarized in Table I.
+To examine the system-level performance implications of
+non-full-buffer trafﬁc, four stochastic trafﬁc models are con-
+sidered under two scenarios that differ in packet size, as
+summarized in Table II. Trafﬁc model 1 is based on a Poisson
+process with ﬁxed packet sizes of 400 bytes in Scenario 1
+and 800 bytes in Scenario 2. Trafﬁc model 2 is also based on
+a Poisson process but incorporates variable packet sizes. The
+trafﬁc is characterized by small packet sizes and infrequent
+arrivals, which lead to low data rate requirements. Each packet
+comprises a random number of 140 bytes segments ranging
+from 1 to a maximum value denoted by Kmax, drawn from
+a discrete non-uniform distribution speciﬁed for per scenario.
+This yields expected packet sizes of 182 bytes in Scenario 1
+and 280 bytes in Scenario 2. Trafﬁc model 3 employs a
+Markov-modulated on/off process to emulate conversational
+voice trafﬁc, where the on and off periods correspond to
+talkspurt and silence durations modeled as exponentially dis-
+tributed random variables with mean duration Ton and Toﬀ,
+respectively. Voice packets of 100 bytes in Scenario 1 and
+200 bytes in Scenario 2 are generated accordingly. Trafﬁc
+model 4 represents a composite trafﬁc model that integrates
+the preceding three trafﬁc models within each scenario while
+accounting for service-level priority awareness.
+The analysis presented in this article concentrates on DL
+transmissions, as UE-driven satellite services typically exhibit
+highly asymmetric trafﬁc patterns dominated by DL data
+volumes, making DL performance the primary determinant of
+UE-perceived QoS. This modeling choice is consistent with
+prior system-level simulation studies in terrestrial networks
+that have similarly emphasized DL performance evaluation
+[14]. From a technical standpoint, these DL ﬁndings cannot
+be directly extended to UL, as DL-UL reciprocity does not
+generally hold in LEO satellite communications due to asym-
+metries in link budgets, frequency division duplexing, Doppler
+dynamics, antenna constraints, and terminal power availabil-
+ity. Therefore, a detailed assessment of UL performance is
+deferred to future work.
+IV. SYSTEM-LEVEL SIMULATION RESULTS
+In this section, we present the outcomes obtained using the
+system-level simulator. Four non-full-buffer trafﬁc models are
+evaluated under study cases 9 and 10, with a focus on UE
+throughput, RB allocation ratio, and packet delay. Addition-
+ally, two scenarios with different packet-size conﬁgurations are
+considered to examine the impact of packet size on throughput
+for each trafﬁc model, as summarized in Table II.
+A. UE Throughput
+Fig. 2 shows the cumulative distribution functions (CDFs) of
+UE throughput for study cases 9 and 10 under trafﬁc models 1
+to 3. Each trafﬁc model exhibits a distinct throughput proﬁle
+that reﬂects its underlying trafﬁc characteristics.
+Trafﬁc model 1 exhibits a consistent throughput scaling
+trend with respect to packet size. As illustrated in the ﬁrst
+column of Fig. 2, the 5th percentile throughput reaches
+0.022044 Mbps in Scenario 1 and increases to 0.044089 Mbps
+in Scenario 2 for study case 9, while corresponding values of
+0.023467 Mbps and 0.044089 Mbps are observed for study
+case 10. This scaling trend extends to the majority of UEs and
+indicates that comparable throughput levels are achieved under
+both FRF conﬁgurations, with larger packet sizes consistently
+yielding higher throughput.
+Trafﬁc model 2 yields lower throughput than trafﬁc model 1.
+For example, under study case 9, the 5th percentile throughput
+is limited to 0.00448 Mbps for Scenario 1 and 0.006471 Mbps
+for Scenario 2, as illustrated in the second column of Fig. 2,
+which is substantially lower than the corresponding values
+observed in trafﬁc model 1. This reduction is attributable to
+the combination of infrequent packet arrivals and a smaller
+effective packet size. The smaller effective packet size, to-
+gether with the lower packet arrival frequency relative to trafﬁc
+model 1, limit payload transmission efﬁciency and conse-
+quently constrains achievable throughput. A similar tendency
+is observed under study case 10, where the 5th percentile
+throughput remains at 0.00448 Mbps in Scenario 1 and in-
+creases to 0.007467 Mbps in Scenario 2.
+Trafﬁc model 3 shows a distinct throughput proﬁle that
+is characterized by convergence among higher percentiles.
+6
+ 	
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
+ 
+(a) Trafﬁc model 1 (study case 9)
+ 	
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+(c) Trafﬁc model 2 (study case 9)
+ 	
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
+ 
+(e) Trafﬁc model 3 (study case 9)
+ 	
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
+ 
+(b) Trafﬁc model 1 (study case 10)
+ 	
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+(d) Trafﬁc model 2 (study case 10)
+ 	
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+ 
+ 
+(f) Trafﬁc model 3 (study case 10)
+Fig. 2: UE throughput in study cases 9 and 10 for Scenarios 1 and 2 under trafﬁc models 1 (left), 2 (center), and 3 (right).
+ 	
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+(a) Trafﬁc model 4 (study case 9)
+ 	
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+  
+  
+(b) Trafﬁc model 4 (study case 10)
+Fig. 3: UE throughput in study cases 9 and 10 for Scenarios 1
+and 2 under trafﬁc model 4.
+As shown in the third column of Fig. 2, the 5th percentile
+throughput under study case 9 reaches 0.013867 Mbps in
+Scenario 1 and 0.020978 Mbps in Scenario 2, whereas the 50th
+and 95th percentile values converge rapidly to 0.040 Mbps in
+Scenario 1 and approximately 0.0796 Mbps in Scenario 2. A
+similar pattern is observed under study case 10, where the
+50th and 95th percentile throughputs remain closely aligned
+at around 0.040 Mbps in Scenario 1 and around 0.0793 Mbps
+in Scenario 2. The steep rise of the CDFs indicates limited
+throughput variation among the upper percentiles, which re-
+ﬂects the characteristics of Markov-modulated on/off trafﬁc in
+which active voice users share resources in a relatively uniform
+manner.
+Fig. 3 illustrates the CDFs of UE throughput for trafﬁc
+model 4, which represents a composite trafﬁc scenario in
+which multiple services are supported simultaneously under
+service-level priority awareness. In comparison with the in-
+dividual trafﬁc models, the composite trafﬁc conﬁguration
+exhibits an overall upward shift in the throughput distribu-
+tion, which indicates that service coexistence enhances sys-
+tem throughput through increased scheduling diversity and
+more effective resource allocation. This improvement is pri-
+marily observed beyond the lower tail of the distribution.
+Under study case 9, the 5th percentile throughput remains
+comparable to that of the individual trafﬁc models, reach-
+ing 0.019985 Mbps in Scenario 1 and 0.012947 Mbps in
+Scenario 2, whereas higher percentiles experience notice-
+able gains, with the 95th percentile throughput increasing
+to 0.085760 Mbps and 0.167670 Mbps, respectively. Study
+case 10 shows a similar trend, in which the 5th percentile
+throughput is preserved while the upper percentiles continue
+to improve under the composite trafﬁc model. These results
+indicate that service coexistence enables throughput gains for
+the majority of UEs while preserving baseline performance,
+which is essential for practical multi-service LEO satellite
+communication systems.
+A comparison of study case 9 and 10 across all trafﬁc
+models in Figs. 2 and 3 reveals a fundamental tradeoff
+7
+TABLE III: (a) RB allocation ratio with varying numbers of UEs per beam; (b) Delay distribution at 10 UEs per beam.
+Simulation is based on the trafﬁc models conﬁgured for Scenario 1, as detailed in Table II.
+(a) Resource block (RB) allocation ratio
+Trafﬁc model
+Trafﬁc type
+Study case
+Number of UEs per beam
+10
+20
+30
+40
+1
+Poisson process (ﬁxed packet size)
+9
+2.4%
+5.98%
+7.72%
+12.32%
+10
+2.73%
+9.09%
+13.85%
+17.21%
+2
+Poisson process (variable packet size)
+9
+0.54%
+1.13%
+1.9%
+2.66%
+10
+0.65%
+2.14%
+3.83%
+4.25%
+3
+Markov-modulated on/off process
+9
+2.84%
+7.38%
+10.88%
+15.18%
+10
+3.32%
+8.07%
+16.88%
+19.91%
+4
+Composite of trafﬁc models 1-3
+9
+5.87%
+12.53%
+22.71%
+28.14%
+10
+7.03%
+18.94%
+31.34%
+43.07%
+(b) Delay distribution
+Trafﬁc model
+Trafﬁc type
+Study case
+Delay [ms]
+5%
+50%
+90%
+1
+Poisson process (ﬁxed packet size)
+9
+12
+12
+119
+10
+12
+12
+108
+2
+Poisson process (variable packet size)
+9
+12
+12
+236
+10
+12
+12
+174
+3
+Markov-modulated on/off process
+9
+12
+12
+32
+10
+12
+12
+32
+4
+Composite of trafﬁc models 1–3
+(For each study case, the three rows denote the
+impacts of trafﬁc models 1–3 in order.)
+9
+12
+13
+102
+12
+13
+56
+12
+13
+43
+10
+12
+13
+89
+12
+13
+68
+12
+13
+40
+introduced by frequency reuse. Although study case 10 adopts
+a higher FRF, which reduces IBI, this beneﬁt is offset by
+the reduction in per-beam bandwidth. As a result, throughput
+gains remain constrained, particularly at the lower percentiles.
+Consequently, improvements in the 5th percentile throughput
+are limited across all trafﬁc models, which indicates that
+interference mitigation alone does not yield proportional per-
+formance gains for the worst-served UEs.
+These throughput distributions offer more than a description
+of how trafﬁc patterns, packet size, and frequency reuse inter-
+act. They provide a quantitative basis for assessing system-
+level performance guarantees. In particular, the 5th percentile
+throughput represents the minimum data rate that approxi-
+mately 95% of UEs can expect to achieve and therefore serves
+as a practical measure of baseline service quality that can be
+used to establish performance ﬂoors.
+B. RB Allocation Ratio
+Table IIIa reports the RB allocation ratio as a function of
+the number of UEs per beam for the four non-full-buffer trafﬁc
+models under Scenario 1 in study cases 9 and 10.
+The evaluation begins with the maximum bandwidth con-
+ﬁguration in terms of the number of RBs. According to
+Table 5.3.2-1 in TS 38.101-1 [15], a subcarrier spacing of
+15 kHz combined with a channel bandwidth of 30 MHz
+yields a maximum of 160 RBs. When FRF = 3 is applied,
+the available transmission bandwidth is evenly partitioned
+among three reuse groups, leaving one-third of the total RBs
+available per beam. The RB allocation ratio is then calculated
+by aggregating the RBs allocated to the central 19 beams over
+the observation interval, after excluding a 500 ms warm-up
+period.
+As shown in Table IIIa, the RB allocation ratio rises as
+the number of UEs per beam grows. This trend reﬂects the
+combined effects of higher aggregate resource demand and
+increased inter-user interference, which together require a
+larger share of RBs to sustain throughput. With respect to the
+FRF conﬁguration, study case 10, which employs FRF = 3,
+consistently presents a higher RB allocation ratio than study
+case 9 with FRF = 1. This outcome arises because FRF = 3
+apportions one-third of the total spectrum to each beam, which
+reduces the per-beam bandwidth and necessitates the allocation
+of a larger fraction of the available RBs to accommodate trafﬁc
+loads, despite the associated mitigation of IBI.
+From an operational perspective, the RB allocation ratio
+directly reﬂects the level of radio resource utilization at
+the beam level and thus indicates the system’s proximity to
+overload conditions. As such, it offers a practical metric for
+network dimensioning and beam-level UE density planning
+under realistic trafﬁc conditions. Although RB consumption
+does not scale strictly linearly with the number of UEs per
+8
+beam reﬂecting the compounded effects of increased inter-user
+interference and reduced scheduling efﬁciency under higher
+UE densities, the simulation results indicate that the LEO
+satellite communication systems can accommodate more than
+40 UEs per beam while maintaining RB utilization within
+feasible operational limits across the considered trafﬁc models.
+C. Delay
+Table IIIb reports the packet delay distributions for the
+considered trafﬁc models under Scenario 1 and study cases 9
+and 10. These delay characteristics can be evaluated only
+under non-full-buffer trafﬁc, as the conventional full-buffer
+assumption maintains persistently backlogged queues and
+therefore fails to capture packet arrival processes and queue
+buildup dynamics.
+Across all trafﬁc models, the 50th percentile latency remains
+below 13 ms, which is close to the RTT of the LEO satellite
+link. For an altitude of 600 km and an elevation angle of 90◦,
+the RTT is approximately 12 ms. The RTT considered in this
+article includes round-trip propagation delays over the service
+and feeder links, which range between 8 and 9 ms depending
+on the UE location, as well as a processing and schedul-
+ing delay of 3 ms. This observation suggests that at least
+half of the packets experience minimal queueing delay, with
+transmissions that are completed without requiring HARQ
+retransmissions beyond the initial transmission attempt.
+By contrast, the 90th percentile delay increases sharply
+across all trafﬁc models, which indicates that the worst-served
+10% of UEs experience signiﬁcantly higher latency. Delay
+behavior is further shaped by the interaction between the
+service-level priority and the starvation-avoidance mechanism
+under composite trafﬁc conditions, as observed in trafﬁc
+model 4. High-priority trafﬁc, which corresponds to trafﬁc
+model 3, maintains relatively low latency but exhibits an
+increase relative to its single-trafﬁc baseline, as larger packets
+from coexisting services introduce head-of-line blocking ef-
+fects. In contrast, lower-priority trafﬁc, such as trafﬁc models 1
+and 2, beneﬁt from the dynamic priority elevation applied
+to aging packets, which substantially mitigates extreme tail
+delays. These observations indicate that tail latency is strongly
+inﬂuenced by queue buildup, packet size, and trafﬁc burstiness,
+as well as by adaptive scheduling mechanisms that operate
+under service coexistence.
+Overall, the delay distributions enable a system-level eval-
+uation of latency-related QoS that is attainable only under
+non-full-buffer trafﬁc models. Because many practical LEO
+satellite communication services are subject to explicit latency
+constraints, the presented results provide a quantitative char-
+acterization of the delays that users experience under realistic
+trafﬁc conditions.
+V. CONCLUSIONS
+LEO satellite communications are consolidating their role
+as the critical pillar of ubiquitous connectivity, yet reliable
+performance assessment requires system-level simulation that
+reﬂects realistic network operation. Prior studies have largely
+relied on the full-buffer assumption, which fails to capture the
+heterogeneous and sporadic nature of practical trafﬁc. This
+article presented a 3GPP-compliant system-level evaluation
+of LEO satellite communications under non-full-buffer trafﬁc
+models, using a proprietary simulator developed in accordance
+with TR 38.811 and TR 38.821.
+System-level performance was examined in terms of
+throughput, RB allocation ratio, and packet delay. The
+throughput evaluation showed CDFs across trafﬁc models and
+identiﬁed the minimum data rates achievable by most UEs.
+The RB allocation analysis captured how resource consump-
+tion scales with the number of UEs per beam, providing
+insight into UE supportability under ﬁnite RB budgets. The
+delay analysis showed that median delays remained close to
+a single RTT, while the tail of the delay distribution was
+strongly inﬂuenced by queue buildup, an effect that could not
+be captured under the full-buffer assumption that inherently
+masks delay variability.
+Overall, the system-level simulation mapped the expected
+LEO satellite performance under realistic trafﬁc conditions
+and provided a quantitative basis for deployment planning and
+performance optimization. Future work will extend this study
+to mobility-induced beam transitions, UL behavior, and multi-
+satellite constellations that are currently under discussion in
+3GPP standardization, toward a more comprehensive system-
+level characterization of LEO satellite communications.
+REFERENCES
+[1] E. Lagunas, S. Chatzinotas, and B. Ottersten, “Low-Earth orbit satellite
+constellations for global communication network connectivity,” Nature
+Reviews Electrical Engineering, vol. 1, no. 10, pp. 656–665, Sep. 2024.
+[2] A. Guidotti, A. Vanelli-Coralli, A. Mengali, and S. Cioni, “Non-
+Terrestrial Networks: Link Budget Analysis,” in 2020 IEEE Interna-
+tional Conference on Communications (ICC), 2020, pp. 1–7.
+[3] K. I. Pedersen, R. Maldonado, G. Pocovi, E. Juan, M. Lauridsen, I. Z.
+Kov´acs, M. Brix, and J. Wigard, “A Tutorial on Radio System-Level
+Simulations With Emphasis on 3GPP 5G-Advanced and Beyond,” IEEE
+Communications Surveys & Tutorials, vol. 26, no. 4, pp. 2290–2325,
+Mar. 2024.
+[4] L. Chenand, W. Chen, B. Wang, X. Zhang, H. Chen, and D. Yang,
+“System-level Simulation Methodology and Platform for Mobile Cel-
+lular Systems,” IEEE Communications Magazine, vol. 49, no. 7, pp.
+148–155, Jun. 2011.
+[5] C.-K. Jao, C.-Y. Wang, T.-Y. Yeh, C.-C. Tsai, L.-C. Lo, J.-H. Chen,
+W.-C. Pao, and W.-H. Sheen, “WiSE: A System-Level Simulator for 5G
+Mobile Networks,” IEEE Wireless Communications, vol. 25, no. 2, pp.
+4–7, Apr. 2018.
+[6] “Study on New Radio (NR) to support non-terrestrial networks,” 3rd
+Generation Partnership Project, Sophia Antipolis, France, 3GPP Tech.
+Rep. 38.811 v15.4.0, Sep. 2020.
+[7] “Solutions for NR to support Non-Terrestrial Networks (NTN),” 3rd
+Generation Partnership Project, Sophia Antipolis, France, 3GPP Tech.
+Rep. 38.821 v16.1.0, Jun. 2021.
+[8] J. Zhang, D. Qin, C. Kong, F. Zhao, R. Li, J. Wang, and Y. Wang,
+“System-Level Evaluation of Beam Hopping in NR-Based LEO Satellite
+Communication System,” in 2023 IEEE Wireless Communications and
+Networking Conference (WCNC), 2023, pp. 1–6.
+[9] M. Majamaa, L. Sormunen, V. R¨onty, H. Martikainen, J. Puttonen, and
+T. H¨am¨al¨ainen, “Can 3GPP New Radio Non-Terrestrial Networks Meet
+the IMT-2020 Requirements for Satellite Radio Interface Technology?”
+in 2024 IEEE Global Communications Conference (GLOBECOM),
+2024, pp. 2581–2586.
+[10] J. Puttonen, S. Rantanen, F. Laakso, J. Kurjenniemi, K. Aho, and
+G. Acar, “A Packet Level Simulator for Future Satellite Communica-
+tions Research,” in 32nd AIAA International Communications Satellite
+Systems Conference (ICSSC), 2014, p. 4437.
+[11] S. Kassing, D. Bhattacherjee, A. B. ´Aguas, J. E. Saethre, and A. Singla,
+“Exploring the “Internet from Space” with Hypatia,” in Proceedings of
+the ACM Internet Measurement Conference (IMC), 2020.
+9
+[12] “Study on channel model for frequencies from 0.5 to 100 GHz,” 3rd
+Generation Partnership Project, Sophia Antipolis, France, 3GPP Tech.
+Rep. 38.901 v16.1.0, Jan. 2020.
+[13] “Evolved Universal Terrestrial Radio Access (E-UTRA); Further ad-
+vancements for E-UTRA physical layer aspects,” 3rd Generation Partner-
+ship Project, Sophia Antipolis, France, 3GPP Tech. Rep. 36.814 v9.0.0,
+Mar. 2010.
+[14] B. Sihlbom, M. I. Poulakis, and M. Di Renzo, “Reconﬁgurable In-
+telligent Surfaces: Performance Assessment Through a System-Level
+Simulator,” IEEE Wireless Communications, vol. 30, no. 4, pp. 98–106,
+Aug. 2023.
+[15] “NR; User Equipment (UE) radio transmission and reception; Part
+1: Range 1 Standalone,” 3rd Generation Partnership Project, Sophia
+Antipolis, France, 3GPP Tech. Spec. 38.101-1 v17.5.0, May 2022.

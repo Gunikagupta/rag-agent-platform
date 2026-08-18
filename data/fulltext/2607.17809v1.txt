@@ -1,0 +1,962 @@
+RESIDUAL OBSERVABILITY AND ATTACK DETECTABILITY IN
+ENCRYPTED OPC UA TRAFFIC
+A PREPRINT
+Song Son Ha
+Electrical Measurement Engineering
+Helmut-Schmidt-University
+Hamburg, Germany
+song.ha@hsu-hh.de
+Florian Foerster
+Institute for Innovative Safety and Security
+Technical University of Applied Sciences Augsburg
+Augsburg, Germany
+florian.foerster@tha.de
+Henry Beuster
+Electrical Measurement Engineering
+Helmut-Schmidt-University
+Hamburg, Germany
+henry.beuster@hsu-hh.de
+Eduard Zeller
+Electrical Measurement Engineering
+Helmut-Schmidt-University
+Hamburg, Germany
+eduard.zeller@hsu-hh.de
+Dominik Merli
+Institute for Innovative Safety and Security
+Technical University of Applied Sciences Augsburg
+Augsburg, Germany
+dominik.merli@tha.de
+Gerd Scholl
+Electrical Measurement Engineering
+Helmut-Schmidt-University
+Hamburg, Germany
+gerd.scholl@hsu-hh.de
+July 19, 2026
+ABSTRACT
+OPC Unified Architecture (OPC UA) encryption conceals application-layer semantics and restricts
+intrusion detection to residual communication structure. Although machine learning-based intrusion
+detection systems (IDSs) can detect attacks in encrypted OPC UA traffic, the relationship between
+residual structural observability and attack detectability remains insufficiently understood. This paper
+presents an explanatory framework combining a structural observability profile, the Structural Leakage
+Score (SLS), controlled within-family and cross-family comparisons, phase-specific analysis, and
+dimension-ablation analysis. Jensen–Shannon divergence is used to characterize transport, temporal,
+and protocol-lifecycle dimensions, while the SLS summarizes the residual structural magnitude.
+Evaluation on an industrial private 5G testbed covers four attack families with progressively reduced
+nominal activity. SLS generally tracks within-family recall trends but does not reproduce cross-family
+detectability ordering. Interpreting these mismatches also requires temporal prevalence, inter-burst
+persistence, predictive utility, unique contribution, and redundancy. The framework complements
+conventional IDS metrics by relating detection outcomes to the magnitude, temporal distribution, and
+predictive role of observable structural evidence.
+1
+Introduction
+OPC Unified Architecture (OPC UA) is increasingly adopted in Industry 4.0 and industrial automation [1], together
+with its SignAndEncrypt security mode for protecting application-layer semantics and sensitive operational data.
+Although encryption limits payload-based intrusion detection [2], externally observable traffic characteristics can still
+This is the authors’ version of a paper that has been accepted for presentation at the 52nd Annual Conference of the IEEE
+Industrial Electronics Society (IECON 2026), to be held in Doha, Qatar, on October 18–21, 2026.
+arXiv:2607.17809v1  [cs.CR]  20 Jul 2026
+Residual Observability and Attack Detectability in Encrypted OPC UA Traffic
+A PREPRINT
+support machine learning (ML)-based intrusion detection, as demonstrated for general encrypted traffic and, in initial
+studies, for encrypted OPC UA communication [3, 4]. Existing work has primarily evaluated feature representations,
+classifiers, and detection performance, while the relationship between residual structural observability and attack
+detectability remains insufficiently understood. OPC UA provides a relevant setting for examining this relationship
+because connection and SecureChannel framing retain observable message types, lengths, and channel-management
+activity despite encryption [5]. Encrypted OPC UA traffic therefore exposes transport, temporal, and protocol-lifecycle
+characteristics that may be affected differently by different attack mechanisms. Accordingly, the study examines
+whether residual structural magnitude explains detectability trends within the same attack mechanism and whether
+this relationship transfers across heterogeneous attack mechanisms. This paper addresses these questions through an
+explanatory framework. The framework combines a structural observability profile with the Structural Leakage Score
+(SLS) as a first-order summary of residual structural magnitude. Controlled comparisons across configuration levels
+within each attack family and across attack families examine the scope of this relationship. Phase-specific analysis
+evaluates temporal prevalence and inter-burst persistence, whereas dimension-ablation analysis assesses predictive
+utility, unique contribution, and redundancy. The framework is evaluated using encrypted OPC UA traffic collected
+from an industrial private 5G testbed, covering four attack families with progressively reduced nominal activity.
+The remainder of this paper is organized as follows. Section 2 reviews related work. Sections 3 and 4 present the
+methodology and experimental setup, respectively. Sections 5 and 6 report and discuss the evaluation results, while
+Section 7 concludes the paper and outlines future work.
+2
+Related Work
+Encrypted-traffic analysis relies on externally observable characteristics such as packet sizes, directions, timing, flow
+statistics, and protocol metadata, which can support traffic classification and malicious-traffic detection despite payload
+confidentiality [2, 3, 6]. Related approaches have also been investigated in industrial environments, including encrypted
+ICS monitoring and DNP3 traffic analysis [7, 8]. For OPC UA, Neu et al. [4] showed that selected denial-of-service
+attacks under SignAndEncrypt remain detectable from observable message types and counts. ML-based intrusion
+detection has also been evaluated for unencrypted OPC UA communication in industrial private 5G environments
+[9]. Together, these studies show that selected OPC UA attacks remain detectable with and without encryption, but
+primarily assess features, classifiers, and detection performance rather than the relationship between residual structural
+observability and attack detectability [4, 9].
+A complementary research direction uses feature importance and explainable artificial intelligence to analyze how
+trained IDS models use their inputs [10, 11, 12]. Methods such as SHAP and permutation importance identify features
+that influence model predictions or contribute to detection performance [13, 14, 15]. However, these analyses remain
+tied to a fitted classifier, its predictions, or its decision function [16]. They do not independently characterize residual
+structural magnitude, its dimensional composition, or its temporal distribution within an attack campaign.
+Existing research therefore addresses either whether OPC UA attacks can be detected or how trained models use
+observable features. The relationship between residual structural observability and attack detectability remains less
+explored. In particular, it is unclear when residual structural magnitude explains detectability trends within the same
+attack mechanism, whether this relationship transfers across heterogeneous attack mechanisms, and how temporal
+prevalence, inter-burst persistence, predictive utility, and redundancy influence this relationship. This work addresses
+this gap through controlled within-family and cross-family comparisons, phase-specific analysis, and dimension-ablation
+analysis.
+3
+Methodology
+3.1
+Observable Features and Structural Dimensions
+Under OPC UA encryption, application-layer service semantics are concealed, but residual communication structure
+remains observable. Encrypted traffic is segmented into consecutive, non-overlapping 5 s time windows (TWs). Within
+each TW, bidirectional flows are processed independently, and payload-content-independent traffic and protocol-framing
+statistics are extracted. The resulting flow-level statistics are aggregated across all active flows to form one feature
+vector per TW. The extracted features are organized into transport, temporal, and protocol-lifecycle dimensions. The
+transport dimension captures traffic volume, packet-size characteristics, directionality, and flow distribution, while the
+temporal dimension represents communication rates, timing, duration, variability, and changes in flow activity. The
+protocol-lifecycle dimension captures observable OPC UA connection-establishment and SecureChannel management
+activity. Although SignAndEncrypt protects service bodies, outer framing remains identifiable, including HEL, ACK,
+ERR, OPN, MSG, and CLO message types [5].
+2
+Residual Observability and Attack Detectability in Encrypted OPC UA Traffic
+A PREPRINT
+Table 1: Observable features used for IDS training and residual structural observability analysis.
+Dimension
+Feature Group
+Features
+Description
+Transport
+Volume
+total_{pkt, bytes, body_{bytes,
+count}}
+Aggregate packet, byte, and
+message-body volume.
+Directionality
+total_{fwd, bwd}_{pkt, bytes}
+Packet and byte volume in both
+directions.
+Asymmetry
+fwd_minus_bwd_{pkt, byte}_norm
+Normalized directional packet and
+byte imbalance.
+Packet Characteristics
+mean_pkt_size, body_bytes_ratio
+Average packet size and
+message-body byte ratio.
+Flow Dominance
+max_flow_pkt_ratio
+Traffic concentration in the most
+active flow.
+Temporal
+Flow Dynamics
+delta_pkt, flow_count, flow_churn
+Changes in packet volume and active
+flows.
+Flow Distribution
+flow_pkt_entropy
+Packet distribution across active
+flows.
+Rate and Timing
+pkt_rate, {mean, total}_iat,
+total_iat_count
+Packet rate and inter-arrival timing.
+Duration and Variability
+{mean, max}_flow_duration,
+std_flow_pkt_count, burstiness
+Flow duration, packet-count
+variability, and burstiness.
+Protocol-
+lifecycle
+Connection Activity
+total_{handshake, hel, ack, err}
+Connection establishment and error
+activity.
+Secure Channel Activity
+total_{opn, clo, secch}, sec_ch_churn
+SecureChannel establishment,
+closure, and churn.
+Handshake Dynamics
+handshake_rate_pkt, delta_handshake,
+handshake_ratio_delta
+Handshake frequency and temporal
+variation.
+Table 1 summarizes the extracted features and their assignment to the three structural dimensions. The same feature
+representation is used for both IDS training and residual structural observability analysis.
+3.2
+Structural Observability Profile and SLS
+The structural observability profile characterizes residual structural deviation across transport, temporal, and protocol-
+lifecycle dimensions. SLS then provides a model-agnostic, first-order summary of their overall residual structural
+magnitude between benign and attack-labeled encrypted OPC UA traffic. For each evaluation split, let B denote the
+windows from benign-only recordings. For attack family a and configuration level ℓ, let Ca,ℓdenote all attack-labeled
+windows from the first to the last attack-burst window, including inter-burst windows. Let F = {FTrans, FTemp, FProt}
+denote the transport, temporal, and protocol-lifecycle feature subsets. Non-finite values are imputed using per-feature
+medians fitted on benign training windows. For each feature j, the benign distribution Pj and attack-labeled distribution
+Qj,a,ℓare estimated using fixed quantile-bin boundaries fitted once on the imputed benign training distribution. A
+target of 30 bins is used, duplicate boundaries are removed, and the outer bins extend to −∞and +∞. The resulting
+feature-specific bins Kj ≤30 remain fixed for all subsequent comparisons.
+For bin k ∈{1, . . . , Kj}, the corresponding empirical probabilities are
+pj,k =
+nB
+j,k + ϵ
+PKj
+r=1 nB
+j,r + Kjϵ
+,
+qj,k,a,ℓ=
+nC
+j,k,a,ℓ+ ϵ
+PKj
+r=1 nC
+j,r,a,ℓ+ Kjϵ
+,
+(1)
+where nB
+j,k and nC
+j,k,a,ℓdenote the numbers of windows in B and Ca,ℓassigned to bin k, respectively, and ϵ = 10−12
+is a pseudocount added to each bin. These probabilities define the discrete distributions Pj = (pj,1, . . . , pj,Kj) and
+Qj,a,ℓ= (qj,1,a,ℓ, . . . , qj,Kj,a,ℓ).
+Their equally weighted mixture distribution is defined as
+3
+Residual Observability and Attack Detectability in Encrypted OPC UA Traffic
+A PREPRINT
+Mj,a,ℓ= 1
+2 (Pj + Qj,a,ℓ) .
+(2)
+The feature-level residual structural deviation is then measured using the Jensen–Shannon divergence (JSD):
+JSD(Pj, Qj,a,ℓ) = DKL(Pj∥Mj,a,ℓ) + DKL(Qj,a,ℓ∥Mj,a,ℓ)
+2
+,
+(3)
+where DKL denotes the Kullback–Leibler divergence.
+Using base-two logarithms, JSD is symmetric and bounded within [0, 1], with larger values indicating stronger marginal
+deviation from benign traffic.
+The divergence within structural dimension i is obtained by averaging the feature-level residual structural deviation:
+Di(a, ℓ) =
+1
+|Fi|
+X
+j∈Fi
+JSD (Pj, Qj,a,ℓ) .
+(4)
+The overall SLS is obtained by averaging the three dimension-level divergences:
+SLS(a, ℓ) = DTrans(a, ℓ) + DTemp(a, ℓ) + DProt(a, ℓ)
+3
+.
+(5)
+This gives all dimensions equal weight, regardless of feature count. Because SLS aggregates feature-wise divergences,
+it summarizes marginal residual structural magnitude but does not capture how multiple features jointly separate
+benign and attack-labeled windows. Consequently, SLS is intended as a computationally efficient, first-order diagnostic
+baseline rather than a complex multivariate predictor.
+3.3
+Attack Design
+Four protocol-aware OPC UA attack families are evaluated under SignAndEncrypt: Browse Address Space
+(BrowseAS), Publish Request Flooding (PubFlood), Persistent Secure Channel Exhaustion (PSC Exhaustion), and
+Translate Browse Path (TranslateBP). The attacks are adapted from Claroty’s OPC UA exploitation framework [17] and
+remain syntactically valid during execution. The attacker is assumed to control an OPC UA client whose certificate
+is already trusted by the server. Certificate acquisition and trust-list compromise are outside the scope of this work.
+The selected attack families cover different sources of residual structural observability. BrowseAS, PubFlood, and
+Table 2: Evaluated attack families and configuration progression from the highest nominal activity at L1 to the lowest at
+L4.
+Family
+Mechanism
+Configuration Progression from L1 to L4
+BrowseAS
+Performs bounded random walks through the
+OPC UA address space using Browse service
+requests over a pre-discovered graph.
+The traversal-initiation rate, concurrent Sessions, walk depth, and
+requested references per node are progressively reduced. Active
+bursts are shortened, idle intervals extended, and Sessions recre-
+ated less frequently.
+PubFlood
+Creates one Subscription per Session and
+submits batches of Publish service requests
+without waiting for responses.
+The submission-cycle rate, number of concurrent Sessions, and
+number of Publish service requests per cycle are progressively
+reduced. Active bursts are shortened and idle intervals are extended.
+PSC
+Exhaustion
+Repeatedly
+establishes
+and
+concurrently
+retains SecureChannels with associated
+Sessions, using periodic Read service re-
+quests to maintain activity on the retained con-
+nections.
+The establishment-attempt rate, number of parallel client instances,
+and retained SecureChannel–Session pairs per instance are pro-
+gressively reduced. The retention period is increased, while burst–
+idle timing and periodic Read activity are adjusted for less frequent
+operation.
+TranslateBP
+Issues TranslateBrowsePathsToNodeIds
+service requests containing multiple distinct
+RelativePaths of configurable depth.
+The per-Session request rate, number of concurrent Sessions,
+RelativePaths per request, and RelativePath depth are pro-
+gressively reduced. Active bursts are shortened and idle intervals
+extended.
+4
+Residual Observability and Attack Detectability in Encrypted OPC UA Traffic
+A PREPRINT
+TranslateBP manipulate OPC UA service-request workloads and primarily affect transport and temporal characteristics.
+PSC Exhaustion additionally manipulates the establishment and retention of SecureChannels and associated sessions,
+thereby affecting the protocol-lifecycle dimension. For each attack family, four configuration levels, denoted L1
+through L4, progressively reduce nominal activity while preserving the underlying attack mechanism, as summarized
+in Table 2. Depending on the family, the progression reduces the traversal-initiation rate, submission-cycle rate,
+establishment-attempt rate, or service-request rate, together with concurrency or workload complexity. It also adjusts
+burst and idle timing and other lifecycle-related timing parameters. These controlled within-family variations enable the
+relationship between nominal activity, residual structural magnitude, and attack detectability to be examined without
+changing the underlying attack mechanism.
+4
+Experimental Setup
+4.1
+Industrial Private 5G Testbed
+The evaluation is conducted on the industrial private 5G testbed initially reported in [18] and extended in [9]. The
+testbed comprises a 3GPP Release 16 Standalone network, heterogeneous industrial endpoints, an OPC UA-based
+warehouse automation environment, and an IDS backend. The present study extends this setup to support encrypted
+OPC UA communication and payload-independent traffic analysis.
+Industrial endpoints include Revolution Pi controllers, Raspberry Pi 5 devices, and Intel NUC systems connected
+through 5G communication modules. Engineering, diagnostic, and attack nodes are integrated through industrial
+routers, while attacks are executed from a dedicated workstation. The warehouse automation environment includes
+PLC-controlled conveyor systems, sensors, and actuators simulated using Factory I/O [19]. Process data is exchanged
+between the simulated factory environment and the controllers, while OPC UA servers and clients running on controllers
+expose and access process variables over the private 5G network. The resulting communication covers HMI supervision,
+SCADA monitoring, engineering access, and remote PLC control. All OPC UA communication operates under
+SignAndEncrypt using the Aes128-Sha256-RsaOaep security policy. Mirrored traffic is processed on a backend
+system for feature extraction, TW aggregation, and dataset generation. The R&S PACE 2 deep packet inspection library
+is used to extract protocol-aware features without access to decrypted OPC UA service content.
+4.2
+Dataset Construction
+The dataset collected from the private 5G testbed comprises 250 packet capture (PCAP) recordings of 10 min each,
+totaling approximately 42 h of encrypted traffic. Normal operations contribute 90 benign recordings, partitioned into 63
+training, 9 validation, and 18 test PCAPs across various workloads. The remaining 160 recordings span four attack
+families and four configuration levels, providing 10 PCAPs per combination. This attack traffic is divided into 80
+training, 32 validation, and 48 test PCAPs. Windows from benign-only recordings are assigned the benign label. For
+each attack recording, the attack campaign extends from the first to the last attack-burst window, and all windows
+within this interval are assigned the attack label. The attack-labeled windows comprise both attack-burst and inter-burst
+windows. The latter are not treated as benign because communication effects may persist between successive bursts.
+This labeling strategy reflects operational realism by retaining inter-burst windows, during which attackers may maintain
+cryptographic connections despite reduced or absent attack activity. Windows outside the attack campaign are excluded
+from model development and evaluation.
+4.3
+Detectability and Structural Evaluation
+Attack detectability is evaluated through supervised binary classification of benign and attack-labeled windows using the
+extracted feature vectors. Four ML-based IDS models are considered: Logistic Regression (LogReg), Random Forest
+(RF), Support Vector Machine (SVM) with a radial basis function kernel, and Extreme Gradient Boosting (XGBoost).
+Overall IDS performance is measured using precision, recall, F1-score, the area under the receiver operating character-
+istic curve (AUROC), the area under the precision-recall curve (AUPRC), and false-positive rate (FPR). For each model,
+the decision threshold is selected on the validation set by maximizing the attack-class F1-score while limiting the FPR
+on benign validation windows to at most 5 %. The selected threshold is then kept fixed for evaluation on the held-out
+test set. Recall is used as the primary threshold-dependent measure of attack detectability because it directly reflects the
+proportion of attack-labeled windows detected by the IDS. To reduce dependence on a particular classifier, results are
+summarized using the median recall across the four models.
+Residual structural observability and attack detectability are compared across configuration levels L1 through L4 within
+each attack family and across attack families using pooled estimates from all four levels. For the level-wise and pooled
+5
+Residual Observability and Attack Detectability in Encrypted OPC UA Traffic
+A PREPRINT
+SLS estimates, 95 % confidence intervals (CIs) are obtained from 1,000 PCAP-level bootstrap repetitions using the 2.5th
+and 97.5th percentiles. Benign and attack PCAPs are resampled with replacement while the training-fitted medians and
+bin boundaries remain fixed. For pooled estimates, attack PCAPs are resampled separately within each configuration
+level. Phase-specific analysis examines temporal prevalence and inter-burst persistence. Dimension-ablation analysis
+evaluates the predictive utility, unique contribution, and redundancy of each structural dimension using single-dimension
+and dimension-removal feature sets.
+5
+Evaluation Results
+5.1
+Baseline IDS Performance
+Table 3 summarizes the overall performance of the four ML-based IDS models on the held-out test set. All models
+achieve precision close to 0.98, recall above 0.81, and F1-scores between approximately 0.89 and 0.90. Their AUROC
+and AUPRC values also remain consistently high, at approximately 0.93 and 0.97, respectively. The test-set FPR
+remains close to the 5 % constraint imposed during threshold selection. Although XGBoost yields the highest recall and
+RF the lowest FPR, performance variations across models remain marginal.
+Furthermore, Figure 1 shows a consistent family-level ordering across the four classifiers. PubFlood achieves the
+highest recall, followed by BrowseAS and TranslateBP, whereas PSC Exhaustion is substantially less detectable. The
+consistent ordering across the four models indicates that the observed family-level differences are not specific to a
+single classifier.
+Table 3: Overall IDS performance on the held-out test set.
+Model
+Precision
+Recall
+F1-score
+AUROC
+AUPRC
+FPR
+LogReg
+0.975
+0.813
+0.887
+0.930
+0.974
+0.050
+RF
+0.977
+0.826
+0.895
+0.932
+0.975
+0.046
+SVM
+0.976
+0.821
+0.892
+0.931
+0.974
+0.049
+XGBoost
+0.976
+0.839
+0.903
+0.935
+0.976
+0.050
+BrowseAS
+PubFlood
+PSC Exhaustion
+TranslateBP
+Attack family
+0.60
+0.70
+0.80
+0.90
+1.00
+Recall
+0.857
+0.888
+0.683
+0.824
+0.849
+0.933
+0.690
+0.830
+0.868
+0.948
+0.703
+0.838
+0.854
+0.914
+0.695
+0.822
+LogReg
+RF
+XGBoost
+SVM
+Figure 1: Recall by attack family, pooled across all four configuration levels.
+5.2
+Residual Structural Observability
+Table 4 reports the structural observability profile and SLS for each attack family and configuration level. SLS decreases
+monotonically from L1 to L4 across all four attack families, showing that reduced nominal activity is accompanied by
+lower residual structural magnitude. BrowseAS exhibits the largest overall reduction, with a particularly sharp decrease
+between L2 and L3, whereas PubFlood declines more gradually across the four levels. The dimensional composition
+also differs across attack mechanisms. BrowseAS, PubFlood, and TranslateBP exhibit primarily transport and temporal
+divergence, with limited protocol-lifecycle contribution. PSC Exhaustion shows a distinct profile with substantial
+protocol-lifecycle divergence, which slightly exceeds the transport divergence at L3.
+6
+Residual Observability and Attack Detectability in Encrypted OPC UA Traffic
+A PREPRINT
+Table 4: Level-wise decomposition and residual structural observability across attack configurations.
+Attack
+Config.
+DTrans
+DTemp
+DProt
+SLS
+BrowseAS
+L1
+0.645
+0.374
+0.017
+0.345
+L2
+0.474
+0.238
+0.007
+0.240
+L3
+0.108
+0.093
+0.010
+0.070
+L4
+0.034
+0.055
+0.008
+0.032
+PubFlood
+L1
+0.266
+0.178
+0.012
+0.152
+L2
+0.200
+0.119
+0.019
+0.113
+L3
+0.127
+0.125
+0.016
+0.090
+L4
+0.089
+0.065
+0.029
+0.061
+PSC
+Exhaustion
+L1
+0.344
+0.171
+0.293
+0.269
+L2
+0.152
+0.086
+0.115
+0.118
+L3
+0.120
+0.084
+0.127
+0.110
+L4
+0.062
+0.044
+0.055
+0.054
+TranslateBP
+L1
+0.375
+0.167
+0.010
+0.184
+L2
+0.313
+0.098
+0.023
+0.145
+L3
+0.140
+0.087
+0.028
+0.085
+L4
+0.070
+0.074
+0.015
+0.053
+5.3
+Within-Family Structural Observability and Detectability
+Figure 2 compares SLS and median recall across configuration levels within each attack family. For all four families,
+both measures reach their lowest values at L4, showing that the lowest nominal activity is associated with lower residual
+structural magnitude and attack detectability.
+For BrowseAS, SLS decreases from 0.345 at L1 to 0.032 at L4, while median recall decreases from 1.000 to 0.619.
+PubFlood exhibits a more gradual SLS decline, whereas recall remains close to 1.0 through L3 before falling to 0.733 at
+L4. TranslateBP shows a similar overall relationship, with recall remaining high at L1 and L2 before declining more
+clearly at L3 and L4. These results show that lower residual structural magnitude is generally accompanied by lower
+attack detectability within the same attack mechanism, although the changes are not proportional. PSC Exhaustion
+follows the same overall decline from L1 to L4 but shows a different ordering at L2 and L3. SLS decreases slightly from
+0.0
+0.1
+0.2
+0.3
+0.4
+BrowseAS
+PubFlood
+L1
+L2
+L3
+L4
+0.0
+0.1
+0.2
+0.3
+0.4
+PSC Exhaustion
+L1
+L2
+L3
+L4
+TranslateBP
+0.00
+0.25
+0.50
+0.75
+1.00
+0.00
+0.25
+0.50
+0.75
+1.00
+SLS
+Median recall
+Attack configuration
+SLS point estimate
+95% PCAP-bootstrap CI
+Median recall
+Figure 2: SLS and median recall across configuration levels and attack families.
+7
+Residual Observability and Attack Detectability in Encrypted OPC UA Traffic
+A PREPRINT
+0.05
+0.06
+0.07
+0.08
+0.09
+0.10
+0.11
+0.12
+0.13
+Pooled SLS
+0.65
+0.70
+0.75
+0.80
+0.85
+0.90
+0.95
+Median Pooled Recall
+BrowseAS
+PubFlood
+PSC Exhaustion
+TranslateBP
+Pooled family point estimate
+95% PCAP-bootstrap CI
+Figure 3: Cross-family relationship between pooled SLS and median recall.
+0.118 to 0.110, while median recall increases from 0.632 to 0.788. Thus, SLS captures the general within-family decline
+but does not explain the detectability ordering between every adjacent configuration level. The following cross-family
+analysis examines whether the overall within-family relationship transfers across heterogeneous attack mechanisms.
+5.4
+Cross-Family Structural Observability and Detectability
+Figure 3 compares pooled SLS and median recall across attack families. PSC Exhaustion has the highest pooled
+SLS at 0.101, followed by BrowseAS at 0.096, TranslateBP at 0.079, and PubFlood at 0.077. Detectability follows
+a different ordering. PubFlood achieves the highest median recall at 0.923, followed by BrowseAS at 0.855 and
+TranslateBP at 0.827, whereas PSC Exhaustion has the lowest recall at 0.693. Several SLS confidence intervals also
+overlap. The pooled results show that the within-family relationship between residual structural magnitude and attack
+detectability does not transfer directly across heterogeneous attack mechanisms. In particular, the highest residual
+structural magnitude coincides with the lowest recall for PSC Exhaustion, while PubFlood exhibits the opposite pattern.
+The following phase-specific analysis examines whether temporal prevalence and inter-burst persistence could explain
+part of this mismatch.
+5.5
+Temporal Evidence Prevalence and Persistence
+Residual structural magnitude does not show how observable structural evidence is distributed over an attack campaign.
+Phase-specific analysis therefore separates attack-labeled windows into attack-burst and inter-burst windows without
+changing their binary labels. Campaign-level results remain based on all attack-labeled windows. Temporal persistence
+describes the extent to which residual structural observability and attack detectability remain during inter-burst windows.
+5.5.1
+Temporal Prevalence of Attack Bursts
+Temporal prevalence is measured as the fraction of attack-labeled windows categorized as attack-burst windows. As
+shown in Table 5, this fraction generally decreases as nominal activity is reduced. PSC Exhaustion shows the largest
+overall decline, from 92.2 % at L1 to 21.2 % at L4. BrowseAS and TranslateBP decrease to 38.3 % and 24.6 %,
+respectively, while PubFlood retains an attack-burst fraction of 65.2 % at L4. The configuration levels therefore differ
+not only in nominal activity, but also in the proportion of the attack campaign occupied by attack-burst windows.
+Table 5: Attack-burst fraction (%) among attack-labeled windows.
+Attack Family
+L1
+L2
+L3
+L4
+BrowseAS
+100.0
+94.2
+55.7
+38.3
+PubFlood
+93.7
+89.6
+64.9
+65.2
+PSC Exhaustion
+92.2
+54.8
+49.9
+21.2
+TranslateBP
+89.6
+87.5
+49.9
+24.6
+8
+Residual Observability and Attack Detectability in Encrypted OPC UA Traffic
+A PREPRINT
+0.0
+0.1
+0.2
+0.3
+0.4
+SLS
+BrowseAS
+PubFlood
+L1
+L2
+L3
+L4
+Attack configuration
+0.0
+0.1
+0.2
+0.3
+0.4
+SLS
+PSC Exhaustion
+L1
+L2
+L3
+L4
+Attack configuration
+TranslateBP
+All attack-labeled windows
+Attack-burst windows
+Inter-burst windows
+Figure 4: SLS for campaign, attack-burst, and inter-burst windows.
+5.5.2
+Persistence of Observable Structural Evidence
+Temporal persistence is assessed by comparing SLS for attack-burst and inter-burst windows. For each combination of
+attack family and configuration level, windows from the two phases are pooled separately across the corresponding
+test PCAPs, while campaign-level SLS is computed from all attack-labeled windows. Because JSD is computed after
+pooling, campaign-level SLS is not a weighted average of the two phase-specific values.
+As shown in Table 5 and Fig. 4, BrowseAS has no inter-burst SLS value at L1 because all attack-labeled windows
+are attack-burst windows. Its phase-specific SLS values remain similar at L2, while attack-burst SLS becomes clearly
+higher at L3 and L4 as inter-burst residual structural magnitude decreases. TranslateBP exhibits higher attack-burst
+SLS across all four levels, indicating consistently weaker residual structural magnitude during inter-burst windows.
+PubFlood shows a different pattern, with inter-burst SLS higher than attack-burst SLS at L1 and L2, before becoming
+lower at L3 and L4. This reversal indicates that residual structural magnitude is more persistent between bursts at the
+higher-activity levels but becomes increasingly concentrated within attack-burst windows as nominal activity is reduced.
+PSC Exhaustion shows the clearest difference between the two phases. Attack-burst SLS remains high across all
+levels, while inter-burst SLS is substantially lower from L2 onward. As attack-burst prevalence decreases, the weaker
+inter-burst evidence accounts for a larger share of the campaign-level distributions, while residual structural magnitude
+during attack-burst windows remains high.
+5.5.3
+Detectability During and Between Bursts
+Figure 5 reports median recall for all attack-labeled windows and separately for attack-burst and inter-burst windows.
+Campaign-level recall is first computed for each classifier as the window-count-weighted combination of the two
+phase-specific recall values. The median is then calculated across the four models. BrowseAS and TranslateBP maintain
+high attack-burst recall across configuration levels, while their inter-burst recall declines more clearly at L3 and L4.
+Similarly, PubFlood retains high recall in both phases through L3, followed by a sharp inter-burst decline at L4. PSC
+Exhaustion shows a stronger contrast between the two phases. Attack-burst recall remains close to 1.0 across all levels,
+whereas inter-burst recall is substantially lower from L2 onward. Combined with the decreasing attack-burst fraction,
+this produces lower campaign-level recall despite consistently high detectability during attack-burst windows. The
+different campaign-level ordering of PSC Exhaustion at L2 and L3 originates from the inter-burst windows. Attack-burst
+recall is similarly high at both levels, but inter-burst recall is considerably higher at L3. The corresponding inter-burst
+SLS values differ only slightly and therefore do not explain the larger difference in recall.
+9
+Residual Observability and Attack Detectability in Encrypted OPC UA Traffic
+A PREPRINT
+0.00
+0.25
+0.50
+0.75
+1.00
+Median recall
+BrowseAS
+PubFlood
+L1
+L2
+L3
+L4
+Attack configuration
+0.00
+0.25
+0.50
+0.75
+1.00
+Median recall
+PSC Exhaustion
+L1
+L2
+L3
+L4
+Attack configuration
+TranslateBP
+All attack-labeled windows
+Attack-burst windows
+Inter-burst windows
+Figure 5: Median recall for campaign, attack-burst, and inter-burst windows.
+Table 6: Dimension-ablation recall for pooled attack families.
+Attack Family
+Full
+Single-dimension feature sets
+Dimension-removal feature sets
+All
+Trans. only
+Temp. only
+Prot. only
+w/o Trans.
+w/o Temp.
+w/o Prot.
+BrowseAS
+0.855
+0.580
+0.828
+0.117
+0.857
+0.583
+0.852
+PubFlood
+0.923
+0.774
+0.855
+0.103
+0.894
+0.771
+0.916
+PSC Exhaustion
+0.693
+0.516
+0.680
+0.652
+0.695
+0.668
+0.686
+TranslateBP
+0.827
+0.593
+0.798
+0.053
+0.815
+0.598
+0.822
+5.6
+Dimension-Ablation Analysis
+Table 6 reports pooled median recall after retraining classifiers across full, single-dimension, and dimension-removal
+feature sets. The same PCAP-level partitions are retained for all feature sets. Single-dimension results measure isolated
+predictive utility, while dimension-removal results assess unique contribution beyond the remaining dimensions.
+The temporal dimension provides the strongest isolated predictive utility across all four attack families, with temporal-
+only recall ranging from 0.680 for PSC Exhaustion to 0.855 for PubFlood. Transport-only recall is lower, while the
+protocol-lifecycle dimension provides limited isolated predictive utility for BrowseAS, PubFlood, and TranslateBP. PSC
+Exhaustion differs, with protocol-lifecycle-only recall reaching 0.652, consistent with its substantial protocol-lifecycle
+divergence.
+Removing the temporal dimension produces the largest recall reductions for BrowseAS, PubFlood, and TranslateBP.
+Removing either the transport or protocol-lifecycle dimension causes smaller changes. PSC Exhaustion exhibits greater
+redundancy across the structural dimensions. Both its temporal-only and protocol-lifecycle-only sets achieve high
+recall, while removing either from the full set causes minimal reduction. Thus, the protocol-lifecycle dimension
+provides substantial isolated predictive utility for PSC Exhaustion but limited unique contribution beyond the remaining
+dimensions.
+6
+Discussion
+The results show that residual structural observability and attack detectability are related but distinct. SLS provides a
+model-agnostic, first-order summary of residual structural magnitude. Within the same attack mechanism, decreasing
+10
+Residual Observability and Attack Detectability in Encrypted OPC UA Traffic
+A PREPRINT
+SLS generally follows the decline in recall as nominal activity is reduced. Residual structural magnitude can therefore
+explain broad within-family detectability trends when the underlying attack mechanism remains unchanged.
+The cross-family results establish the main limit of this relationship. PSC Exhaustion exhibits the highest pooled SLS
+but the lowest campaign-level recall, while PubFlood shows the opposite ordering. This mismatch occurs because attack
+families may differ in how observable structural evidence is distributed across dimensions and over time, even when
+their overall residual structural magnitude is similar. SLS alone therefore cannot rank attack families by detectability,
+and the within-family relationship between SLS and recall does not directly transfer across heterogeneous attack
+mechanisms.
+PSC Exhaustion provides the clearest diagnostic case. Its attack-burst SLS remains high, its protocol-lifecycle divergence
+is substantial, and attack-burst recall remains close to saturation. Nevertheless, campaign-level recall decreases because
+attack-burst windows become less prevalent and inter-burst evidence remains weaker. Low campaign-level recall
+therefore does not necessarily indicate that attack-burst windows are structurally unobservable. It may instead result
+from strong observable structural evidence occurring in only a small part of the attack campaign. The different recall
+ordering at L2 and L3 is also not explained by their similar inter-burst SLS values, indicating that marginal residual
+structural magnitude alone does not capture the remaining differences in multivariate separability and model utilization.
+The dimension-ablation results further separate residual structural observability from predictive utility. The temporal
+dimension provides the strongest isolated predictive utility and unique contribution for BrowseAS, PubFlood, and
+TranslateBP. For PSC Exhaustion, the protocol-lifecycle dimension exhibits substantial divergence and high isolated
+recall, but limited unique contribution. A structural dimension may therefore be strongly observable and predictive in
+isolation while remaining largely redundant in the full feature set.
+Rather than proposing a new predictor of IDS performance, this work contributes a controlled explanatory framework
+that separates residual structural magnitude from attack detectability and delineates the conditions under which
+their relationship is informative. Conventional IDS metrics quantify detection performance, whereas the structural
+observability profile, SLS, phase-specific analysis, and dimension-ablation analysis characterize the dimensional
+composition, temporal prevalence, inter-burst persistence, predictive utility, unique contribution, and redundancy of
+observable structural evidence. Accordingly, aggregate recall should be interpreted together with these properties when
+evaluating IDSs under encryption. This joint interpretation enables limited detectability to be associated more precisely
+with weak residual structural magnitude, low temporal prevalence, limited inter-burst persistence, redundancy, or factors
+not captured by marginal divergence. Practically, these insights may inform the design of resource-efficient edge IDSs
+by identifying potentially redundant feature dimensions and guide the evaluation of targeted traffic-padding strategies
+for highly observable protocol-lifecycle components.
+7
+Conclusion and Future Work
+This paper presented an explanatory framework for analyzing residual structural observability and attack detectability
+in encrypted OPC UA traffic collected from an industrial private 5G testbed. SLS summarized residual structural
+magnitude, while phase-specific and dimension-ablation analyses examined temporal prevalence, inter-burst persistence,
+predictive utility, unique contribution, and redundancy.
+SLS generally followed the within-family decline in recall but did not reproduce cross-family detectability ordering. It
+should therefore be interpreted as a first-order summary of residual structural magnitude that is informative for explaining
+detectability trends within the same attack mechanism, rather than as a universal predictor across heterogeneous
+mechanisms. Phase-specific analysis showed how observable evidence was distributed and persisted over an attack
+campaign, while dimension-ablation analysis clarified its predictive utility, unique contribution, and redundancy.
+Together, these analyses show that detectability depends not only on the magnitude of observable structural deviation,
+but also on its temporal distribution and predictive role.
+Future work will extend the analysis to additional attack mechanisms and explore multivariate temporal measures.
+Acknowledgment
+This research is funded by dtec.bw – Digitalization and Technology Research Center of the Bundeswehr. dtec.bw is
+funded by the European Union – NextGenerationEU (project “Digital Sensor-2-Cloud Campus Platform” (DS2CCP),
+https://dtecbw.de/home/forschung/hsu/projekt-ds2ccp).
+The authors would like to thank F. Mueller, J. Jockram, K. Singh, T. Kittel, ipoque GmbH, Deutsche Telekom, and
+Ericsson for their continuous support and valuable cooperation.
+11
+Residual Observability and Attack Detectability in Encrypted OPC UA Traffic
+A PREPRINT
+References
+[1] Xiongfeng Zhang, Seonjo Lim, Changdae Lee, Won Seok Song, Yu Chul Kim, Mengmeng Yu, Seung Ho
+Hong, Nam Hyun Yoo, and Min Wei.
+Integration of 5G and OPC UA for smart manufacturing of
+the future.
+In 2023 IEEE/SICE International Symposium on System Integration (SII), pages 1–6, 2023.
+doi:10.1109/SII55687.2023.10039191.
+[2] Zihao Wang, Kar-Wai Fok, and Vrizlynn L. L. Thing.
+Machine Learning for Encrypted Malicious Traf-
+fic Detection: Approaches, Datasets and Comparative Study.
+Computers & Security, 113:102542, 2022.
+doi:10.1016/j.cose.2021.102542.
+[3] Blake Anderson, Subharthi Paul, and David McGrew. Deciphering Malware’s Use of TLS without Decryption.
+Journal of Computer Virology and Hacking Techniques, 14:195–211, 2018. doi:10.1007/s11416-017-0306-6.
+[4] Charles Varlei Neu, Ina Schiering, and Avelino F. Zorzo. Simulating and Detecting Attacks of Untrusted Clients
+in OPC UA Networks. In Proceedings of the Third Central European Cybersecurity Conference. ACM, 2019.
+doi:10.1145/3360664.3360675.
+[5] OPC Foundation.
+OPC Unified Architecture, Part 6:
+Mappings, 2026.
+URL https://reference.
+opcfoundation.org/specs/OPC-10000-6. Accessed: Jun. 30, 2026.
+[6] Eva Papadogiannaki and Sotiris Ioannidis. A Survey on Encrypted Network Traffic Analysis Applications,
+Techniques, and Countermeasures. ACM Computing Surveys, 54(6):1–35, 2021. doi:10.1145/3457904.
+[7] Felix Specht and Jens Otto. Efficient Machine Learning-Based Security Monitoring and Cyberattack Classification
+of Encrypted Network Traffic in Industrial Control Systems. In 2024 IEEE 29th International Conference on Emerg-
+ing Technologies and Factory Automation (ETFA), pages 1–7, 2024. doi:10.1109/ETFA61755.2024.10711134.
+[8] Thais Rodriguez de Toledo and Nunzio Marco Torrisi.
+Encrypted DNP3 Traffic Classification Using Su-
+pervised Machine Learning Algorithms. Machine Learning and Knowledge Extraction, 1(1):384–399, 2019.
+doi:10.3390/make1010022.
+[9] Song Son Ha, Kunal Singh, Florian Foerster, Henry Beuster, Tim Kittel, Dominik Merli, and Gerd Scholl. An
+Experimental Study of Machine Learning-Based Intrusion Detection for OPC UA over Industrial Private 5G
+Networks. In 2026 IEEE 9th International Conference on Industrial Cyber-Physical Systems (ICPS), pages 1–8,
+2026. doi:10.1109/ICPS70486.2026.11567982.
+[10] Nour Moustafa, Nickolaos Koroniotis, Marwa Keshk, Albert Y. Zomaya, and Zahir Tari. Explainable Intrusion
+Detection for Cyber Defences in the Internet of Things: Opportunities and Solutions. IEEE Communications
+Surveys & Tutorials, 25(3):1775–1807, 2023. doi:10.1109/COMST.2023.3280465.
+[11] Maonan Wang, Kangfeng Zheng, Yanqing Yang, and Xiujuan Wang. An Explainable Machine Learning Framework
+for Intrusion Detection Systems. IEEE Access, 8:73127–73141, 2020. doi:10.1109/ACCESS.2020.2988359.
+[12] Izhar Ahmed Khan, Nour Moustafa, Dechang Pi, Karam M. Sallam, Albert Y. Zomaya, and Bentian Li. A New
+Explainable Deep Learning Framework for Cyber Threat Discovery in Industrial IoT Networks. IEEE Internet of
+Things Journal, 9(13):11604–11613, 2022. doi:10.1109/JIOT.2021.3130156.
+[13] Scott M. Lundberg and Su-In Lee. A Unified Approach to Interpreting Model Predictions. In Advances in Neural
+Information Processing Systems, volume 30, pages 4765–4774, 2017.
+[14] Aaron Fisher, Cynthia Rudin, and Francesca Dominici. All Models Are Wrong, but Many Are Useful: Learning a
+Variable’s Importance by Studying an Entire Class of Prediction Models Simultaneously. Journal of Machine
+Learning Research, 20(177):1–81, 2019. URL https://jmlr.org/papers/v20/18-760.html.
+[15] Mohanad Sarhan, Siamak Layeghy, and Marius Portmann. Evaluating Standard Feature Sets Towards Increased
+Generalisability and Explainability of ML-Based Network Intrusion Detection. Big Data Research, 30:100359,
+2022. ISSN 2214-5796. doi:10.1016/j.bdr.2022.100359. URL https://www.sciencedirect.com/science/
+article/pii/S2214579622000533.
+[16] Julian Tritscher, Maximilian Wolf, Andreas Hotho, and Daniel Schlör. Evaluating Feature Relevance XAI
+in Network Intrusion Detection. In Explainable Artificial Intelligence: First World Conference, xAI 2023,
+Proceedings, Part I, volume 1901 of Communications in Computer and Information Science, pages 483–497.
+Springer, 2023. doi:10.1007/978-3-031-44064-9_25.
+[17] Claroty Team82. OPC UA exploitation framework. GitHub repository, 2023. URL https://github.com/
+claroty/opcua-exploit-framework. Accessed: Dec. 2025.
+[18] Song Son Ha, Florian Foerster, Thomas Robert Doebbert, Tim Kittel, Dominik Merli, and Gerd Scholl.
+Testbed and Software Architecture for Enhancing Security in Industrial Private 5G Networks. In 2025 IEEE
+12
+Residual Observability and Attack Detectability in Encrypted OPC UA Traffic
+A PREPRINT
+30th International Conference on Emerging Technologies and Factory Automation (ETFA), pages 1–4, 2025.
+doi:10.1109/ETFA65518.2025.11205743.
+[19] Real Games. Factory I/O: 3D factory simulation software, 2026. URL https://factoryio.com/. Accessed:
+Jan. 2026.
+13

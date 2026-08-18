@@ -1,0 +1,715 @@
+Privacy-preserving causal mediation analysis using distributed
+electronic health record networks
+Hyojung Jang1,†, Rotana Radwan2,†, Malcolm Risk3, Yao Lee4, Jiang Bian4, Xu Shi3,
+Serena Guo2,‡, and Lili Zhao1,‡,*
+1Division of Biostatistics, Department of Preventive Medicine, Northwestern University, Chicago, IL, USA
+2College of Pharmacy, Purdue University, West Lafayette, IN, USA
+3Department of Biostatistics, University of Michigan, Ann Arbor, MI, USA
+4Regenstrief Institute, Indianapolis, Indiana, USA
+†Rotana Radwan is a co-first author
+‡Serena Guo is a co-Senior
+*Correspondence: Lili Zhao; [zhaolili@northwestern.edu].
+Abstract
+Electronic health record (EHR) networks provide unprecedented opportunities to study
+treatment mechanisms at scale, but mediation analyses across institutions are often hindered
+by privacy and governance constraints that restrict sharing of patient-level data. We devel-
+oped a privacy-preserving federated mediation framework that enables estimation of natural
+direct and indirect effects without exchanging individual-level records across participating
+sites. The proposed approach integrates renewable learning with counterfactual causal medi-
+ation analysis, allowing institutions to collaboratively investigate treatment mechanisms using
+only low-dimensional summary statistics. Both simulation studies and the real-world appli-
+cation demonstrated that the federated estimator closely reproduced pooled-data results while
+preserving patient privacy. We applied the method to 32,146 patients in the Indiana Network
+for Patient Care to evaluate the extent to which body mass index (BMI) mediates the effect
+of GLP-1 receptor agonist on glycated hemoglobin (HbA1c) reduction. The BMI-mediated
+pathway accounted for only a small proportion of the overall treatment effect, suggesting that
+most glycemic improvement occurred through mechanisms other than weight loss.
+Keywords: Federated learning, Causal mediation analysis, Counterfactual inference, Renew-
+able estimating equations, Electronic health records, Privacy-preserving
+1
+arXiv:2607.17958v1  [stat.AP]  20 Jul 2026
+1
+Introduction
+Understanding not only whether a treatment works, but how it works, is a central aim of clin-
+ical and epidemiologic research. Causal mediation analysis provides a rigorous framework for
+characterizing the pathways through which a treatment affects an outcome by decomposing the
+total effect into a direct effect and an indirect effect operating through an intermediate variable
+(mediator)1–3. Such decompositions can reveal whether treatment benefits arise through changes
+in biomarkers, behaviors, or downstream physiological processes, thereby generating hypotheses
+about modifiable mechanisms and informing the development of more targeted interventions4,5.
+The widespread adoption of real-world data infrastructures, including electronic health records
+(EHRs) and administrative claims6,7, has greatly expanded access to longitudinal patient-level
+information. Unlike cross-sectional datasets, these longitudinal records preserve the temporal or-
+dering of treatment, mediator, and outcome required for causal mediation analysis, providing a
+foundation for mechanism-oriented research.
+However, mediation analyses conducted within a single medical center are often underpow-
+ered, particularly for rare outcomes, specific treatment subgroups, or pathways requiring sufficient
+variability in both mediator and outcome measurements. Multi-institutional data can substantially
+improve statistical power and enable more generalizable mechanism-focused analyses. However,
+centralized pooling of patient-level data is often constrained by privacy regulations, institutional
+governance policies, data-use agreements, and technical barriers to harmonized data transfer8–10.
+These challenges have motivated federated learning approaches, which enable sites to collabo-
+rate by sharing low-dimensional aggregate information rather than individual-level records, while
+preserving local control over sensitive data11–14.
+Communication-efficient federated methods for distributed healthcare data have been devel-
+2
+oped and largely fall into two categories: surrogate likelihood approaches12,15–17 and sequential
+renewable estimation frameworks18. These approaches allow sites to share summary-level infor-
+mation for joint analysis and have been adapted to a range of statistical settings, including con-
+tinuous, binary, and survival outcomes11,18–23. All these methods have been shown to achieve
+statistical efficiency comparable to pooled analyses of individual-level data. To our knowledge, no
+existing method enables causal mediation analysis in a federated setting, leaving a critical method-
+ological gap for investigating treatment mechanisms across distributed healthcare networks.
+Built on the counterfactual mediation framework1–3,24, we develop a privacy-preserving ap-
+proach for estimating causal mediation effects across distributed healthcare networks. This ap-
+proach consists of three steps. First, a global outcome model is estimated across sites using renew-
+able estimating equations18, and the fitted model coefficients are returned to participating sites.
+Second, each site locally constructs an expanded dataset by duplicating each observation, assign-
+ing the observed treatment in one copy and the alternative treatment in the other, and using the
+fitted outcome model obtained from Step 1 to impute the corresponding counterfactual outcomes.
+Finally, a global natural effect model is estimated from the expanded local datasets using renew-
+able estimating equations. Throughout the process, sites exchange only low-dimensional aggregate
+quantities required for the renewable updates, such as updated parameter estimates and cumulative
+Hessian summaries. Because the expanded-data construction and counterfactual outcome gen-
+eration are performed entirely within each institution, neither patient-level records nor expanded
+observations are shared.
+We applied the proposed federated mediation framework to investigate the extent to which the
+glycemic benefit of glucagon-like peptide-1 receptor agonists (GLP-1 RAs) is mediated through
+change in body mass index (BMI), used as a clinically available measure of weight-related change,
+among patients with type 2 diabetes. GLP-1 RAs lower glycated hemoglobin (HbA1c) through
+3
+multiple pancreatic and extrapancreatic mechanisms. These include glucose-dependent insulin
+secretion, glucagon suppression, delayed gastric emptying, reduced appetite and food intake, and
+downstream metabolic effects associated with weight reduction25,26. Although GLP-1 RAs reduce
+both HbA1c and body weight27,28, these responses are not always proportional. This suggests
+that glycemic improvement may occur through both weight-mediated and non-weight-mediated
+pathways.
+Quantifying the BMI-mediated component of HbA1c reduction helps distinguish glycemic
+benefit associated with weight-related change from benefit attributable to other mechanisms. This
+distinction is particularly relevant in routine clinical practice, where patients differ in baseline BMI,
+diabetes severity, comorbidities, medication adherence, concomitant therapies, and follow-up pat-
+terns. Prior mediation analyses of tirzepatide, a dual GIP/GLP-1 receptor agonist, have shown that
+HbA1c reductions are explained by both weight-loss-dependent and weight-loss-independent path-
+ways, with the estimated contribution of weight loss varying across trial populations and compara-
+tors29. However, these findings were derived from randomized clinical trial cohorts with controlled
+eligibility criteria and may not fully reflect treatment responses in routine clinical practice.
+In this study, we use large-scale real-world data from the Indiana Network for Patient Care
+(INPC), a regional health information exchange that integrates longitudinal clinical information
+from multiple health systems across Indiana, including electronic health records, laboratory results,
+medication records, diagnoses, and encounter data. The breadth and longitudinal structure of INPC
+data make it well-suited for evaluating GLP-1 RA treatment effects in a heterogeneous population
+receiving care in routine clinical settings30.
+We treat change in BMI as the mediator and decompose the total treatment effect on HbA1c into
+a natural indirect effect operating through BMI reduction and a natural direct effect representing
+all remaining pathways. This decomposition provides insight into the relative contributions of
+4
+weight-mediated and weight-independent mechanisms. Furthermore, because INPC supports both
+distributed and centralized data access, it provides an ideal setting for validating the proposed
+federated framework, with success defined by close agreement between federated and pooled-data
+analyses.
+2
+Results
+2.1
+Evaluate federated mediation analysis approach by simulations
+We evaluated the proposed federated mediation estimator in Monte Carlo simulations. Distributed
+networks were generated with K (5, 10, or 20) participating sites, and the number of patients at
+each site was drawn independently from a uniform distribution between 50 and 1,000. For each
+patient, we generated ten baseline confounders, a binary treatment indicator, repeatedly measured
+continuous mediator and outcome variables.
+Across all network configurations, the proposed federated mediation method produced unbi-
+ased estimates of the natural direct effect (NDE), natural indirect effect (NIE), and total effect (TE)
+(Figure 1). Its mean estimates closely matched the pooled benchmark analysis, without requiring
+patient-level data sharing. The 95% confidence interval coverage remained close to the nominal
+level across all values of K, ranging from 0.94 to 0.96 (Figure 2). These findings support that, un-
+der the simulated settings, the proposed approach can closely reproduce pooled-data performance
+with valid uncertainty quantification, while avoiding patient-level data sharing.
+5
+Figure 1: Empirical bias across 500 Monte Carlo replications. Boxplots of bias (estimate −
+truth) for the global (pooled, orange) and federated (FL, green) estimators, stratified by number of
+sites (K ∈{5,10,20}, rows) and estimand (TE, NDE, NIE, columns). The dashed horizontal line
+indicates zero.
+2.2
+Structural challenges of cross-site patient overlap in federated networks
+In privacy-preserving distributed EHR analyses, participating institutions do not share protected
+identifiers or patient-linkage information. As a result, when the same individual receives care at
+multiple sites, records from different institutions cannot be directly linked and are typically treated
+as independent observations. This challenge is not unique to our method but is a fundamental
+limitation of federated analyses based on distributed EHR data.
+To evaluate the impact of cross-site patient overlap on causal mediation analysis, we conducted
+6
+Figure 2: Empirical 95% confidence interval coverage. Bar charts of empirical coverage for the
+global (pooled, orange) and federated (FL, green) estimators, stratified by number of sites (K ∈
+{5,10,20}, rows) and estimand (TE, NDE, NIE, columns). The dashed horizontal line indicates
+the nominal 0.95 level.
+additional simulation studies with varying levels of overlap across sites. The overlap proportion
+was calculated as the percentage of unique patients appearing in two or more site groups. In
+the simulation study, this proportion was set to 10%, 20%, or 30% of the total unique patient
+population. We compared three analytical strategies: (1) a pooled analysis that treats records from
+the same patient at different sites as independent observations, reflecting the assumption inherent
+in federated analyses; (2) the proposed federated mediation estimator, which does not require
+cross-site patient linkage and therefore operates on the same data structure as (1); and (3) a pooled
+analysis that correctly identifies and accounts for duplicate records from the same patient across
+7
+sites, serving as the centralized reference benchmark.
+The three analytical strategies produced unbiased mean estimates for the TE, NDE, and NIE
+across all levels of cross-site patient overlap. The main impact of unlinked cross-site records was
+on uncertainty quantification. Compared with the pooled analysis with cross-site records linked,
+the pooled and federated analyses with cross-site records unlinked produced narrower confidence
+intervals and lower empirical coverage, with under-coverage becoming more apparent as patient
+overlap increased from 10% to 30%. Because cross-site records from the same patient induce
+within-patient correlation, treating them as independent leads to underestimated standard errors,
+which in turn produces narrower confidence intervals and reduced coverage. This pattern indicates
+that unresolved cross-site patient overlap primarily affects variance estimation rather than mean
+estimation in privacy-preserving distributed EHR analyses.
+Figure 3 illustrates this pattern for the NIE; the corresponding TE and NDE results exhibited
+the same qualitative pattern. The results highlight an important limitation of privacy-preserving
+distributed EHR analyses: when cross-site linkage is unavailable, patient mobility across institu-
+tions may lead to underestimation of variance and under-covered confidence intervals.
+2.3
+Evaluate federated mediation analysis of GLP-1 RAs on HbA1c by INPC
+data
+We applied the proposed federated mediation approach to EHR data from the Indiana Network for
+Patient Care (INPC), comprising records from 10 regional hospitals. The cohort included 32,146
+patients with type 2 diabetes, of whom 8,687 initiated a glucagon-like peptide-1 receptor agonist
+(GLP-1 RA) and 23,459 initiated other glucose-lowering drugs. We considered change in body
+mass index (∆BMI, kg/m2) as the mediator and change in glycated hemoglobin from baseline
+8
+Figure 3: Impact of cross-site patient overlap on estimation of the natural indirect effect.
+Simulation results for the natural indirect effect (NIE) across increasing levels of cross-site patient
+overlap (10%, 20%, and 30%). Panel A shows bias across simulation replicates, with the hori-
+zontal dashed line indicating zero bias. Panel B shows the mean width of the 95% confidence
+interval. Panel C shows empirical 95% confidence interval coverage, with the horizontal dashed
+line indicating the nominal 0.95 level. The pooled analysis with cross-site records linked serves as
+the centralized benchmark, in which records from the same patient across sites are identified as be-
+longing to the same individual and accounted for in variance estimation. The pooled and federated
+analyses with cross-site records unlinked treat records observed at different sites as independent.
+(∆HbA1c, percentage points) as the clinical outcome.
+Baseline characteristics are summarized in Table 1. Compared with initiators of other glucose-
+lowering drugs, GLP-1 RA initiators had higher baseline BMI (mean 35.84 vs. 33.28 kg/m2) and
+higher baseline HbA1c (mean 8.28% vs. 7.88%). We adjusted all 27 baseline variables listed in
+Table 1 to reduce bias due to systematic differences between treatment groups. These variables
+were treated as potential confounders because they may influence both the likelihood of GLP-1
+9
+RA initiation and subsequent changes in HbA1c and BMI. For example, clinicians may be more
+likely to prescribe GLP-1 RAs to patients with higher baseline BMI or HbA1c, or to those with
+cardiovascular or kidney disease31. At the same time, these characteristics are also associated
+with differences in glycemic trajectories and weight change. Without adjustment, the estimated
+treatment effect could therefore be biased by confounding by indication.
+Table 1: Baseline characteristics of the study cohort. Data represent the 32,146 distinct patients
+who received care at 10 hospitals in the INPC network, stratified by GLP-1 RA initiation.
+Characteristic
+GLP-1 RA initiators (N = 8,687)
+Other glucose-lowering drug initiators (N = 23,459)
+Total (N = 32,146)
+Demographics
+Age (years), mean (SD)
+61.84 (7.66)
+65.67 (9.30)
+64.63 (9.05)
+Female
+4,982 (57.4%)
+11,935 (50.9%)
+16,917 (52.6%)
+Race/Ethnicity
+Non-Hispanic White
+5,785 (66.6%)
+14,599 (62.2%)
+20,384 (63.4%)
+Non-Hispanic Black
+1,089 (12.5%)
+2,738 (11.7%)
+3,827 (11.9%)
+Hispanics
+537 (6.2%)
+2,163 (9.2%)
+2,700 (8.4%)
+Others
+1,276 (14.7%)
+3,959 (16.9%)
+5,235 (16.3%)
+Clinical Measurements
+Baseline HbA1c (%), mean (SD)
+8.28 (1.79)
+7.88 (1.67)
+7.99 (1.72)
+Baseline BMI (kg/m2), mean (SD)
+35.84 (6.80)
+33.28 (5.96)
+33.97 (6.30)
+Comorbidities & Medical History
+Hypertension
+7,122 (82.0%)
+19,086 (81.4%)
+26,208 (81.5%)
+Hyperlipidemia
+6,546 (75.4%)
+17,076 (72.8%)
+23,622 (73.5%)
+Cardiovascular Disease
+2,633 (30.3%)
+6,958 (29.7%)
+9,591 (29.8%)
+Thyroid Disease
+2,199 (25.3%)
+5,070 (21.6%)
+7,269 (22.6%)
+Depression
+2,139 (24.6%)
+3,916 (16.7%)
+6,055 (18.8%)
+Diabetic Neuropathy
+1,954 (22.5%)
+3,530 (15.0%)
+5,484 (17.1%)
+Chronic Kidney Disease
+1,500 (17.3%)
+4,090 (17.4%)
+5,590 (17.4%)
+Heart Failure
+1,112 (12.8%)
+2,603 (11.1%)
+3,715 (11.6%)
+Asthma
+1,092 (12.6%)
+2,086 (8.9%)
+3,178 (9.9%)
+Peripheral Vascular Disease
+1,015 (11.7%)
+2,739 (11.7%)
+3,754 (11.7%)
+Cerebrovascular Disease
+869 (10.0%)
+2,421 (10.3%)
+3,290 (10.2%)
+Non-Alcoholic Fatty Liver Disease
+723 (8.3%)
+1,225 (5.2%)
+1,948 (6.1%)
+Atrial Fibrillation
+711 (8.2%)
+2,174 (9.3%)
+2,885 (9.0%)
+Hypoglycemia
+427 (4.9%)
+816 (3.5%)
+1,243 (3.9%)
+Diabetic Retinopathy
+392 (4.5%)
+637 (2.7%)
+1,029 (3.2%)
+Hyperglycemic Emergency
+280 (3.2%)
+509 (2.2%)
+789 (2.5%)
+Alcohol Use Disorder
+186 (2.1%)
+537 (2.3%)
+723 (2.2%)
+Mild Cognitive Impairment
+49 (0.6%)
+166 (0.7%)
+215 (0.7%)
+Medication Use & Behaviors
+Insulin
+3,692 (42.5%)
+4,260 (18.2%)
+7,952 (24.7%)
+Oral Steroids
+1,968 (22.7%)
+4,820 (20.5%)
+6,788 (21.1%)
+Baseline SGLT2i Use
+318 (3.7%)
+315 (1.3%)
+633 (2.0%)
+Ever Smoker
+539 (6.2%)
+739 (3.2%)
+1,278 (4.0%)
+The INPC analysis also highlighted an important feature of multi-institutional EHR networks:
+patients may receive care at more than one participating institution. Among the 32,146 distinct
+patients in the Criterion 1 cohort, 20,953 patients (65.2%) received care at one hospital site, 8,322
+(25.9%) at two sites, 2,335 (7.3%) at three sites, and 536 (1.7%) at four or more sites. Overall,
+11,193 patients (34.8%) had records from more than one hospital site. This structure is directly
+10
+relevant to federated analyses, where patient linkage across institutions is often unavailable or
+restricted.
+To leverage longitudinal EHR data to improve statistical efficiency, we constructed repeated
+mediator-outcome pairs by linking each HbA1c measurement to the most recent preceding BMI
+measurement. Because BMI and HbA1c were measured at irregular intervals during routine care,
+we adjusted for both the HbA1c measurement time and the time lag between BMI and HbA1c
+assessments. Within-patient correlation arising from repeated mediator–outcome pairs was ac-
+commodated using the proposed federated sandwich variance estimator.
+As in typical federated analyses of distributed EHR data, records from the same patient appear-
+ing at different hospitals were treated as independent observations. Under this cross-site records
+unlinked setting, the federated estimator yielded a total effect of c
+TEFL = −0.29 (SE: 0.031, 95%
+CI: −0.353, −0.233). The estimated natural direct effect was [
+NDEFL = −0.282 (SE: 0.031, 95%
+CI: −0.342, −0.222), whereas the BMI-mediated natural indirect effect was smaller in magnitude,
+d
+NIEFL = −0.011 (SE: 0.003, 95% CI: −0.016, −0.005). These estimates closely matched the cor-
+responding pooled analysis results. The estimated proportion of the total effect mediated through
+BMI change, defined as d
+NIEFL/ c
+TEFL, was 3.7% (95% CI: 1.7%, 5.6%). This suggests that BMI
+change accounted for a modest component of the HbA1c reduction associated with GLP-1 RA
+initiation compared with initiation of other glucose-lowering drugs.
+We also compared the federated results with two pooled analyses, as described in the simulation
+studies. The first pooled analysis used the same data structure as the federated analysis, treating
+cross-site records from the same patient as independent observations. The second pooled analysis
+leveraged patient linkage information to identify records belonging to the same individual across
+hospitals. Figure 4 presents estimates of the TE, NDE, and NIE from the three analytical strate-
+gies. Mean estimates were nearly identical across all three strategies, demonstrating that whether
+11
+cross-site records were linked or unlinked did not bias pathway-specific mean estimates in this
+application. The primary difference was in uncertainty quantification: the federated estimator and
+the pooled analysis with cross-site records unlinked produced comparable standard errors, while
+linking records across hospitals in the pooled analysis yielded wider confidence intervals across all
+three estimands. For example, the standard error for the TE was c
+SEFL = 0.031 under the federated
+estimator and c
+SEpool = 0.040 under the pooled analysis with cross-site records linked, with simi-
+lar inflation observed for the NDE and NIE. These findings suggest that treating cross-site records
+from the same patient as independent observations may underestimate variance without distorting
+point estimates of the direct and indirect effects.
+12
+Figure 4: Real-data analysis by three analytical strategies. Estimated total effect (TE), nat-
+ural direct effect (NDE), and natural indirect effect (NIE) of GLP-1 RA initiation on ∆HbA1c,
+with ∆BMI as the mediator, from data across ten INPC hospitals. Points indicate mean estimates
+and horizontal bars indicate 95% confidence intervals. Squares: pooled analysis with cross-site
+records unlinked. Triangles: proposed federated estimator with cross-site records unlinked. Cir-
+cles: pooled analysis with cross-site records linked to account for within-patient clustering across
+hospitals.
+3
+Discussion
+We introduced a privacy-preserving federated mediation method for estimating natural direct and
+indirect effects across distributed healthcare networks without sharing patient-level data. To our
+knowledge, this is the first federated method for causal mediation analysis, enabling natural direct
+and indirect effects to be estimated across distributed healthcare networks without transferring
+patient-level records.
+13
+The proposed framework addresses three core methodological challenges in extending causal
+mediation analysis to distributed EHR networks. First, we extend the three-stage natural effect
+estimation procedure to distributed data settings using renewable estimating equations18, so that
+each site transmits only updated parameter estimates and cumulative Hessian summaries required
+for renewable updating, without sharing any patient-level records. Second, we develop a robust
+sandwich variance estimator based on stacked estimating equations for the outcome and natural
+effect models, allowing uncertainty from the first-stage outcome model to be propagated into in-
+ference for the natural direct and indirect effects. Third, the method accommodates within-patient
+longitudinal dependence by locally aggregating patient-level score contributions within each site
+before constructing aggregate sandwich variance components, enabling valid and robust variance
+estimation for repeated mediator and outcome measurements.
+Simulation studies showed that the proposed federated estimator achieved performance virtu-
+ally identical to the pooled estimator across distributed networks with varying numbers of partic-
+ipating sites, producing unbiased estimates, accurate variance estimates, and empirical coverage
+probabilities close to the nominal 95% level for the natural direct, natural indirect, and total ef-
+fects. The real-world application to the INPC data further demonstrated that, under the same
+patient-identification assumptions, the federated and pooled analyses yielded nearly identical mean
+estimates and confidence intervals. Together, these findings suggest that the proposed method can
+recover pooled-analysis results while preserving patient privacy in distributed healthcare networks.
+We also investigated cross-site patient overlap, a common feature of distributed healthcare net-
+works. In privacy-preserving federated analyses, patient identifiers are typically unavailable across
+institutions, preventing linkage of records belonging to the same individual. Consequently, when
+a patient receives care at multiple sites, their records are commonly treated as independent ob-
+servations. Both simulation studies and the INPC application demonstrated that cross-site patient
+14
+overlap has a negligible impact on mean estimation of natural direct and indirect effects; however,
+when cross-site dependence is ignored and overlapping records are treated as independent, the
+variance is systematically underestimated, resulting in confidence intervals that are narrower than
+they should be. The magnitude of this coverage gap increased with the degree of patient overlap,
+consistent with the growing covariance that is left unaccounted for as more records from the same
+individual are treated independently.
+In the proposed implementation, we estimated the natural effect model using an outcome-
+regression-based natural effect imputation approach. As an alternative, inverse-probability-weighted
+(IPW) natural effect models24 can be used to construct counterfactual contrasts by weighting ob-
+servations according to estimated treatment and mediator-related mechanisms. We applied the IPW
+approach to simulated analyses; however, the resulting estimates exhibited greater variability due
+to extreme weights arising from imbalanced treatment allocation and large number of confounders.
+Consequently, compared with weighting-based methods — which are susceptible to numerical in-
+stability from extreme propensity score weights and practical positivity violations — estimating
+natural effect models (NEMs) via an outcome regression framework provides greater statistical
+efficiency and more robust inference24,32.
+Our federated mediation approach has several limitations. First, the renewable estimating equa-
+tions framework assumes that model parameters — including the outcome regression coefficients
+and the natural effect model coefficients — are homogeneous across participating sites. Site-level
+heterogeneity in treatment effect magnitude or mediator–outcome relationships across institutions
+cannot be accommodated under the current framework. Extending the renewable estimation pro-
+cedure to incorporate site-specific random effects or stratified estimation strategies would broaden
+the applicability of the approach to more heterogeneous network settings.
+Second, the consistency of the federated estimator relies on correct specification of both the
+15
+outcome regression model and the natural effect model at each site; misspecification of either
+component can induce persistent bias in the estimated natural direct and indirect effects that does
+not diminish with increasing sample size. Developing semiparametric or doubly robust exten-
+sions24,32 — which require correct specification of only one of the two component models —
+would substantially strengthen the inferential robustness of the federated mediation framework,
+particularly in settings where the functional form of the outcome or mediator model is uncertain.
+Finally, the current work focuses on a single mediator and a continuous outcome, which repre-
+sents a practical scope given the complexity of the federated estimation procedure. The underlying
+counterfactual framework, however, can accommodate multiple mediators, diverse outcome types,
+and treatment–mediator interactions. Future extensions of the proposed federated framework will
+address jointly evaluated multiple correlated mediators, time-varying treatment strategies, and me-
+diation analysis for survival and competing-risk outcomes—settings increasingly relevant to real-
+world EHR-based studies.
+4
+Methods
+4.1
+Mediation Analysis at a Single Site
+We first define the causal estimands for mediation analysis. Let A ∈{0,1} denote treatment initia-
+tion, M a post-treatment mediator, Y the outcome, and C a vector of baseline covariates. The nested
+counterfactual Y(a,M(a∗)) denotes the outcome that would be observed if treatment were set to a,
+while the mediator were set to the value it would naturally take under the observed treatment level
+a∗.
+For a binary treatment, the total effect (TE) can be decomposed into the natural direct effect
+16
+(NDE) and natural indirect effect (NIE)2,3,24:
+TE = E[Y(1)−Y(0)] = E[Y(1,M(0))−Y(0,M(0))]
+|
+{z
+}
+NDE
++E[Y(1,M(1))−Y(1,M(0))]
+|
+{z
+}
+NIE
+.
+(1)
+The NDE captures the component of the treatment effect not operating through the mediator,
+comparing treatment versus control while holding the mediator to the value it would naturally take
+under control. The NIE captures the component operating through the mediator, comparing the
+mediator values that would naturally arise under treatment versus control while holding treatment
+fixed at the treated level.
+The estimation proceeds in three steps. First, we fit an outcome regression model for E(Y |
+A,M,C) using the observed data. Second, we construct an expanded dataset for natural effect
+imputation by creating replicated observations for each individual. Each replicated row indexes a
+counterfactual treatment value a while retaining the mediator value corresponding to the treatment
+level actually observed, denoted by a∗= Ai. For rows in which a = Ai, the observed outcome is
+retained. For rows in which a̸ = Ai, the counterfactual outcome is imputed from the fitted outcome
+model as Y †
+i = bE(Y | A = 1−Ai,M = Mi,C = Ci).
+Finally, we fit the natural effect model to the expanded dataset:
+g{E(Y † | a,a∗,C)} = η0 +ηaa+ηa∗a∗+η⊤
+C C.
+(2)
+With the identity link, ηa, ηa∗, and ηa +ηa∗estimate the NDE, NIE, and TE, respectively.
+17
+4.2
+Federated mediation analysis
+We propose a federated mediation framework that extends the counterfactual mediation approach
+described in Section 4.1 from a single site to distributed EHR networks. The key idea is to ap-
+ply sequential renewable estimating equations18 to the two regression models above: first to the
+outcome model and then to the natural effect model. Patient-level records remain within each site
+throughout the procedure. As illustrated in Figure 5, the federated procedure follows the same
+three-step structure as the single-site estimator.
+1. Federated outcome model fitting. The outcome regression model, E(Y | A,M,C), is fit-
+ted sequentially across sites using the renewable updating procedure. Each site receives the
+current coefficient estimate and cumulative Hessian summary from the previous site, com-
+putes the local score and Hessian using only local data to update the coefficient estimate, and
+passes only the updated coefficient estimate and updated cumulative Hessian summary to the
+next site. After the final update, the fitted global outcome regression model is broadcast back
+to all participating sites for subsequent local expansion and counterfactual imputation.
+2. Local expansion and counterfactual imputation. Using the fitted global outcome model,
+each site constructs an expanded dataset by creating two rows for each patient as described in
+Section 4.1 and imputes the corresponding counterfactual outcomes locally. This expansion
+and imputation step is performed independently and in parallel across sites, and no expanded
+patient-level data are shared.
+3. Federated natural effect model fitting. The natural effect model is fitted by applying the
+same renewable updating procedure to the locally expanded and imputed datasets. The final
+global natural effect model yields estimates of NDE, NIE, and TE as described in Section
+4.1.
+18
+For statistical inference, we use a sandwich variance estimator to incorporate uncertainty aris-
+ing from both the outcome regression and the subsequent natural effect model in (2). Furthermore,
+we propose an efficient empirical sandwich variance estimator that accommodates longitudinal
+mediator and outcome measurements by aggregating score contributions at the patient level before
+constructing the sandwich estimator. In the federated implementation, each site computes its vari-
+ance components locally, and only low-dimensional summaries are shared and combined to obtain
+the final variance estimate. This approach provides valid statistical inference while preserving
+patient privacy, as only updated parameter estimates, cumulative Hessian summaries, and aggre-
+gate variance components are exchanged across sites. Detailed estimating equations and variance
+derivations are provided in the Supplementary Methods.
+Figure 5: Overview of the federated mediation estimator. The framework consists of three
+stages. First, a global outcome regression model is estimated across sites using sequential renew-
+able updates, and the fitted model coefficients are broadcast to each site. Second, an expanded
+dataset is created at each local site. Third, the natural effect model is applied to the local expanded
+dataset using renewable updates. Patient-level EHR records remain local throughout the proce-
+dure, and the final outputs are estimates of the natural direct effect, natural indirect effect, and total
+effect.
+19
+4.3
+Simulation studies
+We conducted simulation studies to evaluate whether the proposed federated mediation method can
+reproduce the pooled-analysis benchmark, in which all individual-level data are analyzed centrally.
+The simulations generated distributed EHR data from multiple sites, a binary treatment, baseline
+covariates, and longitudinally measured continuous mediators and outcomes.
+For each simulated dataset, we applied our federated mediation method and compared it with
+the pooled-analysis benchmark. The pooled estimator served as the reference for assessing whether
+sequential renewable updates recovered the centralized natural effect analysis without transferring
+patient-level data. Performance was summarized using bias, empirical standard deviation, average
+estimated standard error, root mean squared error (RMSE), and empirical coverage of nominal
+95% confidence intervals.
+We also evaluated cross-site patient overlap, a common feature of dense EHR networks in
+which the same person may receive care at multiple participating hospitals or clinics. In privacy-
+preserving federated analyses, patient identifiers are typically unavailable across sites, preventing
+linkage of records belonging to the same individual. As a result, records from the same patient
+at different institutions may be treated as independent observations. To assess the impact of this
+limitation, we conducted simulations with varying levels of patient overlap and examined its effects
+on both mean and variance estimation. Results were compared with those from an idealized pooled
+analysis that could correctly identify and account for all records belonging to the same individual
+across sites.
+20
+4.4
+Real-world data analysis using INPC
+We applied the proposed federated mediation analysis to EHR data from the Indiana Network for
+Patient Care (INPC), consisting of 10 regional hospitals. The study cohort included adults with
+type 2 diabetes who had complete data on treatment, BMI, HbA1c, and baseline covariate infor-
+mation. The exposure was GLP-1 RA initiation. The comparator was initiation of other glucose-
+lowering drugs.GLP-1 RAs included albiglutide, dulaglutide, exenatide, liraglutide, lixisenatide,
+semaglutide, and tirzepatide. Comparator glucose-lowering drugs included dipeptidyl peptidase-
+4 (DPP-4) inhibitors, sulfonylureas, thiazolidinediones, meglitinides, and alpha-glucosidase in-
+hibitors.
+The mediator was BMI change from baseline (∆BMI, kg/m2), used as a weight-related path-
+way measure, and the outcome was HbA1c change from baseline (∆HbA1c, percentage points).
+Longitudinal BMI and HbA1c were measured during a one-year follow-up window. During the
+window, mediator-outcome pairs were constructed as follows: Working backward from the last
+available HbA1c measurement within the follow-up window, each HbA1c value was linked to the
+most recent preceding BMI measurement, resulting in one or more mediator-outcome pairs per
+patient. Constructing multiple pairs per patient made full use of the available longitudinal data
+and increased statistical power. To account for irregular observation schedules in routine clinical
+care, both the outcome measurement time and the lag between BMI and HbA1c assessments were
+included as covariates.
+We adjusted for 27 confounders measured at baseline (Table 1): age, sex, race/ethnicity, base-
+line BMI, baseline HbA1c, 18 comorbidities, 3 medication use indicators (insulin, oral steroids,
+and baseline SGLT2i use), and smoking status. Using the proposed federated mediation frame-
+work, we estimated the total effect (TE), natural direct effect (NDE), and natural indirect effect
+21
+(NIE) of GLP-1 RA initiation on changes in HbA1c, with changes in BMI serving as the medi-
+ator. All effects were reported on the change scale. The NDE represents the mean difference in
+∆HbA1c associated with GLP-1 RA initiation not operating through BMI change, whereas the NIE
+represents the component of the effect operating through GLP-1 RA–associated changes in BMI.
+The primary federated analysis treated records from the same patient observed at different
+hospitals as independent observations, reflecting a distributed setting in which cross-site patient
+identifiers are not shared. Within each site, repeated mediator–outcome observations from the
+same patient were accounted for using cluster-robust sandwich variance estimation.
+We compared the federated estimates with two pooled analyses. The first pooled analysis used
+the same data structure as the federated analysis, treating records from the same patient across
+hospitals as independent observations. This comparison assessed whether the proposed federated
+mediation method could reproduce centralized natural effect estimation under the same working
+independence assumptions. The second pooled analysis leveraged patient linkage information to
+identify records belonging to the same individual across hospitals, allowing us to evaluate the im-
+pact of cross-site patient overlap on direct and indirect effect estimation. Mean estimates, standard
+errors, and two-sided 95% confidence intervals were reported for all analyses. All analyses were
+implemented in R.
+22
+Data availability
+The data that support the findings of this study were obtained from the Regenstrief Institute
+Inc. via the Regenstrief Data Core, which provides access to data from the Indiana Network for
+Patient Care (INPC). Due to data use agreements, the data are not publicly available. However,
+interested researchers can request access to the data directly from the Regenstrief Institute Inc. for
+replication purposes.
+Author contributions
+H.J. developed the federated mediation methodology, implemented the algorithms, conducted
+simulation studies, performed statistical analyses, interpreted the results, and drafted the manuscript.
+Y.L. contributed to statistical analyses and preparation of the real-world EHR application. R.R.
+contributed to interpretation of the clinical findings and manuscript writing. J.B. and S.G. pro-
+vided data access and clinically interpreted the real-world EHR application. M.R., X.S., and L.Z.
+supervised the study, and provided methodological oversight. All authors read and approved the
+final manuscript.
+Competing interests
+The author(s) declare no competing interests.
+Ethics approval and consent to participate
+The study protocol was reviewed by the Institutional Review Board (IRB) of Indiana University
+(Protocol No. 27345). The IRB determined this study to be exempt from requiring oversight and
+waived the requirement for informed consent due to the exclusive use of de-identified data.
+Funding
+Research reported in this publication was supported by the National Institute of Allergy and
+Infectious Diseases of the National Institutes of Health under Award Number R01AI158543. The
+23
+content is solely the responsibility of the authors and does not necessarily represent the official
+views of the National Institutes of Health.
+References
+[1] Robins, J. M. & Greenland, S. Identifiability and exchangeability for direct and indirect
+effects. Epidemiology 3, 143–155 (1992).
+[2] Pearl, J. Direct and indirect effects. In Proceedings of the 17th Conference on Uncertainty in
+Artificial Intelligence, 411–420 (Morgan Kaufmann, 2001).
+[3] VanderWeele, T. Explanation in causal inference: methods for mediation and interaction
+(Oxford University Press, 2015).
+[4] VanderWeele, T. J. Mediation analysis: a practitioner’s guide. Annual Review of Public
+Health 37, 17–32 (2016).
+[5] Steen, J., Loeys, T., Moerkerke, B. & Vansteelandt, S. Flexible mediation analysis with
+multiple mediators. American Journal of Epidemiology 186, 184–193 (2017).
+[6] Sherman, R. E. et al. Real-world evidence—what is it and what can it tell us. New England
+Journal of Medicine 375, 2293–2297 (2016).
+[7] Concato, J. & Corrigan-Curay, J. Real-world evidence—where are we now? New England
+Journal of Medicine 386, 1680–1682 (2022).
+[8] Froelicher, D. et al. Truly privacy-preserving federated analytics for precision medicine with
+multiparty homomorphic encryption. Nature Communications 12, 5910 (2021).
+24
+[9] Vogelsang, L. et al. A secure multi-party computation protocol for time-to-event analyses. In
+Digital Personalized Health and Medicine, 8–12 (IOS Press, 2020).
+[10] Bonomi, L., Jiang, X. & Ohno-Machado, L. Protecting patient privacy in survival analyses.
+Journal of the American Medical Informatics Association 27, 366–375 (2020).
+[11] Tong, J. et al. Distributed learning for heterogeneous clinical data with application to inte-
+grating COVID-19 data across 230 sites. npj Digital Medicine 5, 76 (2022).
+[12] Duan, R., Boland, M. R., Lu, Z., Hubbard, R. A. & Chen, Y. Learning from electronic health
+records across multiple sites: a communication-efficient and privacy-preserving distributed
+algorithm. Journal of the American Medical Informatics Association 27, 376–385 (2020).
+[13] Sp¨ath, J. et al. Privacy-aware multi-institutional time-to-event studies. PLOS Digital Health
+1, e0000101 (2022).
+[14] Luo, L., Risk, M. & Shi, X. Online causal inference with application to near real-time post-
+market vaccine safety surveillance. Statistics in Medicine 43, 2734–2746 (2024).
+[15] Duan, R., Boland, M. R., Moore, J. H. & Chen, Y. ODAL: a one-shot distributed algorithm
+to perform logistic regressions on electronic health records data from multiple clinical sites.
+Pacific Symposium on Biocomputing 24, 30–41 (2019).
+[16] Duan, R. et al. Learning from local to global: an efficient distributed algorithm for modeling
+time-to-event data. Journal of the American Medical Informatics Association 27, 1028–1036
+(2020).
+[17] Luo, C. et al. Odach: a one-shot distributed algorithm for cox model with heterogeneous
+multi-center data. Scientific Reports 12, 6627 (2022).
+25
+[18] Luo, L. & Song, P. X.-K. Renewable estimation and incremental inference in generalized
+linear models with streaming data sets. Journal of the Royal Statistical Society Series B:
+Statistical Methodology 82, 69–97 (2020).
+[19] Lu, C.-L. et al. Webdisco: a web service for distributed cox model learning without patient-
+level data sharing. Journal of the American Medical Informatics Association 22, 1212–1219
+(2015).
+[20] Li, D., Lu, W., Shu, D., Toh, S. & Wang, R. Distributed cox proportional hazards regression
+using summary-level information. Biostatistics 24, 776–794 (2023).
+[21] Lu, Y., Tian, Y., Zhou, T., Zhu, S. & Li, J. Multicenter privacy-preserving cox analysis
+based on homomorphic encryption. IEEE Journal of Biomedical and Health Informatics 25,
+3310–3320 (2021).
+[22] Jang, H. et al.
+Federated survival analysis with site-level heterogeneity adjustment.
+Manuscript (2025).
+[23] Risk, M., Zhao, L. & Shi, X. Distributed Kaplan–Meier analysis. Manuscript (2025).
+[24] Vansteelandt, S., Bekaert, M. & Lange, T. Imputation strategies for the estimation of natural
+direct and indirect effects. Epidemiologic Methods 1, 131–158 (2012).
+[25] M¨uller, T. D. et al. Glucagon-like peptide 1 (glp-1). Molecular metabolism 30, 72–130
+(2019).
+[26] Cornell, S. A review of glp-1 receptor agonists in type 2 diabetes: a focus on the mechanism
+of action of once-weekly agents. Journal of clinical pharmacy and therapeutics 45, 17–27
+(2020).
+26
+[27] Yeh, T.-L., Tsai, M.-C., Tsai, W.-H., Tu, Y.-K. & Chien, K.-L.
+Effect of glucagon-like
+peptide-1 receptor agonists on glycemic control, and weight reduction in adults: a multivari-
+ate meta-analysis. Plos one 18, e0278685 (2023).
+[28] Yao, H. et al. Comparative effectiveness of glp-1 receptor agonists on glycaemic control,
+body weight, and lipid profile for type 2 diabetes: systematic review and network meta-
+analysis. bmj 384 (2024).
+[29] Vilsbøll, T. et al. Hba1c reduction with tirzepatide in people with type 2 diabetes: The con-
+tribution of weight loss assessed by a mediation analysis. Diabetes, Obesity and Metabolism
+27, 5498–5505 (2025).
+[30] Williams, K. S., Rahurkar, S., Grannis, S. J., Schleyer, T. K. & Dixon, B. E. Evolution
+of clinical health information exchanges to population health resources: a case study of the
+indiana network for patient care.
+BMC medical informatics and decision making 25, 97
+(2025).
+[31] 9. pharmacologic approaches to glycemic treatment: Standards of care in diabetes—2026.
+Diabetes Care 49, S183–S215 (2026).
+[32] Tchetgen Tchetgen, E. J. & Shpitser, I. Semiparametric theory for causal mediation analysis:
+efficiency bounds, multiple robustness, and sensitivity analysis. Annals of Statistics 40, 1816–
+1845 (2012).
+27

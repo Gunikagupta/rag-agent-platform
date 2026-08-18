@@ -1,0 +1,3837 @@
+Stochastic Pauli-path simulator for large-scale quantum optimization
+Kaining Zhang,1 Xinbiao Wang,1 Kunsheng Li,1 Qixin Zhang,1
+Yuxuan Du,1, 2, ∗Min-Hsiu Hsieh,3, † and Dacheng Tao1, ‡
+1Generative AI Lab, College of Computing and Data Science,
+Nanyang Technological University, Singapore 639798, Singapore
+2School of Physical and Mathematical Sciences, Nanyang Technological University, Singapore 639798, Singapore
+3Hon Hai (Foxconn) Research Institute, Taipei, Taiwan
+(Dated: July 21, 2026)
+Pauli-based simulators offer a promising route to large-scale classical simulation of quantum
+circuits in the low-magic regime. Yet their applicability remains largely limited to forward simulation,
+making them inadequate for optimization-driven quantum tasks such as variational state preparation
+and parameter initialization. Existing approaches either lack native support for gradient-based
+optimization or suffer from severe gradient bias. Here we propose the stochastic Pauli-path simulator
+(SPPS), a computational framework for large-scale quantum optimization that enables unbiased
+stochastic gradient estimation via Pauli-path sampling across optimization iterations. Our theo-
+retical analysis shows that the proposed simulator yields unbiased gradient estimates and admits
+provable convergence guarantees. We systematically evaluate our proposal, including quantum
+eigensolver benchmarks with up to 100 qubits and quantum neural network benchmarks with up
+to 40 qubits. Across these tasks, SPPS faithfully tracks optimization dynamics, converges within
+minutes, and broadens the role of Pauli-based simulation from forward estimation to large-scale
+quantum optimization.
+I.
+INTRODUCTION
+Advances in classical simulation are indispensable to the progress of quantum computing [1–4]. Over the years, continued
+progress in classical simulation has not only provided practical platforms [5–10] for the design and development of
+quantum algorithms in the absence of large-scale quantum machines, but also imposed increasingly stringent standards
+on claims of quantum advantage [11–14]. A notable example is random circuit sampling [11], where newly developed
+tensor-network methods have repeatedly revisited and in some cases narrowed the claimed quantum advantage [15–18].
+More recently, Pauli-based simulation (PBS) methods [19–38] have opened a complementary route to classically
+simulating quantum dynamics and estimating their mean values. By propagating Pauli representations of operators
+during the evolution, they remain effective even in regimes of highly entangling quantum dynamics that are challenging
+for tensor-network methods. Attributed to this capability, PBS methods redefine the classical boundary for utility-
+scale experiments [13, 39], and advance fundamental science, e.g., exploring thermal states and imaginary-time
+evolution [40, 41].
+Despite the progress, prior PBS methods remain limited in optimization functionality. To be concrete, most of PBS
+methods [19–21] are designed mainly for fixed-circuit simulation. The only exception is truncation-based PBS (Tb-PBS)
+methods, a.k.a, Pauli propagation simulators [26–28]. They construct a differentiable map from circuit parameters to
+target observables, while using truncation strategies to control the proliferation of Pauli terms during propagation.
+Yet as empirically observed in Ref. [42], the obtained gradients are often systematically biased from the exact
+gradients. This fundamental limitation restricts the applicability of Tb-PBS in various quantum optimization tasks,
+where circuit parameters are updated by gradient-based optimizers to minimize a task-specific objective. Typical
+examples cover finding high-overlap initial states for quantum phase estimation [43], optimizing reference states for
+eigenstate filtering [44], constructing warm-start parameters for state preparation [45, 46] and circuit compiling [47, 48],
+and pre-training variational quantum algorithms [49]. The severe limitation of PBS towards such wide applications
+raises a critical challenge:
+Is there any PBS that can advance quantum optimization tasks at scale?
+∗yuxuan.du@ntu.edu.sg
+† min-hsiu.hsieh@foxconn.com
+‡ dacheng.tao@ntu.edu.sg
+arXiv:2607.17804v1  [quant-ph]  20 Jul 2026
+2
+Addressing this challenge would have two important implications: (i) it would redefine the classical bar for quantum
+advantage by bringing optimization dynamics into the scope of efficient simulation; (ii) it would open a practical route
+to classical-first optimization for quantum applications with high experimental overhead, substantially reducing the
+quantum resources required for deployment.
+Here we provide a positive answer to this question by proposing the stochastic Pauli-Path simulator (SPPS), an efficient
+and scalable PBS for large-scale quantum optimization. In contrast to prior Tb-PBS methods, the key idea of SPPS
+is to dynamically sample propagation paths from the full path space during Heisenberg evolution and correct each
+sampled contribution by importance reweighting. To this end, we devise a path automatic differentiation method,
+which effectively converts path contribution into unbiased gradient estimates through simple algebraic score factors.
+On the theoretical side, we prove that unlike Tb-PBSs that suffer from biased gradients (Theorem 1) and sub-optimal
+convergence (Corollary 1), SPPS enables unbiased gradients with guaranteed accuracy (Theorem 2), which leads to
+provably convergent optimization trajectories (Corollary 2). These theoretical analyses reveal that SPPS can faithfully
+simulate quantum optimization driven by gradient-based optimizers, with sample complexity depending on the circuit
+structure and parameters.
+To validate the effectiveness of SPPS, we conduct systematic quantum optimization experiments, including pre-training
+variational quantum eigen-solvers (VQEs) [50–53], pre-training quantum neural networks (QNNs) [32, 54, 55], and
+preparing quantum state encoding circuits [56–58]. Across these standard benchmarks, SPPS consistently achieves
+better convergence than Tb-PBS methods with substantially less runtime and maintains stable optimization dynamics.
+Specifically, SPPS completes the pre-training of VQE on 100-qubit Ising model in about one minute and the pre-training
+of QNN on a synthetic dataset with 40 qubits in less than ten minutes. These results demonstrate SPPS as a route to
+faithful classical simulation of large-scale quantum optimization.
+In summary, our primary contributions are threefold. (i) We theoretically characterize the limitation of Tb-PBS
+methods in quantum optimization, showing the dilemma between the accurate mean-value estimation and the faithful
+gradient estimation. (ii) We develop SPPS to construct unbiased stochastic gradients, with both sample-complexity
+and convergence guarantees. (iii) We conduct systematic experiments up to 100 qubits, validating that SPPS faithfully
+tracks optimization dynamics while improving accuracy and runtime over Tb-PBS methods. The corresponding code is
+available at GitHub for reproducibility purposes.
+II.
+PRELIMINARY
+Here, we present the basics of quantum computing, quantum tasks with optimization, variational quantum algorithms,
+and PBS methods, followed by related works. Refer to App. A for more details.
+Basics of quantum computing. The pure state of a single qubit is represented by a normalized vector |ψ⟩∈C2 [59],
+which admits the computational-basis expansion |ψ⟩= a |0⟩+ b |1⟩with a, b ∈C and |a|2 + |b|2 = 1. More generally,
+quantum states (including mixed states) are described by a density operator ρ, with pure states as the special case
+ρ = |ψ⟩⟨ψ| and ⟨ψ| = |ψ⟩†. An n-qubit state lives in the tensor product of single-qubit spaces as (C2)⊗n. Quantum
+operations can be implemented by gates [60], i.e., unitary operators acting on one or more qubits, and a quantum
+circuit [61] is the composition of a sequence of such gates. Common gates include the Hadamard gate H =
+1
+√
+2( 1
+1
+1 −1 )
+and CNOT gate diag[( 1 0
+0 1 ), ( 0 1
+1 0 )]. Beyond fixed gates, quantum circuits also employ variational unitaries, e.g., Pauli
+rotations RP (θ) = exp −ıθP/2, where P ∈Pn = {±1} × {I, X, Y, Z}⊗n is a Pauli operator with I = ( 1 0
+0 1 ), X = ( 0 1
+1 0 ),
+Y = ( 0 −ı
+ı
+0 ), Z = ( 1
+0
+0 −1 ) being Pauli-I, -X, -Y, -Z matrices. A quantum measurement [62] is the process of extracting
+classical information from a quantum state, which is specified by a Hermitian operator O known as the observable.
+Given a state ρ, the measurement of O yields a random variable whose expectation value or mean value is Tr[Oρ].
+Classical simulation of quantum optimization. Many quantum optimization tasks, e.g., VQE [50, 63, 64], circuit
+compiling [47, 48, 65], quantum state preparation [56–58], and quantum machine learning (QML) [66–71], can be
+unified through objectives constructed from expectation values, i.e.,
+C(θ) =
+XK
+k=1 ℓk (f(θ; Ok, ρk)) =
+XK
+k=1 ℓk
+ Tr
+
+OkU(θ)ρkU(θ)†
+,
+(1)
+where the input states ρk, observables Ok, and scalar functions ℓk are specified by the concrete task. The optimization
+of Eq. (1) is typically performed using gradient-based classical optimizers, such as gradient descent (GD) θ(t+1) =
+θ(t) −η∇C(θ(t)) with learning rate η. Classical simulation of these optimization tasks therefore requires access
+to both expectation values and their gradients, since ∇C(θ) is obtained by applying the chain rule to functions
+f(θ; Ok, ρk). Apart from PBS methods analyzed in this work, common classical simulation approaches include exact
+3
+…
+…
+(a)
+𝑉0
+𝑉1
+𝑉𝐿
+𝑅𝐿
+𝑅1
+𝑅2
+Parallel Sampling
+(b)
+(i) Path sampling
+1
+-1
+1
+0
+…
+…
+…
+1
+1
+-1
+…
+…
+…
+-1
+-1
+-1
+…
+…
+…
+…
+2
+𝐵
+Reweight
+(ii) Value estimation
+Value
+PAD
+1
+2
+𝐵
+average
+exact gradient
+(iii) Gradient estimation
+samples
+1
+2
+𝐵
+…
+average
+exact value
+exact 
+gradient
+TB-PBS
+SPPS
+Optimization trajectory
+FIG. 1.
+Stochastic Pauli-path simulator for gradient estimation. (a) Overview of the SPPS framework. SPPS samples
+propagation paths from the full path space and combines them into unbiased estimators of both expectation values and gradients.
+The sampled paths are generated independently and can therefore be evaluated in parallel. (b) Core algorithm of SPPS. A
+group of sampled paths is first converted into an unbiased estimator of the target expectation value by importance reweighting.
+The same path-sampling mechanism is then coupled with path automatic differentiation to obtain unbiased stochastic gradient
+estimators.
+state-vector [72, 73] and tensor-network methods [5, 6]. State-vector simulation supports exact auto-differentiation
+through an explicit state-vector representation, but scales exponentially with the number of qubits. Tensor-network
+methods can scale to large systems when states and circuit evolution have limited entanglement, but their cost can
+grow rapidly beyond such regimes.
+Variational quantum algorithms. Variational quantum algorithms (VQAs) [49] are hybrid quantum–classical
+algorithms that optimize the parameters θ in objectives defined in Eq. (1). Unlike classical simulators that obtain
+gradients ∇C(θ) by automatic differentiation, VQAs estimate such gradients through repeated circuit executions and
+measurements on real quantum hardware. For example, for gates satisfying the parameter-shift rule [74–76], each
+partial derivative can be obtained from shifted circuits, e.g., ∂jf(θ; O, ρ) = 1
+2
+
+f(θ + π
+2 ej; O, ρ) −f(θ −π
+2 ej; O, ρ)
+
+,
+where ej is the computational basis vector whose j-th entry is 1. Thus, full-gradient estimation requires shifted
+circuit evaluations for each trainable parameter, leading to a quadratic total gate-operation cost. Despite their
+potential advantages in learning performance [77–79], the quadratic scaling of gradient evaluation makes VQA training
+resource-intensive [80] and, in many cases, prohibitively expensive.
+PBS methods. The function f(θ) in Eq. (1) can be reformulated by propagating the observable in the Heisenberg
+picture [81] as O 7→U(θ)†OU(θ). As shown in Fig. 1, when O ∈Pn and U(θ) = QL
+j=1 RPj(θj), f(θ) admits the
+following Pauli expansion
+f(θ) =
+X
+ω∈ΩΨω(θ)Tr[Pω(O)ρ] :=
+X
+ω∈Ωhω(θ).
+(2)
+Here, Ω⊆{0, ±1}L denotes the set of Pauli paths ω. For each path ω, Ψω(θ) is the accumulated trigonometric weight
+and Pω(O) ∈Pn is the resulting Pauli operator. These paths are generated by sequential propagation over j = 1, . . . , L.
+For example, let P be the Pauli operator after the first j −1 steps. If P commutes with Pj, the propagation gives a
+single branch P 7→P labeled by ωj = 0. Otherwise, it splits as P 7→cos(θj)P + sin(θj)ıPjP, where ωj = 1 and −1
+label the cosine and sine branches, respectively. Eq. (2) provides the foundation of Tb-PBS methods [21, 22, 24], which
+truncate the set Ωto make the simulation practical. Refer to App. A 3 for the details about how to generalize Eq. (2)
+to arbitrary observables and circuits interleaved with Clifford gates [82].
+Related works. Classical simulators for quantum optimization include state-vector [72, 73], tensor-network [5, 73],
+and Pauli-based methods [29–32], which are complementary in scope. Specifically, state-vector simulators provide
+exact gradients but scale exponentially with qubit number, tensor-network simulators support large systems in
+low-entanglement regimes, while Pauli-based methods exploit low-magic structure and can handle large-scale and
+highly entangled quantum systems. In the low-magic regime, Tb-PBS methods have shown promise for simulating
+optimization tasks such as VQEs [29, 30] and QNNs [32]. However, a recent empirical study [42] indicated an intrinsic
+4
+limitation of these approaches, as the gradient information is highly biased. Our proposal addresses this fundamental
+limitation, pushing the frontier of PBS towards various optimization tasks at scale.
+III.
+BIASED GRADIENT ESTIMATION FOR TB-PBS
+Here we systematically analyze the gradient bias induced by truncations used in Tb-PBSs. To this end, we first unify
+different Tb-PBS methods into the same framework. The unified framework allows us to prove that these methods can
+always encounter non-vanishing gradient errors.
+A unified framework of Tb-PBS. Since the path set Ωin Eq. (2) can grow exponentially with the number of
+parameters in θ, Tb-PBS methods construct a reduced subset ˆΩ⊊Ωvia some threshold-based rules and approximate
+f(θ) in Eq. (2), i.e.,
+ˆf(θ) =
+X
+ω∈ˆΩhω(θ).
+(3)
+There are three truncation strategies to control the error | ˆf(θ) −f(θ)|: coefficient truncation (CT), which keeps paths
+with coefficient magnitude at least τ by using ˆΩ= {ω ∈Ω: |Ψω(θ)| ≥τ} [22, 29, 39]; frequency truncation (FT), which
+retains paths whose Fourier level is at most ν by using ˆΩ= {ω ∈Ω: ∥ω∥0 ≤ν}, where ∥ω∥0 counts nonzero indices
+in ω [24, 83, 84]; and Pauli-weight truncation (WT), which retains paths whose Pauli weights never exceed γ during
+propagation by using ˆΩ= {ω ∈Ω: ∥P(ω1,...,ωj,0,...,0)∥0 ≤γ, ∀j ∈[L]}, where ∥P∥0 is the number of non-identity
+single-qubit Pauli factors in P [21, 27, 28].
+However, the above Tb-PBS methods do not control the error in the corresponding gradients in general. The following
+theorem formalizes this separation between function value and gradient accuracy, where the proof is deferred to App. B.
+Theorem 1. We consider the function f(θ) in Eq. (2), where ρ = (|0⟩⟨0|)⊗n, O is a Pauli observable, and f is
+non-constant on RL. Then for any ϵ ∈(0, 1), there exist a set ˆΩ⊊Ωand a region Θ ⊂RL, such that ˆf(θ) in Eq. (3)
+satisfies | ˆf(θ) −f(θ)| ≤ϵ and ∥∇θ ˆf(θ) −∇θf(θ)∥2 ≥1 −ϵ, ∀θ ∈Θ.
+Theorem 1 shows that a truncated path set can approximate f(θ) to arbitrary precision while retaining a non-negligible
+gradient bias, since paths negligible for the expectation value may still contribute dominantly to the gradient. This
+result holds in general and does not restrict the circuit structure or the way to generate ˆΩ. As explained in App. B 1,
+CT-, FT-, or WT-PBS methods can generate ˆΩin Theorem 1 for certain circuits and observables, implying their
+fundamental limitations.
+To reflect how the biased gradients influence the optimization trajectory, we conduct the following analysis. Let the
+initial parameter be θ(0) with learning rate η, and θ(t)
+ex and θ(t)
+tr separately denote the t-th iterations driven by the
+exact gradient and by the biased gradient from Tb-PBS. The following corollary quantifies the difference between the
+two optimization trajectories.
+Corollary 1. Following the notation of Theorem 1, there exist a circuit U(θ), an observable O, and the corresponding
+ˆΩ⊊Ωproduced by either CT, FT, or WT, such that for any ϵ ∈(0, 1), there is an initialization θ(0) satisfying
+| ˆf(θ(t)
+tr ) −f(θ(t)
+tr )| ≤ϵ for arbitrary t ∈N, while two GD trajectories using exact and Tb-PBS gradients obey |f(θ(t)
+tr ) −
+f(θ(t)
+ex )| ≥Ω(ηt∥O∥2
+2) for t ≤O(1/(η∥O∥2)). The gap converges to Ω(∥O∥2) when t →∞.
+Corollary 1 shows that gradient bias can accumulate into a macroscopic optimization error. Even when Tb-PBS gives
+an ϵ-accurate estimate of the objective value at each iterate, its gradient can still move GD in a direction inconsistent
+with the exact gradient. Across t iterations, the biased update direction can accumulate a deviation at the scale of
+ηt∥O∥2
+2, which can ultimately yield a gap scaling as Ω(∥O∥2) at converged points. The proof is deferred to App. C.
+IV.
+SPPS: A FAITHFUL SIMULATOR FOR LARGE-SCALE QUANTUM OPTIMIZATION TASKS
+The optimization gap shown in Corollary 1 suggests that simulating quantum optimization requires a design beyond
+existing Tb-PBS methods. To address this issue, here we propose SPPS, a Pauli-propagation-based simulator for
+estimating gradients faithfully via unbiased sampling of propagation paths from the full path space. For clarity, we
+first present the implementation details of SPPS in Sec. IV A, followed by theoretical analysis in Sec. IV B.
+5
+A.
+Algorithm framework of SPPS
+Instead of constructing a truncated subset ˆΩ, SPPS samples propagation paths during Heisenberg evolution and corrects
+each sampled path by its sampling probability. This construction yields unbiased stochastic gradient estimators, whose
+error can be systematically reduced by statistical averaging. In the remainder of this subsection, we present the
+implementation of SPPS.
+Overview of SPPS. Similar to existing quantum optimization simulators, SPPS is used to simulate optimization
+trajectories for the objective C(θ) in Eq. (1) by iteratively updating the parameters θ with gradient-based optimizers.
+Without loss of generality, our key focus here is to exhibit how to use SPPS to estimate ∇θf(θ(t)) at the t-th iteration
+in Eq. (2), since ∇θC(θ(t)) follows from the gradients ∇θf(θ) via the chain rule. For simplicity, we sometimes write
+θ := θ(t).
+SPPS, as shown in Fig. 1, consists of three procedures to acquire ∇θf(θ): (i) sampling propagation paths from the full
+path space through a hierarchical rule; (ii) correcting sampled path contributions by importance reweighting; and
+(iii) applying path automatic differentiation to obtain unbiased gradient estimators. In the rest of this subsection, we
+elaborate on these procedures separately.
+Step (i): Hierarchical path sampling.
+The first step of SPPS is to generate propagation paths without explicitly
+constructing the full propagation tree. As illustrated in Fig. 1(b), this is achieved by sampling from the following
+distribution hierarchically:
+Pr(ω) = Pr1(ω1)
+YL
+j=2 Prj(ωj | ω1:j−1).
+(4)
+Given the unitary U(θ) in Eq. (2), if the current Pauli operator commutes with Pj in RPj(θj) and does not branch,
+the next path variable is deterministic, i.e., Prj(ωj = 0 | ω1:j−1) = 1. Otherwise, SPPS samples branches ωj = 1
+and ωj = −1 with probabilities qj and 1 −qj, respectively, where qj =
+| cos θj|+a
+| cos θj|+| sin θj|+2a . Here, a > 0 enforces a
+nonzero sampling probability for both branches, so that branches with small coefficients but non-negligible gradient
+contributions are not overlooked.
+Step (ii): Importance reweighting.
+After Step (i), SPPS corrects the contribution of each sampled path by its
+corresponding sampling probability, as illustrated in Fig. 1(c). The motivation of this step is to convert the sampled
+propagation paths into an unbiased expectation value estimator, which will subsequently induce unbiased gradients.
+That is, after B independent sampling rounds in Step (i), SPPS obtains a collection of propagation paths denoted by
+{ω(b)}B
+b=1. For each sampled path ω(b), we define the calibrated contribution as ˜hω(b)(θ) = hω(b)(θ)/Pr(ω(b)) with
+hω(b) in Eq. (2). Averaging these contributions gives an unbiased estimator ˜f(θ) = 1
+B
+PB
+b=1 ˜hω(b)(θ), i.e.,
+E
+h
+˜f(θ)
+i
+=
+E
+ω∼Pr
+h
+˜hω(θ)
+i
+=
+X
+ω∈Ω
+hω(θ)
+Pr(ω)Pr(ω) =
+X
+ω∈Ω
+hω(θ) = f(θ).
+(5)
+This unbiased expectation value estimator provides the basis for the gradient estimation in Step (iii).
+Step (iii): Gradient estimation. The final step is to calculate gradient estimations based on the sampled paths via
+a procedure that we named path automatic differentiation (PAD), as visualized in Fig. 1(d). Since each hω(b)(θ) in
+Eq. (5) is parameterized by θ via the coefficient Ψω(b)(θ), which is a product of trigonometric factors, the corresponding
+gradient admits the form
+˜g(θ) = 1
+B
+XB
+b=1 s(θ, ω(b))˜hω(b)(θ),
+(6)
+where s(θ, ω(b)) ∈RL and its j-th entry is cot(θj)1[ω(b)
+j
+= −1] −tan(θj)1[ω(b)
+j
+= 1]. Similar to the case of Eq. (5),
+the estimator ˜g(θ) in Eq. (6) is an unbiased estimator of the gradient of f(θ).
+Remark. The derivation of PAD is provided in App. D. PAD offers two benefits: (i) by exploiting the trigonometric
+structure of Ψω(θ), it obtains all entries of each gradient sample simultaneously, avoiding differentiation through
+the full propagation tree or parameter-shift evaluations for each entry; (ii) independent PAD samples are naturally
+parallelizable, enabling acceleration on multi-core CPUs.
+6
+20
+22
+24
+26
+28
+t
+20
+2
+2
+2
+4
+2
+6
+2
+8
+0
+(a)
+= 2
+2
+= 2
+4
+= 2
+6
+= 2
+8
+Exact
+20
+22
+24
+26
+28
+t
+(b)
+= 2
+= 3
+= 4
+= 5
+Exact
+20
+22
+24
+26
+28
+t
+(c)
+= 8
+= 12
+= 16
+= 20
+Exact
+FIG. 2.
+Biased optimization trajectories of Tb-PBS methods. Subplots (a), (b), and (c) show the energy error ϵ0 versus
+the optimization step t of pre-training VQE for the 15-qubit TFIM, which are simulated by using CT-, WT-, and FT-PBS with
+different truncation thresholds τ, γ, and ν, respectively. The physical meanings of these thresholds are given in Sec. III. The
+dashed curve denotes the exact GD baseline obtained using PennyLane.
+B.
+Theoretical analysis of SPPS
+We next analyze the theoretical properties of SPPS, including its unbiasedness and sample complexity of the gradient
+estimation, and the convergence analysis. All proofs are deferred to Apps. E and F.
+Theorem 2. SPPS in Eq. (6) provides unbiased gradient estimation, and the error is bounded by ϵ with high probability
+using ˜O((1 + 2a)Lκ(θ)L/(aϵ2)) samples, where κ(θ) = QL
+j=1
+ 1 + | sin(2θj)|
+
+.
+Theorem 2 indicates that the sample complexity of SPPS is controlled by the effective branching factor κ(θ), the
+regularization parameter a, and the target accuracy. The bound is meaningful when a > 0, which prevents derivative-
+sensitive branches from being overlooked. The factor κ(θ) aggregates the parameter-induced amplification during
+propagation and characterizes the intrinsic difficulty of faithfully estimating the corresponding gradient. When κ(θ)
+remains moderate, e.g., polynomial in the number of qubits and parameters, a polynomial sampling budget is sufficient.
+Conversely, rapidly growing κ(θ) can make the sampling budget exponential in the worst case, which is consistent
+with the generic hardness to simulate quantum computation.
+Since SPPS provides unbiased stochastic estimates of the original gradient, the induced GD dynamics fall within the
+standard stochastic-gradient framework. This leads to the following corollary.
+Corollary 2. We consider the SPPS-driven GD optimization of the objective C(θ) in Eq. (1) with K = 1 and
+ℓ1(x) = x. Then, for any ϵ > 0, we have mint∈[T ] E ∥∇θf(θ(t))∥2
+2 ≤ϵ within T = O(L3∥O∥4
+2/ϵ2) iterations by using
+O(NOL3∥O∥4
+2κT /ϵ2) SPPS path samples, where κT = maxt∈[T ] κ(θ(t)) and NO is the number of Pauli terms in the
+observable O.
+To the best of our knowledge, Corollary 2 provides the first convergence guarantee for quantum optimization driven by
+a classical simulator beyond the exact regime. It shows that SPPS-driven GD finds an approximate stationary point
+with iteration complexity polynomial in L and ∥O∥2. The overall efficiency is governed by the path sample complexity,
+which is primarily controlled by the trajectory-dependent factor κT . Moderate κT yields efficient classical simulation,
+whereas rapidly growing κT in the worst case reflects the hardness of simulating generic quantum optimization.
+V.
+EXPERIMENTS
+We conduct systematic experiments on three quantum optimization tasks: pre-training VQEs [50, 52, 53] and
+QML models [32, 54, 55], and preparing quantum encoding circuits [56, 57]. These tasks have broad downstream
+applications [85, 86] and form suitable benchmarks for evaluating the performance of SPPS across different objective
+functions and observables. Here, pre-training uses classical computation to find initial parameters close to high-quality
+7
+solutions, which can reduce the quantum resource cost of subsequent training on quantum computers [51, 87–90].
+Further implementation details and additional results on these tasks are provided in Apps. D and G, respectively.
+Pre-training VQE. We benchmark different classical simulators on the pre-training of VQE, where the goal is to
+find a set of parameters in Eq. (1) with K = 1, ℓ1(x) = x, and O = H that approximate the ground-state energy of H
+through classical simulation. Specifically, we consider the one-dimensional transverse-field Ising model (TFIM) with the
+Hamiltonian H = −J Pn−1
+i=1 ZiZi+1 −g Pn
+i=1 Xi, which is a prototypical quantum many-body model and a standard
+benchmark for VQE. We evaluate g ∈{0.6, 0.8, 1.0, 1.2, 1.4} and J = 1.0 with system sizes up to 100 qubits, covering
+both non-critical and critical regimes. The variational ansatz is a 5-layer circuit consisting of an initial Hadamard
+layer, repeated RY and RZ rotation layers, and nearest-neighbor CNOT chains.
+Pre-training QNN. We benchmark different simulators for supervised quantum machine learning by pre-training
+QNNs. In particular, the dataset is {(|ψi⟩, yi)}200
+i=1, where each input |ψi⟩∈{|0⟩, |1⟩}⊗n is a computational-basis state
+with n = 40 qubits. The label is generated by applying a quantum circuit V to the input and measuring the observable
+O = Pn
+j=1 Zj/n, i.e., yi = ⟨ψi|V †OV |ψi⟩. In our experiments, we use 160 training samples and 40 test samples. A
+4-layer hardware-efficient VQC U(θ) is trained to learn these labels by minimizing the mean-squared error (MSE) loss
+on the training set, i.e. MSE(θ) =
+1
+160
+P160
+i=1(zi(θ) −yi)2, where zi(θ) = ⟨ψi|U(θ)†OU(θ)|ψi⟩.
+A.
+Experimental Settings
+Reference methods. We compare SPPS with CT-, FT-, and WT-PBS methods introduced in Sec. III, implemented using
+PauliPropagation.jl [31]. For small-scale VQE tasks with n ≤15, we include a vanilla VQE baseline with exact
+GD, implemented using PennyLane [72], and compute the reference ground-state energy E0 by exact diagonalization.
+For larger systems, we approximate E0 using the thermodynamic-limit expression [91].
+Evaluation metrics. For VQE tasks, we evaluate the simulation quality by using the energy error normalized by
+the qubit number, ϵ0 = |E −E0|/n, where E is the pre-trained VQE energy and E0 is the ground-state energy. For
+small systems with n ≤15, E is obtained exactly by state-vector simulation. For larger systems, E is estimated using
+CT-PBS with τ = 2−12. For QML tasks, we report the MSE(·) on the training set and the R2 score on the test set
+after training, where R2 = 1 −P
+i(zi −yi)2/ P
+i(yi −¯y)2. Here, ¯y is the mean target label on the test set, and each
+prediction zi is estimated using CT-PBS with τ = 2−12. For all tasks, we record the optimization runtime to evaluate
+the efficiency of different classical simulators.
+Hyperparameter settings. SPPS employs a proxy to estimate the gradient error in practice and to allocate sample
+budgets adaptively. We compare this proxy with a prescribed threshold δ ∈{2−1, 2−2, 2−3}, where a smaller δ
+induces larger sample budgets and yields more accurate gradients. For Tb-PBS baselines, we tune the CT threshold
+τ, FT threshold ν, and WT threshold γ according to the task settings. All classical simulation methods share the
+same optimization settings. Specifically, for pre-training VQEs, we use GD with learning rate η = 0.05 for T = 256
+optimization steps by default. For pre-training QNNs, we use mini-batch GD with learning rate η = 5.0 and batch size
+16 for T = 2000 optimization steps. Further implementation details, including the formulation of the gradient-error
+proxy and the parameter a in the sampling distribution, are provided in App. D.
+B.
+Experimental results
+Tb-PBS leads to biased optimization trajectories. We first examine how truncations in Tb-PBSs affect the
+simulation of quantum optimization. To this end, we pre-train VQE for the 15-qubit TFIM with g = 1.0 using CT-, WT-,
+and FT-PBS under different truncation thresholds, and compare the resulting optimization trajectories with the exact
+GD trajectory, as shown in Fig. 2. Although using less aggressive truncation generally improves the energy accuracy,
+all three truncation rules can still deviate substantially from the exact trajectory. For example, the optimization
+driven by CT-PBS with τ = 2−6 plateaus above ϵ0 = 2−4, while exact GD optimization continues decreasing to around
+2−8. The deviations are more pronounced for WT- and FT-PBS, where the optimization can drive non-monotone energy
+trajectories and lead to non-converging ϵ0 far above the exact GD baseline. These deviations empirically confirm that
+Tb-PBS can induce structural gradient bias, which distorts the optimization trajectory.
+SPPS faithfully simulates pre-training VQE trajectories. We next evaluate the reliability of SPPS in simulating
+quantum optimization. Specifically, we pre-train VQE for the 15-qubit TFIM with g = 1.0 using GD driven by SPPS
+gradients and exact gradients with learning rates η ∈{0.01, 0.02, 0.05} and record the energy error ϵ0 during the
+8
+20
+22
+24
+26
+28
+t
+2−8
+2−6
+2−4
+2−2
+20
+ε0
+(a)
+SPPS, η = 0.01, 0.02, 0.05
+Exact, η = 0.01, 0.02, 0.05
+22
+24
+26
+28
+runtime (s)
+(b)
+CT: τ = 2−6,2−8,2−10
+FT: ν = 6,8,10
+SPPS: δ = 2−1,2−2,2−3
+WT: γ = 2,3,4
+2−7
+2−4
+2−1
+ε0
+(c)
+SPPS: δ = 2−1
+CT: τ = 2−6
+FT: ν = 4
+WT: γ = 3
+20
+40
+60
+80
+100
+qubits
+23
+26
+29
+212
+runtime (s)
+(d)
+FIG. 3.
+Performance of different PBS methods for pre-training VQE on the TFIM. (a) Energy error ϵ0 versus
+optimization step t for SPPS-driven GD and exact GD on the 15-qubit TFIM with different learning rates. (b) Final energy
+error ϵ0 versus optimization runtime for SPPS and three Tb-PBS methods on the 15-qubit TFIM with different thresholds. (c,d)
+Final energy error and optimization runtime for system sizes from 20 to 100 qubits. Error bars indicate the standard deviation
+over 10 independent runs.
+TABLE I.
+Energy error ϵ0 (↓) and runtime (↓) of different PBS methods on the pre-training of VQE for the 15-qubit TFIM. We
+compare SPPS with δ = 2−1 against reference PBS methods based on CT (τ = 2−8), FT (ν = 10), and WT (γ = 4), under different
+field strengths g. Each entry reports the error on the first line and the runtime on the second line with the mean and standard
+deviation over 10 independent runs. The best and second-best results are highlighted in blue and orange, respectively.
+g = 0.6
+g = 0.8
+g = 1.0
+g = 1.2
+g = 1.4
+CT-PBS
+0.077 ± 0.035
+(48.4 ± 28.8) s
+0.051 ± 0.025
+(34.3 ± 10.7) s
+0.035 ± 0.020
+(23.2 ± 4.5) s
+0.024 ± 0.015
+(18.3 ± 4.8) s
+0.021 ± 0.009
+(15.9 ± 2.2) s
+FT-PBS
+0.401 ± 0.027
+(150.1 ± 4.6) s
+0.383 ± 0.028
+(153.9 ± 4.9) s
+0.399 ± 0.031
+(138.5 ± 2.1) s
+0.412 ± 0.058
+(136.6 ± 0.6) s
+0.438 ± 0.063
+(143.4 ± 4.0) s
+WT-PBS
+0.298 ± 0.068
+(60.0 ± 1.2) s
+0.213 ± 0.055
+(61.0 ± 1.7) s
+0.165 ± 0.051
+(58.7 ± 0.7) s
+0.200 ± 0.062
+(57.8 ± 0.4) s
+0.250 ± 0.108
+(59.7 ± 1.0) s
+SPPS (ours)
+0.004 ± 0.001
+(10.0 ± 3.7) s
+0.011 ± 0.001
+(6.3 ± 1.5) s
+0.007 ± 0.001
+(4.7 ± 0.7) s
+0.004 ± 0.001
+(3.8 ± 0.8) s
+0.004 ± 0.001
+(3.6 ± 0.7) s
+optimization, with the results illustrated in Fig. 3(a). Across all learning rates, SPPS closely tracks the corresponding
+exact-GD baseline. For example, at the largest learning rate η = 0.05, SPPS reduces ϵ0 from above 2−2 at initialization
+to approximately 2−8 within about 64 steps, matching the convergence behavior of exact GD. For smaller learning
+rates, both methods converge more slowly, while the SPPS curves remain aligned with exact GD. These consistent
+trajectories demonstrate that SPPS provides sufficiently accurate stochastic gradients to pre-train VQE faithfully.
+SPPS outperforms all reference Tb-PBS methods with superior accuracy-runtime trade-offs. We further
+compare the performance of SPPS with reference Tb-PBS methods, measured by the final energy error ϵ0 after
+optimization and the optimization runtime. In particular, on the task of pre-training VQE for the 15-qubit TFIM
+with g = 1.0, we sweep the gradient-error threshold δ ∈{2−1, 2−2, 2−3} for SPPS, and the truncation thresholds
+τ ∈{2−6, 2−8, 2−10}, ν ∈{6, 8, 10}, and γ ∈{2, 3, 4} for CT-, FT-, and WT-PBS, respectively. The resulting accuracy-
+runtime trade-offs are summarized in Fig. 3(b). SPPS achieves lower energy errors than all reference PBS methods under
+comparable or smaller runtime budgets. As δ is tightened from 2−1 to 2−3, SPPS progressively reduces the energy
+error from around 2−7 to 2−8, while keeping the runtime from a few seconds to less than one minute. By contrast,
+Tb-PBSs incur much larger runtime while still remaining less accurate than SPPS. For example, the most accurate CT
+setting with τ = 2−10 takes roughly 27–28 seconds but only reaches an error on the order of 2−6.
+Scalability of SPPS. We then test the scalability of SPPS by increasing the TFIM system size from 20 to 100 qubits
+with g = 1.0, and record the final energy error and optimization runtime in Figs. 3(c) and 3(d), respectively. Across this
+range, the error of SPPS stays between 2−5 and 2−7 and decreases as the system size grows. This trend is consistent
+with using the thermodynamic-limit expression as the reference ground-state energy, which introduces a finite-size
+discrepancy that decreases for larger systems. In contrast, Tb-PBS methods remain substantially less accurate, with
+errors higher than 2−4. The runtime advantage of SPPS also becomes more pronounced for larger systems. For example,
+SPPS is about twice as fast as CT-PBS at 20 qubits, while the speedup increases to more than eightfold at 100 qubits.
+Overall, SPPS shows more favorable scaling behaviors than existing Tb-PBS methods, in terms of both accuracy and
+9
+2−8
+2−6
+2−4
+MSE
+0
+500
+1000
+1500
+2000
+t
+−0.4
+0.0
+0.4
+0.8
+R2
+SPPSCT FT WT
+28
+29
+210
+211
+212
+213
+214
+runtime (s)
+(a)
+(b)
+(c)
+SPPS (δ = 2−1)
+CT (τ = 2−8)
+FT (ν = 5)
+WT (γ = 2)
+FIG. 4.
+Performance of different PBS methods for pre-training QNN on the 40-QML task. (a,b) Training MSE
+and test R2 score versus optimization step t for SPPS, CT-, FT-, and WT-PBS, respectively. (c) Optimization runtime of the four
+methods. We use δ = 2−1 for SPPS, τ = 2−8 for CT, ν = 5 for FT, and γ = 2 for WT. Error bars show the standard deviation over
+5 independent runs.
+runtime.
+Larger gains of SPPS on harder optimization instances. We further evaluate the performance of SPPS on harder
+quantum optimization instances. Here, we pre-train the VQE on the 15-qubit TFIM with g ∈{0.6, 0.8, 1.0, 1.2, 1.4}
+and compare SPPS with CT-, FT-, and WT-PBS methods, with results summarized in Tab. I. Across all field strengths,
+SPPS achieves the lowest energy error and shortest runtime. The advantage becomes larger when Tb-PBS methods
+incur stronger optimization bias. For example, moving from g = 1.0 to g = 0.6 roughly doubles the runtime of SPPS
+and the best Tb-PBS, i.e., CT-PBS. However, the error of SPPS decreases from 0.007 to 0.004, whereas the error of
+CT-PBS doubles. As a result, the error reduction of SPPS over CT-PBS increases from about 5× to about 20×, which
+shows that SPPS provides larger benefits than Tb-PBS methods on harder cases.
+SPPS achieves better convergence points in pre-training QNN. We finally evaluate the applicability of SPPS to
+QML by pre-training QNNs on the 40-qubit supervised learning task introduced above, where computational-basis
+input states are labeled by a given quantum circuit. We compare SPPS with reference Tb-PBS methods, and record
+the training MSE, test R2 score, and optimization runtime, with the results summarized in Fig. 4. SPPS converges
+to a substantially lower training loss and a higher test score than all Tb-PBS methods. In particular, SPPS reduces
+the training MSE from around 2−5 to below 2−7 and reaches a test R2 score around 0.8. By contrast, CT and WT
+saturate around the 2−6 MSE level with test R2 scores around 0.4, while FT fails to obtain a positive R2 score. The
+runtime comparison further shows that SPPS is the most efficient method, requiring less than 29 seconds, compared
+with runtimes above 211 seconds for Tb-PBS methods. These comparisons demonstrate that the advantages of SPPS
+extend to QML tasks, yielding better convergence points at substantially lower simulation cost than Tb-PBS methods.
+VI.
+CONCLUSION
+In this work, we studied Pauli-propagation simulation for quantum optimization and identified a key limitation of
+Tb-PBS methods: accurate expectation estimation does not necessarily imply faithful gradient estimation. To address
+this issue, we proposed SPPS, a stochastic Pauli-path simulator that samples from the full propagation path space and
+combines importance reweighting with path automatic differentiation to obtain unbiased stochastic gradients. We
+established gradient accuracy and convergence guarantees for SPPS-driven optimization, showing that faithful classical
+simulation is possible when the trajectory-dependent path complexity remains moderate. Extensive experiments on
+pre-training VQE and QNN show that SPPS tracks exact optimization dynamics, improves accuracy-runtime trade-offs,
+and scales to VQE simulations with up to 100 qubits. These results provide a practical route to reliable classical
+10
+simulation for large-scale quantum optimization.
+[1] Igor L. Markov and Yaoyun Shi. Simulating quantum computation by contracting tensor networks. SIAM Journal on
+Computing, 38(3):963–981, 2008.
+[2] Sergey Bravyi and David Gosset. Improved classical simulation of quantum circuits dominated by clifford gates. Phys.
+Rev. Lett., 116:250501, Jun 2016.
+[3] Xiaosi Xu, Simon Benjamin, Jianxin Chen, Jinzhao Sun, Xiao Yuan, and Pan Zhang. A herculean task: classical simulation
+of quantum computers. Science Bulletin, 70(23):4104–4112, 2025.
+[4] Alessio Cicero, Mohammad Ali Maleki, Muhammad Waqar Azhar, Anton Frisk Kockum, and Pedro Trancoso. Simulation of
+quantum computers: Review and acceleration opportunities. ACM Transactions on Quantum Computing, 7(1), November
+2025.
+[5] Giacomo Torlai and Matthew Fishman. PastaQ: A package for simulation, tomography and analysis of quantum computers,
+2020.
+[6] Michael Broughton, Guillaume Verdon, Trevor McCourt, Antonio J Martinez, Jae Hyeon Yoo, Sergei V Isakov, Philip
+Massey, Ramin Halavati, Murphy Yuezhen Niu, Alexander Zlokapa, et al. Tensorflow quantum: A software framework for
+quantum machine learning. arXiv preprint arXiv:2003.02989, 2020.
+[7] Shi-Xin Zhang, Jonathan Allcock, Zhou-Quan Wan, Shuo Liu, Jiace Sun, Hao Yu, Xing-Han Yang, Jiezhong Qiu, Zhaofeng
+Ye, Yu-Qin Chen, Chee-Kong Lee, Yi-Cong Zheng, Shao-Kai Jian, Hong Yao, Chang-Yu Hsieh, and Shengyu Zhang.
+TensorCircuit: a Quantum Software Framework for the NISQ Era. Quantum, 7:912, February 2023.
+[8] Craig Gidney. Stim: a fast stabilizer circuit simulator. Quantum, 5:497, July 2021.
+[9] Harun Bayraktar, Ali Charara, David Clark, Saul Cohen, Timothy Costa, Yao-Lung L. Fang, Yang Gao, Jack Guan, John
+Gunnels, Azzam Haidar, Andreas Hehn, Markus Hohnerbach, Matthew Jones, Tom Lubowe, Dmitry Lyakh, Shinya Morino,
+Paul Springer, Sam Stanwyck, Igor Terentyev, Satya Varadhan, Jonathan Wong, and Takuma Yamaguchi. cuquantum
+sdk: A high-performance library for accelerating quantum science. In 2023 IEEE International Conference on Quantum
+Computing and Engineering (QCE), volume 01, pages 1050–1061, 2023.
+[10] Ali Asadi, Amintor Dusko, Chae-Yeun Park, Vincent Michaud-Rioux, Isidor Schoch, Shuli Shu, Trevor Vincent, and
+Lee James O’Riordan.
+Hybrid quantum programming with pennylane lightning on hpc platforms.
+arXiv preprint
+arXiv:2403.02512, 2024.
+[11] Frank Arute, Kunal Arya, Ryan Babbush, Dave Bacon, et al. Quantum supremacy using a programmable superconducting
+processor. Nature, 574(7779):505–510, Oct 2019.
+[12] Han-Sen Zhong, Hui Wang, Yu-Hao Deng, Ming-Cheng Chen, Li-Chao Peng, Yi-Han Luo, Jian Qin, Dian Wu, Xing Ding,
+Yi Hu, Peng Hu, Xiao-Yan Yang, Wei-Jun Zhang, Hao Li, Yuxuan Li, Xiao Jiang, Lin Gan, Guangwen Yang, Lixing You,
+Zhen Wang, Li Li, Nai-Le Liu, Chao-Yang Lu, and Jian-Wei Pan. Quantum computational advantage using photons.
+Science, 370(6523):1460–1463, 2020.
+[13] Youngseok Kim, Andrew Eddins, Sajant Anand, Ken Xuan Wei, et al. Evidence for the utility of quantum computing
+before fault tolerance. Nature, 618(7965):500–505, Jun 2023.
+[14] Dominik Hangleiter and Jens Eisert. Computational advantage of quantum random sampling. Rev. Mod. Phys., 95:035001,
+Jul 2023.
+[15] Cupjin Huang, Fang Zhang, Michael Newman, Junjie Cai, Xun Gao, Zhengxiong Tian, Junyin Wu, Haihong Xu, Huanjun
+Yu, Bo Yuan, et al. Classical simulation of quantum supremacy circuits. arXiv preprint arXiv:2005.06787, 2020.
+[16] Yong Liu, Xin Liu, Fang Li, Haohuan Fu, et al. Closing the "quantum supremacy" gap: achieving real-time simulation
+of a random quantum circuit using a new sunway supercomputer. In Proceedings of the International Conference for
+High Performance Computing, Networking, Storage and Analysis, SC ’21, New York, NY, USA, 2021. Association for
+Computing Machinery.
+[17] Feng Pan and Pan Zhang. Simulation of quantum circuits using the big-batch tensor network method. Phys. Rev. Lett.,
+128:030501, Jan 2022.
+[18] Xian-He Zhao, Han-Sen Zhong, Feng Pan, Zi-Han Chen, et al. Leapfrogging sycamore: harnessing 1432 gpus for 7× faster
+quantum random circuit sampling. National Science Review, 12(3):nwae317, 09 2024.
+[19] Xun Gao and Luming Duan. Efficient classical simulation of noisy quantum computation. arXiv preprint arXiv:1810.03176,
+2018.
+[20] Patrick Rall, Daniel Liang, Jeremy Cook, and William Kretschmer. Simulation of qubit quantum circuits via pauli
+propagation. Phys. Rev. A, 99:062337, Jun 2019.
+[21] Thomas Schuster, Chao Yin, Xun Gao, and Norman Y. Yao. A polynomial-time classical algorithm for noisy quantum
+circuits. Phys. Rev. X, 15:041018, Nov 2025.
+[22] Tomislav Begušić and Garnet Kin-Lic Chan. Real-time operator evolution in two and three dimensions via sparse pauli
+dynamics. PRX Quantum, 6:020302, Apr 2025.
+[23] Tomislav Begušić, Kasra Hejazi, and Garnet Kin-Lic Chan. Simulating quantum circuit expectation values by clifford
+perturbation theory. The Journal of Chemical Physics, 162(15):154110, 04 2025.
+[24] Enrico Fontana, Manuel S. Rudolph, Ross Duncan, Ivan Rungger, and Cristina Cîrstoiu. Classical simulations of noisy
+variational quantum circuits. npj Quantum Information, 11(1):84, May 2025.
+11
+[25] Guillermo González-García, J. Ignacio Cirac, and Rahul Trivedi. Pauli path simulations of noisy quantum circuits beyond
+average case. Quantum, 9:1730, May 2025.
+[26] Victor Martinez, Armando Angrisani, Ekaterina Pankovets, Omar Fawzi, and Daniel Stilck França. Efficient simulation of
+parametrized quantum circuits under nonunital noise through pauli backpropagation. Phys. Rev. Lett., 134:250602, Jun
+2025.
+[27] Yuguo Shao, Fuchuan Wei, Song Cheng, and Zhengwei Liu. Simulating noisy variational quantum algorithms: A polynomial
+approach. Phys. Rev. Lett., 133:120603, Sep 2024.
+[28] Armando Angrisani, Alexander Schmidhuber, Manuel S. Rudolph, M. Cerezo, Zoë Holmes, and Hsin-Yuan Huang.
+Classically estimating observables of noiseless quantum circuits. Phys. Rev. Lett., 135:170602, Oct 2025.
+[29] Cheng-Ju Lin, Hrant Gharibyan, and Vincent P. Su. Utility-Scale Quantum State Preparation: Classical Training using
+Pauli Path Simulation. Quantum, 10:2014, March 2026.
+[30] Saverio Monaco, Jamal Slim, Florian Rehm, Dirk Krücker, and Kerstin Borras. Symbolic pauli propagation for gradient-
+enabled pre-training of quantum circuits. arXiv preprint arXiv:2512.16674, 2025.
+[31] Manuel S Rudolph, Tyson Jones, Yanting Teng, Armando Angrisani, and Zoë Holmes. Pauli propagation: A computational
+framework for simulating quantum systems. arXiv preprint arXiv:2505.21606, 2025.
+[32] Pablo Bermejo, Paolo Braccia, Manuel S. Rudolph, Zoë Holmes, Lukasz Cincio, and M. Cerezo. Quantum convolutional
+neural networks are effectively classically simulable. PRX Quantum, 7:020304, Apr 2026.
+[33] Nicolas Loizeau, J. Clayton Peacock, and Dries Sels. Quantum many-body simulations with PauliStrings.jl. SciPost Phys.
+Codebases, page 54, 2025.
+[34] Matteo D’Anna, Yuxuan Zhang, Roeland Wiersema, Manuel S Rudolph, and Juan Carrasquilla. Circuit compression for
+2d quantum dynamics. arXiv preprint arXiv:2507.01883, 2025.
+[35] Aaron Miller, Joachim Favre, Zoë Holmes, Özlem Salehi, Rahul Chakraborty, Anton Nykänen, Zoltán Zimborás, Adam Glos,
+and Guillermo García-Pérez. Simulation of fermionic circuits using majorana propagation. arXiv preprint arXiv:2503.18939,
+2025.
+[36] Varun Upreti and Ulysse Chabaud. Interplay of resources for universal continuous-variable quantum computing. arXiv
+preprint arXiv:2502.07670, 2025.
+[37] Varun Upreti, Ulysse Chabaud, Zoë Holmes, and Armando Angrisani. When quantum resources backfire: Non-gaussianity
+and symplectic coherence in noisy bosonic circuits. arXiv preprint arXiv:2510.07264, 2025.
+[38] Giorgio Facelli, Hamza Fawzi, and Omar Fawzi. Fast convergence of majorana propagation for weakly interacting fermions.
+arXiv preprint arXiv:2601.05226, 2026.
+[39] Tomislav Begušić, Johnnie Gray, and Garnet Kin-Lic Chan. Fast and converged classical simulations of evidence for the
+utility of quantum computing before fault tolerance. Science Advances, 10(3):eadk4321, 2024.
+[40] Rafael Gómez-Lurbe and Armando Pérez. Pauli propagation for imaginary time evolution. arXiv preprint arXiv:2601.14400,
+2026.
+[41] Manuel S Rudolph, Armando Angrisani, Andrew Wright, Iwo Sanderski, Ricard Puig, and Zoë Holmes. Thermal state
+simulation with pauli and majorana propagation. arXiv preprint arXiv:2602.04878, 2026.
+[42] Zong-Liang Li and Shi-Xin Zhang. Dual role of low-weight pauli propagation: A flawed simulator but a powerful initializer
+for variational quantum algorithms. Phys. Rev. Res., 8:013266, Mar 2026.
+[43] Pauline J. Ollitrault, Cristian L. Cortes, Jérôme F. Gonthier, Robert M. Parrish, Dario Rocca, Gian-Luca Anselmetti,
+Matthias Degroote, Nikolaj Moll, Raffaele Santagati, and Michael Streif. Enhancing initial state overlap through orbital
+optimization for faster molecular electronic ground-state energy estimation. Phys. Rev. Lett., 133:250601, Dec 2024.
+[44] Lin Lin and Yu Tong. Optimal polynomial based quantum eigenstate filtering with application to solving quantum linear
+systems. Quantum, 4:361, November 2020.
+[45] Viacheslav V. Kuzmin and Pietro Silvi. Variational quantum state preparation via quantum data buses. Quantum, 4:290,
+July 2020.
+[46] Youle Wang, Guangxi Li, and Xin Wang. Variational quantum gibbs state preparation with a truncated taylor series.
+Phys. Rev. Appl., 16:054035, Nov 2021.
+[47] Sumeet Khatri, Ryan LaRose, Alexander Poremba, Lukasz Cincio, Andrew T. Sornborger, and Patrick J. Coles. Quantum-
+assisted quantum compiling. Quantum, 3:140, May 2019.
+[48] Tyson Jones and Simon C. Benjamin. Robust quantum compilation and circuit optimisation via energy minimisation.
+Quantum, 6:628, January 2022.
+[49] M. Cerezo, Andrew Arrasmith, Ryan Babbush, Simon C. Benjamin, Suguru Endo, Keisuke Fujii, Jarrod R. McClean,
+Kosuke Mitarai, Xiao Yuan, Lukasz Cincio, and Patrick J. Coles. Variational quantum algorithms. Nature Reviews Physics,
+3(9):625–644, Sep 2021.
+[50] Alberto Peruzzo, Jarrod McClean, Peter Shadbolt, Man-Hong Yung, Xiao-Qi Zhou, Peter J. Love, Alán Aspuru-Guzik, and
+Jeremy L. O’Brien. A variational eigenvalue solver on a photonic quantum processor. Nature Communications, 5(1):4213,
+Jul 2014.
+[51] Manuel S Rudolph, Jacob Miller, Danial Motlagh, Jing Chen, Atithi Acharya, and Alejandro Perdomo-Ortiz. Synergistic
+pretraining of parametrized quantum circuits via tensor networks. Nature Communications, 14(1):8367, 2023.
+[52] Ken N. Okada, Keita Osaki, Kosuke Mitarai, and Keisuke Fujii. Classically optimized variational quantum eigensolver
+with applications to topological phases. Phys. Rev. Res., 5:043217, Dec 2023.
+[53] Abid Khan, Bryan K Clark, and Norm M Tubman. Pre-optimizing variational quantum eigensolvers with tensor networks.
+arXiv preprint arXiv:2310.12965, 2023.
+12
+[54] Marcello Benedetti, Erika Lloyd, Stefan Sack, and Mattia Fiorentini. Parameterized quantum circuits as machine learning
+models. Quantum Science and Technology, 4(4):043001, nov 2019.
+[55] Guillaume Verdon, Michael Broughton, Jarrod R McClean, Kevin J Sung, Ryan Babbush, Zhang Jiang, Hartmut Neven,
+and Masoud Mohseni. Learning to learn with quantum neural networks via classical neural networks. arXiv preprint
+arXiv:1907.05415, 2019.
+[56] Kouhei Nakaji, Shumpei Uno, Yohichi Suzuki, Rudy Raymond, Tamiya Onodera, Tomoki Tanaka, Hiroyuki Tezuka, Naoki
+Mitsuda, and Naoki Yamamoto. Approximate amplitude encoding in shallow parameterized quantum circuits and its
+application to financial market indicators. Phys. Rev. Res., 4:023136, May 2022.
+[57] Naoki Mitsuda, Tatsuhiro Ichimura, Kouhei Nakaji, Yohichi Suzuki, Tomoki Tanaka, Rudy Raymond, Hiroyuki Tezuka,
+Tamiya Onodera, and Naoki Yamamoto. Approximate complex amplitude encoding algorithm and its application to data
+classification problems. Phys. Rev. A, 109:052423, May 2024.
+[58] Kaining Zhang, Xinbiao Wang, Yuxuan Du, Min-Hsiu Hsieh, and Dacheng Tao. AQER: A scalable and efficient data
+loader for digital quantum computers. In The Fourteenth International Conference on Learning Representations, 2026.
+[59] Richard P Feynman. Simulating physics with computers. International Journal of Theoretical Physics, 21(6/7), 1982.
+[60] Seth Lloyd. Universal quantum simulators. Science, 273(5278):1073–1078, 1996.
+[61] David Elieser Deutsch. Quantum computational networks. Proceedings of the Royal Society of London. A. Mathematical
+and Physical Sciences, 425(1868):73–90, 09 1989.
+[62] Carl W. Helstrom. Quantum detection and estimation theory. Journal of Statistical Physics, 1(2):231–252, Jun 1969.
+[63] P. J. J. O’Malley, R. Babbush, I. D. Kivlichan, J. Romero, J. R. McClean, R. Barends, J. Kelly, P. Roushan, A. Tranter,
+N. Ding, B. Campbell, Y. Chen, Z. Chen, B. Chiaro, A. Dunsworth, A. G. Fowler, E. Jeffrey, E. Lucero, A. Megrant,
+J. Y. Mutus, M. Neeley, C. Neill, C. Quintana, D. Sank, A. Vainsencher, J. Wenner, T. C. White, P. V. Coveney, P. J.
+Love, H. Neven, A. Aspuru-Guzik, and J. M. Martinis. Scalable quantum simulation of molecular energies. Phys. Rev. X,
+6:031007, Jul 2016.
+[64] Abhinav Kandala, Antonio Mezzacapo, Kristan Temme, Maika Takita, Markus Brink, Jerry M. Chow, and Jay M.
+Gambetta.
+Hardware-efficient variational quantum eigensolver for small molecules and quantum magnets.
+Nature,
+549(7671):242–246, Sep 2017.
+[65] Xinbiao Wang, Junyu Liu, Tongliang Liu, Yong Luo, Yuxuan Du, and Dacheng Tao. Symmetric pruning in quantum
+neural networks. In International Conference on Learning Representations, 2023.
+[66] K. Mitarai, M. Negoro, M. Kitagawa, and K. Fujii. Quantum circuit learning. Phys. Rev. A, 98:032309, Sep 2018.
+[67] Vojtěch Havlíček, Antonio D. Córcoles, Kristan Temme, Aram W. Harrow, Abhinav Kandala, Jerry M. Chow, and Jay M.
+Gambetta. Supervised learning with quantum-enhanced feature spaces. Nature, 567(7747):209–212, Mar 2019.
+[68] Maria Schuld, Alex Bocharov, Krysta M. Svore, and Nathan Wiebe. Circuit-centric quantum classifiers. Phys. Rev. A,
+101:032308, Mar 2020.
+[69] Zhihao Cheng, Kaining Zhang, Li Shen, and Dacheng Tao. Offline quantum reinforcement learning in a conservative
+manner. In Proceedings of the AAAI conference on artificial intelligence, volume 37, pages 7148–7156, 2023.
+[70] Zhihao Cheng, Kaining Zhang, Li Shen, and Dacheng Tao. Quantum imitation learning. IEEE Transactions on Neural
+Networks and Learning Systems, 35(10):14190–14204, 2024.
+[71] Yuxuan Du, Xinbiao Wang, Naixu Guo, Zhan Yu, Yang Qian, Kaining Zhang, Min-Hsiu Hsieh, Patrick Rebentrost,
+and Dacheng Tao. A Gentle Introduction to Quantum Machine Learning. Artificial Intelligence (R0). Springer Nature
+Singapore, 2025.
+[72] Ville Bergholm, Josh Izaac, Maria Schuld, Christian Gogolin, Shahnawaz Ahmed, Vishnu Ajith, M Sohaib Alam, Guillermo
+Alonso-Linaje, Bharath AkashNarayanan, Ali Asadi, et al. Pennylane: Automatic differentiation of hybrid quantum-classical
+computations. arXiv preprint arXiv:1811.04968, 2018.
+[73] Ali Javadi-Abhari, Matthew Treinish, Kevin Krsulich, Christopher J Wood, Jake Lishman, Julien Gacon, Simon Martiel,
+Paul D Nation, Lev S Bishop, Andrew W Cross, et al. Quantum computing with qiskit. arXiv preprint arXiv:2405.08810,
+2024.
+[74] Maria Schuld, Ville Bergholm, Christian Gogolin, Josh Izaac, and Nathan Killoran. Evaluating analytic gradients on
+quantum hardware. Phys. Rev. A, 99:032331, Mar 2019.
+[75] Gavin E Crooks. Gradients of parameterized quantum gates using the parameter-shift rule and gate decomposition. arXiv
+preprint arXiv:1905.13311, 2019.
+[76] David Wierichs, Josh Izaac, Cody Wang, and Cedric Yen-Yu Lin. General parameter-shift rules for quantum gradients.
+Quantum, 6:677, March 2022.
+[77] Amira Abbas, David Sutter, Christa Zoufal, Aurelien Lucchi, Alessio Figalli, and Stefan Woerner. The power of quantum
+neural networks. Nature Computational Science, 1(6):403–409, Jun 2021.
+[78] Matthias C. Caro, Hsin-Yuan Huang, M. Cerezo, Kunal Sharma, Andrew Sornborger, Lukasz Cincio, and Patrick J. Coles.
+Generalization in quantum machine learning from few training data. Nature Communications, 13(1):4919, Aug 2022.
+[79] Xinbiao Wang, Yuxuan Du, Kecheng Liu, Yong Luo, Bo Du, and Dacheng Tao. Separable power of classical and quantum
+learning protocols through the lens of no-free-lunch theorem. arXiv preprint arXiv:2405.07226, 2024.
+[80] Huan-Yu Liu, Zhao-Yun Chen, Tai-Ping Sun, Cheng Xue, Yu-Chun Wu, and Guo-Ping Guo. Can variational quantum
+algorithms demonstrate quantum advantages? time really matters. arXiv preprint arXiv:2307.04089, 2023.
+[81] Daniel Gottesman. The heisenberg representation of quantum computers. arXiv preprint quant-ph/9807006, 1998.
+[82] Erik Hostens, Jeroen Dehaene, and Bart De Moor. Stabilizer states and clifford operations for systems of arbitrary
+dimensions and modular arithmetic. Phys. Rev. A, 71:042315, Apr 2005.
+13
+[83] Manuel S Rudolph, Enrico Fontana, Zoë Holmes, and Lukasz Cincio. Classical surrogate simulation of quantum systems
+with lowesa. arXiv preprint arXiv:2308.09109, 2023.
+[84] Nikita A. Nemkov, Evgeniy O. Kiktenko, and Aleksey K. Fedorov. Fourier expansion in variational quantum algorithms.
+Phys. Rev. A, 108:032406, Sep 2023.
+[85] Bela Bauer, Sergey Bravyi, Mario Motta, and Garnet Kin-Lic Chan. Quantum algorithms for quantum chemistry and
+quantum materials science. Chemical reviews, 120(22):12685–12717, 2020.
+[86] Maria Schuld, Ryan Sweke, and Johannes Jakob Meyer. Effect of data encoding on the expressive power of variational
+quantum-machine-learning models. Physical Review A, 103(3):032430, 2021.
+[87] Daniel J. Egger, Jakub Mareček, and Stefan Woerner. Warm-starting quantum optimization. Quantum, 5:479, June 2021.
+[88] Yun-Fei Niu, Shuo Zhang, and Wan-Su Bao. Warm starting variational quantum algorithms with near clifford circuits.
+Electronics, 12(2), 2023.
+[89] Huan-Yu Liu, Tai-Ping Sun, Yu-Chun Wu, Yong-Jian Han, and Guo-Ping Guo.
+Mitigating barren plateaus with
+transfer-learning-inspired parameter initializations. New Journal of Physics, 25(1):013039, 2023.
+[90] Baptiste Anselme Martin and Thomas Ayral.
+Pre-optimization of quantum circuits, barren plateaus and classical
+simulability: tensor networks to unlock the variational quantum eigensolver. arXiv preprint arXiv:2602.04676, 2026.
+[91] Pierre Pfeuty. The one-dimensional ising model with a transverse field. Annals of Physics, 57(1):79–90, 1970.
+[92] Sacha Lerch, Ricard Puig, Manuel S. Rudolph, Armando Angrisani, Tyson Jones, M. Cerezo, Supanut Thanasilp, and Zoë
+Holmes. Efficient quantum-enhanced classical simulation for patches of quantum landscapes. PRX Quantum, 7:020359,
+Jun 2026.
+[93] Yuxuan Du, Min-Hsiu Hsieh, and Dacheng Tao. Efficient learning for linear properties of bounded-gate quantum circuits.
+Nature Communications, 16(1):3790, Apr 2025.
+[94] Wei-You Liao, Ge Yan, Yujin Song, Tian-Ci Tian, Wei-Ming Zhu, De-Tao Jiang, Yuxuan Du, and He-Liang Huang.
+Sample-efficient quantum error mitigation via classical learning surrogates. arXiv preprint arXiv:2511.07092, 2025.
+[95] Wei-You Liao, Yuxuan Du, Xinbiao Wang, Tian-Ci Tian, Yong Luo, Bo Du, Dacheng Tao, and He-Liang Huang.
+Demonstration of efficient predictive surrogates for large-scale quantum processors. Nature Communications, 17(1):4731,
+May 2026.
+[96] Hrant Gharibyan, Siddharth Hariprakash, Mohammed Zuhair Mullath, and Vincent P Su. A practical guide to using pauli
+path simulators for utility-scale quantum experiments. arXiv preprint arXiv:2507.10771, 2025.
+[97] Yuguo Shao, Song Cheng, and Zhengwei Liu. Pauli propagation: Simulating quantum spin dynamics via operator
+complexity. arXiv preprint arXiv:2510.22311, 2025.
+[98] Armando Angrisani, Antonio A. Mele, Manuel S. Rudolph, M. Cerezo, and Zoë Holmes. Simulating quantum circuits with
+arbitrary local noise using pauli propagation. PRX Quantum, 7:020313, Apr 2026.
+[99] Kaining Zhang, Liu Liu, Min-Hsiu Hsieh, and Dacheng Tao. Escaping from the barren plateau via gaussian initializations
+in deep variational quantum circuits. Advances in Neural Information Processing Systems, 35:18612–18627, 2022.
+[100] Yabo Wang, Bo Qi, Chris Ferrie, and Daoyi Dong. Trainability enhancement of parameterized quantum circuits via
+reduced-domain parameter initialization. Phys. Rev. Appl., 22:054005, Nov 2024.
+[101] Hela Mhiri, Ricard Puig, Sacha Lerch, Manuel S Rudolph, Thiparat Chotibut, Supanut Thanasilp, and Zoë Holmes. A
+unifying account of warm start guarantees for patches of quantum landscapes. arXiv preprint arXiv:2502.07889, 2025.
+[102] Yifeng Peng, Xinyi Li, Samuel Yen-Chi Chen, Kaining Zhang, Zhiding Liang, Ying Wang, and Yuxuan Du. TITAN: A
+trajectory-informed technique for adaptive parameter freezing in large-scale VQE. In The Thirty-ninth Annual Conference
+on Neural Information Processing Systems, 2025.
+[103] Jarrod R. McClean, Sergio Boixo, Vadim N. Smelyanskiy, Ryan Babbush, and Hartmut Neven. Barren plateaus in quantum
+neural network training landscapes. Nature Communications, 9(1):4812, Nov 2018.
+[104] Martín Larocca, Supanut Thanasilp, Samson Wang, Kunal Sharma, Jacob Biamonte, Patrick J. Coles, Lukasz Cincio,
+Jarrod R. McClean, Zoë Holmes, and M. Cerezo. Barren plateaus in variational quantum computing. Nature Reviews
+Physics, 7(4):174–189, Apr 2025.
+[105] Kaining Zhang, Junyu Liu, Liu Liu, Liang Jiang, Min-Hsiu Hsieh, and Dacheng Tao. The curse of random quantum data.
+arXiv preprint arXiv:2408.09937, 2024.
+14
+CONTENTS
+I. Introduction
+1
+II. Preliminary
+2
+III. Biased gradient estimation for Tb-PBS
+4
+IV. SPPS: a faithful simulator for large-scale quantum optimization tasks
+4
+A. Algorithm framework of SPPS
+5
+B. Theoretical analysis of SPPS
+6
+V. Experiments
+6
+A. Experimental Settings
+7
+B. Experimental results
+7
+VI. Conclusion
+9
+References
+10
+A. More preliminaries and related work
+15
+1. Notations
+15
+2. Basics of quantum computing
+15
+3. Pauli path propagation in the Heisenberg picture
+16
+4. Related work
+17
+B. Tb-PBS leads to biased gradient (Proof of Theorem 1)
+18
+1. Explicit case with standard truncation rules
+20
+C. Tb-PBS leads to sub-optimal convergence (Proof of Corollary 1)
+22
+D. Implementation details of SPPS
+25
+1. Sequential path sampling and importance reweighting
+25
+2. Choice of the smoothing parameter
+26
+3. Path automatic differentiation
+26
+4. Numerically stable PAD implementation
+27
+5. Adaptive gradient-error proxy
+28
+6. Implementation summary
+29
+E. SPPS generates unbiased gradients (Proof of Theorem 2)
+29
+1. Single-sample variance for Gradient estimation
+29
+2. High-probability bounds for gradient estimation
+32
+F. Convergence guarantee for SPPS-driven gradient descent optimization (Proof of Corollary 2)
+34
+1. A variance-based first-order convergence guarantee for quantum optimization
+34
+15
+2. Variance of the full SPPS gradient estimator
+37
+3. Convergence complexity of SPPS-based SGD
+39
+G. Experimental settings and additional experimental results
+40
+1. Experimental settings
+40
+2. Additional VQE results
+41
+3. Additional state-preparation results
+42
+Appendix A: More preliminaries and related work
+In this appendix, we first introduce notations used in this work and the basics of quantum computing. Subsequently,
+we briefly outline the implementation of the PBS method. Finally, we provide a brief review of the literature on classical
+simulation of quantum circuits using PBS method.
+1.
+Notations
+We summarize the notation used throughout this work. For a positive integer N, we denote [N] = {1, . . . , N}. Vectors
+are written in bold font, for example, aj denotes the j-th component of a vector a. The tensor product is denoted by
+⊗, the conjugate transpose of A by A†, and the trace by Tr[A]. We use E[·] and Var[·] for expectation and variance.
+The notation O(·) and ˜O(·) is used for asymptotic complexity, with ˜O(·) suppressing logarithmic factors. For vectors,
+∥· ∥2 denotes the Euclidean norm. For matrices or observables, ∥· ∥2 denotes the spectral norm, i.e., the largest
+singular value.
+2.
+Basics of quantum computing
+Basics of quantum computation. The elementary unit of quantum computation is the qubit (or quantum bit),
+which is the quantum mechanical analog of a classical bit. A qubit is a two-level quantum-mechanical system described
+by a unit vector in the Hilbert space C2. In Dirac notation, a qubit state is defined as |ϕ⟩= c0 |0⟩+ c1 |1⟩∈C2 where
+|0⟩= [1, 0]⊤and |1⟩= [0, 1]T specify two unit bases and the coefficients c0, c1 ∈C yield |c0|2 + |c1|2 = 1. Similarly,
+the quantum state of n qubits is defined as a unit vector in C2n, i.e., |ψ⟩= P2n
+j=1 cj |ej⟩, where |ej⟩∈R2n is the
+computational basis whose j-th entry is 1 and other entries are 0, and P2n
+j=1 |cj|2 = 1 with cj ∈C. Besides Dirac
+notation, the density matrix can be used to describe more general qubit states. For example, the density matrix of
+the state |ψ⟩is ρ = |ψ⟩⟨ψ| ∈C2n×2n, where ⟨ψ| = |ψ⟩† refers to the complex conjugate transpose of |ψ⟩. For a set of
+qubit states {pj, |ψj⟩}m
+j=1 with pj > 0, Pm
+j=1 pj = 1, and |ψj⟩∈C2n for j ∈[m], its density matrix is ρ = Pm
+j=1 pjρj
+with ρj = |ψj⟩⟨ψj| and Tr(ρ) = 1.
+A quantum gate is a unitary operator that can evolve a quantum state ρ to another quantum state ρ′. Namely, an
+n-qubit gate U ∈U(2n) obeys UU † = U †U = I2n, where U(2n) refers to the unitary group in dimension 2n. Typical
+single-qubit quantum gates include the Pauli gates, which can be written as Pauli matrices:
+X =
+
+0 1
+1 0
+
+,
+Y =
+
+0 −ı
+ı
+0
+
+,
+Z =
+
+1
+0
+0 −1
+
+.
+(A1)
+The more general quantum gates are their corresponding rotation gates RX(θ) = e−ı θ
+2 X, RY (θ) = e−ı θ
+2 Y , and
+RZ(θ) = e−ı θ
+2 Z with a tunable parameter θ, which can be written in the matrix form as
+RX(θ) =
+
+cos θ
+2
+−ı sin θ
+2
+−ı sin θ
+2
+cos θ
+2
+
+, RY (θ) =
+
+cos θ
+2 −sin θ
+2
+sin θ
+2
+cos θ
+2
+
+, RZ(θ) =
+
+e−ı θ
+2
+0
+0
+eı θ
+2
+
+.
+(A2)
+16
+They are equivalent to rotating a tunable angle θ around x, y, and z axes of the Bloch sphere, and recovering the
+Pauli gates X, Y , and Z when θ = π. Moreover, a multi-qubit gate can be either an individual gate (e.g., CNOT gate)
+or a tensor product of multiple single-qubit gates.
+The quantum measurement refers to the procedure of extracting classical information from the quantum state. It is
+mathematically specified by a Hermitian matrix H called the observable. Applying the observable H to the quantum
+state |ψ⟩yields a random variable whose expectation value is ⟨ψ| H |ψ⟩.
+Hamiltonian and ground state. In quantum computation, a Hamiltonian is a Hermitian matrix that is used
+to characterize the evolution of a quantum system or as an observable to extract the classical information from
+the quantum system. Specifically, under the Schrödinger equation, a quantum gate has the mathematical form of
+U = e−itH, where H is a Hermitian matrix, called the Hamiltonian of the quantum system, and t refers to the evolution
+time of the Hamiltonian. Typical single-qubit Hamiltonians include the Pauli matrices defined in Eq. (A1). As a
+result, the evolution time t refers to the tunable parameter θ in Eq. (A2). Any single-qubit Hamiltonian can be
+decomposed as the linear combination of Pauli matrices, i.e., H = a1I + a2X + a3Y + a4Z with aj ∈C. In the same
+way, a multi-qubit Hamiltonian is denoted by H = P4n
+j=1 ajPj, where Pj ∈{I, X, Y, Z}⊗n is the tensor product of
+Pauli matrices. In quantum chemistry and quantum many-body physics, the Hermitian matrix that describes the
+quantum system to be solved is denoted as the problem Hamiltonian HC.
+When taking the problem Hamiltonian as the observable, the quantum state |ψ∗⟩is said to be the ground state of
+problem Hamiltonian H if the expectation value ⟨ψ∗| H |ψ∗⟩takes the minimum eigenvalue of H, which is called the
+ground energy. The ground states encode much essential information about the problem Hamiltonian, such as the
+critical behavior of quantum many-body systems, or the optimal solution of an optimization problem related to the
+problem Hamiltonian.
+3.
+Pauli path propagation in the Heisenberg picture
+Let Pn = {sP : s ∈{±1}, P ∈{I, X, Y, Z}⊗n} be the set of n-qubit Pauli strings with an overall sign ±1. Then, any
+Hermitian observable admits a Pauli expansion
+O =
+NO
+X
+k=1
+ckOk,
+Ok ∈Pn, ck > 0.
+(A3)
+We consider a parameterized circuit consisting solely of Pauli rotations {RGj}L
+j=1 and Clifford gates {Vj}L
+j=1:
+U(θ) =
+L
+Y
+j=1
+RGj(θj)Vj,
+RGj(θj) := exp (−ıθjGj/2) ,
+Gj ∈Pn.
+(A4)
+For an input state ρ, the expectation value is
+f(θ) = Tr
+
+OU(θ)ρU(θ)†
+=
+NO
+X
+k=1
+ckTr [ρOk,L(θ)] ,
+(A5)
+where we define the Heisenberg evolution of each Pauli term by the recursion
+Ok,0 := Ok,
+Ok,j(θ) := V †
+j RGj(θj)†Ok,j−1(θ)RGj(θj)Vj,
+j = 1, . . . , L.
+(A6)
+Next, we derive the update rule in Eq. (A6). Since conjugation is linear, it suffices to describe the update of a single
+Pauli operator P appearing in the expansion of Ok,j−1(θ) under the j-th evolution. A Pauli operator either commutes
+or anti-commutes with the generator Gj. Thus, the conjugation takes the form
+V †
+j RGj(θj)†PRGj(θj)Vj =
+(
+V †
+j PVj,
+[P, Gj] = 0,
+cos(θj)V †
+j PVj + sin(θj)(ıV †
+j GjPVj),
+{P, Gj} = 0,
+(A7)
+where V †
+j PVj and ıV †
+j GjPVj are Pauli strings with a sign ±1.
+Applying Eq. (A7) repeatedly to Eq. (A6) for
+j = 1, · · · , L yields that, for every k, the Heisenberg-evolved operator admits an explicit pattern formulation
+Ok,L(θ) =
+X
+ω∈Ωk
+Pω(Ok)Ψω(θ)
+(A8)
+17
+with
+Ψω(θ) =
+L
+Y
+j=1
+(cos θj)I[ωj=1](sin θj)I[ωj=−1],
+(A9)
+Pω(Ok) =
+
+
+1
+Y
+j=L
+V †
+j (ıGj)I[ωj=−1]
+
+Ok
+
+
+L
+Y
+j=1
+Vj
+
+,
+(A10)
+where the pattern ω = (ω1, . . . , ωL) ∈{0, ±1}L records the propagation mode. Concretely, for each layer j ∈{1, . . . , L},
+ωj =
+
+
+
+
+
+0,
+if the current Pauli string commutes with Gj,
++1,
+if it anti-commutes with Gj and the cos -branch is chosen,
+−1,
+if it anti-commutes with Gj and the sin -branch is chosen.
+(A11)
+Here Ωk ⊆{0, ±1}L denotes the set of legal patterns starting from Ok,0 = Ok, i.e., those that are consistent with
+whether each intermediate Pauli operator commutes or anti-commutes with the corresponding generator. Applying
+Eq. (A8) in Eq. (A5) yields the Pauli expansion of the expectation value:
+f(θ) =
+NO
+X
+k=1
+X
+ω∈Ωk
+ckΨω(θ)Tr [Pω(Ok)ρ] =
+NO
+X
+k=1
+X
+ω∈Ωk
+ckfω(θ; Ok),
+(A12)
+where we denote
+fω(θ; Ok) := Ψω(θ)Tr [Pω(Ok)ρ] .
+(A13)
+4.
+Related work
+We review prior PBS methods that are most relevant to truncation-based PBS (Tb-PBS). PBS provides a Heisenberg-picture
+framework for estimating expectation values by expanding the evolved observable in the Pauli basis [20, 22–25, 27, 29].
+Since the number of propagation paths can grow exponentially with the number of non-Clifford gates, practical
+simulators typically control the expansion by discarding a subset of paths or Pauli strings during propagation. Existing
+Tb-PBS methods can be broadly categorized according to their truncation criterion: frequency truncation (FT-PBS),
+coefficient truncation (CT-PBS), and weight truncation (WT-PBS).
+FT-PBS method. One line of work truncates the Pauli-path expansion by restricting the Fourier level of the propagated
+observable, equivalently retaining only terms with a bounded number of nonzero sine or cosine factors [23, 24, 83, 84, 92–
+95]. Such approaches are well motivated in near-Clifford or noisy regimes, where high-frequency components are
+suppressed and low-frequency surrogates can approximate expectation values with controlled error [23, 24]. LOWESA-
+type methods, for example, exploit noise-induced damping to obtain efficient classical surrogates for noisy variational
+circuits [24, 83].
+Learning-based surrogate models based on frequency truncations have also been theoretically
+characterized for noiseless bounded-gate circuits [93] and experimentally demonstrated on quantum processors [94, 95].
+However, these guarantees are primarily designed for expectation-value estimation. For optimization, the relevant
+object is the gradient field, and Fourier analyses of variational quantum circuits suggest that derivative information
+can depend on modes that are different from, and often less compressed than, those dominating the function value [84].
+Consequently, a frequency cutoff that accurately approximates the objective value may still remove paths that make
+non-negligible contributions to the gradient.
+CT-PBS method. A second class of methods, often described as sparse Pauli dynamics or Pauli-path simulation,
+prunes Pauli strings or paths whose instantaneous coefficients fall below a prescribed threshold [22, 29, 39, 96, 97].
+These methods are simple and effective when the Heisenberg-evolved observable remains sparse in the Pauli basis,
+and they have been successfully applied to spin dynamics, utility-scale state-preparation benchmarks, and practical
+Pauli-path simulations with empirical convergence diagnostics [22, 29, 39]. Nevertheless, the coefficient magnitude
+is not a reliable proxy for gradient contribution. A path with a small coefficient can have a large derivative with
+respect to a circuit parameter; for instance, when a final branching angle is close to zero, the sine branch has coefficient
+sin(θj) but derivative cos(θj), which remains order one. Thus, coefficient truncation can preserve the dominant value
+contributions while discarding terms that determine the local descent direction. This mismatch becomes particularly
+problematic in iterative optimization, where the relevant coefficients change after every parameter update.
+18
+WT-PBS method. A third family of methods restricts the operator space by retaining only Pauli strings or Pauli
+paths with bounded Pauli weight, namely those supported on at most a prescribed number of non-identity single-qubit
+factors [21, 25–28, 98]. The motivation is that local noise, scrambling, or average-case randomness can suppress
+high-weight components of the Heisenberg-evolved observable. In noisy circuits, recent results establish polynomial
+or quasi-polynomial simulation guarantees by showing that high-weight Pauli components are exponentially damped
+under suitable local noise models [25, 27, 98]. Related noiseless average-case analyses show that low-weight Pauli
+propagation can approximate expectation values for certain locally scrambling circuit ensembles [21, 28]. However, these
+results typically concern expectation estimation under structural assumptions such as local noise, sparse observables,
+average-case circuit distributions, or restricted non-Clifford resources. They do not directly provide guarantees for
+gradient-based optimization of fixed variational circuits with non-uniform and correlated parameters, such as QAOA,
+Hamiltonian variational ansätze, or trained quantum neural networks. Empirical evidence further indicates that
+low-weight Pauli propagation can yield biased gradients in variational optimization [42].
+Despite their different motivations, the above methods share a common principle: they replace the full Pauli-path
+expansion by a deterministic truncated subset chosen mainly to control expectation-value error. This design is suitable
+for forward simulation, but it does not in general control the bias of the gradient estimator or the optimization
+trajectory induced by that bias. Our work addresses this gap by avoiding deterministic path truncation. SPPS samples
+from the full legal Pauli-path space and uses importance reweighting together with path automatic differentiation
+to construct unbiased stochastic estimators of both expectation values and gradients. This shifts PBS from static
+expectation estimation to faithful simulation of gradient-based quantum optimization.
+Appendix B: Tb-PBS leads to biased gradient (Proof of Theorem 1)
+In this appendix, we prove that Tb-PBS approximate the expectation value with arbitrarily small error while inducing
+a non-vanishing gradient bias. In particular, Theorem 3 establishes this separation by showing that removing a single
+value-small but derivative-large path can yield an ϵ-accurate value estimator with order-one gradient error. Sec. B 1
+then shows that CT-, FT-, and WT-PBS can realize this removal in explicit circuits.
+Theorem 3 (Formal statement of Theorem 1). Using the notation introduced in Section A 3, consider the function
+f(θ) = Tr
+
+OU(θ)ρU †(θ)
+
+=
+X
+ω∈Ω
+Ψω(θ)Tr
+
+Pω(O)ρ
+
+,
+(B1)
+where ρ = (|0⟩⟨0|)⊗n, O is a Pauli observable, and f is non-constant on RL. Then, for any ϵ ∈(0, 1), there exist a set
+ˆΩ⊊Ωand a region Θ ⊂RL such that, for any θ ∈Θ,
+ ˆf(θ) −f(θ)
+ ≤ϵ,
+(B2)
+∇θ ˆf(θ) −∇θf(θ)
+
+2 ≥1 −ϵ,
+(B3)
+where
+ˆf(θ) =
+X
+ω∈ˆΩ
+Ψω(θ)Tr
+
+Pω(O)ρ
+
+.
+(B4)
+Proof. Since f is non-constant, there exists at least one coordinate j ∈[L] such that ∂θjf is not identically zero.
+Differentiating Eq. (B1) with respect to θj gives
+∂θjf(θ) =
+X
+ω∈Ω: ωj̸=0
+∂θjΨω(θ) Tr[Pω(O)ρ].
+(B5)
+If Tr[Pω(O)ρ] = 0 for every path with ωj̸ = 0, then ∂θjf would vanish identically, contradicting the choice of j. Hence,
+there exists a path ω∗∈Ωsuch that ω∗
+j ∈{±1} and
+Tr
+
+Pω∗(O)ρ
+̸
+= 0.
+(B6)
+We construct the truncated path set by removing this single path,
+ˆΩ= Ω\ {ω∗}.
+(B7)
+19
+Let
+r(θ) := f(θ) −ˆf(θ) = Ψω∗(θ)Tr
+
+Pω∗(O)ρ
+
+.
+(B8)
+Since ρ = (|0⟩⟨0|)⊗n and Pω∗(O) is a Pauli operator, Eq. (B6) implies
+Tr
+
+Pω∗(O)ρ
+
+= ±1.
+(B9)
+Indeed, the expectation is nonzero only when Pω∗(O) ∈{±1} × {I, Z}⊗n. Therefore,
+|r(θ)| =
+Ψω∗(θ)
+,
+(B10)
+∥∇θr(θ)∥2 = ∥∇θΨω∗(θ)∥2 .
+(B11)
+We next construct a region where the removed path has a small value contribution but a large derivative contribution.
+Let
+Θ = Θ1 × Θ2 × · · · × ΘL,
+(B12)
+where, for each k ∈[L],
+Θk =
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+[−π, π],
+ω∗
+k = 0,
+
+−p ϵ
+L, p ϵ
+L
+
+,
+k̸ = j and ω∗
+k = 1,
+ π
+2 −p ϵ
+L, π
+2 + p ϵ
+L
+
+,
+k̸ = j and ω∗
+k = −1,
+ π
+2 −ϵ, π
+2 + ϵ
+
+,
+k = j and ω∗
+k = 1,
+[−ϵ, ϵ],
+k = j and ω∗
+k = −1.
+(B13)
+We first prove the expectation value error bound. Suppose ω∗
+j = 1. Then, for any θ ∈Θ, we have θj ∈[π/2−ϵ, π/2+ϵ],
+and hence
+| cos θj| ≤sin ϵ ≤ϵ.
+(B14)
+Since all other trigonometric factors in Ψω∗(θ) have magnitude at most one,
+|r(θ)| =
+L
+Y
+k=1
+|cos θk|1[ω∗
+k=1] |sin θk|1[ω∗
+k=−1] ≤| cos θj| ≤ϵ.
+(B15)
+If ω∗
+j = −1, then θj ∈[−ϵ, ϵ], and the same argument gives |r(θ)| ≤| sin θj| ≤ϵ. Therefore,
+| ˆf(θ) −f(θ)| = |r(θ)| ≤ϵ.
+(B16)
+It remains to prove the gradient error bound. Again consider the case ω∗
+j = 1. From Eq. (B11),
+∥∇θr(θ)∥2 ≥
+
+∂
+∂θj
+Ψω∗(θ)
+
+= | sin θj|
+Y
+k̸=j
+| cos θk|1[ω∗
+k=1]| sin θk|1[ω∗
+k=−1]
+≥cos ϵ
+
+cos
+r ϵ
+L
+L
+=
+s
+(1 −sin2 ϵ)
+
+1 −sin2
+r ϵ
+L
+L
+≥
+r
+(1 −ϵ2)
+
+1 −ϵ
+L
+L
+20
+≥
+p
+(1 −ϵ2)(1 −ϵ) ≥1 −ϵ.
+(B17)
+Here we used | sin x| ≤x for x ∈{ϵ,
+p
+ϵ/L} and (1 −ϵ/L)L ≥1 −ϵ. The case ω∗
+j = −1 is analogous. Since
+∇θr(θ) = ∇θf(θ) −∇θ ˆf(θ),
+(B18)
+we obtain
+∇θ ˆf(θ) −∇θf(θ)
+
+2 ≥1 −ϵ.
+(B19)
+1.
+Explicit case with standard truncation rules
+We next provide an explicit n-qubit construction showing that CT, FT, and WT can realize the value-gradient separation
+in Theorem 3. The construction uses a single-qubit observable, while a Clifford fanout layer generates high-weight
+Pauli strings during Heisenberg propagation. Moreover, the truncated estimator retains a nonzero contribution, so the
+separation is not caused by removing all paths.
+Let n ≥3, ρ = (|0⟩⟨0|)⊗n, and consider the single-qubit observable
+O = Z1.
+(B20)
+Let
+C =
+n
+Y
+j=2
+CZ1j
+(B21)
+be a CZ fanout layer. We consider the circuit
+U(θ) = RX1(θ1) C
+
+
+n
+Y
+j=2
+RXj(θj)
+
+RX1(θn+1),
+(B22)
+where θ = (θ1, . . . , θn+1).
+Using
+R†
+Xj(x)ZjRXj(x) = cos x Zj + sin x Yj,
+R†
+Xj(x)YjRXj(x) = cos x Yj −sin x Zj,
+(B23)
+and
+C†Z1C = Z1,
+C†Y1C = Y1Z2 · · · Zn,
+(B24)
+the expectation-value function is
+f(θ) = Tr[U †(θ)OU(θ)ρ] = Fkeep(θ) + Fdrop(θ),
+(B25)
+where
+Fkeep(θ) = cos θ1 cos θn+1,
+Fdrop(θ) = −sin θ1
+
+
+n
+Y
+j=2
+cos θj
+
+sin θn+1.
+(B26)
+All other branches contain at least one X or Y factor and hence have zero expectation under ρ.
+We consider the parameter region
+|θ1| ≤ϵ
+64,
+|θj| ≤
+ϵ
+64n,
+j = 2, . . . , n,
+cos θn+1 =
+√ϵ
+4 ,
+(B27)
+21
+where ϵ ∈(0, 1). On this region, the contribution Fdrop is small in value:
+|Fdrop(θ)| ≤| sin θ1| ≤ϵ
+64 ≤ϵ.
+(B28)
+However, its derivative with respect to θ1 remains order one:
+|∂θ1Fdrop(θ)| = | cos θ1|
+
+
+n
+Y
+j=2
+| cos θj|
+
+| sin θn+1| ≥1 −ϵ.
+(B29)
+The last inequality follows from Eq. (B27) and sin θn+1 =
+p
+1 −ϵ/16.
+We now show that standard truncation rules used in Tb-PBS remove Fdrop while retaining the nonzero contribution
+Fkeep.
+Biased gradients of CT-PBS method. The coefficient magnitude of the path contributing to Fdrop is
+| sin θ1|
+
+
+n
+Y
+j=2
+| cos θj|
+
+| sin θn+1| ≤ϵ
+64.
+(B30)
+In contrast, the coefficient magnitude of the path contributing to Fkeep is
+| cos θ1 cos θn+1| ≥
+√ϵ
+8 .
+(B31)
+Choose the coefficient threshold
+τ =
+√ϵ
+16 .
+(B32)
+Then CT-PBS removes Fdrop and retains Fkeep, yielding
+ˆfCT(θ) = Fkeep(θ).
+(B33)
+Biased gradients of FT-PBS method. The path contributing to Fkeep has Fourier level 2, corresponding to the
+two nonzero factors cos θ1 and cos θn+1. The path contributing to Fdrop has Fourier level n + 1, corresponding to the
+factors
+sin θ1,
+cos θ2, . . . , cos θn,
+sin θn+1.
+(B34)
+Choose the cutoff
+ν = n.
+(B35)
+Then FT-PBS removes Fdrop and retains Fkeep, yielding
+ˆfFT(θ) = Fkeep(θ).
+(B36)
+Biased gradients of WT-PBS method. The path contributing to Fkeep stays supported on qubit 1, so its Pauli
+weight is at most 1 throughout the propagation. In contrast, after the CZ fanout layer, the path contributing to Fdrop
+contains the Pauli string
+Y1Z2 · · · Zn,
+(B37)
+which has Pauli weight n. Choose the Pauli-weight cutoff
+γ = n −1.
+(B38)
+Then WT removes Fdrop and retains Fkeep, yielding
+ˆfWT(θ) = Fkeep(θ).
+(B39)
+Therefore, even with a single-qubit observable, CT, FT, and WT can retain a nonzero truncated estimate while discarding
+a value-small but gradient-dominant propagation path. This establishes an explicit realization of the value-gradient
+separation in Theorem 3.
+22
+Appendix C: Tb-PBS leads to sub-optimal convergence (Proof of Corollary 1)
+In this appendix, we prove that truncation-induced gradient bias can accumulate along optimization trajectories,
+leading to a macroscopic gap between the objective values reached by exact-gradient descent and Tb-PBS-driven
+descent.
+Theorem 4 (Formal statement of Corollary 1). There exist a circuit U(θ), an observable O, and a truncated path set
+ˆΩ⊊Ωproduced by CT, FT, or WT in suitable truncation regimes, such that the following holds. For any ϵ ∈(0, 1), there
+is an initialization θ(0) satisfying
+ ˆf(θ(t)
+tr ) −f(θ(t)
+tr )
+ ≤ϵ,
+∀t ∈N,
+(C1)
+while the exact-gradient trajectory θ(t)
+ex and the Tb-PBS-gradient trajectory θ(t)
+tr obey
+f(θ(t)
+tr ) −f(θ(t)
+ex )
+ ≥Ω(ηt∥O∥2
+2),
+1 ≤t ≤O
+
+1
+η∥O∥2
+
+.
+(C2)
+Moreover, the asymptotic gap satisfies
+lim inf
+t→∞
+f(θ(t)
+tr ) −f(θ(t)
+ex )
+ ≥Ω(∥O∥2).
+(C3)
+Proof. Let n ≥3, let α ≥1, and set
+ρ = (|0⟩⟨0|)⊗n,
+O = αZ1.
+(C4)
+Then O is a scaled single-qubit Pauli observable and
+∥O∥2 = α.
+(C5)
+Let
+C =
+n
+Y
+j=2
+CZ1j
+(C6)
+be a CZ fanout layer. Consider the circuit
+U(θ) = RX1(θ1) C
+
+
+n
+Y
+j=2
+RXj(θj)
+
+RX1
+π
+4
+
+,
+θ = (θ1, . . . , θn),
+(C7)
+where the last rotation is fixed.
+Using
+R†
+Xj(x)ZjRXj(x) = cos x Zj + sin x Yj,
+R†
+Xj(x)YjRXj(x) = cos x Yj −sin x Zj,
+(C8)
+and
+C†Z1C = Z1,
+C†Y1C = Y1Z2 · · · Zn,
+(C9)
+the expectation value function is
+f(θ) = Fkeep(θ) + Fdrop(θ),
+(C10)
+where
+Fkeep(θ) = α
+√
+2 cos θ1,
+Fdrop(θ) = −α
+√
+2 sin θ1
+
+
+n
+Y
+j=2
+cos θj
+
+.
+(C11)
+23
+All other branches contain at least one X or Y factor and therefore have zero expectation under ρ.
+We choose truncation regimes that remove Fdrop while retaining Fkeep. For FT, the retained branch has Fourier level 1,
+whereas the dropped branch has Fourier level n; choose
+ν = n −1.
+(C12)
+For WT, the retained branch stays supported on qubit 1, whereas the dropped branch contains the Pauli string
+Y1Z2 · · · Zn
+(C13)
+after the CZ fanout layer and therefore has Pauli weight n; choose
+γ = n −1.
+(C14)
+For CT, we will initialize the truncated trajectory in a region where the coefficient of Fdrop is uniformly small while the
+coefficient of Fkeep is order one. Specifically, let
+δ = min
+(√
+2 ϵ
+2α , 1
+16
+)
+,
+(C15)
+and choose any fixed threshold
+1
+8 < τ < 1
+2.
+(C16)
+Along the Tb-PBS trajectory constructed below, | sin θ1| ≤δ and | cos θ1| ≥cos δ > 1/2, so CT removes Fdrop and
+retains Fkeep.
+Thus, for CT, FT, and WT, the truncated objective along the Tb-PBS trajectory is
+ˆf(θ) = Fkeep(θ) = α
+√
+2 cos θ1.
+(C17)
+Initialize both trajectories at
+θ(0)
+ex = θ(0)
+tr = (π −δ, 0, . . . , 0).
+(C18)
+Since θ(0)
+j
+= 0 for j = 2, . . . , n and
+∂θjf(θ) = 0,
+∂θj ˆf(θ) = 0
+whenever θj = 0,
+j = 2, . . . , n,
+(C19)
+both trajectories remain in the one-dimensional invariant subspace
+θ(t)
+ex,j = θ(t)
+tr,j = 0,
+j = 2, . . . , n.
+(C20)
+Therefore, it suffices to analyze the first coordinate.
+The Tb-PBS-driven update is
+θ(t+1)
+tr,1
+= θ(t)
+tr,1 + ηα
+√
+2 sin θ(t)
+tr,1.
+(C21)
+Let
+ut = π −θ(t)
+tr,1.
+(C22)
+Then u0 = δ and
+ut+1 = ut −ηα
+√
+2 sin ut.
+(C23)
+For a sufficiently small learning rate, ut decreases monotonically to 0. Hence
+0 ≤ut ≤δ,
+θ(t)
+tr,1 →π.
+(C24)
+24
+In particular, the Tb-PBS trajectory changes with t and converges to the nonzero truncated value
+lim
+t→∞
+ˆf(θ(t)
+tr ) = −α
+√
+2.
+(C25)
+Along this trajectory, the dropped contribution remains uniformly small:
+ ˆf(θ(t)
+tr ) −f(θ(t)
+tr )
+ = |Fdrop(θ(t)
+tr )| = α
+√
+2| sin θ(t)
+tr,1| ≤α
+√
+2δ ≤ϵ,
+∀t ∈N.
+(C26)
+We now compare it with the exact-gradient trajectory. On the invariant subspace, the exact objective reduces to
+f(θ(t)
+ex ) = α
+√
+2
+
+cos θ(t)
+ex,1 −sin θ(t)
+ex,1
+
+.
+(C27)
+Thus the exact-gradient update is
+θ(t+1)
+ex,1
+= θ(t)
+ex,1 + ηα
+√
+2
+
+sin θ(t)
+ex,1 + cos θ(t)
+ex,1
+
+.
+(C28)
+For θ(t)
+ex,1 ∈[7π/8, π], we have
+sin θ(t)
+ex,1 + cos θ(t)
+ex,1 ≤−c0
+(C29)
+for a universal constant c0 > 0. Hence, for 1 ≤t ≤c/(ηα) with a sufficiently small universal constant c > 0, the exact
+trajectory remains in [7π/8, π] and satisfies
+θ(t)
+ex,1 ≤π −δ −c1ηαt
+(C30)
+for another universal constant c1 > 0. Meanwhile, the truncated trajectory satisfies
+θ(t)
+tr,1 ≥π −δ.
+(C31)
+Therefore,
+θ(t)
+tr,1 −θ(t)
+ex,1 ≥c1ηαt.
+(C32)
+The one-dimensional function
+g(x) = α
+√
+2(cos x −sin x)
+(C33)
+has derivative
+g′(x) = α
+√
+2(−sin x −cos x).
+(C34)
+On [7π/8, π], g′(x) ≥c2α for a universal constant c2 > 0. Using Eq. (C32), we obtain
+f(θ(t)
+tr ) −f(θ(t)
+ex )
+ ≥c3ηtα2
+(C35)
+for a universal constant c3 > 0 and all 1 ≤t ≤c/(ηα). Since ∥O∥2 = α and α ≥1, this implies
+f(θ(t)
+tr ) −f(θ(t)
+ex )
+ ≥Ω(ηt∥O∥2
+2),
+1 ≤t ≤O
+
+1
+η∥O∥2
+
+.
+(C36)
+Finally, for a sufficiently small learning rate, Eq. (C21) converges to the local minimizer θtr,1 = π of ˆf, while Eq. (C28)
+converges to the local minimizer θex,1 = 3π/4 of the exact objective in Eq. (C27). Consequently,
+lim
+t→∞f(θ(t)
+tr ) = −α
+√
+2,
+lim
+t→∞f(θ(t)
+ex ) = −α.
+(C37)
+Therefore,
+lim inf
+t→∞
+f(θ(t)
+tr ) −f(θ(t)
+ex )
+ = α
+
+1 −1
+√
+2
+
+= Ω(∥O∥2).
+(C38)
+This completes the proof.
+25
+Appendix D: Implementation details of SPPS
+In this appendix, we practical ingredients used in the implementation of SPPS. In particular, we introduce the sequential
+sampling rule and the importance reweighting procedure, the choice of the smoothing parameter a in the sampling
+distribution, the derivation and numerically stable implementation of path automatic differentiation (PAD), and the
+adaptive gradient-error proxy used to determine the number of samples. Throughout this appendix, we describe the
+estimator for a Pauli observable O ∈Pn by default; for a general observable O = PNO
+m=1 cmOm, SPPS applies the same
+procedure to each Pauli term Om and combines the resulting estimators linearly.
+1.
+Sequential path sampling and importance reweighting
+We follow the notation introduced in Section A 3. For a Pauli observable O ∈Pn, the Heisenberg-picture propagation
+gives
+f(θ) = Tr
+
+OU(θ)ρU(θ)†
+=
+X
+ω∈Ω
+Ψω(θ)Tr [Pω(O)ρ] ,
+(D1)
+where ω = (ω1, . . . , ωL) ∈Ω⊆{0, ±1}L denotes a legal propagation path. In SPPS, paths are sampled sequentially
+during propagation instead of being enumerated explicitly. Therefore, the sampling probability factorizes as
+Pr(ω) =
+L
+Y
+j=1
+Prj(ωj | ω1:j−1).
+(D2)
+At the j-th parametrized gate, the conditional distribution is determined by the commutation relation between the
+currently propagated Pauli operator and the generator of RPj(θj). If they commute, no branching occurs and the path
+variable is deterministic:
+Prj(ωj = 0 | ω1:j−1) = 1.
+(D3)
+If they anti-commute, the propagation splits into the cosine and sine branches. SPPS samples these two branches
+according to
+Prj(ωj = 1 | ω1:j−1) = qj(θ),
+Prj(ωj = −1 | ω1:j−1) = 1 −qj(θ),
+(D4)
+where
+qj(θ) =
+| cos θj| + a
+| cos θj| + | sin θj| + 2a.
+(D5)
+Here, a is a smoothing parameter. When a = 0, the distribution reduces to magnitude-proportional sampling. When
+a > 0, it prevents either branch from having vanishing probability when | cos θj| or | sin θj| is close to zero. This is
+important for gradient estimation, since a branch with a small value coefficient can still have a large derivative.
+For a sampled path ω, SPPS uses importance reweighting to generate unbiased estimation. Define
+˜hω(θ) = Ψω(θ)Tr[Pω(O)ρ]
+Pr(ω)
+.
+(D6)
+Then
+E
+ω∼Pr
+h
+˜hω(θ)
+i
+=
+X
+ω∈Ω
+Pr(ω)Ψω(θ)Tr[Pω(O)ρ]
+Pr(ω)
+= f(θ).
+(D7)
+For B independent samples {ω(b)}B
+b=1, the expectation value estimator is
+˜f(θ) = 1
+B
+B
+X
+b=1
+˜hω(b)(θ).
+(D8)
+26
+2.
+Choice of the smoothing parameter
+The parameter a in Eq. (D5) controls the trade-off between magnitude-proportional sampling and exploration of
+derivative-sensitive branches. In practice, SPPS supports two choices of a.
+Fixed smoothing. The simplest choice is to use a constant smoothing value
+a = a0,
+(D9)
+where a0 > 0 is a small constant. This choice keeps the sampling distribution fixed across observable terms and
+optimization steps, and is convenient when a uniform amount of exploration is desired.
+Adaptive smoothing. For observables with multiple Pauli terms during optimization, SPPS can also allows a
+term-wise adaptive smoothing schedule. Suppose the observable is decomposed as
+O =
+NO
+X
+m=1
+cmOm,
+Om ∈Pn.
+(D10)
+For the m-th Pauli term at optimization step t, the local sampling probability is
+q(t)
+m,j =
+| cos θ(t)
+j | + a(t)
+m
+| cos θ(t)
+j | + | sin θ(t)
+j | + 2a(t)
+m
+.
+(D11)
+The initial value is set as
+a(0)
+m = ainit,
+(D12)
+and is updated after each estimation step according to the empirical average number of nonzero branch variables in
+sampled nonzero paths:
+a(t+1)
+m
+=
+ba
+max{¯r(t)
+m , ϵa}
+.
+(D13)
+Here, ¯r(t)
+m denotes the empirical average number of nonzero entries in the sampled paths for Om, ba > 0 is a scaling
+constant, and ϵa > 0 is a small numerical floor. This rule increases smoothing when sampled paths are sparse
+and decreases smoothing when the propagation already explores many active branches. Thus, SPPS avoids overly
+deterministic sampling in sparse regimes while approaching magnitude-proportional sampling when many nonzero
+branches are naturally activated.
+3.
+Path automatic differentiation
+We now derive the PAD estimator used to obtain gradients from the sampled paths. For a fixed path ω, its contribution
+after importance reweighting as
+˜hω(θ) = Ψω(θ)
+Pr(ω) Tr[Pω(O)ρ] =
+1
+Pr(ω)Tr[Pω(O)ρ]
+Y
+j∈A(ω)
+Ψωj(θj),
+(D14)
+where A(ω) = {j : ωj̸ = 0} is the set of nontrivial branching positions. For j ∈A(ω),
+Ψωj(θj) =
+
+
+
+cos θj,
+ωj = 1,
+sin θj,
+ωj = −1.
+(D15)
+PAD differentiates the path contribution with respect to the trigonometric coefficient. For j /∈A(ω), the path
+contribution does not depend on θj and the derivative is zero. For j ∈A(ω),
+∂θjΨωj(θj) =
+
+
+
+−sin θj,
+ωj = 1,
+cos θj,
+ωj = −1.
+(D16)
+27
+Therefore,
+∂θj˜hω(θ) =
+1
+Pr(ω)Tr[Pω(O)ρ]∂θjΨωj(θj)
+Y
+k∈A(ω)\{j}
+Ψωk(θk),
+j ∈A(ω).
+(D17)
+Equivalently, this derivative can be written in a score-function form:
+∂θj˜hω(θ) = sj(θ, ω)˜hω(θ),
+(D18)
+where
+sj(θ, ω) = −tan θj 1[ωj = 1] + cot θj 1[ωj = −1].
+(D19)
+Combining all components, one SPPS gradient sample is
+˜gω(θ) = (s1(θ, ω), . . . , sL(θ, ω))T ˜hω(θ),
+(D20)
+and the empirical PAD estimator is
+˜g(θ) = 1
+B
+B
+X
+b=1
+˜gω(b)(θ).
+(D21)
+Unbiasedness follows by linearity:
+E
+ω∼Pr [˜gω(θ)] =
+X
+ω∈Ω
+Pr(ω)∇θ
+Ψω(θ)Tr[Pω(O)ρ]
+Pr(ω)
+
+=
+X
+ω∈Ω
+∇θ (Ψω(θ)Tr[Pω(O)ρ]) = ∇θf(θ).
+(D22)
+4.
+Numerically stable PAD implementation
+The score form in Eq. (D18) is algebraically convenient but can be numerically unstable when | cos θj| or | sin θj| is
+close to zero. For example, if ωj = 1 and | cos θj| ≈0, the path value ˜hω(θ) can be very small while −tan θj is very
+large. Their product is finite, but evaluating it directly may suffer from overflow or cancellation.
+To avoid this issue, the practical implementation of PAD uses the following stable equivalent of Eq. (D17). Define the
+product excluding the j-th active factor as
+Π(−j)
+ω
+=
+Y
+k∈A(ω)\{j}
+Ψωk(θk).
+(D23)
+Then
+∂θj˜hω(θ) =
+1
+Pr(ω)Tr[Pω(O)ρ] Π(−j)
+ω
+∂θjΨωj(θj).
+(D24)
+In practice, SPPS computes Π(−j)
+ω
+by prefix and suffix products over the active factors. Let A(ω) = {j1, . . . , j|A(ω)|}.
+Then
+Π(−jℓ)
+ω
+=
+ Y
+r<ℓ
+Ψωjr (θjr)
+! Y
+r>ℓ
+Ψωjr (θjr)
+!
+.
+(D25)
+When the active factor is safely away from zero, the implementation uses the faster score form
+∂θj˜hω(θ) = ˜hω(θ)sj(θ, ω).
+(D26)
+When the corresponding trigonometric factor or active factor is below a numerical threshold, it switches to the
+prefix–suffix form in Eq. (D24). This switch does not change the estimator; it only replaces an unstable algebraic
+representation by an equivalent stable one.
+28
+5.
+Adaptive gradient-error proxy
+The number of samples required by SPPS varies across optimization steps and observable terms. To avoid using a
+fixed overly conservative budget, the implementation uses an adaptive absolute gradient-error proxy based on two
+independent macro-replicates.
+For a given Pauli term Om, let ˜gm,A and ˜gm,B be two independent SPPS gradient estimates computed with the same
+sample budget. Both are unbiased estimates of the same term gradient gm = ∇θfm(θ). We define
+ˆ∆m = 1
+2 ∥˜gm,A −˜gm,B∥2 .
+(D27)
+This quantity estimates the stochastic scale of the averaged estimator
+˜gm = 1
+2 (˜gm,A + ˜gm,B) .
+(D28)
+Indeed, since ˜gm,A and ˜gm,B are independent and unbiased,
+E
+h
+∥˜gm,A −˜gm,B∥2
+2
+i
+= E
+h
+∥(˜gm,A −gm) −(˜gm,B −gm)∥2
+2
+i
+= E
+h
+∥˜gm,A −gm∥2
+2
+i
++ E
+h
+∥˜gm,B −gm∥2
+2
+i
+,
+(D29)
+where the cross term vanishes by independence and unbiasedness. If the two replicates use the same budget, then the
+two terms on the right-hand side are equal, and hence
+E
+h
+ˆ∆2
+m
+i
+= 1
+4 E
+h
+∥˜gm,A −˜gm,B∥2
+2
+i
+= 1
+2 E
+h
+∥˜gm,A −gm∥2
+2
+i
+.
+(D30)
+Moreover, the averaged estimator in Eq. (D28) satisfies
+E
+h
+∥˜gm −gm∥2
+2
+i
+= E
+"
+1
+2(˜gm,A −gm) + 1
+2(˜gm,B −gm)
+
+2
+2
+#
+= 1
+2 E
+h
+∥˜gm,A −gm∥2
+2
+i
+= E
+h
+ˆ∆2
+m
+i
+.
+(D31)
+Thus, ˆ∆m has the same second-moment scale as the error of the averaged estimator used by SPPS. This motivates
+using Eq. (D27) as an empirical stopping proxy. The proxy is not used as a theorem-level confidence bound; it is a
+practical adaptive rule for allocating samples.
+For a general observable
+O =
+NO
+X
+m=1
+cmOm,
+Om ∈Pn,
+(D32)
+SPPS controls the proxies term by term and then combines the resulting estimates linearly. The implementation
+supports two stopping mechanisms.
+Coefficient-normalized proxy. When different Pauli terms have different coefficient magnitudes, SPPS can apply
+the stopping rule to a coefficient-normalized proxy
+ˆ∆norm
+m
+=
+ˆ∆m
+csafe
+,
+csafe = max{|cm|, ϵc},
+(D33)
+where ϵc > 0 is a small numerical floor. Sampling for term m stops once
+ˆ∆norm
+m
+≤δ,
+(D34)
+where δ is the prescribed absolute proxy threshold. If the condition is not satisfied, the sample budget for that term is
+doubled until the proxy passes the threshold. This rule controls the stochastic error at the level of the unweighted
+Pauli-term estimator before multiplying by the coefficient cm.
+29
+Root-sum-square proxy allocation. Alternatively, when a single overall proxy tolerance δ is assigned to the full
+observable, SPPS can distribute it uniformly across Pauli terms as
+δm =
+δ
+√NO
+,
+m = 1, . . . , NO.
+(D35)
+This allocation gives
+ NO
+X
+m=1
+δ2
+m
+!1/2
+= δ.
+(D36)
+Each Pauli term doubles its sample budget until
+ˆ∆m ≤δm
+(D37)
+or the maximum budget is reached. The final observable-level proxy is then reported as
+ˆ∆obs =
+ NO
+X
+m=1
+ˆ∆2
+m
+!1/2
+.
+(D38)
+This mechanism directly controls the aggregate proxy scale of the multi-term observable.
+6.
+Implementation summary
+For each optimization step, SPPS proceeds as follows. First, it constructs the local sampling probabilities in Eq. (D11)
+from the current parameters. Second, for each Pauli term, it draws two independent groups of propagation paths and
+evaluates both value and PAD gradient estimates from the same sampled paths. Third, it computes the A/B proxy in
+Eq. (D27). If the proxy is above the prescribed tolerance, the sample budget is doubled and the term is re-estimated.
+Finally, after all active terms either pass the proxy check or reach the maximum budget, the two macro-replicates are
+averaged and the Pauli-term estimators are combined linearly.
+This implementation has three practical consequences. First, SPPS never constructs the full propagation tree. Second,
+each sampled path contributes all active gradient components through PAD. Third, the A/B proxy allocates more
+samples only to terms and steps with large stochastic gradient fluctuations, which substantially reduces runtime
+compared with a fixed worst-case sampling budget.
+Appendix E: SPPS generates unbiased gradients (Proof of Theorem 2)
+In this appendix, we prove the unbiasedness and concentration properties of the SPPS gradient estimator stated
+in Theorem 2. We first establish the unbiasedness and variance bound of the single-sample gradient estimator in
+Section E 1. We then average independent samples and apply Bernstein’s inequality to obtain a high-probability
+gradient error bound in Section E 2.
+1.
+Single-sample variance for Gradient estimation
+For a path ω ∈Ω, the single-sample gradient estimator for the value function f(θ) in Eq. (D1) is defined as
+˜gω(θ) := ∇θΨω(θ)
+Pr(ω)
+Tr [Pω(O)ρ] .
+(E1)
+We denote its k-th coordinate by ˜gω,k(θ). The empirical gradient estimator is then given by
+˜g(θ) = 1
+B
+B
+X
+b=1
+˜gω(b)(θ),
+where ω(1), . . . , ω(B) i.i.d.
+∼Pr .
+(E2)
+The following lemma establishes the unbiasedness of the single-sample gradient estimator and bounds its variance.
+30
+Lemma 1. Consider the value function f(θ) defined in Eq. (D1) and let κ(θ) = QL
+j=1(1 + |sin 2θj|). Then for every
+k ∈[L], the k-th coordinate of the single-sample gradient estimator satisfies
+E
+ω∼Pr [˜gω,k(θ)] = ∂θkf(θ),
+(E3)
+Var
+ω∼Pr [˜gω,k(θ)] ≤1
+a(1 + 2a)Lκ(θ).
+(E4)
+Proof. We first prove unbiasedness. Since Ωis finite, differentiation commutes with summation. Differentiating Eq. (D1)
+with respect to θk yields
+∂θkf(θ) =
+X
+ω∈Ω
+∂θkΨω(θ)Tr [Pω(O)ρ] .
+(E5)
+Inserting Pr(ω)/ Pr(ω) = 1 termwise, we obtain
+∂θkf(θ) =
+X
+ω∈Ω
+Pr(ω)∂θkΨω(θ)
+Pr(ω)
+Tr [Pω(O)ρ]
+=
+E
+ω∼Pr
+∂θkΨω(θ)
+Pr(ω)
+Tr [Pω(O)ρ]
+
+=
+E
+ω∼Pr [˜gω,k(θ)] .
+(E6)
+This proves Eq. (E3).
+Next we prove the variance bound. We have
+Var
+ω∼Pr [˜gω,k(θ)] =
+E
+ω∼Pr
+˜gω,k(θ)2
+−
+
+E
+ω∼Pr [˜gω,k(θ)]
+2
+(E7)
+≤
+E
+ω∼Pr
+˜gω,k(θ)2
+=
+X
+ω∈Ω
+Pr(ω)
+∂θkΨω(θ)
+Pr(ω)
+Tr [Pω(O)ρ]
+2
+(E8)
+≤
+X
+ω∈Ω
+(∂θkΨω(θ))2
+Pr(ω)
+,
+(E9)
+where Eq. (E7) follows from the definition of statistical variance, Eq. (E8) follows from the definition of the single-sample
+gradient estimator in Eq. (E1), and Eq. (E9) is derived by noticing
+|Tr [Pω(O)ρ]| ≤1.
+(E10)
+We now bound the sum on the right-hand side of Eq. (E9). Using the product decomposition from Eq. (A9),
+Ψω(θ) =
+L
+Y
+j=1
+Ψωj(θj),
+Ψωj(θj) = (cos θj)I[ωj=1](sin θj)I[ωj=−1],
+(E11)
+we obtain
+∂θkΨω(θ) =
+
+Y
+j̸=k
+Ψωj(θj)
+
+∂θkΨωk(θk).
+(E12)
+Together with Eq. (D2), this yields
+(∂θkΨω(θ))2
+Pr(ω)
+=
+
+Y
+j̸=k
+Ψωj(θj)2
+Prj(ωj | ωj−1, . . . , ω1)
+
+
+(∂θkΨωk(θk))2
+Prk(ωk | ωk−1, . . . , ω1).
+(E13)
+31
+Let uj = | cos θj| + | sin θj|. Then
+u2
+j = 1 + | sin 2θj|.
+(E14)
+We first bound the contribution from the distinguished layer k. If the currently propagated Pauli operator commutes
+with the k-th parametrized gate, then only the branch ωk = 0 is present. Since Ψ0(θk) = 1 is independent of θk, we
+have
+X
+ωk∈{0}
+(∂θkΨωk(θk))2
+Prk(ωk | ωk−1, . . . , ω1) = 0.
+(E15)
+If it anti-commutes, then only the branches ωk = ±1 contribute, and
+X
+ωk∈{±1}
+(∂θkΨωk(θk))2
+Prk(ωk | ωk−1, . . . , ω1) = sin2 θk
+q(θk) +
+cos2 θk
+1 −q(θk)
+(E16)
+≤| sin θk|
+a
+(uk + 2a) + | cos θk|
+a
+(uk + 2a)
+(E17)
+= uk(uk + 2a)
+a
+(E18)
+≤(1 + 2a)u2
+k
+a
+.
+(E19)
+Here Eq. (E16) follows from Eqs. (D4) and (E11), while Eq. (E17) follows from
+q(θk) = | cos θk| + a
+uk + 2a
+≥
+a
+uk + 2a,
+1 −q(θk) = | sin θk| + a
+uk + 2a
+≥
+a
+uk + 2a,
+(E20)
+which follow directly from Eq. (D5).
+Next we bound the contribution from every other layer j̸ = k. If the currently propagated Pauli operator commutes
+with the j-th parametrized gate, then
+X
+ωj∈{0}
+Ψωj(θj)2
+Prj(ωj | ωj−1, . . . , ω1) = 1.
+(E21)
+If it anti-commutes, then by the sampling rule in Eq. (D5),
+X
+ωj∈{±1}
+Ψωj(θj)2
+Prj(ωj | ωj−1, . . . , ω1) ≤(1 + 2a)u2
+j,
+(E22)
+which follows from
+cos2 θj
+q(θj) +
+sin2 θj
+1 −q(θj) ≤| cos θj|(uj + 2a) + | sin θj|(uj + 2a) ≤(1 + 2a)u2
+j,
+(E23)
+where uj = | cos θj| + | sin θj| and uj ≥1.
+Applying Eqs. (E15), (E19), (E21), and (E22) to Eq. (E13) layer by layer yields
+X
+ω∈Ω
+(∂θkΨω(θ))2
+Pr(ω)
+≤1
+a
+L
+Y
+j=1
+(1 + 2a)u2
+j
+= 1
+a(1 + 2a)L
+L
+Y
+j=1
+(1 + | sin 2θj|)
+= 1
+a(1 + 2a)Lκ(θ).
+(E24)
+Combining Eqs. (E9) and (E24) proves Eq. (E4). This completes the proof.
+As an immediate corollary, since ˜g(θ) is the average of B i.i.d. copies of ˜gω(θ), we have, for every k ∈[L],
+Var
+ω(1),··· ,ω(B)∼Pr [˜gk(θ)] = 1
+B Var
+ω∼Pr [˜gω,k(θ)] ≤
+1
+aB (1 + 2a)Lκ(θ).
+(E25)
+32
+2.
+High-probability bounds for gradient estimation
+We now combine the variance bound established in Section E 1 with Bernstein’s inequality to obtain a high-probability
+error bound for the empirical gradient estimator. We first recall the Bernstein inequality used below and then prove
+the formal gradient-estimation statement of Theorem 2.
+Lemma 2 (Bernstein’s inequality). Let X1, . . . , XB be independent zero-mean random variables.
+Suppose that
+|Xi| ≤M for all i and PB
+i=1 Var[Xi] ≤v. Then, for any t > 0,
+Pr
+ 
+B
+X
+i=1
+Xi
+ ≥t
+!
+≤2 exp
+ 
+−
+1
+2t2
+v + Mt
+3
+!
+.
+(E26)
+Theorem 5 (Formal statement of Theorem 2). Consider the value function f(θ) defined in Eq. (D1) and let
+κ(θ) = QL
+j=1 (1 + |sin 2θj|). Then the gradient estimation ˜g(θ) in Eq. (E2) is unbiased. Moreover, for any δ ∈(0, 1)
+and ϵ ∈(0,
+p
+Lκ(θ)),
+B =
+4Lκ(θ)
+aϵ2
+(1 + 2a)L ln 2L
+δ
+
+(E27)
+independent samples suffice to guarantee that, with probability at least 1 −δ,
+˜g(θ) −∇θf(θ)
+
+2 ≤ϵ.
+(E28)
+Proof. The unbiasedness of ˜g(θ) follows from Lemma 1. Next, we prove the gradient estimation error bound in
+Eq. (E28).
+We prove the gradient estimation error bound in Eq. (E28) by applying Bernstein’s inequality in Lemma 2 to each
+coordinate of ˜g(θ). Here, the variance term has already been bounded in Eq. (E25), so it remains to establish an upper
+bound for the absolute value of each single-sample gradient estimator ˜gω,k(θ). We do so by combining the factorized
+form of the gradient coefficient with the sequential decomposition of the sampling probability, and then bounding the
+resulting expression layer by layer.
+Since Pω(O) is a Pauli operator and ρ is a quantum state, we have
+|Tr [Pω(O)ρ]| ≤1.
+(E29)
+Using Eq. (E29) and the formulation of the single-sample gradient estimator in Eq. (E1), the absolute value of each
+single-sample gradient estimator is bounded as
+|˜gω,k(θ)| ≤|∂θkΨω(θ)|
+Pr(ω)
+.
+(E30)
+Since the gradient coefficient admits the factorized form in Eq. (E13), Eq. (E30) can be further formulated as
+|∂θkΨω(θ)|
+Pr(ω)
+=
+
+Y
+j̸=k
+|Ψωj(θj)|
+Prj(ωj | ωj−1, . . . , ω1)
+
+
+|∂θkΨωk(θk)|
+Prk(ωk | ωk−1, . . . , ω1).
+(E31)
+We now bound each factor in Eq. (E31) layer by layer. For every layer j̸ = k, if the propagated Pauli operator commutes
+with the j-th parametrized gate, then the only branch is ωj = 0 and the factor equals one. If it anti-commutes, then
+|Ψ1(θj)|
+q(θj)
+= | cos θj|
+q(θj)
+≤uj + 2a,
+|Ψ−1(θj)|
+1 −q(θj) =
+| sin θj|
+1 −q(θj) ≤uj + 2a.
+(E32)
+Therefore,
+|Ψωj(θj)|
+Prj(ωj | ωj−1, . . . , ω1) ≤uj + 2a.
+(E33)
+33
+At the distinguished layer k, if the propagated Pauli operator commutes with the k-th parametrized gate, then only
+the branch ωk = 0 is allowed, and since Ψ0(θk) = 1 is independent of θk, the corresponding derivative vanishes. If it
+anti-commutes, then Eq. (D5) gives
+|∂θkΨ1(θk)|
+q(θk)
+= | sin θk|
+q(θk)
+= | sin θk|
+uk + 2a
+| cos θk| + a ≤uk + 2a
+a
+,
+(E34)
+|∂θkΨ−1(θk)|
+1 −q(θk)
+= | cos θk|
+1 −q(θk) = | cos θk|
+uk + 2a
+| sin θk| + a ≤uk + 2a
+a
+,
+(E35)
+where the last inequalities follow from | cos θk| + a ≥a and | sin θk| + a ≥a, respectively. Combining Eq. (E30)–(E35)
+yields
+|˜gω,k(θ)| ≤1
+a
+L
+Y
+j=1
+(uj + 2a).
+(E36)
+Since uj = | cos θj| + | sin θj| =
+p
+1 + | sin 2θj| ≥1, we have uj + 2a ≤(1 + 2a)uj. Hence
+|˜gω,k(θ)| ≤(1 + 2a)L
+a
+L
+Y
+j=1
+uj = (1 + 2a)L
+a
+p
+κ(θ).
+(E37)
+Next, for each fixed k ∈[L], we denote the zero-mean random variables
+Xb,k := ˜gω(b),k(θ) −∂θkf(θ).
+(E38)
+Here, the exact gradient is bounded by the parameter-shift rule:
+|∂θkf(θ)| = 1
+2 |f(θ+) −f(θ−)| ≤1
+2 |f(θ+)| + 1
+2 |f(θ−)| ≤1,
+(E39)
+where θ+ and θ−are obtained from θ by shifting its k-th entry by + π
+2 and −π
+2 , respectively. Combining Eqs. (E37)
+and (E39) gives
+|Xb,k| ≤
+˜gω(b),k(θ)
+ + |∂θkf(θ)| ≤2(1 + 2a)L
+a
+p
+κ(θ).
+(E40)
+On the other hand, by using Eq. (E4), we have
+B
+X
+b=1
+E
+ω(b)∼Pr
+[X2
+b,k] =
+B
+X
+b=1
+Var
+ω(b)∼Pr
+˜gω(b),k(θ)
+
+≤B
+a (1 + 2a)Lκ(θ).
+(E41)
+We now apply Lemma 2 to the variables X1,k, . . . , XB,k. Since
+1
+B
+B
+X
+b=1
+Xb,k = 1
+B
+B
+X
+b=1
+˜gω(b),k(θ) −∂θkf(θ) = ˜gk(θ) −∂θkf(θ),
+(E42)
+one may take
+M = 2(1 + 2a)L
+a
+p
+κ(θ),
+v = B
+a (1 + 2a)Lκ(θ),
+t = Bϵ
+√
+L
+(E43)
+in Lemma 2, which yields
+Pr
+
+|˜gk(θ) −∂θkf(θ)| ≥
+ϵ
+√
+L
+
+= Pr
+ 
+B
+X
+b=1
+Xb,k
+ ≥Bϵ
+√
+L
+!
+≤2 exp
+
+−
+1
+2B2ϵ2/L
+B
+a (1 + 2a)Lκ(θ) + 2(1+2a)L
+3a
+p
+κ(θ) · Bϵ
+√
+L
+
+
+34
+= 2 exp
+ 
+−
+aBϵ2
+2L(1 + 2a)Lκ(θ) + 4
+3(1 + 2a)Lϵ
+p
+Lκ(θ)
+!
+.
+(E44)
+After some straightforward algebra, when ϵ ≤
+p
+Lκ(θ), it suffices to choose
+B =
+4Lκ(θ)
+aϵ2
+(1 + 2a)L ln 2L
+δ
+
+,
+(E45)
+which guarantees, for every k ∈[L],
+Pr
+
+|˜gk(θ) −∂θkf(θ)| ≥
+ϵ
+√
+L
+
+≤δ
+L.
+(E46)
+Finally, if
+|˜gk(θ) −∂θkf(θ)| ≤
+ϵ
+√
+L
+for all k ∈[L],
+(E47)
+then
+∥˜g(θ) −∇θf(θ)∥2
+2 =
+L
+X
+k=1
+|˜gk(θ) −∂θkf(θ)|2 ≤L · ϵ2
+L = ϵ2,
+(E48)
+which implies
+∥˜g(θ) −∇θf(θ)∥2 ≤ϵ.
+(E49)
+Therefore, by a union bound over all k ∈[L] and using Eq. (E46), we obtain
+Pr (∥˜g(θ) −∇θf(θ)∥2 ≥ϵ) ≤
+L
+X
+k=1
+Pr
+
+|˜gk(θ) −∂θkf(θ)| ≥
+ϵ
+√
+L
+
+≤δ.
+(E50)
+This completes the proof.
+Appendix F: Convergence guarantee for SPPS-driven gradient descent optimization (Proof of Corollary 2)
+In this appendix, we establish the convergence guarantee for stochastic gradient descent (SGD) applied to the quantum
+objective function
+f(θ) = Tr
+
+O U(θ)ρU(θ)†
+(F1)
+for arbitrary quantum observable O and the input state ρ, where the gradient is estimated by SPPS. The proof is
+divided into three steps. We first derive a gradient-variance-based first-order convergence guarantee for stochastic
+gradient descent (SGD) applied to Eq. (F1) in Section F 1. We then bound the variance of the full SPPS gradient
+estimator for arbitrary observables under a general Pauli-basis decomposition in Section F 2. Finally, we combine these
+two ingredients to obtain an explicit convergence result in Section F 3, from which Corollary 2 in the main text follows
+as an informal statement.
+1.
+A variance-based first-order convergence guarantee for quantum optimization
+We first derive a generic first-order convergence guarantee for SGD when optimizing the objective function in Eq. (F1).
+This result is stated in terms of a variance bound on the stochastic gradient, and relies on the global smoothness of
+the objective function, which we prove below.
+35
+Lemma 3. Let the quantum circuit in Eq. (F1) be U(θ) = V0
+QL
+j=1 Rj(θj)Vj, where Rj(θj) = exp (−iθjGj/2) with
+Gj ∈Pn, and where each Vj is a fixed unitary. Then f(θ) is globally L∥O∥2-smooth. Equivalently, for any θ, θ′ ∈RL,
+f(θ′) ≤f(θ) + (θ′ −θ)T ∇θf(θ) + L∥O∥2
+2
+∥θ′ −θ∥2
+2.
+(F2)
+Proof. We begin with a uniform bound on the objective value. By Eq. (F1),
+f(θ) = Tr
+
+O U(θ)ρU(θ)†
+.
+(F3)
+Since U(θ)ρU(θ)† is a density matrix for every θ, Hölder’s inequality gives
+|f(θ)| =
+Tr
+
+OU(θ)ρU(θ)† ≤∥O∥2.
+(F4)
+Next we bound the second-order derivatives of f(θ). Since each parametrized gate is generated by a Pauli operator,
+the parameter-shift rule applies to every circuit parameter. Therefore, for any j ∈[L],
+∂θjf(θ) = 1
+2f
+
+θ + π
+2 ej
+
+−1
+2f
+
+θ −π
+2 ej
+
+,
+(F5)
+where ej is the j-th standard basis vector. Applying the same rule once more to Eq. (F5) with respect to θk yields
+∂θj∂θkf(θ) = 1
+4f
+
+θ + π
+2 ej + π
+2 ek
+
+−1
+4f
+
+θ + π
+2 ej −π
+2 ek
+
+−1
+4f
+
+θ −π
+2 ej + π
+2 ek
+
++ 1
+4f
+
+θ −π
+2 ej −π
+2 ek
+
+.
+(F6)
+Combining Eqs. (F4) and (F6), we obtain
+∂θj∂θkf(θ)
+ ≤∥O∥2
+for all j, k ∈[L].
+(F7)
+We now bound the Hessian operator norm. Eq. (F7) implies
+∥∇2
+θf(θ)∥2
+F =
+L
+X
+j,k=1
+ ∂θj∂θkf(θ)
+2 ≤L2∥O∥2
+2,
+(F8)
+and hence
+∥∇2
+θf(θ)∥2 ≤∥∇2
+θf(θ)∥F ≤L∥O∥2.
+(F9)
+Therefore, f(θ) is globally L∥O∥2-smooth. The inequality in Eq. (F2) then follows from the second-order Taylor
+expansion for smooth functions.
+We now use the smoothness property established in Lemma 3 to derive a generic first-order convergence guarantee for
+SGD when optimizing the quantum objective function in Eq. (F1). Specifically, we consider the iterates
+θ(t+1) = θ(t) −η(t)˜g(t),
+t = 1, . . . , T,
+(F10)
+where η(t) is the learning rate at the t-th step, and ˜g(t) is an unbiased estimator of ∇θf(θ(t)), namely
+E
+˜g(t)
+= ∇θf(θ(t)).
+(F11)
+The following lemma shows that the convergence rate of the GD optimization in Eq. (F10) is controlled by the variance
+of the gradient noise.
+Lemma 4. Suppose that
+E
+h˜g(t) −∇θf(θ(t))
+2
+2
+i
+≤G2
+T
+(F12)
+for all t ∈[T] and T ≥4L∥O∥2
+2
+G2
+T
+. If the learning rate is chosen as a constant η(t) = η =
+q
+4
+LG2
+T T for all t ∈[T], then the
+GD iterates in Eq. (F10) satisfy
+min
+t∈[T ] E
+∇θf(θ(t))
+
+2
+2 ≤4∥O∥2GT
+r
+L
+T .
+(F13)
+36
+Proof. Applying Lemma 3 with θ = θ(t) and θ′ = θ(t+1) gives
+f(θ(t+1)) ≤f(θ(t)) + (θ(t+1) −θ(t))T ∇θf(θ(t)) + L∥O∥2
+2
+∥θ(t+1) −θ(t)∥2
+2.
+(F14)
+Substituting the update rule in Eq. (F10) into Eq. (F14) yields
+f(θ(t+1)) ≤f(θ(t)) −η
+D
+˜g(t), ∇θf(θ(t))
+E
++ L∥O∥2
+2
+η2∥˜g(t)∥2
+2.
+(F15)
+Taking expectation on both sides of Eq. (F15) and using Eq. (F11), we obtain
+E
+h
+f(θ(t+1))
+i
+≤E
+h
+f(θ(t))
+i
+−η E
+∇θf(θ(t))
+
+2
+2
+
++ L∥O∥2
+2
+η2 E
+h
+∥˜g(t)∥2
+2
+i
+.
+(F16)
+Next, by expanding the second moment around the mean, we have
+E
+h
+∥˜g(t)∥2
+2
+i
+= E
+˜g(t) −∇θf(θ(t)) + ∇θf(θ(t))
+
+2
+2
+
+= E
+∇θf(θ(t))
+
+2
+2
+
++ E
+˜g(t) −∇θf(θ(t))
+
+2
+2
+
+(F17)
+≤E
+∇θf(θ(t))
+
+2
+2
+
++ G2
+T ,
+where Eq. (F17) follows from Eq. (F11), and the last inequality follows from Eq. (F12). Substituting this bound into
+Eq. (F16) gives
+E
+h
+f(θ(t+1))
+i
+≤E
+h
+f(θ(t))
+i
+−
+
+η −L∥O∥2
+2
+η2
+
+E
+∇θf(θ(t))
+
+2
+2
+
++ L∥O∥2
+2
+η2G2
+T .
+(F18)
+Next, the condition
+T ≥4L∥O∥2
+2
+G2
+T
+(F19)
+together with the choice
+η =
+s
+4
+LG2
+T T
+(F20)
+implies
+η ≤
+1
+L∥O∥2
+.
+(F21)
+Therefore,
+η −L∥O∥2
+2
+η2 = η
+
+1 −L∥O∥2
+2
+η
+
+≥η
+2.
+(F22)
+Applying Eq. (F22) to Eq. (F18) yields
+E
+h
+f(θ(t+1))
+i
+≤E
+h
+f(θ(t))
+i
+−η
+2 E
+∇θf(θ(t))
+
+2
+2
+
++ L∥O∥2
+2
+η2G2
+T .
+(F23)
+Summing Eq. (F23) over t = 1, . . . , T gives
+η
+2
+T
+X
+t=1
+E
+∇θf(θ(t))
+
+2
+2
+
+≤E
+h
+f(θ(1)) −f(θ(T +1))
+i
++ L∥O∥2
+2
+η2TG2
+T .
+(F24)
+37
+On the other hand, by Eq. (F4) in the proof of Lemma 3, we have
+|f(θ)| ≤∥O∥2
+for all θ,
+(F25)
+which implies
+E
+h
+f(θ(1)) −f(θ(T +1))
+i
+≤2∥O∥2.
+(F26)
+Combining Eqs. (F24) and (F26) yields
+min
+t∈[T ] E
+∇θf(θ(t))
+
+2
+2
+
+≤4∥O∥2
+ηT
++ ηL∥O∥2G2
+T .
+(F27)
+Finally, substituting Eq. (F20) into Eq. (F27) gives
+min
+t∈[T ] E
+∇θf(θ(t))
+
+2
+2
+
+≤4∥O∥2
+T
+r
+LG2
+T T
+4
++ L∥O∥2G2
+T
+s
+4
+LG2
+T T
+= 2∥O∥2
+r
+LG2
+T
+T
++ 2∥O∥2GT
+r
+L
+T
+= 4∥O∥2GT
+r
+L
+T .
+This completes the proof.
+2.
+Variance of the full SPPS gradient estimator
+We now bound the variance of the full SPPS gradient estimator for a general observable expressed in the Pauli basis.
+Specifically, we suppose that O = PNO
+m=1 cmOm, where each Om ∈Pn. For each m ∈[NO], define
+f (m)(θ) := Tr
+
+OmU(θ)ρU(θ)†
+.
+(F28)
+Then, by linearity,
+f(θ) =
+NO
+X
+m=1
+cmf (m)(θ),
+∇θf(θ) =
+NO
+X
+m=1
+cm∇θf (m)(θ).
+(F29)
+For each m ∈[NO], let ˜g(m)(θ) denote the empirical SPPS gradient estimator for the Pauli observable Om, obtained by
+averaging B independent SPPS samples as in Lemma 1. We remark that, for different m, the estimators ˜g(m)(θ) are
+constructed from independent batches of SPPS samples. We define the full SPPS gradient estimator by
+˜g(θ) :=
+NO
+X
+m=1
+cm˜g(m)(θ).
+(F30)
+Since each ˜g(m)(θ) is an unbiased estimator of ∇θf (m)(θ), linearity immediately yields that
+E [˜g(θ)] = ∇θf(θ).
+(F31)
+Lemma 5. For any θ ∈RL, let κ(θ) be defined as in Lemma 1. Then the full SPPS gradient estimator ˜g(θ) satisfies
+E
+h
+∥˜g(θ) −∇θf(θ)∥2
+2
+i
+≤L∥O∥2
+2
+aB
+(1 + 2a)Lκ(θ).
+(F32)
+38
+Proof. For each m ∈[NO], we define the estimation error
+∆(m)(θ) := ˜g(m)(θ) −∇θf (m)(θ).
+Then, by Eqs. (F29) and (F30),
+˜g(θ) −∇θf(θ) =
+NO
+X
+m=1
+cm˜g(m)(θ) −
+NO
+X
+m=1
+cm∇θf (m)(θ)
+=
+NO
+X
+m=1
+cm∆(m)(θ).
+(F33)
+Therefore, we have
+E
+h
+∥˜g(θ) −∇θf(θ)∥2
+2
+i
+= E
+
+
+
+NO
+X
+m=1
+cm∆(m)(θ)
+
+2
+2
+
+
+=
+NO
+X
+m,m′=1
+cmc(m′) E
+hD
+∆(m)(θ), ∆(m′)(θ)
+Ei
+.
+(F34)
+Since each ˜g(m)(θ) is unbiased, we have
+E
+h
+∆(m)(θ)
+i
+= 0
+for all m ∈[NO].
+Moreover, for m̸ = m′, the random vectors ∆(m)(θ) and ∆(m′)(θ) are independent since the corresponding estimators
+are constructed from independent batches of SPPS samples. Hence
+E
+hD
+∆(m)(θ), ∆(m′)(θ)
+Ei
+=
+D
+E
+h
+∆(m)(θ)
+i
+, E
+h
+∆(m′)(θ)
+iE
+= 0,
+m̸ = m′.
+(F35)
+Substituting Eq. (F35) into Eq. (F34) yields
+E
+h
+∥˜g(θ) −∇θf(θ)∥2
+2
+i
+=
+NO
+X
+m=1
+(cm)2 E
+∆(m)(θ)
+
+2
+2
+
+.
+(F36)
+For each m ∈[NO], Lemma 1 applied to the Pauli observable Om gives
+E
+∆(m)(θ)
+
+2
+2
+
+≤E
+˜g(m)(θ)
+
+2
+2
+
+≤L
+aB (1 + 2a)Lκ(θ).
+(F37)
+Applying Eq. (F37) in Eq. (F36) yields
+E
+h
+∥˜g(θ) −∇θf(θ)∥2
+2
+i
+≤L
+aB (1 + 2a)Lκ(θ)
+NO
+X
+m=1
+(cm)2.
+(F38)
+It remains to relate the coefficient norm to ∥O∥2. Since the Pauli operators form an orthogonal basis under the
+Hilbert–Schmidt inner product,
+Tr(OmOm′) = 2nδm,m′,
+and thus
+∥O∥2
+F = Tr(O†O) = 2n
+NO
+X
+m=1
+(cm)2.
+(F39)
+Hence
+NO
+X
+m=1
+(cm)2 = 2−n∥O∥2
+F ≤2−n rank(O) ∥O∥2
+2 ≤∥O∥2
+2.
+(F40)
+Combining Eqs. (F38) and (F40) proves Eq. (F32).
+39
+3.
+Convergence complexity of SPPS-based SGD
+We are now ready to combine the generic convergence guarantee in Lemma 4 with the variance bound for the full SPPS
+gradient estimator in Lemma 5 to derive the convergence complexity of SPPS-based SGD. The resulting guarantee is
+stated explicitly in Theorem 6.
+Theorem 6 (Formal statement of Corollary 2). We follow the notation in Lemma 5. Consider GD applied to the
+quantum objective f(θ) in Eq. (F1), where the gradient is given by Eq. (F30) for a general observable O with NO
+Pauli terms. Let θ(t) ∈RL denote the parameters at iteration t, and define κT := maxt∈[T ]
+QL
+j=1(1 + | sin 2θ(t)
+j |).
+Then, for any ϵ > 0, the guarantee mint∈[T ] E ∥∇θf(θ(t))∥2
+2 ≤ϵ holds within T = O(L3∥O∥4
+2/ϵ2) iterations, using
+O(NOL3∥O∥4
+2κT /ϵ2) SPPS samples in total.
+Proof. By Lemma 5, the full SPPS gradient estimator in Eq. (F30) is unbiased and satisfies
+E
+˜g(t) −∇θf(θ(t))
+
+2
+2
+
+≤2L∥O∥2
+2
+aB
+(1 + 2a)Lκ(θ(t)) ≤2L∥O∥2
+2
+aB
+(1 + 2a)LκT
+(F41)
+for all t ∈[T], where the last inequality follows from the definition of κT . Choosing a = O(1/L) and B = ⌈κT ⌉,
+Eq. (F41) further yields
+E
+˜g(t) −∇θf(θ(t))
+
+2
+2
+
+≤cL2∥O∥2
+2,
+(F42)
+where c > 0 is an absolute constant. Therefore, the variance condition in Lemma 4 holds with
+G2
+T = cL2∥O∥2
+2.
+(F43)
+Following Eq. (F43), we have T ≥4L∥O∥2
+2
+G2
+T
+, which is guaranteed by the condition T ≥O(1) since
+4L∥O∥2
+2
+G2
+T
+= 4L∥O∥2
+2
+cL2∥O∥2
+2
+= 4
+cL ≤O(1).
+(F44)
+Thus, Lemma 4 implies that, if the learning rate η(t) = η =
+q
+4
+LG2
+T T for all t ∈[T], then
+min
+t∈[T ] E
+∇θf(θ(t))
+
+2
+2 ≤C
+r
+L∥O∥2
+2G2
+T
+T
+= C
+r
+cL3∥O∥4
+2
+T
+(F45)
+for an absolute constant C > 0, where the last equation yields from Eq. (F43).
+We now derive a sufficient condition on T for the right-hand side of Eq. (F45) to be at most ϵ. Requiring
+C
+r
+cL3∥O∥4
+2
+T
+≤ϵ
+(F46)
+is equivalent to
+T ≥cC2L3∥O∥4
+2
+ϵ2
+.
+(F47)
+Therefore, the total SPPS sample count is
+BNO · T = O
+NOL3∥O∥4
+2κT
+ϵ2
+
+(F48)
+by considering B samples used for each Pauli operator in the decomposition O = PNO
+k=1 ckOk and using B = ⌈κT ⌉.
+This completes the proof.
+40
+Appendix G: Experimental settings and additional experimental results
+In this appendix, we provide additional experimental settings and numerical results that complement Sec. V. We first
+describe the implementation details of experiments, and then report further results on tensor-network comparisons,
+sensitivity to the sampling parameter, circuit-depth dependence, and state-encoding circuit preparation. In particular,
+SPPS uses the implementation described in App. D, including sequential path sampling, importance reweighting, PAD,
+and the adaptive gradient-error proxy in App. D 5. For all additional experiments, runtime denotes the cumulative
+time spent on stochastic gradient estimation and parameter updates.
+1.
+Experimental settings
+VQE settings. The Hamiltonian is
+H = −J
+n−1
+X
+i=1
+ZiZi+1 −g
+n
+X
+i=1
+Xi,
+(G1)
+with J = 1.0 and g = 1.0 unless otherwise specified. The variational circuit is initialized from the plus state by
+default and uses a one-dimensional hardware-efficient ansatz. Each layer applies RZ and RY rotations on all qubits,
+followed by an open-boundary nearest-neighbor CNOT chain. For a circuit with depth L, each trainable angle
+is initialized from Unif[−0.25π/L, 0.25π/L], following the small-angle initialization strategies [99–102] designed to
+mitigate barren plateaus [103, 104]. For SPPS, δ denotes the adaptive gradient-error proxy threshold. The smoothing
+value in the branch-sampling distribution is term-dependent and follows the adaptive rule in App. D 2. It is initialized
+as ainit = 0.25/L for a circuit with depth L, and then updated using the path-statistics-based rule in Eq. (D13). Unless
+otherwise specified, we use ba = 0.5.
+QNN settings. For the QNN pre-training experiment, we use the same dataset, circuit, optimizer, and evaluation
+metrics as described in Sec. V. The synthetic labels are generated by a fixed 40-qubit near-Clifford circuit V , which
+consists of two random Clifford brick-wall layers. Each layer applies a single-qubit gate sampled uniformly from
+{H, S, S†, X, Y, Z} to every qubit, followed by two staggered nearest-neighbor entangling sublayers covering the odd
+and even bonds. Each two-qubit gate is sampled from {CNOT, CZ}, with the control–target direction of each CNOT
+sampled uniformly. Four single-qubit rotations, sampled uniformly from {RX, RY , RZ}, are inserted at random qubits
+and circuit positions. Their angles are sampled from Unif[−π, π]. Candidate inputs are computational-basis product
+states |ψi⟩whose bits are sampled independently from Bernoulli(0.5). For each input |ψi⟩, the label is
+yi = ⟨ψi|V †OV |ψi⟩,
+O = 1
+n
+n
+X
+j=1
+Zj.
+(G2)
+The labels are evaluated using untruncated Pauli propagation. We retain unique inputs satisfying |yi| > 0.1. This
+filtering prevents the target labels from concentrating near zero and yields a structured learning task rather than
+the sufficiently randomized quantum-data regime, in which training efficiency and generalization can deteriorate
+exponentially with the number of qubits [105].
+The trainable QNN uses a 4-layer hardware-efficient ansatz. Each layer applies an RZ-RY -RZ rotation block to
+every qubit, followed by a nearest-neighbor CNOT chain. Thus, for the 40-qubit QNN, the total number of trainable
+parameters is 4 × 40 × 3 = 480. The circuit parameters are randomly initialized with scale 0.05. For SPPS, we use the
+fixed-smoothing option in App. D 2, i.e., the smoothing value is kept as a constant a = a0 = 0.01 throughout training.
+Tensor-network baseline. For the additional scaling comparison, we compare SPPS against a tensor-network
+simulator implemented with PastaQ.jl [5].
+The comparison is performed on the TFIM VQE benchmark with
+n ∈{20, 40, 60, 80, 100} qubits and L = 6 ansatz layers. The tensor-network baseline uses a bond dimension χ = 2.
+Both methods are evaluated under the same VQE objective, and we report the final normalized energy error and the
+optimization runtime.
+State-preparation benchmark. We further evaluate SPPS on the preparation of quantum encoding circuits. Given
+a normalized classical vector v ∈R2n, the target state is the amplitude-encoded state
+|v⟩=
+2n−1
+X
+j=0
+vj |j⟩.
+(G3)
+41
+20
+40
+60
+80
+100
+qubits
+2−8
+2−6
+2−4
+2−2
+ε0
+20
+40
+60
+80
+100
+qubits
+24
+26
+28
+210
+runtime (s)
+(a)
+(b)
+SPPS (δ = 2−1)
+TN (χ = 21)
+FIG. 5.
+SPPS versus tensor-network simulation on large-qubit VQE pre-training. We compare SPPS and a
+tensor-network baseline on the L = 6 TFIM VQE benchmark with n ∈{20, 40, 60, 80, 100} qubits. Figures (a) and (b) report
+the final normalized energy error ϵ0 and the optimization runtime, respectively. Error bars indicate the standard deviation over
+10 independent runs.
+The goal is to optimize a parameterized circuit U(θ) such that U(θ) |0⟩⊗n approximates |v⟩. Equivalently, we maximize
+the fidelity
+F(θ) =
+⟨v| U(θ) |0⟩⊗n
+2
+= Tr
+
+OvU(θ)ρ0U(θ)†
+,
+Ov = |v⟩⟨v| ,
+ρ0 = |0⟩⟨0|⊗n ,
+(G4)
+or minimize the infidelity
+I(θ) = 1 −F(θ).
+(G5)
+This objective is a direct instance of Eq. (1) with a global projector observable. Since Ov is not a single Pauli observable,
+we expand it in the Pauli basis and keep the largest 100 non-identity Pauli coefficients by magnitude and include the
+identity contribution as an offset. Each Pauli term is then handled by the same SPPS estimator described in App. D,
+and the final gradient is obtained by linearly combining term-wise stochastic gradients.
+For the reported state-preparation experiment, we use MNIST images as target data. Each image is resized to a
+4 × 4 grayscale vector, normalized to unit ℓ2 norm, and amplitude-encoded into a 4-qubit target state. We optimize a
+hardware-efficient circuit consisting of repeated RZRY RZ single-qubit rotation layers and nearest-neighbor CNOT
+chains. We vary the circuit depth as L ∈{1, 2, 3, 4}. The circuit parameters are randomly initialized with scale 0.1.
+The optimizer is gradient descent with learning rate 0.5 for 200 steps.
+Hardware environment. Unless otherwise specified, experiments were run on a personal computer with an Apple
+M1 Pro chip. The large-scale VQE experiments with n ∈{20, 40, 60, 80, 100} qubits, including the tensor-network
+scaling comparison, were run on CPU compute nodes equipped with dual-socket AMD EPYC 7713 processors at
+2.0GHz. No GPU acceleration is used in the reported runtimes.
+2.
+Additional VQE results
+SPPS remains competitive against tensor-network simulation. Fig. 5 compares SPPS with the tensor-network
+baseline on the L = 6 TFIM VQE benchmark. Across n = 20 to 100 qubits, SPPS attains a favorable error-runtime
+trade-off. The advantage is especially clear at larger system sizes, where the error of tensor-network simulation grows
+more rapidly. This comparison complements Fig. 3(c,d) by showing that SPPS is not only competitive against Tb-PBS
+baselines, but also provides an efficient alternative to tensor-network simulation in this optimization setting.
+Sensitivity to the sampling-smoothing parameter. Fig. 6 studies the effect of the smoothing parameter ba in the
+SPPS sampling distribution. The benchmark uses the 60-qubit TFIM VQE with ansatz depth L = 8. The results show
+that SPPS is stable across a broad range of ba values. In particular, moderate values of ba yield similar final errors,
+while the runtime varies mildly with the sampling distribution. This validates the practical robustness of the smoothed
+sampling rule introduced in App. D 1. The result also confirms the role of the smoothing parameter: it should be
+positive to preserve derivative-sensitive branches, but it does not require delicate fine-tuning in the tested regime.
+42
+0.1
+0.3 0.5
+1
+2
+ba
+2−6.4
+2−6.3
+2−6.2
+ε0
+SPPS, δ = 2−1
+SPPS, δ = 2−2
+0.1
+0.3 0.5
+1
+2
+ba
+26
+27
+28
+runtime (s)
+(a)
+(b)
+FIG. 6.
+Effect of the sampling-smoothing parameter in SPPS. We evaluate SPPS on the 60-qubit TFIM VQE benchmark
+with ansatz depth L = 8 and vary the smoothing parameter ba in the path-sampling distribution. The two figures show the final
+normalized energy error ϵ0 and the optimization runtime. The threshold δ denotes the adaptive gradient-error proxy tolerance
+described in App. D 5. Error bars indicate the standard deviation over 5 independent runs.
+4
+6
+8
+10
+12
+L
+2−6.4
+2−6.3
+2−6.2
+2−6.1
+ε0
+SPPS, δ = 2−1
+4
+6
+8
+10
+12
+L
+23
+25
+27
+29
+runtime (s)
+(a)
+(b)
+FIG. 7.
+Effect of circuit depth on SPPS-driven VQE pre-training. We evaluate the 60-qubit TFIM VQE benchmark
+with fixed sampling-smoothing parameter ba = 0.5 and vary the ansatz depth as L ∈{4, 6, 8, 10, 12}. The figures report the final
+normalized energy error ϵ0 and the optimization runtime. Error bars indicate the standard deviation over 5 independent runs.
+Effect of circuit depth. Fig. 7 evaluates SPPS under different ansatz depths for the 60-qubit TFIM VQE benchmark.
+We fix ba = 0.5 and vary L ∈{4, 6, 8, 10, 12}. The final energy error remains in the same order across different depths,
+showing that SPPS continues to produce useful stochastic gradients as the circuit becomes deeper. Meanwhile, the
+runtime increases with L, which is consistent with the sample-complexity dependence on the path length and the
+effective branching factor in Theorem 2. This experiment therefore empirically supports the theoretical message that
+the cost of faithful stochastic Pauli-path simulation is controlled by the trajectory-dependent path complexity.
+3.
+Additional state-preparation results
+SPPS prepares quantum encoding circuits for MNIST amplitude encoding. We finally evaluate whether
+SPPS can be used beyond VQE and QML pre-training by optimizing state-preparation circuits. Fig. 8 summarizes
+the results. Figures (a) and (b) show the endpoint exact infidelity and runtime for depths L = 1, 2, 3, 4. Figure (c)
+reports the exact infidelity along optimization. Increasing L substantially improves the attainable infidelity: shallow
+circuits with L = 1 remain far from the target state, whereas depths L = 3 and L = 4 reach much lower infidelity after
+optimization. The improvement comes with increased runtime, as deeper circuits contain more parameters and induce
+more Pauli-path branching. The optimization curves further show that SPPS steadily decreases exact infidelity over
+training, indicating that the stochastic gradients remain informative for global state-preparation objectives.
+43
+1
+2
+3
+4
+L
+2−4
+2−2
+1
+infidelity
+L = 1
+L = 2
+L = 3
+L = 4
+1
+2
+3
+4
+L
+21
+22
+23
+24
+runtime (s)
+0
+50
+100
+150
+200
+optimization step
+2−6
+2−4
+2−2
+1
+infidelity
+(a)
+(b)
+(c)
+FIG. 8.
+SPPS for preparing MNIST amplitude-encoding circuits. Figures (a) and (b) show the endpoint exact infidelity
+and cumulative SPPS gradient-estimation runtime, respectively. Figure (c) shows the exact infidelity during optimization. Error
+bars and shaded regions indicate the standard deviation over 5 MNIST images.

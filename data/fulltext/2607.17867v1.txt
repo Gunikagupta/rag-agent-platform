@@ -1,0 +1,451 @@
+The tttAI System for the TSA-ASR Task of the
+SmartGlasses Challenge 2026
+Xuanji He1, Gaoyang Dong1, Xiaoxiao Li1, Minchuan Chen1, Fengjie Zhu1
+1Shenzhen Transsion Holdings Co., Ltd, China
+{xuanji.he, gaoyang.dong, xiaoxiao.li7, minchuan.chen, fengjie.zhu}@transsion.com
+Abstract—This paper presents the tttAI system submitted
+to the TSA-ASR task of the SmartGlasses Challenge 2026,
+evaluated on both two-person dialogues (Track 1) and multi-party
+meetings (Track 2). The task requires time-stamped speaker-
+attributed speech recognition from smart-glasses recordings. This
+is particularly challenging due to long-form audio, multiple
+speakers, and frequent overlapping speech. We proposed a cas-
+caded architecture consisting of speaker diarization, overlap de-
+tection, target-speaker extraction, post-processing, and automatic
+speech recognition. The diarization module extracts features via
+WavLM-Large, performs frame-wise speaker classification with a
+Conformer encoder, and then generates global speaker segments
+through embedding clustering. For overlapped regions, we apply
+a WeSep-based target-speaker extraction model with ECAPA-
+TDNN speaker embeddings. When the extraction is unreliable,
+a dominant-speaker fallback strategy is used. The final system
+uses FireRedASR2-AED with the first microphone channel. The
+submitted system has a total parameter count of approximately
+1.53B. On Track 1, our system achieves a tcpCER of 7.10%. On
+Track 2, it achieves a tcpCER of 34.04% and ranks second on
+the leaderboard.
+Index Terms—Smart glasses, speaker-attributed ASR, speaker
+diarization, target speaker extraction, overlapped speech
+I. INTRODUCTION
+Smart glasses are emerging as a next-generation wearable
+platform for always-on, eyes-free interaction. They often op-
+erate in dynamic multi-talker scenarios, such as conversations
+and meetings, where the system must recognize not only
+what is said but also who is speaking [1]. Conventional ASR
+systems degrade severely under overlapping speech. Time-
+stamped speaker-attributed ASR (TSA-ASR) addresses this
+challenge by transcribing timestamped speech from the target
+speaker while ignoring competing voices, making it essential
+for practical smart-glasses interaction.
+The SmartGlasses Challenge 2026 benchmarks TSA-ASR
+in realistic wearable scenarios, offering two sub-tracks:
+two-person dialogues (Track 1) and multi-speaker meetings
+(Track 2) [1]. Audio is captured by a smart glasses microphone
+array, and the task is to transcribe a target speaker by leverag-
+ing speaker-specific cues extracted from the recording itself.
+Dialogues involve tight turn-taking and frequent overlaps,
+while meetings add more speakers, reverberation, and longer
+sessions. We address both tracks, with primary evaluation
+on Track 2. The main metric is tcpCER (time-constrained
+minimum permutation WER, 5-second collar), with cpWER
+and DER as diagnostics.
+We proposed a cascaded architecture rather than a sin-
+gle end-to-end model. A neural speaker diarization module
+(DiariZen-style EEND [2] with WavLM-Large [3] and a
+Conformer backend [4]) estimates speaker turns and overlap
+regions. For overlapped speech, a WeSep-based TSE model
+[5] with a band-split RNN separator [6] and ECAPA-TDNN
+speaker conditioning [7] extracts target speaker signals using
+enrollment segments selected from nearby non-overlapped
+speech. A dominant-speaker fallback is applied when the
+extracted signal is too similar to the mixture: the domi-
+nant speaker retains the mixture segment while non-dominant
+speakers drop the overlap. The resulting speaker-conditioned
+segments are decoded by FireRedASR2-AED and output in
+STM format. This modular design lets us independently ad-
+dress diarization-induced speaker confusion, insertion errors
+from failed separation, and ASR robustness on wearable
+recordings.
+II. DATA AND TASK
+The SmartGlasses Challenge 2026 TSA-ASR task requires
+transcribing the target speaker’s speech with utterance-level
+timestamps from multi-channel smart-glasses recordings. The
+dataset, captured by a four-channel microphone array, is
+divided into Track 1 (short dyadic dialogues) and Track 2
+(long multi-party meetings). Track 2 has longer sessions, more
+speakers (3–8, avg. 4.3), and a higher overlap ratio (13.37% vs.
+7.59% in Track 1), making it substantially more challenging.
+The speech is predominantly spontaneous Mandarin Chinese
+with occasional English code-switching, effectively monolin-
+gual.
+Table I summarizes the training and development set statis-
+tics for both tracks. We use only the first microphone channel,
+as it yields the best development tcpCER among the four
+single-channel candidates. For local tuning, we merge the
+official development partitions within each track into a single
+validation set, resulting in 81 and 36 development recordings
+for Track 1 and Track 2, respectively. All reported results
+are evaluated on these merged development sets. Outputs
+are converted to STM format and evaluated with the official
+tcpCER protocol based on MeetEval [8].
+III. SYSTEM DESCRIPTION
+Fig 1 illustrates the overall system framework. Given an in-
+put audio recording, the system first performs speaker diariza-
+tion to obtain speaker-specific activity timelines. Overlapped
+arXiv:2607.17867v1  [eess.AS]  20 Jul 2026
+Fig. 1. Overview of the proposed system framework. Given an input audio recording, the system first performs speaker diarization using a local EEND-style
+model to produce speaker activity timelines. Overlapped speech regions are then detected from the diarization output and processed by the target-speaker
+extraction (TSE) model. The extracted signal is further examined by a post-processing module to handle unreliable extraction cases. Finally, the post-processed
+speaker-specific segments are passed to the ASR backend to generate the translation result.
+TABLE I
+DATASET STATISTICS.
+Track
+Split
+Utts.
+Dur. (h)
+Avg. Dur. (min)
+Track1
+train
+387
+33.92
+5.26
+dev
+81
+6.86
+5.08
+Track2
+train
+130
+41.83
+19.30
+dev
+36
+11.51
+19.19
+speech regions are then detected from the diarization output
+and processed by a target-speaker extraction (TSE) model.
+A post-processing module is further applied to handle unre-
+liable extraction results before the resulting speaker-specific
+segments are sent to the ASR backend.
+A. Speaker Diarization
+The speaker diarization module follows a local EEND-style
+design [9], [10]. The input audio is processed in 16-second
+chunks. WavLM-Large is used to extract self-supervised
+frame-level representations, which are then projected to a 256-
+dimensional space and passed to a four-layer Conformer en-
+coder. The model predicts frame-level speaker activity labels,
+with a maximum of four speakers in each chunk. Global
+speaker labels are obtained by clustering speaker represen-
+tations, followed by diarization post-processing.
+The training data include AMI [11], AliMeeting [12],
+AISHELL-4 [13], NOTSOFAR-1 [14], MagicData-RAMC
+[15], VoxConverse [16], DIHARD [17], MLC-SLM [18], and
+the official SmartGlasses data. During training, WavLM is
+frozen for the first two epochs, after which WavLM and
+the diarization backend are jointly optimized with separate
+learning rates.
+B. Overlap Detection
+Based on the speaker activity timelines produced by the
+diarization module, we identify overlapped regions where
+multiple speakers are active (at most two in our setting).
+These regions are used to determine whether additional target-
+speaker extraction is required. Non-overlapped regions are
+directly assigned to the corresponding speaker. Whereas over-
+lapped regions are forwarded to the TSE module for speaker-
+specific speech extraction. This overlap detection step is im-
+portant because directly sending overlapped speech to ASR
+for each active speaker can lead to duplicated hypotheses and
+increased insertion errors. Therefore, only the detected over-
+lapped regions are processed by the extraction module, while
+the original non-overlapped speech segments are preserved.
+C. TSE Model
+For each detected overlap involving two speakers, we apply
+target-speaker extraction to obtain speaker-specific speech
+signals. For every active speaker in an overlapped region,
+a speaker enrollment signal is selected from the nearest
+non-overlapped segment belonging to the same speaker. The
+enrollment segment is required to be at least 5 seconds long
+and is capped at 20 seconds.
+The TSE model is implemented using WeSep [5]. We
+used a band-split RNN separator [6] together with ECAPA-
+TDNN speaker embeddings [7]. For each overlapped region,
+we extract two speaker-specific signals, denoted as se1 and
+se2.
+D. Post-processing Module
+Although the TSE model can separate speaker-specific sig-
+nals from overlapped regions, extraction errors may still occur.
+To improve robustness, we introduce a failure-aware dominant-
+speaker post-processing strategy. For each overlapped region,
+the TSE model extracts speaker-specific signals for all active
+speakers (at most two in our setting). We compute the cosine
+similarity between se1 and se2 embedding representations,
+extracted from the same speaker embedding model used for
+enrollment. If the similarity exceeds a predefined threshold,
+the extraction is considered unreliable, indicating that the
+separator failed to adequately disentangle the two speakers.
+In such unreliable cases, we fall back to a dominant-speaker
+assignment strategy. Instead of using the poorly separated
+extracted signals, we compare the original mixture against
+the enrollment embeddings of each overlapped speaker. The
+speaker whose enrollment embedding yields the highest sim-
+ilarity to the mixture is designated as the dominant speaker.
+The dominant speaker retains the original mixture segment in
+the corresponding ASR input, while the other speaker removes
+that overlapped region from their ASR segments.
+E. ASR Model Selection
+The post-processed speaker-specific segments are finally
+passed to the ASR backend. We evaluate Qwen3-ASR-1.7b
+TABLE II
+DIARIZATION SYSTEM COMPARISON ON TRACK 2 DEVELOPMENT SET.
+System
+MISS
+SPK
+DER
+tcpCER
+Open-source DiariZen
+8.79
+6.69
+22.44
+27.26
+SmartGlasses-only DiariZen
+5.39
+8.43
+21.07
+29.74
+Open-data + SmartGlasses
+7.21
+4.57
+18.62
+22.88
+TABLE III
+TSE MODEL COMPARISON ON TRACK 2 DEVELOPMENT SET.
+TSE model
+tcpCER
+WER
+Large-scale SV-trained TSE
+24.69
+20.60
+SmartGlasses-adapted TSE
+23.64
+19.80
+[19] and FireRedASR2-AED [20]. Qwen3-ASR-1.7b is used
+for fast development experiments due to its inference speed,
+which enables rapid iteration. For the final submission, we
+adopt FireRedASR2-AED, as it achieves lower tcpCER.
+IV. EXPERIMENTS
+A. Model parameter sizes
+We explicitly declare that the total parameter size does not
+exceed 35B. The diarization model, consisting of WavLM-
+Large and a Conformer backend, contains 321.8M parameters.
+The TSE model, based on BSRNN with ECAPA conditioning,
+contains 27.6M parameters. The FireRedASR2-AED, contains
+1,183M parameters. Therefore, the total number of parameters
+is 1,532.4M.
+B. Experimental Setup
+The diarization model is trained for 30 epochs. WavLM
+is frozen for the first two epochs and then jointly optimized
+with the backend, using learning rates of 1e-5 and 1e-3 for
+WavLM and the remaining components, respectively. Noise
+augmentation starts from epoch 6 for single-noise and epoch
+15 for mixed-noise conditions. The TSE model is pre-trained
+on a speaker-verification corpus and fine-tuned on the official
+SmartGlasses training data with learning rates of 1e-3 and 1e-
+4, respectively. The unreliable-extraction threshold is tuned on
+the development set and set to 0.55.
+C. Development Results
+Table II compares diarization systems. The open-source
+baseline [21] has
+the highest DER and tcpCER.
+The
+SmartGlasses-only model reduces MISS but has high speaker
+confusion and poor tcpCER. The final open-data plus Smart-
+Glasses model has the best overall tcpCER among the three
+systems. Table III compares the two TSE models using the
+same diarization and ASR setup. The SmartGlasses-adapted
+TSE model has almost unchanged DER but reduces tcpCER
+from 24.69% to 23.64%, showing that adaptation mainly
+improves the ASR quality of separated overlap speech.
+Table IV compares overlap handling strategies. Native seg-
+mentation directly feeds diarization outputs to ASR. Dropping
+all overlap severely increases MISS. Assigning overlap to
+TABLE IV
+OVERLAP STRATEGY COMPARISON ON TRACK 2 DEVELOPMENT SET,
+BASED ON EXPERIMENTAL VERIFICATION WITH QWEN3-ASR-1.7B.
+Strategy
+MISS
+SPK
+DER
+tcpCER
+Native segmentation
+5.07
+5.16
+17.53
+26.64
+Drop overlap
+27.33
+2.06
+34.54
+32.88
+Assign overlap
+15.16
+3.56
+23.95
+25.78
+TSE overlap
+5.07
+5.16
+17.53
+24.69
+TSE dominant overlap
+7.21
+4.57
+18.62
+22.88
+TABLE V
+CHANNEL AND ASR COMPARISONS ON TRACK 2 DEVELOPMENT SET.
+THE CHANNEL RESULTS ARE OBTAINED USING FIREREDASR2-AED
+UNDER THE TSE OVERLAP CONFIGURATION. DER COLLAR IS 0S
+Factor
+System
+DER
+tcpCER
+Channel
+ch1
+17.53
+23.61
+ch2
+17.81
+24.09
+ch3
+18.12
+24.32
+ch4
+18.50
+25.25
+Baseline
+Vibevoice-ASR
+32.50
+33.77
+ASR
+Qwen3-ASR-1.7B
+-
+22.88
+FireRedASR2-AED
+-
+21.73
+a single speaker reduces insertions but loses much target
+speech. For TSE overlap, we extract speaker-specific signals
+for each speaker in overlap and feed them to ASR directly. Our
+proposed TSE dominant overlap adds a fallback: when the two
+extracted signals are too similar, we assign the original mixture
+to the speaker whose enrollment embedding is most similar to
+it, and drop that region for the other speaker. This achieves the
+best development-set result, reducing tcpCER from 24.69% to
+22.88%. Table V summarizes channel and ASR comparisons.
+Among the four single channels, channel 1 gives the lowest
+tcpCER. With the same diarization and TSE configuration,
+FireRedASR2-AED reduces tcpCER from 22.88% to 21.73%
+compared with Qwen3-ASR-1.7b, so it is used in our final
+system.
+D. Official Test Result
+On the official test set, the final system achieves a tcpCER
+of 7.10% on Track 1, ranking fifth on the Track 1 leaderboard,
+and a tcpCER of 34.04% on Track 2, ranking second on the
+Track 2 leaderboard.
+V. CONCLUSION
+This paper presented the tttAI system for the TSA-ASR
+task of the SmartGlasses Challenge 2026. The system follows
+a cascaded speaker-attributed ASR pipeline with diarization,
+overlap-aware target-speaker extraction, post-processing, and
+FireRedASR2-AED. Official test results show that our system
+achieves a tcpCER of 7.10% on Track 1 and a tcpCER of
+34.04% on Track 2, ranking second on the Track 2 leader-
+board.
+REFERENCES
+[1] SmartGlasses Challenge Organizers, “SmartGlasses Challenge 2026:
+Egocentric speech interaction on AI glasses,” https://aslp-lab.github.io/
+SmartGlasses/, 2026, accessed: 2026-07-01.
+[2] J. Han, F. Landini, J. Rohdin, A. Silnova, M. Diez, and L. Burget,
+“Leveraging self-supervised learning for speaker diarization,” in ICASSP
+2025-2025 IEEE International Conference on Acoustics, Speech and
+Signal Processing (ICASSP).
+IEEE, 2025, pp. 1–5.
+[3] S. Chen, C. Wang, Z. Chen, Y. Wu, S. Liu, Z. Chen, J. Li, N. Kanda,
+T. Yoshioka, X. Xiao et al., “WavLM: Large-scale self-supervised pre-
+training for full stack speech processing,” IEEE Journal of Selected
+Topics in Signal Processing, vol. 16, no. 6, pp. 1505–1518, 2022.
+[4] A. Gulati, J. Qin, C.-C. Chiu, N. Parmar, Y. Zhang, J. Yu, W. Han,
+S. Wang, Z. Zhang, Y. Wu et al., “Conformer: Convolution-augmented
+transformer for speech recognition,” arXiv preprint arXiv:2005.08100,
+2020.
+[5] Q. Wang, W. Wang, K. Chen, J. Yang, Y. Wang, S. Niu, C. Zhang, J. Du,
+and C.-H. Lee, “WeSep: A scalable and flexible toolkit towards gen-
+eralizable target speaker extraction,” arXiv preprint arXiv:2409.15799,
+2024.
+[6] Y. Luo and J. Yu, “Music source separation with band-split rnn,”
+IEEE/ACM Transactions on Audio, Speech, and Language Processing,
+vol. 31, pp. 1893–1901, 2023.
+[7] B. Desplanques, J. Thienpondt, and K. Demuynck, “Ecapa-tdnn: Em-
+phasized channel attention, propagation and aggregation in tdnn based
+speaker verification,” arXiv preprint arXiv:2005.07143, 2020.
+[8] T. von Neumann, C. Boeddeker, M. Delcroix, and R. Haeb-Umbach,
+“MeetEval: A toolkit for computation of word error rates for meeting
+transcription systems,” in Proc. 7th International Workshop on Speech
+Processing in Everyday Environments (CHiME 2023), 2023, pp. 27–32.
+[9] Y. Fujita, N. Kanda, S. Horiguchi, Y. Xue, K. Nagamatsu, and S. Watan-
+abe, “End-to-end neural speaker diarization with self-attention,” in
+2019 IEEE Automatic Speech Recognition and Understanding Workshop
+(ASRU).
+IEEE, 2019, pp. 296–303.
+[10] S. Horiguchi, Y. Fujita, S. Watanabe, Y. Xue, and K. Nagamatsu,
+“Encoder-decoder based attractors for end-to-end neural diarization,”
+IEEE/ACM Transactions on Audio, Speech, and Language Processing,
+vol. 30, pp. 1493–1507, 2022.
+[11] J. Carletta, S. Ashby, S. Bourban, M. Flynn, M. Guillemot, T. Hain,
+J. Kadlec, V. Karaiskos, W. Kraaij, M. Kronenthal et al., “The ami
+meeting corpus: A pre-announcement,” in International workshop on
+machine learning for multimodal interaction.
+Springer, 2005, pp. 28–
+39.
+[12] F. Yu, S. Zhang, Y. Fu, L. Xie, S. Zheng, Z. Du, W. Huang, P. Guo,
+Z. Yan, B. Ma et al., “M2met: The icassp 2022 multi-channel multi-
+party meeting transcription challenge,” in ICASSP 2022-2022 IEEE
+International Conference on Acoustics, Speech and Signal Processing
+(ICASSP).
+IEEE, 2022, pp. 6167–6171.
+[13] Y. Fu, L. Cheng, S. Lv, Y. Jv, Y. Kong, Z. Chen, Y. Hu, L. Xie, J. Wu,
+H. Bu et al., “Aishell-4: An open source dataset for speech enhancement,
+separation, recognition and speaker diarization in conference scenario,”
+arXiv preprint arXiv:2104.03603, 2021.
+[14] A. Vinnikov, A. Ivry, A. Hurvitz, I. Abramovski, S. Koubi, I. Gurvich,
+S. Peer, X. Xiao, B. M. Elizalde, N. Kanda et al., “Notsofar-1 challenge:
+New datasets, baseline, and tasks for distant meeting transcription,”
+arXiv preprint arXiv:2401.08887, 2024.
+[15] Z. Yang, Y. Chen, L. Luo, R. Yang, L. Ye, G. Cheng, J. Xu,
+Y. Jin, Q. Zhang, P. Zhang et al., “Open source MagicData-RAMC: A
+rich annotated mandarin conversational speech dataset,” arXiv preprint
+arXiv:2203.16844, 2022.
+[16] J. S. Chung, J. Huh, A. Nagrani, T. Afouras, and A. Zisserman,
+“Spot the conversation: speaker diarisation in the wild,” arXiv preprint
+arXiv:2007.01216, 2020.
+[17] N. Ryant, P. Singh, V. Krishnamohan, R. Varma, K. Church, C. Cieri,
+J. Du, S. Ganapathy, and M. Liberman, “The third dihard diarization
+challenge,” arXiv preprint arXiv:2012.01477, 2020.
+[18] B. Mu, P. Guo, Z. Sun, S. Wang, H. Liu, M. Shao, L. Xie, E. S.
+Chng, L. Xiao, Q. Feng et al., “Summary on the multilingual conver-
+sational speech language model challenge: Datasets, tasks, baselines,
+and methods,” in ICASSP 2026-2026 IEEE International Conference on
+Acoustics, Speech and Signal Processing (ICASSP).
+IEEE, 2026, pp.
+19 442–19 446.
+[19] X. Shi, X. Wang, Z. Guo, Y. Wang, P. Zhang, X. Zhang, Z. Guo, H. Hao,
+Y. Xi, B. Yang et al., “Qwen3-asr technical report,” arXiv preprint
+arXiv:2601.21337, 2026.
+[20] K. Xu, Y. Jia, K. Huang, J. Chen, W. Li, K. Liu, F.-L. Xie, X. Tang,
+and Y. Hu, “Fireredasr2s: A state-of-the-art industrial-grade all-in-one
+automatic speech recognition system,” arXiv preprint arXiv:2603.10420,
+2026.
+[21] J. Han, F. Landini, J. Rohdin, A. Silnova, M. Diez, J. Cernocky, and
+L. Burget, “Fine-tune before structured pruning: Towards compact and
+accurate self-supervised models for speaker diarization,” arXiv preprint
+arXiv:2505.24111, 2025.

@@ -1,0 +1,2884 @@
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+Shigui Li 1 Delu Zeng 2
+Abstract
+The prevailing inference framework for diffusion
+models formulates generation fundamentally as
+a problem of numerical integration. This per-
+spective casts the model as an exact estimator,
+neglecting the inherent statistical uncertainty of
+the denoising process.
+In this work, we pro-
+pose Forward-Process Aligned Diffusion predic-
+tion (DiFA), a training-free framework that re-
+frames inference-time data prediction refinement
+as a sequential state estimation problem. Rather
+than reusing past outputs solely for numerical in-
+tegration, DiFA treats iterative data predictions
+along the reverse trajectory as correlated obser-
+vations to build a forward-aligned temporal con-
+sensus. Inspired by Kalman filtering, this consen-
+sus aggregates historical predictions according to
+structural consistency and noise-level compatibil-
+ity. To counteract the over-smoothing tendency
+of temporal consensus, we introduce a deviation
+guidance mechanism to adaptively preserve resid-
+ual details. Empirically, DiFA yields significant
+improvements on CIFAR-10 and ImageNet across
+the evaluated metrics, including FID, IS, and FD-
+DINOv2, demonstrating that aligning inference
+with the forward statistical structure substantially
+improves generative fidelity.
+1. Introduction
+Diffusion models (DMs) have demonstrated striking success
+in high-fidelity generative tasks (Sohl-Dickstein et al., 2015;
+Ho et al., 2020; Song et al., 2021c; Dhariwal & Nichol,
+2021), spanning from photorealistic image synthesis to com-
+plex scientific simulations (Rombach et al., 2022; Blattmann
+et al., 2023; Podell et al., 2024; Batifol et al., 2025). They
+leverage an iterative denoising process to progressively
+1School of Mathematics, South China University of Technol-
+ogy, Guangzhou, China; 2School of Electronic and Information
+Engineering, South China University of Technology, Guangzhou,
+China. Correspondence to: Delu Zeng <dlzeng@scut.edu.cn>.
+Proceedings of the 43 rd International Conference on Machine
+Learning, Seoul, South Korea. PMLR 306, 2026. Copyright 2026
+by the author(s).
+transform unstructured noise into samples from the target
+data distribution (Kingma et al., 2021; Karras et al., 2022;
+2024b). However, this iterative process inherently imposes
+a significant inference burden (Lu et al., 2022; Zhao et al.,
+2023; Wimbauer et al., 2024; Luo et al., 2024). Unlike one-
+step generative paradigms (e.g., GANs (Goodfellow et al.,
+2014), VAEs (Kingma, 2013)), DMs rely on a substantial
+number of network evaluations (NFEs) to progressively tra-
+verse the data manifold and generate high-fidelity samples
+(Ho et al., 2020; Farghly et al., 2025).
+The challenge in this diffusion paradigm lies in reducing
+sampling steps without compromising sample quality (Liu
+et al., 2022; Bao et al., 2022; Zhang & Chen, 2023; Zheng
+et al., 2023; Li et al., 2023; Ma et al., 2024a; Sabour et al.,
+2024; Lu et al., 2025; Jiang et al., 2025; Li et al., 2025; Fu
+et al., 2025; Ma et al., 2025). Standard samplers, whether
+deterministic (ODE-based) or stochastic (SDE-based), typi-
+cally rely on local linear approximations of the score func-
+tion to predict the next state (Lu et al., 2022; Gonzalez et al.,
+2023; Ye et al., 2024; Abuduweili et al., 2025; Tang et al.,
+2025). We argue that this linearized perspective is inherently
+geometrically agnostic. In high-curvature regions, such ap-
+proximations introduce inevitable estimation biases (Karras
+et al., 2022; Esser et al., 2024; Zhang et al., 2025). Further-
+more, although injected noise is necessary for diversity, it
+introduces a per-step variance that is severely amplified dur-
+ing discrete, few-step inference (Song et al., 2021a). These
+errors are not isolated but cumulative (Ning et al., 2024;
+Chang et al., 2026; Li & Zeng, 2026), with minor deviations
+compounding into irreversible prediction drift.
+To address these challenges, research efforts have largely
+consolidated into two orthogonal directions, each with dis-
+tinct limitations. On one hand, distillation techniques at-
+tempt to compress the trajectory into fewer steps (Salimans
+& Ho, 2022; Song et al., 2023; Meng et al., 2023; Liu et al.,
+2023a; Frans et al., 2025). While reducing inference la-
+tency, they incur substantial retraining overhead and are
+often confined to task-specific customizations (Luo et al.,
+2023; Liu et al., 2024; Yin et al., 2024; Sauer et al., 2024;
+Dong et al., 2024; Shen et al., 2025; Sabour et al., 2025).
+This may restrict the model to a narrowed distribution and
+compromise the zero-shot generalization and diversity of
+the original teacher model. On the other hand, advanced
+solvers employ higher-order numerical methods to reduce
+1
+arXiv:2607.17972v1  [cs.LG]  20 Jul 2026
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+xt
+Standard Denoiser
+Dθ(xt, t) →ˆx(t)
+0
+Numerical Solver
+(Open-Loop)
+xt−1
+Statistically Agnostic (Traditional View)
+xt
+Current ˆx(t)
+0
+Prediction
+DiFA-refined
+Prediction
+Downstream
+Solver
+xt−1
+Temporal Consensus
+ˆxcons
+0
+Sequential Attention
+observation
+update
+consensus ˆxcons
+0
+deviation rt
+ˆxDiFA
+0
+= ˆx(t)
+0
++ ωgt
+Forward-Aligned Prediction (DiFA View)
+Figure 1. DiFA Mechanism of Inference-Time Forward-Process Alignment. Traditional samplers (Top) use each denoiser prediction only
+for the current solver step, discarding temporal redundancy along the trajectory. DiFA (Bottom) constructs a forward-aligned temporal
+consensus ˆxcons
+0
+(t) from historical predictions and uses it as an anchor for residual construction. Specifically, rt = ˆx(t)
+0
+−ˆxcons
+0
+(t) is
+transformed into deviation guidance gt = G(rt), yielding the refined prediction ˆxDiFA
+0
+(t) = ˆx(t)
+0
++ ωgt without additional NFEs.
+truncation errors (Lu et al., 2022). However, by treating the
+fixed model as an exact estimator for correcting temporal
+discretization errors, they follow each instantaneous predic-
+tion as if it were a sufficiently accurate clean-signal estimate,
+leaving its uncertainty and the temporal redundancy of the
+prediction sequence unexploited.
+Inspired by EDM2 (Karras et al., 2024a), which suggests
+DMs can self-correct using just bad versions of themselves,
+we identify the bottleneck not merely time discretization
+error, but the intrinsic estimation uncertainty of the learned
+model. Unlike high-order ODE solvers that assume the vec-
+tor field is ground truth and use auxiliary points solely to
+refine temporal integration, we argue that the learned score
+is an imperfect, smoothed approximation of the posterior
+mean due to the MSE training objective. Consequently, stan-
+dard samplers treat each prediction as a transient estimation,
+blindly following a biased tangent while discarding the rich
+information embedded in the sampling trajectory. Can we
+then harvest the latent consensus from the sequence of his-
+torical predictions to rectify this estimation drift without any
+additional network evaluations? By synthesizing informa-
+tion across the temporal sequence, the model can leverage
+its own historical redundancy to mitigate linearization bi-
+ases. The base DM thus holds untapped potential; it merely
+lacks a mechanism to unleash this intrinsic self-guidance
+through temporal consensus. Guided by this insight, we pro-
+pose Forward-Process Aligned Diffusion prediction (DiFA),
+a principled inference-time algorithm that rectifies signal
+predictions via forward-process alignment. DiFA does not
+replace the numerical solver. Instead, it refines the clean pre-
+diction supplied to each solver step. Motivated by Kalman
+estimation under an idealized static-anchor model, DiFA
+implements this principle through forward-aligned sliding-
+window temporal consensus, where historical predictions
+are fused according to structural consistency and noise-level
+compatibility. To avoid over-smoothing, DiFA further con-
+structs a deviation guidance direction and modulates its
+smoothed and high-frequency components.
+In summary, our contributions are as follows. First, we iden-
+tify clean-signal prediction drift during diffusion inference
+as arising from time-dependent estimation uncertainty, pos-
+terior ambiguity, and trajectory mismatch, shifting the focus
+from solely improving numerical integration to refining the
+clean-signal estimate provided to downstream solvers. Sec-
+ond, we propose DiFA, a solver-compatible inference-time
+output-alignment framework that exploits temporal redun-
+dancy through adaptive temporal consensus, where histori-
+cal predictions are fused according to structural consistency
+and noise-level-dependent reliability. Third, motivated by
+Best Linear Unbiased Estimation (BLUE), we introduce a
+principled approximation to effectively mitigate the afore-
+mentioned prediction uncertainty. Extensive evaluations on
+CIFAR-10 and ImageNet show that DiFA consistently im-
+proves existing samplers across FID, IS, and FD-DINOv2
+scores without additional network evaluations, demonstrat-
+ing the effectiveness of correcting clean-signal predictions
+within the inference pipeline.
+2. Related Work
+Accelerated Generation.
+The substantial computational
+burden of DMs has catalyzed a broad spectrum of acceler-
+2
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+ation strategies across distinct operational paradigms. At
+the architecture level, latent DMs (Rombach et al., 2022)
+improve efficiency by operating in compressed latent spaces.
+At the training level, researchers accelerate generation by
+retraining or distilling models to shorten sampling chains.
+Representative modeling approaches include progressive
+distillation (Salimans & Ho, 2022), flow matching (FM)
+(Lipman et al., 2023), reflow (Liu et al., 2023a), and re-
+cently developed one-step or few-step methods, such as con-
+sistency models (Song et al., 2023), adversarial distillation
+(Sauer et al., 2024), shortcut models (Frans et al., 2025), and
+mean flows (Geng et al., 2025). Alternatively, training-free
+methods optimize the inference process itself. Following the
+deterministic formulation (Song et al., 2021a), a variety of
+advanced solvers have emerged. Early solvers like PNDM
+(Liu et al., 2022) introduced the use of historical gradients,
+while the DPM-Solver family (Lu et al., 2022; 2025) later
+proposed specialized exponential integrators for diffusion
+ODEs. Specialized solvers with lightweight learning have
+been explored to bridge the gap between both paradigms
+(Tong et al., 2025). Moreover, complementary strategies
+include schedule optimization (Sabour et al., 2024), parallel
+decoding (Shih et al., 2023) and caching mechanisms (Wim-
+bauer et al., 2024; Ma et al., 2024b). While effective in
+reducing NFEs, these methods prioritize temporal precision,
+often neglecting the intrinsic estimation variance.
+Inference-Time Rectification.
+A pivotal challenge in dif-
+fusion model inference lies in mitigating trajectory insta-
+bility and statistical discrepancies (Lin et al., 2024). Ac-
+cordingly, refinement methodologies have progressed from
+variance-controlled stochastic sampling (Ho et al., 2020;
+Song et al., 2021c; Bao et al., 2022) to explicit rectification.
+While advanced solvers like UniPC (Zhao et al., 2023) em-
+phasize numerical accuracy for efficient integration, recent
+approaches like Zigzag (Bai et al., 2025) and inference-
+time scaling strategies (Ma et al., 2025) explicitly amend
+intermediate errors or optimize search paths, often trading
+computational efficiency for improved generation quality.
+Recently, to overcome the rigidity of conventional numeri-
+cal solvers, EVODiff (Li et al., 2025) rectifies the inference
+path via entropy-aware variance optimization. Although
+classical antithetic sampling (Ren et al., 2019) has been
+revisited recently for initial-noise pairing (Jia et al., 2025) to
+improve global diversity, its capacity for dynamic trajectory
+rectification remains largely unexplored. Existing strategies
+typically rely on external task-specific constraints (Chung
+et al., 2022; Bansal et al., 2024; Yang et al., 2024), heuristic
+interventions on internal structures (Ho & Salimans, 2022;
+Hong et al., 2023; Epstein et al., 2023; Liu et al., 2023b;
+Shen et al., 2024; Ahn et al., 2024), or temporal rescal-
+ing (Park et al., 2025). However, these methods mainly
+improve semantic consistency while leaving the inherent
+estimation variance and high-frequency degradation caused
+by MSE-based denoising unaddressed. Although EDM2
+(Karras et al., 2024a) introduces self-guidance, it still relies
+on auxiliary degraded models and hand-crafted guidance
+cues. In contrast, DiFA offers an intrinsic and training-free
+framework grounded in classical estimation principles. It
+treats denoising as a filtering process, avoiding reliance on
+external models or heuristic guidance.
+Limitations and Our Contribution.
+Existing inference
+strategies face a fundamental dilemma: distillation incurs
+costly retraining and potential quality degradation, whereas
+standard solvers neglect the estimation variance and detail
+attenuation of MSE-trained denoisers. We propose Forward-
+Process Aligned Diffusion prediction (DiFA), a training-free
+framework that exploits temporal redundancy to refine clean-
+signal predictions. Unlike solvers that use historical model
+evaluations to refine numerical integration, DiFA constructs
+a forward-aligned reference in the clean-prediction space
+before the unchanged solver update, without requiring aux-
+iliary models. Under an idealized independent-view model,
+the BLUE analysis yields a principled fusion rule for his-
+torical predictions, which motivates the practical forward-
+aligned consensus. Deviation guidance is designed to coun-
+teract the detail attenuation introduced by temporal aggre-
+gation. By aligning reverse inference with the forward sta-
+tistical structure, DiFA mitigates prediction drift and better
+exploits the capacity of pretrained generative models.
+3. Preliminaries
+3.1. Diffusion Models and Probability Flow
+Diffusion models (DMs) rely on a constructed forward pro-
+cess that progressively corrupts data x0 ∼q(x0) into Gaus-
+sian noise (Ho et al., 2020). The marginal distribution of a
+noisy sample xt at time t can generally be expressed as:
+q(xt|x0) = N(xt; αtx0, σ2
+t I),
+(1)
+where αt and σt denote the signal and noise scale parame-
+ters, respectively. The model learns to reverse this process
+by predicting the noise component ϵ via a network ϵθ(xt, t),
+optimized by minimizing the mean squared error (MSE):
+L = Et,x0,ϵ ∥ϵ −ϵθ(αtx0 + σtϵ, t)∥2 .
+(2)
+While classic DDPMs operate on a discrete schedule, the
+transition kernel can be generalized to a continuous-time
+setting (Kingma et al., 2021). This extension unifies the
+framework under a stochastic differential equation (SDE)
+formulation (Song et al., 2021c), where the generative pro-
+cess follows the reverse-time dynamics:
+d x = [f(t)x −g(t)2∇x log pt(x)] d t + g(t) d ¯
+w,
+(3)
+where d ¯
+w is the standard Wiener process in reverse time.
+Crucially, there exists a deterministic Probability Flow ODE
+3
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+Figure 2. Illustrating the mean-field discrepancy in model estima-
+tion through spatial shift and magnitude scaling.
+(PF-ODE) that shares the same marginal as the SDE:
+d x
+d t = f(t)x −1
+2g(t)2∇x log pt(x).
+(4)
+3.2. Inference Framework and Linearization Bias
+As the score function ∇x log pt(x) is parameterized as
+−ϵθ(xt, t)/σt (Song et al., 2021c; Karras et al., 2022) and
+the prediction relationship of xθ (xt, t) =
+xt−σtϵθ(xt,t)
+αt
+(Kingma et al., 2021), the inference ODE is formulated as
+d x
+d t =
+
+f(t) + g2(t)
+2σ2
+t
+
+xt −αt
+g2(t)
+2σ2
+t
+xθ (xt, t) .
+(5)
+This framework is generalized by the EDM formulation
+(Karras et al., 2022; 2024a), which stabilizes probability
+flow via signal scaling. A pivotal innovation in EDM is
+the introduction of input preconditioning, which explicitly
+standardizes the network input into a signal-centric form:
+xt
+s(t) = x0 + σ(t)ϵ.
+(6)
+By normalizing the signal scale to unity across all time t,
+this formulation reveals that the diffusion trajectory effec-
+tively orbits a static anchor x0. This architectural alignment
+of the input state to x0 resonates with the core intuition of
+our work, where we seek to align the output predictions to
+the same statistical invariant. This concept of straightening
+the generative path is also central to concurrent works on
+FMs (Lipman et al., 2023; Liu et al., 2023a). In fact, FM
+can be seen as a special case of diffusion modeling (Kingma
+& Gao, 2023), which typically defines the process as a linear
+interpolation xt = (1−t)x0 +tϵ. While trajectory straight-
+ness is widely regarded as a key property for minimizing
+discretization errors, the perspective of rectified diffusion
+(Wang et al., 2025) suggests that pre-defined linearity is
+insufficient. Instead, the efficacy of rectification stems from
+bootstrap retraining, which aligns the model with ODE cou-
+pling of a pre-trained teacher. This process facilitates the
+transport curvature, allowing first-order solvers to achieve
+one-step generation (Frans et al., 2025; Geng et al., 2025).
+In this work, we focus on the general EDM formulation
+without such expensive retraining. Consequently, our stan-
+dard pre-trained models do not strictly satisfy the first-order
+property. To quantify the impact of this, let Φ(x, t) denote
+the drift vector field defined by the RHS of Eq. (5). Standard
+inference numerically integrates this ODE by approximat-
+ing the trajectory as locally linear within a step ∆t (e.g., a
+first-order Euler step xt−1 ≈xt + ∆t · Φ(xt, t)). However,
+due to the lack of retraining, the generative manifold retains
+significant curvature. This geometric complexity, coupled
+with the inherent estimation variance of the model Φ, ren-
+ders the trajectory highly sensitive to local prediction errors.
+Standard solvers, which blindly follow the instantaneous
+tangent, accumulate these errors as geometric drift.
+4. Method
+We propose Forward-Process Aligned Diffusion predic-
+tion (DiFA), a theory-inspired and principled algorithm for
+inference-time clean-signal prediction alignment. DiFA is
+a training-free framework and does not replace existing nu-
+merical solvers. Instead, it operates at the interface between
+the pretrained denoiser and the downstream solver by refin-
+ing the data prediction supplied to each solver step. From
+the perspective of the forward process of diffusion models,
+the central idea is to reframe the inference-time predictions
+along the reverse trajectory as temporally related observa-
+tions of a locally stable clean-signal anchor. DiFA uses the
+common-anchor geometry and the noise-level-dependent
+reliability structure induced by the forward process to filter
+these multi-step predictions before they are passed to the
+downstream solver.
+4.1. Diffusion Sampling as Sequential Estimation
+During inference, the denoiser produces a sequence of clean-
+signal predictions,
+ˆx(ti)
+0
+= Dθ(xti, ti),
+i = 1, . . . , N.
+(7)
+Assuming that reverse inference proceeds in the order tN >
+tN−1 > · · · > t0, for a current reverse step ti, let
+WK(ti) ⊆{tj : j > i},
+| WK(ti)| ≤K,
+(8)
+denote a causal temporal window of recently processed
+historical steps, and define
+W+
+K(ti) = WK(ti) ∪{ti}.
+(9)
+Rather than treating the predictions in this local neighbor-
+hood as isolated one-step estimates, we view them as tem-
+porally correlated observations of a locally stable trajectory-
+implied clean anchor. For tj ∈W+
+K(ti), we write
+ˆx(tj)
+0
+= x(ti)
+0,⋆+ bj|i + ξj|i, tj ∈W+
+K(ti),
+(10)
+where x(ti)
+0,⋆denotes the trajectory-implied clean anchor,
+assumed locally stable within this neighborhood, while bj|i
+4
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+and ξj|i capture the systematic bias and residual uncertainty
+with respect to this anchor, respectively.
+Due to distribution shifts in few-step trajectories, predictions
+from MSE-trained denoisers may exhibit systematic bias
+and temporal correlation. The reliability ordering used by
+DiFA is instead induced by the normalized forward process.
+From Eq. (1), the forward process admits the equivalent
+signal-normalized representation,
+¯xt := xt
+αt
+= x0 + σt
+αt
+ϵ = x0 + SNR(t)−1/2ϵ,
+(11)
+where ϵ ∼N(0, I). Accordingly,
+¯xt | x0 ∼N
+ x0, SNR(t)−1I
+
+.
+(12)
+Therefore, in the forward-corruption space, states at differ-
+ent noise levels share the same clean-data anchor (x0), and
+SNR(t) exactly characterizes the conditional observation
+precision of the corresponding forward observation.
+This forward statistical geometry motivates DiFA’s treat-
+ment of the reverse-trajectory predictions: although learned
+denoiser errors may be biased and temporally correlated
+rather than exactly following the forward observation co-
+variance, the prediction sequence can still be organized
+and filtered according to the common-anchor structure and
+the noise-level reliability ordering induced by the forward
+process. While existing numerical solvers widely utilize
+historical outputs to refine temporal integration, they fail
+to explicitly and dynamically construct a forward-aligned
+reference anchor to rectify prediction drift during inference.
+4.2. Forward-Process Alignment Principle
+Based on the forward-induced common-anchor geometry
+established above, we now formalize the alignment principle
+underlying DiFA in Algorithm 1.
+Definition
+4.1
+(Forward-Process
+Alignment).
+Let
+{ˆx(ti)
+0
+}N
+i=1 denote the data predictions along a reverse
+trajectory. Forward-Process Alignment is the principle that
+inference-time prediction refinement should be constructed
+relative to the common-anchor geometry and noise-level
+reliability ordering induced by the forward noising process.
+This principle is instantiated by first constructing a tempo-
+rally stable reference anchor in the clean-prediction space
+and then using the anchor-relative deviation for current-step
+refinement. Accordingly, forward-process alignment spec-
+ifies the reference coordinate and reliability organization
+for prediction refinement. To derive a canonical consen-
+sus rule implied by this principle, we introduce an idealized
+and tractable forward-aligned independent-view observation
+model. This model preserves the common-anchor geome-
+try and inverse-SNR reliability structure of the normalized
+forward process, while serving as an analytical proxy rather
+than an exact model of the learned denoiser errors:
+yi = x0,⋆+ ηi,
+ηi
+ind
+∼N (0, RiI) , Ri =
+c
+SNR(ti),
+(13)
+where c > 0 is a common scale constant and x0,⋆denotes
+the static anchor in this ideal analytical model. It is the
+idealized counterpart of the locally stable trajectory-implied
+anchor x(ti)
+0,⋆in Eq. (10). This model provides a canonical
+analytical basis for deriving the consensus estimator.
+Then, we seek a linear unbiased estimator of x0,⋆whose
+weights minimize the isotropic estimation covariance:
+ˆx⋆
+0,ideal =
+n
+X
+i=1
+wiyi,
+n
+X
+i=1
+wi = 1,
+{w⋆
+i }n
+i=1 = arg min
+Pn
+i=1 wi=1
+n
+X
+i=1
+w2
+i Ri.
+(14)
+This yields the precision-weighted estimator
+ˆx⋆
+0,ideal =
+Pn
+i=1 SNR(ti)yi
+Pn
+i=1 SNR(ti) ,
+(15)
+where the SNR-dependent weights follow from the inverse-
+SNR covariance form of the forward-aligned observation.
+Proposition 4.2 (Variance Reduction under Ideal For-
+ward-Aligned Observations). Under the observation model
+in Eq. (13), the fused anchor estimator satisfies
+Cov
+ ˆx⋆
+0,ideal
+
+=
+ n
+X
+i=1
+R−1
+i
+!−1
+I =
+c
+Pn
+i=1 SNR(ti)I,
+(16)
+which is strictly smaller, in the positive-semidefinite order-
+ing, than the covariance of any individual observation for
+n ≥2. The proof is provided in Appendix A.1.
+This canonical anchor estimator can be reformulated as the
+recursive Kalman realization described in the next section.
+4.3. Connection to Kalman Filtering
+The anchor estimator in Eq. (15) admits an equivalent recur-
+sive realization through static-state Kalman updates. Under
+the independent-view, each observation provides precision-
+weighted evidence about the shared anchor, allowing the
+full-history estimator to be implemented recursively.
+Theorem 4.3 (Recursive Kalman Equivalence under
+the Ideal Independent-View Model). Under the ideal
+independent-view observation model in Eq. (13), initialize
+the static-state recursive estimator by
+ˆxrec
+0,1 = y1,
+p1 =
+c
+SNR(t1).
+5
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+Baseline Solver
+DiFA Refined Prediction
+Figure 3. Visual quality comparison on CIFAR-10 using pre-
+trained EDM weights. Compared to the baseline solver, incorpo-
+rating our DiFA framework significantly enhances visual fidelity
+and edge sharpness under identical few-step inference budgets.
+For i = 2, . . . , n, assimilate yi using the static-state
+Kalman update with observation covariance c SNR(ti)−1I.
+Then
+ˆxrec
+0,n =
+Pn
+i=1 SNR(ti)yi
+Pn
+i=1 SNR(ti)
+= ˆx⋆
+0,ideal.
+(17)
+The proof is provided in Appendix A.2.
+Theorem 4.3 shows that the ideal forward-aligned anchor es-
+timator admits an exact recursive realization through static-
+state Kalman updates under the independent-view model.
+Motivated by this result, DiFA constructs a causal historical
+consensus in practical reverse inference using structural and
+noise-level compatibility to account for deviations from the
+ideal model. The current prediction is then refined relative
+to this consensus anchor.
+4.4. Forward-Aligned Causal Temporal Consensus
+Guided by the forward-aligned anchor interpretation es-
+tablished above, DiFA constructs a practical reference
+anchor from recently processed clean-signal predictions.
+We parameterize the noise level using logSNR, ℓi
+=
+log SNR(ti) = log
+α2
+ti
+σ2
+ti . As a monotonic reparameterization
+of SNR, logSNR preserves the forward-induced reliability
+ordering while providing improved numerical stability when
+comparing predictions across a wide dynamic range.
+At step ti, DiFA maintains the causal history buffer:
+HK(ti) =
+n
+ˆx(tj)
+0
+, ℓj
+o
+tj∈WK(ti) .
+(18)
+Only previously processed predictions are aggregated as
+historical reference values, so that the current prediction
+remains available for subsequent anchor-relative refinement.
+The temporal consensus is defined as:
+ˆxcons
+0
+(ti) =
+X
+tj∈WK(ti)
+aij ˜x(tj)
+0
+,
+X
+tj∈WK(ti)
+aij = 1,
+(19)
+where aij ≥0, ˜x(tj)
+0
+denotes an optionally aligned histori-
+cal prediction. The normalized weights aij favor historical
+candidates that are structurally compatible with the cur-
+rent prediction and compatible with its noise level in the
+Algorithm 1 DiFA: Forward-Process Aligned Inference for
+Diffusion Models
+Require: Dθ, downstream solver, {tN, . . . , t0}
+Require: Window size K, guidance strength ω
+1: Initialize history buffer HK ←∅
+2: Sample initial noise xtN ∼N(0, I)
+3: for i = N, . . . , 1 do
+4:
+ˆx(ti)
+0
+←Dθ(xti, ti)
+5:
+ℓi ←log SNR(ti)
+6:
+if HK is empty then
+7:
+ˆxDiFA
+0
+(ti) ←ˆx(ti)
+0
+8:
+else
+9:
+Construct
+reference
+anchor
+ˆxcons
+0
+(ti)
+using
+Eq. (19)
+10:
+rti ←ˆx(ti)
+0
+−ˆxcons
+0
+(ti)
+11:
+Construct deviation guidance gti using Eq. (21)
+12:
+ˆxDiFA
+0
+(ti) ←ˆx(ti)
+0
++ ωgti
+13:
+end if
+14:
+xti−1 ←SolverStep
+
+xti, ˆxDiFA
+0
+(ti), ti, ti−1
+
+15:
+Update HK with (ˆx(ti)
+0
+, ℓi)
+16: end for
+Return xt0
+logSNR coordinate. The current prediction is used as a
+query for reference construction, but is not itself aggregated
+into the reference anchor. This exclusion prevents trivial
+self-reinforcement and preserves a non-degenerate anchor-
+relative deviation for subsequent refinement.
+The resulting consensus serves as a causal historical ref-
+erence anchor in the clean-prediction space. The specific
+alignment and compatibility-weighting rules used in our
+experiments are provided in Appendix A.3.
+4.5. Anchor-Relative Deviation Guidance
+The temporal consensus acts as a multi-step filtered refer-
+ence that captures information stable across recent reverse
+steps. Directly substituting this filtered reference for the in-
+stantaneous prediction, however, may attenuate components
+expressed more strongly at the current step. DiFA therefore
+uses the consensus as a reference anchor and defines the
+anchor-relative deviation:
+rti = ˆx(ti)
+0
+−ˆxcons
+0
+(ti).
+(20)
+Because this deviation may contain both informative compo-
+nents and unstable fluctuations, DiFA applies a noise-level-
+conditioned gain modulation operator:
+gti = G
+
+rti, ˆx(ti)
+0
+, ℓi
+
+,
+(21)
+where G(·) is designed to suppress unreliable deviation
+components while retaining current-step refinement.
+6
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+The refined clean-signal prediction is given by:
+ˆxDiFA
+0
+(ti) = ˆx(ti)
+0
++ ωgti, ω ≥0.
+(22)
+Thus, DiFA performs anchor-relative additive refinement:
+the temporal consensus defines the reference coordinate,
+while the modulated deviation provides the correction direc-
+tion. In the lightweight instantiation evaluated in this work,
+G(·) preserves informative residual-oriented components
+by suppressing prediction-parallel magnitude variation and
+modulating spatial-frequency deviation components accord-
+ing to the current logSNR. Its complete formulation and all
+hyperparameter settings are detailed in Appendix A.3.
+4.6. Algorithm and Discussion
+Algorithm 1 summarizes the complete DiFA procedure. At
+each timestep, the pretrained denoiser first produces an in-
+stantaneous clean-signal prediction ˆx(ti)
+0
+. DiFA then refines
+this prediction through forward-aligned causal temporal
+consensus and anchor-relative deviation guidance. The cor-
+rected prediction ˆxDiFA
+0
+(ti) is finally passed to the down-
+stream solver. Therefore, DiFA does not modify the numer-
+ical integration rule itself. Instead, it improves the clean
+prediction consumed by the solver.
+DiFA is solver-compatible because it only changes the clean-
+signal estimate supplied to the solver. Any solver whose
+update can be expressed using a clean prediction, or con-
+verted to an equivalent clean-prediction parameterization,
+can use DiFA without changing its integration formula. The
+method introduces no additional network evaluations. Its
+extra cost comes only from maintaining a small prediction
+buffer, computing local similarity weights, and applying
+lightweight residual operations. With a fixed window size
+K, the additional cost is O(Kd) per step for a prediction of
+dimension d, which is negligible compared with NFE.
+5. Experiments
+5.1. Settings
+Datasets & Metrics. We evaluate DiFA on widely adopted
+benchmarks: CIFAR-10 (32 × 32) and ImageNet-64 (64 ×
+64). To ensure a holistic assessment, we employ three
+complementary metrics: Fr´echet Inception Distance (FID)
+(Heusel et al., 2017) for distributional fidelity, Inception
+Score (IS) (Salimans et al., 2016) for sample diversity and
+clarity, and FD-DINOv2 (Stein et al., 2023) for perceptually
+aligned quality assessment.
+Implementation Details. We use official pretrained diffu-
+sion checkpoints and evaluate DiFA with DDIM (Song et al.,
+2021a), DPM-Solver++ (Lu et al., 2025), UniPC (Zhao et al.,
+2023), and Heun under the corresponding VP/logSNR and
+EDM parameterizations (Karras et al., 2022). All experi-
+ments are conducted on NVIDIA RTX 4090 GPUs, except
+Table 1. Quantitative results on CIFAR-10 (32 × 32). We compare
+DiFA against state-of-the-art GANs and diffusion models. DiFA
+(Ours) achieves competitive performance comparable to distillation
+methods (e.g., CTM) while requiring zero training. †: Methods
+requiring training/distillation.
+Type
+Model
+#Params
+NFE
+FID ↓
+GAN†
+StyleGAN2-ADA (Karras et al., 2020)
+20M
+1
+2.92
+StyleGAN-XL (Sauer et al., 2022)
+18M
+1
+1.85
+R3GAN (Huang et al., 2025)
+21M
+1
+1.96
+CTM (Kim et al., 2024)
+59M
+1
+1.98
+SiD2A (Zhou et al., 2024)
+56M
+1
+1.50
+Diffusion
+DDPM (Ho et al., 2020)
+36M
+1000
+3.17
+iDDPM (Nichol & Dhariwal, 2021)
+50M
+4000
+2.90
+DDIM (Song et al., 2021a)
+36M
+100
+4.16
+DPM-Solver (Lu et al., 2022)
+36M
+48
+2.65
+DPM-Solver-v3 (Zheng et al., 2023)
+36M
+25
+2.00
+NCSN++ (Song et al., 2021b)
+108M
+2000
+2.20
+LSGM (Vahdat et al., 2021)
+376M
+138
+2.10
+EDM (Karras et al., 2022)
+56M
+35
+1.97
+EVODiff (Li et al., 2025)
+36M
+15
+2.06
+Ours
+DPM-Solver++ w/ DiFA
+36M
+15
+2.02
+DPM-Solver++ w/ DiFA
+36M
+20
+1.96
+Table 2. Results on class-conditional ImageNet-64. DiFA sig-
+nificantly outperforms standard diffusion baselines (e.g., ADM,
+iDDPM) with an order of magnitude fewer steps.
+Type
+Model
+#Params
+NFE
+FID ↓
+GAN†
+StyleGAN-XL (Sauer et al., 2022)
+135M
+1
+1.51
+R3GAN (Huang et al., 2025)
+104M
+1
+2.09
+CTM (Kim et al., 2024)
+324M
+1
+1.92
+DMD2 (Yin et al., 2024)
+296M
+1
+1.28
+SiD2A (Zhou et al., 2024)
+296M
+1
+1.11
+Diffusion
+iDDPM (Nichol & Dhariwal, 2021)
+270M
+250
+2.92
+ADM (Dhariwal & Nichol, 2021)
+296M
+250
+2.07
+RIN (Jabri et al., 2022)
+281M
+1000
+1.23
+EDM (Karras et al., 2022)
+296M
+511
+1.36
+VDM++ (Kingma & Gao, 2023)
+296M
+511
+1.43
+DisCo-Diff (Xu et al., 2024b)
+-
+623
+1.22
+EDM2-S (Karras et al., 2024b)
+280M
+63
+1.58
+DPM-Solver++ (Base)
+296M
+25
+1.83
+UniPC (Base)
+296M
+25
+1.73
+Ours
+DPM-Solver++ w/ DiFA
+296M
+25
+1.64
+UniPC w/ DiFA
+296M
+25
+1.63
+for the CFG-enabled systematic evaluation reported in Ta-
+ble 14, which is conducted on NVIDIA H200 GPUs. NFE
+denotes the number of neural network evaluations. Cru-
+cially, DiFA is implemented as a plug-and-play wrapper
+around existing solvers (DDIM, DPM-Solver++, UniPC,
+Heun) without any additional training or model fine-tuning.
+We use the same initial noise seeds for baselines and DiFA
+to ensure strict fairness. Code is available at DiFA.
+5.2. Main Results
+We now present a comprehensive evaluation demonstrating
+that DiFA consistently improves the evaluated training-free
+solvers across various regimes, effectively bridging the gap
+between rapid prototyping and high-fidelity generation.
+Surpassing the Efficiency Barrier on CIFAR-10. As illus-
+trated in the top row of Figure 6, the qualitative comparison
+in Figure 3, and the SOTA comparison in Table 1, DiFA
+7
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+20 NFE
+Euler
+DiFA
+Heun
+DiFA
+5 NFE
+Euler
+DiFA
+Heun
+DiFA
+Figure 4. Visual quality comparison of generated samples on ImageNet 256 × 256 using the pre-trained SiT-XL/2 with a classifier-free
+guidance (CFG) scale of 1.5. SiT is a DiT-based architecture trained via Flow Matching. We compare the baseline Euler and Heun
+samplers against their corresponding refined predictions utilizing our proposed DiFA framework. The results demonstrate that DiFA
+significantly enhances the visual fidelity and generation quality of the baseline samplers.
+substantially improves the trade-off between quality and
+computational cost. In the extremely low-budget regime (5–
+8 steps), where standard high-order solvers typically suffer
+from severe discretization errors due to unstable derivative
+estimation, DiFA effectively mitigates these issues via its
+temporal consensus mechanism. For instance, at NFE 8,
+DiFA reduces the FID of DPM-Solver++ from 8.40 to 4.15,
+achieving a relative improvement of over 50% and turning
+severely degraded few-step outputs into high-quality sam-
+ples. Moving to the mid-NFE regime (10–15 steps), which
+is critical for real-world applications, DiFA exhibits clear
+dominance. At NFE 12, it achieves an FID of 2.18 (com-
+pared to the baseline’s 3.70), surpassing the baseline by a
+large margin and outperforming the reported 12-step result
+of EVODiff (FID 2.25). Furthermore, even as the number
+of steps increases to 20 where baseline solvers typically
+saturate, DiFA continues to yield gains (FID 1.96 vs. 2.33).
+This indicates that orthogonal deviation guidance helps pre-
+serve residual details that may otherwise be attenuated by
+consensus-based stabilization, allowing the model to break
+the FID 2.0 barrier without extra training.
+Universal Consistency on ImageNet. The bottom row of
+Figure 6 and Table 2 highlight the robustness of DiFA on
+the more complex ImageNet manifold. The proposed frame-
+work shows broad solver compatibility: DiFA consistently
+lowers the FID curve when coupled with either the predictor-
+corrector-based UniPC or the high-order DPM-Solver++.
+Notably, DiFA substantially improves the unstable low-step
+behavior of the Heun solver, reducing FID from 230.05 to
+110.20 at NFE 5. This suggests that the proposed prediction-
+alignment mechanism can mitigate severe trajectory drift
+in challenging low-NFE regimes. Moreover, DiFA proves
+8
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+5
+6
+8
+10
+12
+15
+20
+25
+NFE
+100
+1000
+80
+90
+200
+300
+400
+500
+600
+700
+800
+900
+2000
+FD-DINOv2 ( )
+87.80
+87.20
+ImageNet 64x64: FD-DINOv2 (logSNR)
+DPM++ (Base)
+DPM++ + DiFA
+UniPC (Base)
+UniPC + DiFA
+Heun (Base)
+Heun + DiFA
+(a) ImageNet: FD-DINOv2 (logSNR)
+5
+6
+8
+10
+12
+15
+20
+25
+NFE
+100
+1000
+80
+90
+200
+300
+400
+500
+600
+700
+800
+900
+2000
+FD-DINOv2 ( )
+85.80
+90.50
+ImageNet 64x64: FD-DINOv2 (EDM)
+DPM++ (Base)
+DPM++ + DiFA
+UniPC (Base)
+UniPC + DiFA
+Heun (Base)
+Heun + DiFA
+(b) ImageNet: FD-DINOv2 (EDM)
+Figure 5. Perceptual Quality (FD-DINOv2). DiFA also yields consistent improvements in FD-DINOv2 scores, indicating that our method
+enhances not just statistical fidelity (FID) but also perceptually aligned image quality.
+effective under both logSNR and EDM noise schedules,
+suggesting that the proposed prediction-alignment principle
+is not tied to a specific discretization choice. At conver-
+gence (NFE 25), DiFA reaches an FID of 1.63–1.64 on
+ImageNet-64, showing strong training-free sampling per-
+formance among the evaluated solver configurations. This
+result suggests that refining clean-signal predictions can
+better exploit the capacity of pretrained diffusion models
+without additional network evaluations.
+Perceptual Quality Enhancement.
+Beyond FID, FD-
+DINOv2 provides a perceptually aligned evaluation of im-
+age quality. Figure 5 demonstrates that DiFA yields consis-
+tent improvements in FD-DINOv2 scores. Unlike standard
+averaging methods that might improve FID at the cost of
+blurriness, DiFA achieves perceptual fidelity through a dual
+mechanism for structural filtering and texture enhancement,
+suggesting that the improvement is not obtained merely by
+sacrificing perceptual sharpness or semantic coherence.
+To further examine whether DiFA is tied to pixel-space dif-
+fusion or a specific solver family, we provide further compo-
+nent, robustness, and cross-paradigm studies in Appendix B.
+On LSUN Bedroom, as shown in Table 4, DiFA improves a
+latent-diffusion baseline across 5, 10, and 20 NFE, demon-
+strating its effectiveness beyond the main pixel-space setting.
+Controlled EDM ablations show that historical consensus
+provides the main contribution, while SNR gating and mag-
+nitude alignment offer additional stabilization. Sensitivity
+analyses of the temporal-window, SNR-gating, residual-
+modulation, and logSNR-compatibility parameters further
+confirm robustness across different hyperparameter settings.
+Finally, experiments on SiT-XL/2 with ImageNet 256 × 256
+show consistent FID and IS improvements under both un-
+guided and CFG-enabled flow matching settings; qualitative
+examples are shown in Figure 4.
+Conclusion and Limitations
+We presented DiFA, a training-free inference framework
+that reframes clean-signal prediction refinement as a se-
+quential state-estimation problem. Rather than treating each
+denoising prediction as an exact estimate, DiFA exploits the
+common-anchor geometry and noise-level-dependent relia-
+bility structure induced by the forward process. It constructs
+a causal temporal consensus from historical predictions and
+applies deviation guidance to preserve informative residual
+details. Experiments across diffusion and flow-matching set-
+tings demonstrate that DiFA consistently improves sampling
+quality without additional network evaluations, supporting
+the effectiveness and broader applicability of prediction
+alignment. The current framework nevertheless relies on
+clean-prediction parameterizations, fixed hyperparameters,
+and an idealized static-anchor assumption. Future work will
+explore adaptive strategies, improved filtering mechanisms,
+and theoretical extensions for temporally correlated errors,
+as well as applications to text-to-image, video generation,
+inverse problems and distillation pipelines.
+Acknowledgements
+This work was supported in part by grants from National
+Natural Science Foundation of China (52539005), the China
+Scholarship Council (202306150167), the fundamental re-
+search program of Guangdong, China (2023A1515011281),
+Guangdong Basic and Applied Basic Research Foundation
+(24202107190000687), Foshan Science and Technology
+Research Project (2220001018608).
+9
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+Impact Statement
+This work introduces a training-free inference-time
+paradigm for improving generative-model sampling by re-
+fining clean-signal predictions rather than retraining models
+or replacing numerical solvers. By exploiting temporal pre-
+diction redundancy, DiFA can reduce the computational cost
+of high-quality generation and may make strong diffusion
+and flow-matching models more accessible under limited
+computational budgets. At the same time, more efficient
+generation may also lower the barrier to misuse, includ-
+ing the creation of misleading or harmful synthetic content.
+Since DiFA does not introduce new training data or modify
+model weights, these risks are largely inherited from the un-
+derlying generative models. We therefore encourage DiFA
+to be used together with existing safety filters, provenance
+mechanisms, and responsible deployment practices.
+References
+Abuduweili, A., Yuan, C., Liu, C., and Permenter, F. En-
+hancing sample generation of diffusion models using
+noise level correction. Transactions on Machine Learn-
+ing Research, 2025. ISSN 2835-8856. URL https:
+//openreview.net/forum?id=y8VXikiIU0.
+Ahn, D., Cho, H., Min, J., Jang, W., Kim, J., Kim, S., Park,
+H. H., Jin, K. H., and Kim, S. Self-rectifying diffusion
+sampling with perturbed-attention guidance. In Euro-
+pean Conference on Computer Vision, pp. 1–17. Springer,
+2024.
+Bai, L., Shao, S., Zhou, Z., Qi, Z., Xu, Z., Xiong, H., and
+Xie, Z. Zigzag diffusion sampling: Diffusion models
+can self-improve via self-reflection. In The Thirteenth
+International Conference on Learning Representations,
+2025. URL https://openreview.net/forum?
+id=MKvQH1ekeY.
+Bansal, A., Chu, H.-M., Schwarzschild, A., Sengupta, R.,
+Goldblum, M., Geiping, J., and Goldstein, T.
+Uni-
+versal guidance for diffusion models. In The Twelfth
+International Conference on Learning Representations,
+2024. URL https://openreview.net/forum?
+id=pzpWBbnwiJ.
+Bao, F., Li, C., Zhu, J., and Zhang, B. Analytic-DPM:
+an analytic estimate of the optimal reverse variance in
+diffusion probabilistic models. In International Confer-
+ence on Learning Representations, 2022. URL https:
+//openreview.net/forum?id=0xiJLKH-ufZ.
+Batifol, S., Blattmann, A., Boesel, F., Consul, S., Diagne, C.,
+Dockhorn, T., English, J., English, Z., Esser, P., Kulal, S.,
+et al. Flux. 1 kontext: Flow matching for in-context image
+generation and editing in latent space. arXiv e-prints, pp.
+arXiv–2506, 2025.
+Blattmann, A., Rombach, R., Ling, H., Dockhorn, T., Kim,
+S. W., Fidler, S., and Kreis, K. Align your latents: High-
+resolution video synthesis with latent diffusion models.
+In Proceedings of the IEEE/CVF conference on computer
+vision and pattern recognition, pp. 22563–22575, 2023.
+Chang, Z., Koulieris, G. A., Chang, H. J., and Shum, H. P.
+On the design fundamentals of diffusion models: A sur-
+vey. Pattern Recognition, 169:111934, 2026.
+Chen, W., Li, S., Li, J., Yang, J., Paisley, J., and Zeng,
+D. Dequantified diffusion-schr¨odinger bridge for den-
+sity ratio estimation. In Forty-second International Con-
+ference on Machine Learning, 2025.
+URL https:
+//openreview.net/forum?id=zvyHCOcwsw.
+Chen, W., Du, S., Li, S., Zeng, D., and Paisley, J. Entropy-
+informed weighting channel normalizing flow for deep
+generative models. Pattern Recognition, 172:112442,
+2026. ISSN 0031-3203. doi: https://doi.org/10.1016/j.
+patcog.2025.112442.
+Chen, Z., Li, H., Wang, F., Zhang, O., Xu, H., Jiang, X.,
+Song, Z., and Wang, H. Rethinking the diffusion models
+for missing data imputation: A gradient flow perspective.
+Advances in Neural Information Processing Systems, 37:
+112050–112103, 2024.
+Chung, H., Sim, B., Ryu, D., and Ye, J. C. Improving
+diffusion models for inverse problems using manifold
+constraints. Advances in Neural Information Processing
+Systems, 35:25683–25696, 2022.
+Dhariwal, P. and Nichol, A. Diffusion models beat gans
+on image synthesis. In Advances in Neural Information
+Processing Systems, volume 34, pp. 8780–8794, 2021.
+Dong, J., Liang, W., Li, H., Zhang, D., Cao, M., Ding,
+H., Khan, S. H., and Shahbaz Khan, F. How to contin-
+ually adapt text-to-image diffusion models for flexible
+customization? Advances in Neural Information Process-
+ing Systems, 37:130057–130083, 2024.
+Epstein, D., Jabri, A., Poole, B., Efros, A., and Holynski, A.
+Diffusion self-guidance for controllable image generation.
+Advances in Neural Information Processing Systems, 36:
+16222–16239, 2023.
+Esser, P., Kulal, S., Blattmann, A., Entezari, R., M¨uller,
+J., Saini, H., Levi, Y., Lorenz, D., Sauer, A., Boesel,
+F., Podell, D., Dockhorn, T., English, Z., and Rom-
+bach, R. Scaling rectified flow transformers for high-
+resolution image synthesis. In Forty-first International
+Conference on Machine Learning, 2024. URL https:
+//openreview.net/forum?id=FPnUhsQJ5B.
+10
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+Farghly, T., Potaptchik, P., Howard, S., Deligiannidis, G.,
+and Pidstrigach, J. Diffusion models and the manifold
+hypothesis: Log-domain smoothing is geometry adap-
+tive. In The Thirty-ninth Annual Conference on Neural
+Information Processing Systems, 2025. URL https:
+//openreview.net/forum?id=4JihzQXNJn.
+Frans, K., Hafner, D., Levine, S., and Abbeel, P.
+One
+step diffusion via shortcut models. In The Thirteenth
+International Conference on Learning Representations,
+2025. URL https://openreview.net/forum?
+id=OlzB6LnXcS.
+Fu, S., Wang, Y., Chen, Y., Shen, L., and Tao, D. Self-
+verification provably prevents model collapse in recur-
+sive synthetic training.
+In Belgrave, D., Zhang, C.,
+Lin, H., Pascanu, R., Koniusz, P., Ghassemi, M., and
+Chen, N. (eds.), Advances in Neural Information Pro-
+cessing Systems, volume 38, pp. 36101–36154. Curran
+Associates, Inc., 2025. URL https://openreview.
+net/forum?id=X5Hk8aMs6w.
+Geng, Z., Deng, M., Bai, X., Kolter, J. Z., and He, K. Mean
+flows for one-step generative modeling. In The Thirty-
+ninth Annual Conference on Neural Information Pro-
+cessing Systems, 2025. URL https://openreview.
+net/forum?id=uWj4s7rMnR.
+Gonzalez, M., Fernandez Pinto, N., Tran, T., Hajri, H., Mas-
+moudi, N., et al. Seeds: Exponential sde solvers for
+fast high-quality sampling from diffusion models. Ad-
+vances in Neural Information Processing Systems, 36:
+68061–68120, 2023.
+Goodfellow, I. J., Pouget-Abadie, J., Mirza, M., Xu, B.,
+Warde-Farley, D., Ozair, S., Courville, A., and Bengio,
+Y. Generative adversarial networks, 2014. URL https:
+//arxiv.org/abs/1406.2661.
+Heusel, M., Ramsauer, H., Unterthiner, T., Nessler, B., and
+Hochreiter, S. Gans trained by a two time-scale update
+rule converge to a local nash equilibrium. Advances in
+neural information processing systems, 30, 2017.
+Ho, J. and Salimans, T.
+Classifier-free diffusion guid-
+ance, 2022.
+URL https://arxiv.org/abs/
+2207.12598.
+Ho, J., Jain, A., and Abbeel, P. Denoising diffusion prob-
+abilistic models.
+In Advances in Neural Information
+Processing Systems, volume 33, pp. 6840–6851, 2020.
+Hong, S., Lee, G., Jang, W., and Kim, S. Improving sample
+quality of diffusion models using self-attention guidance.
+In Proceedings of the IEEE/CVF International Confer-
+ence on Computer Vision, pp. 7462–7471, 2023.
+Huang, Y., Gokaslan, A., Kuleshov, V., and Tompkin, J. The
+gan is dead; long live the gan! a modern gan baseline.
+arXiv preprint arXiv:2501.05441, 2025.
+Jabri, A., Fleet, D., and Chen, T.
+Scalable adaptive
+computation for iterative generation.
+arXiv preprint
+arXiv:2212.11972, 2022.
+Jia, J., Liu, S., Song, B., Yuan, W., Shen, L., and Wang,
+G. Antithetic noise in diffusion models. arXiv preprint
+arXiv:2506.06185, 2025.
+Jiang, T., Wang, Y., Ye, H., Shao, Z., Sun, J., Zhang,
+J., Chen, Z., Zhang, J., Chen, Y., and Li, H. SADA:
+Stability-guided adaptive diffusion acceleration. In Forty-
+second International Conference on Machine Learning,
+2025. URL https://openreview.net/forum?
+id=ThMQfsBnje.
+Karras, T., Aittala, M., Hellsten, J., Laine, S., Lehtinen, J.,
+and Aila, T. Training generative adversarial networks
+with limited data. In Advances in Neural Information
+Processing Systems, volume 33, pp. 12104–12114, 2020.
+Karras, T., Aittala, M., Aila, T., and Laine, S. Elucidating
+the design space of diffusion-based generative models.
+Advances in neural information processing systems, 35:
+26565–26577, 2022.
+Karras, T., Aittala, M., Kynk¨a¨anniemi, T., Lehtinen, J.,
+Aila, T., and Laine, S. Guiding a diffusion model with
+a bad version of itself. Advances in Neural Information
+Processing Systems, 37:52996–53021, 2024a.
+Karras, T., Aittala, M., Lehtinen, J., Hellsten, J., Aila, T.,
+and Laine, S.
+Analyzing and improving the training
+dynamics of diffusion models. In Proceedings of the
+IEEE/CVF Conference on Computer Vision and Pattern
+Recognition, pp. 24174–24184, 2024b.
+Kim, D., Lai, C.-H., Liao, W.-H., Murata, N., Takida, Y., Ue-
+saka, T., He, Y., Mitsufuji, Y., and Ermon, S. Consistency
+trajectory models: Learning probability flow ode trajec-
+tory of diffusion. In The Twelfth International Conference
+on Learning Representations, 2024.
+Kingma, D., Salimans, T., Poole, B., and Ho, J. Varia-
+tional diffusion models. Advances in neural information
+processing systems, 34:21696–21707, 2021.
+Kingma, D. P. Auto-encoding variational bayes. arXiv
+preprint arXiv:1312.6114, 2013.
+Kingma, D. P. and Gao, R. Understanding diffusion objec-
+tives as the ELBO with simple data augmentation. In
+Thirty-seventh Conference on Neural Information Pro-
+cessing Systems, 2023. URL https://openreview.
+net/forum?id=NnMEadcdyD.
+11
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+Langley, P. Crafting papers on machine learning. In Langley,
+P. (ed.), Proceedings of the 17th International Conference
+on Machine Learning (ICML 2000), pp. 1207–1216, Stan-
+ford, CA, 2000. Morgan Kaufmann.
+Li, S. and Zeng, D. Mitigating the contractivity trap in
+diffusion odes via stein stabilization, 2026. URL https:
+//arxiv.org/abs/2606.07835.
+Li, S., Chen, W., and Zeng, D. Scire-solver: Accelerating
+diffusion models sampling by score-integrand solver with
+recursive difference. arXiv preprint arXiv:2308.07896,
+2023.
+Li, S., Chen, W., and Zeng, D. EVODiff: Entropy-aware
+variance optimized diffusion inference. In Advances in
+Neural Information Processing Systems, volume 38, pp.
+148134–148181, 2025. URL https://openreview.
+net/forum?id=rKASv92Myl.
+Li, W., Zhou, H., Yu, J., Song, Z., and Yang, W. Cou-
+pled mamba: Enhanced multimodal fusion with cou-
+pled state space model. In The Thirty-eighth Annual
+Conference on Neural Information Processing Systems,
+2024. URL https://openreview.net/forum?
+id=UXEo3uNNIX.
+Li, W., Song, Z., Zhou, H., Yu, J., Zhang, Y., and Yang,
+W.
+LoRA-mixer: Coordinate modular loRA experts
+through serial attention routing. In The Fourteenth In-
+ternational Conference on Learning Representations,
+2026. URL https://openreview.net/forum?
+id=GMP1S4R6Ke.
+Lin, S., Liu, B., Li, J., and Yang, X. Common diffusion noise
+schedules and sample steps are flawed. In Proceedings
+of the IEEE/CVF winter conference on applications of
+computer vision, pp. 5404–5411, 2024.
+Lipman, Y., Chen, R. T. Q., Ben-Hamu, H., Nickel, M., and
+Le, M. Flow matching for generative modeling. In The
+Eleventh International Conference on Learning Represen-
+tations, 2023. URL https://openreview.net/
+forum?id=PqvMRDCJT9t.
+Liu, L., Ren, Y., Lin, Z., and Zhao, Z. Pseudo numer-
+ical methods for diffusion models on manifolds.
+In
+International Conference on Learning Representations,
+2022. URL https://openreview.net/forum?
+id=PlKWVd2yBkY.
+Liu, X., Gong, C., and qiang liu.
+Flow straight and
+fast: Learning to generate and transfer data with rec-
+tified flow. In The Eleventh International Conference
+on Learning Representations, 2023a.
+URL https:
+//openreview.net/forum?id=XVjTT1nw5z.
+Liu, X., Park, D. H., Azadi, S., Zhang, G., Chopikyan, A.,
+Hu, Y., Shi, H., Rohrbach, A., and Darrell, T. More con-
+trol for free! image synthesis with semantic diffusion
+guidance. In Proceedings of the IEEE/CVF winter con-
+ference on applications of computer vision, pp. 289–299,
+2023b.
+Liu, X., Zhang, X., Ma, J., Peng, J., and qiang liu. Instaflow:
+One step is enough for high-quality diffusion-based text-
+to-image generation. In The Twelfth International Confer-
+ence on Learning Representations, 2024. URL https:
+//openreview.net/forum?id=1k4yZbbDqX.
+Lu, C., Zhou, Y., Bao, F., Chen, J., Li, C., and Zhu, J.
+Dpm-solver: A fast ode solver for diffusion probabilistic
+model sampling in around 10 steps. Advances in Neural
+Information Processing Systems, 35:5775–5787, 2022.
+Lu, C., Zhou, Y., Bao, F., Chen, J., Li, C., and Zhu, J. Dpm-
+solver++: Fast solver for guided sampling of diffusion
+probabilistic models. Machine Intelligence Research, pp.
+1–22, 2025.
+Luo, S., Tan, Y., Huang, L., Li, J., and Zhao, H.
+La-
+tent consistency models: Synthesizing high-resolution
+images with few-step inference.
+arXiv preprint
+arXiv:2310.04378, 2023.
+Luo, W., Huang, Z., Geng, Z., Kolter, J. Z., and Qi, G.-
+j. One-step diffusion distillation through score implicit
+matching. Advances in Neural Information Processing
+Systems, 37:115377–115408, 2024.
+Ma, N., Goldstein, M., Albergo, M. S., Boffi, N. M., Vanden-
+Eijnden, E., and Xie, S. Sit: Exploring flow and diffusion-
+based generative models with scalable interpolant trans-
+formers. In European Conference on Computer Vision,
+pp. 23–40. Springer, 2024a.
+Ma, N., Tong, S., Jia, H., Hu, H., Su, Y.-C., Zhang, M., Yang,
+X., Li, Y., Jaakkola, T., Jia, X., et al. Inference-time
+scaling for diffusion models beyond scaling denoising
+steps. arXiv preprint arXiv:2501.09732, 2025.
+Ma, X., Fang, G., and Wang, X.
+Deepcache: Acceler-
+ating diffusion models for free. In Proceedings of the
+IEEE/CVF conference on computer vision and pattern
+recognition, pp. 15762–15772, 2024b.
+Meng, C., Rombach, R., Gao, R., Kingma, D., Ermon, S.,
+Ho, J., and Salimans, T. On distillation of guided diffu-
+sion models. In Proceedings of the IEEE/CVF Conference
+on Computer Vision and Pattern Recognition (CVPR), pp.
+14297–14306, June 2023.
+Nichol, A. Q. and Dhariwal, P. Improved denoising diffusion
+probabilistic models. In International Conference on
+Machine Learning, pp. 8162–8171. PMLR, 2021.
+12
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+Ning, M., Li, M., Su, J., Salah, A. A., and Ertugrul, I. O.
+Elucidating the exposure bias in diffusion models. In The
+Twelfth International Conference on Learning Represen-
+tations, 2024. URL https://openreview.net/
+forum?id=xEJMoj1SpX.
+Park, Y., Jung, H., Bae, S., and Yun, S.-Y.
+Temporal
+alignment guidance: On-manifold sampling in diffu-
+sion models.
+In NeurIPS 2025 Workshop on Struc-
+tured Probabilistic Inference & Generative Modeling,
+2025. URL https://openreview.net/forum?
+id=TubfvqZNEr.
+Podell, D., English, Z., Lacey, K., Blattmann, A., Dock-
+horn, T., M¨uller, J., Penna, J., and Rombach, R. SDXL:
+Improving latent diffusion models for high-resolution
+image synthesis. In The Twelfth International Confer-
+ence on Learning Representations, 2024. URL https:
+//openreview.net/forum?id=di52zR8xgf.
+Ren, H., Zhao, S., and Ermon, S. Adaptive antithetic sam-
+pling for variance reduction. In International Conference
+on Machine Learning, pp. 5420–5428. PMLR, 2019.
+Rombach, R., Blattmann, A., Lorenz, D., Esser, P., and
+Ommer, B. High-resolution image synthesis with latent
+diffusion models. In Proceedings of the IEEE/CVF con-
+ference on computer vision and pattern recognition, pp.
+10684–10695, 2022.
+Sabour, A., Fidler, S., and Kreis, K. Align your steps: Opti-
+mizing sampling schedules in diffusion models. In Forty-
+first International Conference on Machine Learning,
+2024. URL https://openreview.net/forum?
+id=nBGBzV4It3.
+Sabour, A., Fidler, S., and Kreis, K. Align your flow: Scal-
+ing continuous-time flow map distillation. In The Thirty-
+ninth Annual Conference on Neural Information Pro-
+cessing Systems, 2025. URL https://openreview.
+net/forum?id=pzHuesCvcO.
+Salimans, T. and Ho, J. Progressive distillation for fast
+sampling of diffusion models. In International Confer-
+ence on Learning Representations, 2022. URL https:
+//openreview.net/forum?id=TIdIXIpzhoI.
+Salimans, T., Goodfellow, I., Zaremba, W., Cheung, V.,
+Radford, A., and Chen, X.
+Improved techniques for
+training gans. Advances in neural information processing
+systems, 29, 2016.
+Sauer, A., Schwarz, K., and Geiger, A. Stylegan-xl: Scaling
+stylegan to large diverse datasets. In ACM SIGGRAPH
+2022 conference proceedings, pp. 1–10, 2022.
+Sauer, A., Lorenz, D., Blattmann, A., and Rombach, R. Ad-
+versarial diffusion distillation. In European Conference
+on Computer Vision, pp. 87–103. Springer, 2024.
+Shen, D., Song, G., Xue, Z., Wang, F.-Y., and Liu, Y. Re-
+thinking the spatial inconsistency in classifier-free diffu-
+sion guidance. In Proceedings of the IEEE/CVF Con-
+ference on Computer Vision and Pattern Recognition
+(CVPR), pp. 9370–9379, June 2024.
+Shen, Y., GAN, L., and Ling, C. Information theoretic learn-
+ing for diffusion models with warm start. In The Thirty-
+ninth Annual Conference on Neural Information Pro-
+cessing Systems, 2025. URL https://openreview.
+net/forum?id=3IbKbmNci3.
+Shih, A., Belkhale, S., Ermon, S., Sadigh, D., and Anari,
+N. Parallel sampling of diffusion models. Advances in
+Neural Information Processing Systems, 36:4263–4276,
+2023.
+Sohl-Dickstein, J., Weiss, E., Maheswaranathan, N., and
+Ganguli, S. Deep unsupervised learning using nonequi-
+librium thermodynamics. In International conference on
+machine learning, pp. 2256–2265. PMLR, 2015.
+Song, J., Meng, C., and Ermon, S.
+Denoising diffu-
+sion implicit models. In International Conference on
+Learning Representations, 2021a.
+URL https://
+openreview.net/forum?id=St1giarCHLP.
+Song, Y., Sohl-Dickstein, J., Kingma, D. P., Kumar, A., Er-
+mon, S., and Poole, B. Score-based generative modeling
+through stochastic differential equations. In International
+Conference on Learning Representations, 2021b.
+Song, Y., Sohl-Dickstein, J., Kingma, D. P., Kumar, A.,
+Ermon, S., and Poole, B. Score-based generative mod-
+eling through stochastic differential equations. In In-
+ternational Conference on Learning Representations,
+2021c. URL https://openreview.net/forum?
+id=PxTIG12RRHS.
+Song, Y., Dhariwal, P., Chen, M., and Sutskever, I. Consis-
+tency models. In International Conference on Machine
+Learning, pp. 32211–32252. PMLR, 2023.
+Stein, G., Cresswell, J., Hosseinzadeh, R., Sui, Y., Ross, B.,
+Villecroze, V., Liu, Z., Caterini, A. L., Taylor, E., and
+Loaiza-Ganem, G. Exposing flaws of generative model
+evaluation metrics and their unfair treatment of diffusion
+models.
+Advances in Neural Information Processing
+Systems, 36:3732–3784, 2023.
+Tang, Z., Peng, J., Tang, J., Hong, M., Wang, F., and Chang,
+T.-H. Inference-time alignment of diffusion models with
+direct noise optimization. In Forty-second International
+Conference on Machine Learning, 2025. URL https:
+//openreview.net/forum?id=JpbqiD7n9r.
+13
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+Tong, V., Hoang, D. T., Liu, A., den Broeck, G. V., and
+Niepert, M.
+Learning to discretize denoising diffu-
+sion ODEs.
+In The Thirteenth International Confer-
+ence on Learning Representations, 2025. URL https:
+//openreview.net/forum?id=xDrFWUmCne.
+Vahdat, A., Kreis, K., and Kautz, J. Score-based generative
+modeling in latent space. In Advances in Neural Informa-
+tion Processing Systems, volume 34, pp. 11287–11302,
+2021.
+Wang, F.-Y., Yang, L., Huang, Z., Wang, M., and Li, H.
+Rectified diffusion: Straightness is not your need in
+rectified flow. In The Thirteenth International Confer-
+ence on Learning Representations, 2025. URL https:
+//openreview.net/forum?id=nEDToD1R8M.
+Wimbauer, F., Wu, B., Schoenfeld, E., Dai, X., Hou, J.,
+He, Z., Sanakoyeu, A., Zhang, P., Tsai, S., Kohler, J.,
+et al. Cache me if you can: Accelerating diffusion models
+through block caching. In Proceedings of the IEEE/CVF
+Conference on Computer Vision and Pattern Recognition,
+pp. 6211–6220, 2024.
+Wu, Z., Zhou, P., Kawaguchi, K., and Zhang, H. Fast
+diffusion model. arXiv preprint arXiv:2306.06991, 2023.
+Xu, J., Zeng, D., and Paisley, J. Sparse inducing points
+in deep gaussian processes: Enhancing modeling with
+denoising diffusion variational inference.
+In Forty-
+first International Conference on Machine Learning,
+2024a. URL https://openreview.net/forum?
+id=jTn4AIOgpM.
+Xu, Y., Corso, G., Jaakkola, T., Vahdat, A., and Kreis, K.
+Disco-diff: Enhancing continuous diffusion models with
+discrete latents. arXiv preprint arXiv:2407.03300, 2024b.
+Yang, L., Ding, S., Cai, Y., Yu, J., Wang, J., and Shi, Y. Guid-
+ance with spherical gaussian constraint for conditional
+diffusion. In Forty-first International Conference on Ma-
+chine Learning, 2024. URL https://openreview.
+net/forum?id=VtqyurB4Af.
+Ye, H., Lin, H., Han, J., Xu, M., Liu, S., Liang, Y., Ma,
+J., Zou, J. Y., and Ermon, S. Tfg: Unified training-free
+guidance for diffusion models. Advances in Neural Infor-
+mation Processing Systems, 37:22370–22417, 2024.
+Yin, T., Gharbi, M., Zhang, R., Shechtman, E., Durand, F.,
+Freeman, W. T., and Park, T. One-step diffusion with
+distribution matching distillation. In Proceedings of the
+IEEE/CVF conference on computer vision and pattern
+recognition, pp. 6613–6623, 2024.
+Zhang, J., Liu, D., Park, E., Zhang, S., and Xu, C. Anti-
+exposure bias in diffusion models. In The Thirteenth
+International Conference on Learning Representations,
+2025. URL https://openreview.net/forum?
+id=MtDd7rWok1.
+Zhang, Q. and Chen, Y. Fast sampling of diffusion mod-
+els with exponential integrator.
+In The Eleventh In-
+ternational Conference on Learning Representations,
+2023. URL https://openreview.net/forum?
+id=Loek7hfb46P.
+Zhao, W., Bai, L., Rao, Y., Zhou, J., and Lu, J. UniPC: A
+unified predictor-corrector framework for fast sampling of
+diffusion models. In Thirty-seventh Conference on Neural
+Information Processing Systems, 2023. URL https:
+//openreview.net/forum?id=hrkmlPhp1u.
+Zheng, K., Lu, C., Chen, J., and Zhu, J. Dpm-solver-v3: Im-
+proved diffusion ode solver with empirical model statis-
+tics. Advances in Neural Information Processing Systems,
+36:55502–55542, 2023.
+Zhou, M., Zheng, H., Gu, Y., Wang, Z., and Huang, H.
+Adversarial score identity distillation: Rapidly surpassing
+the teacher in one step. arXiv preprint arXiv:2410.14919,
+2024.
+14
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+Appendix
+A. Proofs
+A.1. Proof of Proposition 4.2
+Proof. Under the ideal forward-aligned observation model, each observation is given by
+yi = x0,⋆+ ηi,
+Cov(ηi) = RiI,
+Ri =
+c
+SNR(ti).
+(23)
+We consider a linear unbiased estimator
+ˆx0,ideal =
+n
+X
+i=1
+wiyi,
+n
+X
+i=1
+wi = 1.
+(24)
+Because the observation errors are mutually uncorrelated, the covariance of the estimator is
+Cov (ˆx0,ideal) =
+n
+X
+i=1
+w2
+i RiI.
+(25)
+Minimizing the scalar coefficient Pn
+i=1 w2
+i Ri subject to Pn
+i=1 wi = 1 gives the Lagrangian
+L =
+n
+X
+i=1
+w2
+i Ri −λ
+ n
+X
+i=1
+wi −1
+!
+.
+(26)
+Taking derivatives with respect to wi yields
+∂L
+∂wi
+= 2wiRi −λ = 0,
+(27)
+and therefore
+wi =
+R−1
+i
+Pn
+j=1 R−1
+j
+=
+SNR(ti)
+Pn
+j=1 SNR(tj).
+(28)
+Substituting these weights into Eq. (25) gives
+Cov
+ ˆx⋆
+0,ideal
+
+=
+ n
+X
+i=1
+R−1
+i
+!−1
+I =
+c
+Pn
+i=1 SNR(ti)I.
+(29)
+Since Pn
+i=1 R−1
+i
+> R−1
+j
+for every j whenever n ≥2, it follows that
+Cov
+ ˆx⋆
+0,ideal
+
+≺RjI,
+j = 1, . . . , n.
+(30)
+Thus, the ideal precision-weighted fused estimator has strictly lower covariance than any individual observation.
+This result characterizes the ideal forward-aligned observation model. In DiFA, practical denoiser predictions are organized
+according to the resulting anchor-consistency and reliability-ordering principles, rather than being assumed to satisfy the
+same covariance model exactly.
+The proof is complete.
+A.2. Proof of Theorem 4.3
+Proof. For the static anchor model, let ˆxrec
+0,i denote the recursive estimate after processing the first i observations, and let
+piI denote its estimation covariance. We initialize the recursion using the first observation:
+ˆxrec
+0,1 = y1,
+p1 = R1.
+(31)
+15
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+For i = 2, . . . , n, the static-state Kalman gain is
+ki =
+pi−1
+pi−1 + Ri
+,
+(32)
+and the recursive update is
+ˆxrec
+0,i = ˆxrec
+0,i−1 + ki
+ yi −ˆxrec
+0,i−1
+
+.
+(33)
+The corresponding covariance update is
+pi = (1 −ki)pi−1 =
+pi−1Ri
+pi−1 + Ri
+,
+(34)
+which implies
+p−1
+i
+= p−1
+i−1 + R−1
+i .
+(35)
+Since p1 = R1, repeated application yields
+p−1
+n
+=
+n
+X
+i=1
+R−1
+i .
+(36)
+Next, the recursive mean update can be rewritten as
+ˆxrec
+0,i = Riˆxrec
+0,i−1 + pi−1yi
+pi−1 + Ri
+.
+(37)
+Combining this relation with the covariance update gives
+p−1
+i
+ˆxrec
+0,i = p−1
+i−1ˆxrec
+0,i−1 + R−1
+i yi.
+(38)
+Using
+p−1
+1 ˆxrec
+0,1 = R−1
+1 y1,
+(39)
+we obtain
+p−1
+n ˆxrec
+0,n =
+n
+X
+i=1
+R−1
+i yi.
+(40)
+Substituting Eq. (36) into Eq. (40) yields
+ˆxrec
+0,n =
+Pn
+i=1 R−1
+i yi
+Pn
+i=1 R−1
+i
+.
+(41)
+Finally, since
+R−1
+i
+= SNR(ti)
+c
+,
+(42)
+the common scale factor c cancels out, giving
+ˆxrec
+0,n =
+Pn
+i=1 SNR(ti)yi
+Pn
+i=1 SNR(ti)
+= ˆx⋆
+0,ideal.
+(43)
+Therefore, under the ideal independent-view observation model, the full-history precision-weighted anchor estimator is
+exactly equivalent to its static-state Kalman recursive realization.
+The proof is complete.
+A.3. Lightweight Instantiation Used in Experiments
+This section specifies the lightweight DiFA instantiation used in the main pixel-space diffusion experiments. The main
+text formulates DiFA through a causal historical reference anchor and an anchor-relative deviation modulation operator.
+Here, we provide the explicit forms of the alignment, compatibility weighting, and deviation guidance modules, as well
+as the default hyperparameter settings used to obtain the main experimental results. Additional configurations used for
+latent-diffusion and flow-matching validation are specified separately in Appendix B.
+16
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+Causal History Buffer.
+At reverse step ti, the history buffer stores at most K previously processed clean-signal predictions
+and their corresponding logSNR values:
+HK(ti) =
+n
+ˆx(tj)
+0
+, ℓj
+o
+tj∈WK(ti) ,
+ℓj = log SNR(tj),
+(44)
+where WK(ti) ⊆{tj : j > i} contains the most recent historical steps along the reverse trajectory. The instantaneous
+prediction ˆx(ti)
+0
+is used only as a query for constructing the historical reference and is not included among the aggregated
+reference values.
+Historical Prediction Alignment.
+To reduce local scale mismatch between the current prediction and historical candidates,
+we apply channel-wise affine mean–variance alignment. Let µc(x) and σc(x) denote the spatial mean and standard deviation
+of channel c. The aligned historical prediction is defined by
+˜x(tj)
+0,c =
+ˆx(tj)
+0,c −µc
+
+ˆx(tj)
+0
+
+σc
+
+ˆx(tj)
+0
+
++ ϵa
+· σc
+
+ˆx(ti)
+0
+
++ µc
+
+ˆx(ti)
+0
+
+,
+(45)
+where ϵa > 0 is a numerical stabilizer. This operation matches the channel-wise first- and second-order statistics of each
+historical prediction to those of the current prediction before reference aggregation.
+Structural and Noise-Level Compatibility.
+We compute structural compatibility after lightweight spatial average pooling.
+Let Psim(·) denote average pooling with kernel size ksim × ksim. For each historical candidate, the local similarity score is
+mij =
+D
+vec
+
+Psim
+
+ˆx(ti)
+0
+
+, vec
+
+Psim
+
+˜x(tj)
+0
+E
+vec
+
+Psim
+
+ˆx(ti)
+0
+
+2
+vec
+
+Psim
+
+˜x(tj)
+0
+
+2 + ϵs
+,
+(46)
+where ϵs > 0 prevents numerical instability. The similarity scores are normalized within the current history window:
+¯mij = mij −µm,i
+σm,i + ϵn
+,
+µm,i =
+1
+| WK(ti)|
+X
+tj∈WK(ti)
+mij,
+(47)
+where σm,i is the standard deviation of the similarity scores within the current temporal window. The compatibility logit
+combines structural agreement and logSNR proximity:
+qij = τ ¯mij −µ(ℓi) |ℓi −ℓj| ,
+(48)
+where τ controls the sharpness of structural selection and µ(ℓi) controls the strength of noise-level compatibility at the
+current reverse step. The normalized historical weights are
+aij =
+exp(qij)
+P
+tk∈WK(ti) exp(qik).
+(49)
+The causal historical reference anchor is then
+ˆxcons
+0
+(ti) =
+X
+tj∈WK(ti)
+aij ˜x(tj)
+0
+.
+(50)
+Deviation Modulation.
+Given the historical reference anchor, we compute the anchor-relative deviation:
+rti = ˆx(ti)
+0
+−ˆxcons
+0
+(ti).
+(51)
+To reduce residual corrections dominated by magnitude variation parallel to the current prediction, we apply an orthogonal
+residual projection:
+r⊥
+ti = rti −
+D
+rti, ˆx(ti)
+0
+E
+ˆx(ti)
+0
+
+2
+2 + ϵp
+ˆx(ti)
+0
+,
+(52)
+17
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+where ϵp > 0 is a numerical stabilizer. We then decompose the projected residual into locally smoothed and high-frequency
+components:
+rlow
+ti
+= Pres
+ r⊥
+ti
+
+,
+rhigh
+ti
+= r⊥
+ti −rlow
+ti ,
+(53)
+where Pres(·) denotes local average pooling with kernel size kres × kres. The high-frequency gate is defined as
+λhf(ℓi) =
+1
+1 + exp(−ℓi).
+(54)
+The deviation modulation operator used in our experiments is therefore instantiated as
+G
+
+rti, ˆx(ti)
+0
+, ℓi
+
+= rlow
+ti
++ λhf(ℓi)rhigh
+ti
+.
+(55)
+Finally, the refined clean-signal prediction is
+ˆxDiFA
+0
+(ti) = ˆx(ti)
+0
++ ω G
+
+rti, ˆx(ti)
+0
+, ℓi
+
+.
+(56)
+Default Hyperparameters.
+Unless otherwise stated, all reported DiFA results use the lightweight instantiation above with
+the default settings in Table 3. Ablation experiments modify only the factors explicitly specified in their corresponding
+tables.
+Table 3. Default hyperparameter settings for the lightweight DiFA instantiation used in the main experiments.
+Hyperparameter
+Meaning
+Default value
+K
+causal temporal window size
+3
+τ
+structural compatibility sharpness
+4.0
+s
+reported DiFA deviation scale
+1.7
+ω = s −1
+residual guidance coefficient
+0.7
+ksim
+similarity pooling kernel size
+3
+kres
+residual smoothing kernel size
+5
+λhf(ℓi)
+high-frequency gate
+(1 + exp(−ℓi))−1
+The reported scale s follows the convention that s = 1 recovers the uncorrected baseline; therefore, the coefficient
+multiplying the deviation guidance is implemented as ω = s −1. The function µ(ℓi) and the numerical stabilizers ϵa, ϵs, ϵn,
+and ϵp are set according to the implementation configuration used for each experimental setting.
+B. Additional Ablation and Validation Studies
+This appendix provides additional ablation, sensitivity, and validation studies that complement the main experiments and
+further clarify the contribution of each component in DiFA. Unless otherwise specified, all ablation results are obtained
+under the same pretrained model and solver setting as the corresponding baseline. Lower FID is better, and higher IS is
+better.
+B.1. Ablation on Latent Diffusion Models
+We first evaluate DiFA on a latent diffusion model using the LSUN Bedroom dataset. For this experiment, we retain the
+notation used in the corresponding implementation, where γ0 and λ denote the deviation strength and residual coefficient,
+respectively. The latent-diffusion experiments use a task-specific parameterization; the corresponding symbols are defined
+in Table 6. This experiment verifies that DiFA is not restricted to pixel-space diffusion models. Since DiFA operates on
+clean-signal predictions within the sampling loop, it can also be applied to latent-space samplers without changing the
+pretrained network.
+The LDM ablation shows that historical consensus is essential: when the history window collapses to W = 1, DiFA
+degenerates to the baseline. SNR gating is particularly useful at medium and high NFE budgets, where unguided activation
+may introduce unstable corrections. The magnitude alignment factor ϕ stabilizes latent-space energy and prevents excessive
+magnitude drift during deviation guidance.
+18
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+6
+8
+10
+12
+14
+16
+18
+20
+NFE
+0
+5
+10
+15
+20
+25
+30
+FID ( )
+FID 2.18
+7.0
+7.5
+8.0
+8.5
+9.0
+9.5
+10.0
+IS ( )
+CIFAR-10: DPM-Solver++ (logSNR)
+(a) CIFAR-10: DPM-Solver++ (logSNR)
+5
+6
+7
+8
+9
+10
+11
+12
+NFE
+0
+5
+10
+15
+20
+25
+30
+FID ( )
+FID 2.25
+7.0
+7.5
+8.0
+8.5
+9.0
+9.5
+10.0
+IS ( )
+CIFAR-10: UniPC
+(b) CIFAR-10: UniPC
+5
+6
+8
+10
+12
+15
+20
+25
+NFE
+10
+100
+2
+3
+4
+56789
+20
+30
+40
+50
+60
+70
+80
+90
+200
+FID ( )
+1.64
+1.63
+ImageNet 64x64: FID (logSNR)
+DPM++ (Base)
+DPM++ + DiFA
+UniPC (Base)
+UniPC + DiFA
+Heun (Base)
+Heun + DiFA
+(c) ImageNet: FID (logSNR)
+5
+6
+8
+10
+12
+15
+20
+25
+NFE
+10
+100
+2
+3
+4
+56789
+20
+30
+40
+50
+60
+70
+80
+90
+200
+FID ( )
+1.64
+1.63
+ImageNet 64x64: FID (EDM)
+DPM++ (Base)
+DPM++ + DiFA
+UniPC (Base)
+UniPC + DiFA
+Heun (Base)
+Heun + DiFA
+(d) ImageNet: FID (EDM)
+Figure 6. Quantitative Results. Top Row: On CIFAR-10, DiFA (solid red lines) significantly lowers FID compared to baselines (dashed
+gray lines) across all NFE regimes for both DPM-Solver++ and UniPC. Note the rapid convergence at NFE 12 (FID ≈2.2). Bottom Row:
+On ImageNet 64x64, DiFA consistently improves the convergence of various solvers (DPM++, UniPC, Heun) under both logSNR and
+EDM schedules, achieving strong training-free performance with an FID of ≈1.63 at 25 steps.
+The robustness study shows that DiFA consistently improves over the naive baseline under different hyperparameter choices.
+The best configuration can vary across NFE budgets, suggesting that DiFA is not overly sensitive to a single parameter
+setting.
+B.2. Ablation on EDM
+We further conduct controlled ablation experiments under the EDM setting at 10 NFE. These results isolate the contribution
+of the main DiFA components: historical consensus, adaptive SNR gating, and magnitude alignment.
+The main component ablation under the EDM setting is reported in Table 7. The full DiFA configuration improves the
+baseline FID from 5.071 to 2.797, as reported in Table 7. The corresponding qualitative comparison is shown in Figure 3.
+The identical results of the naive baseline and the w/o History setting indicate that setting W = 1 disables temporal
+consensus and collapses the update to the baseline behavior.
+The following sensitivity studies examine the robustness of DiFA to individual hyperparameters under the EDM setting.
+Each sweep is designed to vary one hyperparameter while keeping the remaining settings fixed within that sweep. Since the
+controlled configurations may differ across sweeps, the results should be compared primarily within each table rather than
+across tables.
+19
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+Table 4. DiFA versus the naive ODE-solver baseline on LSUN Bedroom. The naive baseline corresponds to DPM-Solver++ with DiFA
+disabled.
+Method
+5 NFE
+10 NFE
+20 NFE
+Naive Baseline
+21.238
+3.877
+3.256
+DiFA (Full)
+5.912
+3.579
+2.939
+FID Improvement
+72.2%
+7.7%
+9.7%
+Table 5. Component ablation on LSUN Bedroom. We isolate the effects of historical consensus, SNR gating, and magnitude alignment.
+Configuration
+W
+SNRlo
+ϕ
+5 NFE ↓
+10 NFE ↓
+20 NFE ↓
+Naive Baseline
+1
+Full
+0.0
+21.238
+3.877
+3.256
+w/o History
+1
+-4.5
+0.5
+21.238
+3.877
+3.256
+w/o SNR Gating
+3
+Full
+0.5
+5.838
+4.414
+3.119
+w/o Energy (ϕ)
+3
+-4.5
+0.0
+7.053
+4.462
+3.142
+DiFA (Full)
+3
+-4.5
+0.5
+5.912
+3.579
+2.939
+The performance exhibits a U-shaped trend with respect to W. A very small window fails to exploit temporal redundancy,
+while an overly large window introduces stale predictions and causes historical lag. We therefore use W = 3 as the default
+setting.
+The SNR gating threshold controls when DiFA starts to apply alignment. Early activation may inject corrections during
+noisy and unstable stages, while overly late activation may miss useful structural formation stages. Within this sweep,
+moderate activation gives the best FID, and the IS values remain stable across nearby thresholds.
+The factor ϕ stabilizes the magnitude of the deviation-guided prediction. A moderate value preserves residual details while
+avoiding excessive latent-energy drift.
+The deviation scale γ0 controls the strength of detail re-injection. Too small a value under-corrects the consensus-smoothed
+prediction, whereas too large a value may amplify unstable residuals. In this sweep, γ0 = 1.4 gives the lowest FID, while
+γ0 = 1.5 gives the highest IS.
+The logSNR compatibility coefficient µ controls how strongly DiFA penalizes temporally distant or noise-incompatible
+historical predictions. A small compatibility coefficient is generally stable. In this sweep, µ = 0.2 gives the lowest FID,
+while µ = 0.1 gives the highest IS, suggesting that values in the range of 0.1–0.3 provide a reliable balance between using
+historical evidence and avoiding stale predictions.
+B.3. Cross-Paradigm Validation on Flow-Matching Models
+Although DiFA is introduced in the context of diffusion sampling, its core operation is not tied to a specific diffusion
+solver. DiFA refines the clean-signal prediction supplied to a downstream update rule. Therefore, it can also be applied
+to flow-matching models when the predicted velocity or transport state can be converted into an endpoint or clean-signal
+estimate. This setting provides a useful test of whether the proposed prediction-alignment principle generalizes beyond
+conventional diffusion samplers.
+We evaluate this transferability in two complementary settings. The first is an unguided validation on SiT-XL/2 with
+ImageNet (256×256), where classifier-free guidance (CFG) is disabled. This experiment was conducted under a lightweight
+computational setting on 4090 GPUs and was designed as a sanity check for cross-paradigm transfer. As shown in Table 13,
+DiFA improves the ODE-solver baseline at 5, 10, and 50 NFE without classifier-free guidance. These results indicate that
+the temporal redundancy exploited by DiFA is also present in flow-matching trajectories.
+The second setting provides a more systematic validation after further adapting DiFA to the flow-matching formulation. In
+this FM-adapted version, DiFA is applied to the endpoint prediction recovered from the flow-matching transport trajectory,
+and the temporal consensus is computed in a clean-signal space rather than directly on the velocity field. We also use
+the flow-matching time variable to define a logSNR-like reliability coordinate, so that the sliding-window consensus and
+deviation guidance remain compatible with the FM trajectory. This adaptation makes DiFA a clean-prediction refinement
+20
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+Table 6. Hyperparameter robustness on LSUN Bedroom. A dash denotes the naive baseline without DiFA. All listed DiFA configurations
+improve over the naive baseline.
+γ0
+λ
+ϕ
+SNRlo
+SNRhi
+τ
+5 NFE ↓
+10 NFE ↓
+20 NFE ↓
+–
+–
+–
+–
+–
+–
+21.238
+3.877
+3.256
+1.40
+0.5
+0.5
+-2.5
+3.0
+0.8
+9.142
+3.684
+3.230
+1.40
+0.5
+0.5
+-2.5
+4.0
+0.8
+9.032
+3.729
+3.248
+1.50
+0.5
+0.5
+-4.5
+3.0
+0.8
+6.535
+3.658
+3.104
+1.50
+0.5
+0.7
+-3.5
+2.0
+0.8
+7.576
+3.579
+3.120
+1.75
+0.4
+0.5
+-4.5
+5.0
+0.8
+6.069
+4.465
+2.939
+1.75
+0.4
+0.5
+-4.5
+5.0
+1.0
+6.019
+4.429
+2.954
+Table 7. Main component ablation under the EDM setting at 10 NFE.
+Configuration
+History (W)
+SNR Gating (SNRlo)
+Energy (ϕ)
+FID ↓
+IS ↑
+Naive Baseline
+1
+Full
+0.0
+5.071
+9.139
+w/o History
+1
+-2.5
+0.5
+5.071
+9.139
+w/o SNR Gating
+3
+Full
+0.5
+3.375
+9.574
+w/o Energy (ϕ)
+3
+-2.5
+0.0
+2.846
+9.661
+DiFA (Full)
+3
+-2.5
+0.5
+2.797
+9.680
+module for flow-matching inference rather than a diffusion-specific correction.
+Using this FM-adapted implementation, we conduct a CFG-enabled systematic evaluation on H200 GPUs with CFG (=1.5).
+Table 14 expands the preliminary validation into a full solver–NFE–scale matrix under both Euler and Heun2 solvers. This
+experiment is not intended as a component ablation. Instead, it evaluates cross-paradigm robustness: whether DiFA remains
+effective under stronger guided generation settings and whether its behavior is stable across solver choices, NFE budgets,
+and guidance strengths.
+The two settings should therefore be interpreted as complementary evidence rather than directly comparable benchmarks.
+The preliminary no-CFG experiment verifies the basic transferability of DiFA to flow-matching models. The CFG-enabled
+H200 experiment, obtained after the FM-specific adaptation, provides a stronger and more realistic validation under guided
+sampling and multiple solver configurations.
+The results in Table 14 show that DiFA consistently improves FID, IS, sFID, and precision over the corresponding flow-
+matching baselines. Recall remains comparable in most settings, although a small decrease is observed for Heun2 at 20
+NFE, indicating a mild precision–recall trade-off in this regime. The gains are especially pronounced in the low-NFE
+regime, where trajectory discretization error and clean-signal prediction uncertainty are more severe. For example, in the
+CFG-enabled setting, DiFA reduces the Euler 5-NFE FID from (52.64) to (27.61), and reduces the Heun2 5-NFE FID from
+(14.64) to (7.99). At 10 NFE, DiFA still provides substantial improvements for both Euler and Heun2. At 20 NFE, where
+the baseline trajectories are already stronger, the relative margin naturally becomes smaller but remains generally positive.
+The DiFA refinement-scale sweep further shows that the improvement is not caused by a single isolated hyperparameter
+choice. Scales around (1.7)–(1.75) usually provide the strongest FID and IS performance, while smaller scales still
+improve over the corresponding baselines. These results support the view that DiFA acts as a solver-compatible inference-
+time refinement mechanism and that its temporal prediction-alignment principle can extend from diffusion samplers to
+flow-matching trajectories.
+The quantitative improvements are also reflected in the qualitative comparison shown in Figure 7. Under the 5-NFE
+setting, DiFA produces samples with better structural coherence and fewer truncation artifacts than the baseline solver. The
+comparison provides qualitative evidence that the numerical gains are accompanied by improved visual quality.
+21
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+Table 8. Sensitivity of the history window size W under the EDM setting.
+Window Size (W)
+1 (Baseline)
+2
+3 (Ours)
+4
+FID ↓
+5.071
+3.219
+2.797
+3.791
+IS ↑
+9.139
+9.443
+9.680
+9.593
+Table 9. Sensitivity of the adaptive SNR gating threshold SNRlo under the EDM setting.
+SNR Threshold
+-6.0 (Early)
+-4.0
+-2.5
+-1.0 (Late)
+FID ↓
+3.137
+3.040
+2.986
+3.068
+IS ↑
+9.554
+9.563
+9.555
+9.509
+Table 10. Sensitivity of the magnitude alignment factor ϕ under the EDM setting.
+Rescale Factor (ϕ)
+0.0
+0.3
+0.5 (Ours)
+0.8
+1.0
+FID ↓
+2.846
+3.077
+2.797
+3.074
+3.085
+IS ↑
+9.661
+9.555
+9.680
+9.568
+9.565
+Table 11. Sensitivity of the deviation boosting scale γ0 under the EDM setting.
+Scale (γ0)
+1.1
+1.2
+1.3
+1.4
+1.5
+FID ↓
+4.119
+3.470
+3.121
+3.071
+3.285
+IS ↑
+9.282
+9.383
+9.494
+9.565
+9.602
+Table 12. Sensitivity of the compatibility coefficient µ under the EDM setting.
+LogSNR Compatibility Coefficient(µ)
+0.1
+0.2
+0.3
+0.4
+0.6
+FID ↓
+3.212
+3.205
+3.220
+3.256
+3.373
+IS ↑
+9.499
+9.492
+9.478
+9.457
+9.425
+Table 13. Preliminary no-CFG validation on SiT-XL/2 with ImageNet 256×256. This lightweight ODE-solver experiment was conducted
+on 4090 GPUs to test whether DiFA transfers to flow-matching trajectories without classifier-free guidance.
+NFE
+Method
+IS ↑
+FID ↓
+sFID ↓
+Precision ↑
+Recall ↑
+5
+ODE-Solver
+22.5016
+94.5311
+60.2238
+0.2089
+0.5016
+5
+DiFA (Ours)
+31.8312
+72.3969
+40.0246
+0.2905
+0.5694
+10
+ODE-Solver
+80.2694
+27.8142
+13.0268
+0.5542
+0.6091
+10
+DiFA (Ours)
+91.7977
+21.5990
+10.2921
+0.5982
+0.6256
+50
+ODE-Solver
+118.6470
+11.1215
+7.0554
+0.6662
+0.6682
+50
+DiFA (Ours)
+120.2284
+10.7515
+6.8273
+0.6676
+0.6694
+22
+DiFA: Inference-Time Forward-Process Alignment for Diffusion Models
+Table 14. CFG-enabled systematic validation of the FM-adapted DiFA on SiT-XL/2 with ImageNet 256 × 256. This experiment is
+conducted on NVIDIA H200 GPUs with CFG fixed at 1.5. We evaluate Euler and Heun2 solvers across multiple NFE budgets and DiFA
+refinement scales. Best and second-best results among the evaluated DiFA configurations are shown in bold and underlined, respectively.
+NFE
+Method (Scale)
+IS ↑
+(∆IS)
+FID ↓
+(∆FID)
+sFID ↓
+Prec. ↑
+Rec. ↑
+5
+Baseline (Euler)
+58.02
+-
+52.64
+-
+44.10
+0.3692
+0.4353
+DiFA (1.25)
+73.90
+(+27.4%)
+40.81
+(-22.5%)
+33.33
+0.4407
+0.4290
+DiFA (1.5)
+86.49
+(+49.1%)
+32.86
+(-37.6%)
+26.11
+0.4969
+0.4322
+DiFA (1.7)
+94.15
+(+62.3%)
+28.52
+(-45.8%)
+22.23
+0.5318
+0.4383
+DiFA (1.75)
+95.88
+(+65.2%)
+27.61
+(-47.5%)
+21.46
+0.5400
+0.4406
+10
+Baseline (Euler)
+184.11
+-
+8.35
+-
+8.83
+0.7303
+0.5234
+DiFA (1.25)
+200.94
+(+9.1%)
+6.08
+(-27.2%)
+6.40
+0.7616
+0.5311
+DiFA (1.5)
+213.98
+(+16.2%)
+4.80
+(-42.5%)
+5.44
+0.7790
+0.5342
+DiFA (1.7)
+219.79
+(+19.4%)
+4.28
+(-48.7%)
+5.40
+0.7884
+0.5361
+DiFA (1.75)
+220.91
+(+20.0%)
+4.20
+(-49.7%)
+5.47
+0.7912
+0.5378
+20
+Baseline (Euler)
+231.60
+-
+3.33
+-
+5.33
+0.7902
+0.5736
+DiFA (1.25)
+241.02
+(+4.1%)
+2.76
+(-17.2%)
+4.45
+0.7997
+0.5770
+DiFA (1.5)
+248.54
+(+7.3%)
+2.48
+(-25.5%)
+4.24
+0.8060
+0.5784
+DiFA (1.7)
+251.81
+(+8.7%)
+2.42
+(-27.5%)
+4.42
+0.8105
+0.5778
+DiFA (1.75)
+252.71
+(+9.1%)
+2.41
+(-27.5%)
+4.51
+0.8121
+0.5804
+5
+Baseline (Heun2)
+148.39
+-
+14.64
+-
+22.11
+0.6590
+0.5155
+DiFA (1.25)
+162.01
+(+9.2%)
+11.67
+(-20.3%)
+17.88
+0.6827
+0.5294
+DiFA (1.5)
+174.30
+(+17.5%)
+9.53
+(-34.9%)
+14.78
+0.7049
+0.5388
+DiFA (1.7)
+181.66
+(+22.4%)
+8.26
+(-43.6%)
+12.92
+0.7158
+0.5538
+DiFA (1.75)
+183.22
+(+23.5%)
+7.99
+(-45.4%)
+12.53
+0.7178
+0.5560
+10
+Baseline (Heun2)
+233.24
+-
+3.15
+-
+6.59
+0.7882
+0.5852
+DiFA (1.25)
+241.89
+(+3.7%)
+2.66
+(-15.7%)
+5.65
+0.7959
+0.5885
+DiFA (1.5)
+247.92
+(+6.3%)
+2.37
+(-24.9%)
+5.09
+0.7989
+0.5894
+DiFA (1.7)
+253.58
+(+8.7%)
+2.22
+(-29.6%)
+4.86
+0.8034
+0.5934
+DiFA (1.75)
+254.45
+(+9.1%)
+2.19
+(-30.3%)
+4.82
+0.8046
+0.5925
+20
+Baseline (Heun2)
+250.65
+-
+2.20
+-
+4.73
+0.8009
+0.6000
+DiFA (1.25)
+254.11
+(+1.4%)
+2.08
+(-5.6%)
+4.52
+0.8039
+0.5987
+DiFA (1.5)
+259.56
+(+3.6%)
+2.02
+(-8.4%)
+4.47
+0.8076
+0.5986
+DiFA (1.7)
+261.63
+(+4.4%)
+2.01
+(-8.6%)
+4.51
+0.8103
+0.5964
+DiFA (1.75)
+262.39
+(+4.7%)
+2.01
+(-8.6%)
+4.53
+0.8117
+0.5967
+SiT with Baseline Solver
+SiT with DiFA Refined Prediction
+Figure 7. Qualitative comparison on ImageNet (256 × 256) using the pretrained SiT-XL/2 model with the Euler solver, 5 function
+evaluations (NFE = 5), and a classifier-free guidance (CFG) scale of 4.0. Compared with the baseline, DiFA preserves better structural
+coherence and local details under this aggressive few-step setting.
+23

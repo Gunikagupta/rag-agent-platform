@@ -1,0 +1,1901 @@
+CutBackdoor: A Circuit Cut Triggered Backdoor Attack on
+Variational Quantum Algorithms
+Ahatesham Bhuiyan1, Hoang Ngo2, Cheng Chu3, Qian Lou1
+Lei Jiang4, My T. Thai2, Mengxin Zheng1
+1University of Central Florida
+2University of Florida
+3North Carolina State University
+4Indiana University Bloomington
+Abstract
+Variational Quantum Algorithms (VQAs) are a leading paradigm
+for near-term quantum computing, combining parameterized quan-
+tum circuits with classical optimization across quantum chemistry,
+combinatorial optimization, and quantum machine learning. Since
+real-world VQA deployments routinely require circuits that exceed
+available hardware capacity, quantum circuit cutting has become
+an indispensable execution strategy, and pre-trained parameters are
+increasingly distributed through public repositories, introducing
+supply-chain security risks that have received little attention. Prior
+quantum backdoor attacks either introduce detectable circuit mod-
+ifications or depend on device-specific noise, and none consider
+circuit cutting as an attack surface. We present CutBackdoor, the
+first parameter-supply-chain backdoor that uses cut circuit exe-
+cution from CutQC as the deployment-time trigger against VQAs.
+Under noisy finite-shot circuit-cut execution, poisoned parame-
+ters preserve full-circuit validation performance while substan-
+tially increasing cut-path reconstruction error, without any circuit
+modification. The trigger activates when a resource-limited victim
+responds to a qubit-capacity mismatch by invoking the cutting
+workflow, requiring no attacker presence at deployment. We pro-
+vide a theoretical analysis and empirically validate it across varying
+shot budgets. Evaluation across multiple VQA benchmarks on IBM
+quantum backends demonstrates cut-path energy amplification
+of 1.3× to 2.9× over clean baselines on the VQE and VQD bench-
+marks while maintaining small stealthiness error on the full-circuit
+path. The cut-path gap persists across the evaluated backends and
+cut placements under matched compilation; Zero-Noise Extrapola-
+tion provides only partial mitigation, and the diagonal-cost QAOA
+benchmark delineates the attack’s structural boundary.
+1
+Introduction
+Variational Quantum Algorithms (VQAs)[6] have emerged as one of
+the leading paradigms for achieving practical quantum advantage in
+the Noisy Intermediate-Scale Quantum (NISQ) era. VQAs combine
+shallow parameterized quantum circuits with classical optimiza-
+tion to tolerate current hardware limitations like gate errors and
+short coherence times, enabling significant progress across diverse
+high-impact applications. In quantum chemistry, the Variational
+Quantum Eigensolver (VQE) [50] estimates molecular ground-state
+energies with high precision, opening pathways to accelerated drug
+discovery and the design of novel materials [31, 41, 43, 50, 53]. In
+combinatorial optimization, the Quantum Approximate Optimiza-
+tion Algorithm (QAOA) addresses problems such as combinatorial
+optimization [13, 18, 59] and credit risk analysis [16, 17] that are
+intractable for classical methods at scale. In quantum machine
+learning, VQA-based classifiers and generative models have demon-
+strated competitive accuracy on benchmark tasks [9, 12, 56]. The
+versatility and near-term viability of VQAs have made them the
+central focus of both academic research and industrial quantum
+computing initiatives.
+Scaling VQAs to a large number of qubits is essential for quantum
+advantage, yet training large-scale VQCs from scratch on NISQ hard-
+ware remains fundamentally difficult, making quantum parameter
+transfer the dominant practical strategy. Each additional qubit dou-
+bles the accessible Hilbert space dimension [39], expanding the rep-
+resentational capacity of VQAs and enabling modeling of larger and
+more complex problem instances, including larger molecules [21],
+graphs [1], and datasets. In practice, applications of real-world rel-
+evance typically demand a substantial qubit count. For example,
+VQE is unlikely to outperform classical computational chemistry
+methods without on the order of ∼100 qubits [23], and recent VQA
+implementations [19, 21, 39] commonly target systems exceeding
+this threshold. A larger qubit count also enriches entanglement
+structures within VQCs, improving expressive power, reducing
+optimization loss, and yielding better solution quality. However,
+scaling VQCs on NISQ hardware introduces a critical training obsta-
+cle: noise-induced barren plateaus [68] cause gradients of the cost
+function to vanish exponentially with circuit size, making random
+initialization and naive gradient-based optimization impractical for
+large circuits. Quantum parameter transfer [60, 62] addresses this
+by reusing parameters optimized for related problem instances to
+initialize new circuits, accelerating convergence and alleviating flat
+optimization landscapes. Empirical evidence supports its effective-
+ness across VQE and QAOA [22, 57, 58]. Modern quantum software
+frameworks, including Qiskit [30] and PennyLane [4], actively sup-
+port parameter reuse, and pre-trained parameter sets are widely
+distributed through public repositories and cloud platforms [58],
+forming a growing quantum parameter supply chain that closely
+mirrors the classical deep learning ecosystem.
+Quantum circuit cutting has emerged as the primary solution
+to the limited qubit availability on NISQ hardware, a fundamental
+deployment bottleneck even when parameter transfer alleviates
+the training difficulty of large-scale VQCs. Practical problem in-
+stances regularly require circuits that exceed current hardware ca-
+pacity [52]. Simulating the H+
+3 molecule requires at least six qubits,
+while realistic chemistry and materials-science applications may
+demand hundreds to thousands [36, 47]. Circuit cutting decomposes
+large circuits into smaller subcircuits that execute independently
+on constrained hardware, with full-circuit outputs reconstructed
+through classical postprocessing [48, 49, 51, 63]. Two techniques
+arXiv:2607.18126v1  [quant-ph]  20 Jul 2026
+(a) Without Cut Path
+Quantum
+Circuit
+Compiler
+Quantum
+Device
+(b) Circuit Cutting path (CutQC)
+Full
+Circuit
+Sub-circuit 𝐴
+Sub-circuit 𝐵
+Compiler
+Quantum
+Device
+⊗
+Classical
+Device
+Cut exposes more attack surface than without cut
+Figure 1: Circuit cutting (b) exposes a larger attack surface
+than the standard execution path (a).
+exist: wire cutting [48, 63], which interrupts qubit wires via mea-
+surement and reinitialization, and gate cutting [44, 51], which de-
+composes multi-qubit gates into local operations with classical
+post-selection. However, circuit cutting introduces substantial re-
+construction overhead [3, 40, 63]: the classical and sampling cost
+of recombining subcircuit outputs via quasi-probability methods
+grows exponentially with the number of cuts, making routine val-
+idation of cut-based paths prohibitively expensive. Practitioners
+therefore validate on full-circuit simulators, leaving cut-based exe-
+cution paths largely unaudited.
+Given the central role of circuit cutting in practical VQA de-
+ployment, the security implications of cut-based execution are
+critical yet almost entirely unexplored. Many VQA applications
+enabled by circuit cutting are security- and safety-sensitive, in-
+cluding molecular energy estimation for drug discovery [41, 43],
+materials design [31], and portfolio optimization [16, 17], where
+errors beyond chemical accuracy thresholds of 1–2 kcal/mol can
+mislead drug candidate selection or produce financially significant
+losses [41, 53]. The cut-based reconstruction pipeline is inherently
+more sensitive to adversarial manipulation than full-circuit exe-
+cution: subcircuit outputs are combined via signed reconstruction
+coefficients, and even modest systematic biases in these outputs are
+amplified through classical postprocessing into large errors in the
+final energy estimate. Despite this, prior research on circuit cutting
+has focused almost exclusively on reducing reconstruction over-
+head [3, 40, 63], optimizing cut placement, and extending cutting to
+new paradigms [44, 51]. None of these works consider the security
+implications of adversarially crafted parameters flowing through
+the cutting pipeline.
+Backdoor attacks have emerged as a serious threat to VQCs [8, 10,
+11, 15], in which an adversary distributes poisoned parameters that
+pass standard validation but activate malicious behavior under a spe-
+cific trigger condition at deployment. Existing approaches rely on
+triggers tied to circuit structure [10], compilation processes [8, 15],
+or device-specific noise patterns [11]. These attacks either require
+the attacker to retain control over an external condition at deploy-
+ment, or depend on a specific compilation setting or noise model
+that may not generalize across hardware. Exploiting circuit cutting
+as a trigger is fundamentally harder: the attack must be embedded
+entirely within the variational parameters, leave no structurally
+detectable artifact, produce correct results under full-circuit valida-
+tion while inducing wrong results through the multi-stage CutQC
+reconstruction, and remain effective across varying backends and
+compilation configurations.
+In this paper, we propose CutBackdoor, the first backdoor attack
+exploiting quantum circuit cutting as an adversarial trigger against
+VQAs. The core insight is that full-circuit and cut-based execution
+are structurally different pipelines, and a carefully crafted parameter
+set can behave correctly under one while failing systematically
+under the other. Our contributions are:
+• We identify the noisy finite-shot circuit-cut execution path
+as a novel adversarial attack surface, and propose CutBack-
+door as a dual-objective optimization framework that em-
+beds adversarial behavior into variational parameters with-
+out circuit modification, preserving full-circuit stealthiness
+while substantially increasing cut-path reconstruction er-
+ror.
+• We formally analyze how the energy deviation between the
+two execution paths depends on the variational parameters,
+and show that an adversary can exploit this dependence to
+maximize cut-path error while keeping full-circuit behavior
+indistinguishable from clean parameters.
+• We provide a theoretical analysis that upper-bounds the
+finite-shot gap permitted by cut reconstruction, showing
+that the attack surface widens with circuit-cutting over-
+head.
+• We evaluate CutBackdoor across five VQA benchmarks
+on IBMQ processors, demonstrating attack effectiveness
+on the VQE and VQD benchmarks across the evaluated
+backends and noise profiles, with the diagonal-cost QAOA
+benchmark marking the attack’s structural boundary and
+Zero-Noise Extrapolation only partially mitigating it.
+2
+Background
+2.1
+Variational Quantum Algorithms
+2.1.1
+Variational Quantum Algorithms. Variational Quantum Algo-
+rithms (VQAs) are quantum-classical hybrid algorithms designed to
+solve optimization and simulation problems on near-term NISQ de-
+vices. A VQA encodes a problem into a Hamiltonian H and employs
+a parameterized quantum circuit 𝑈(𝜽), known as the ansatz, to pre-
+pare a trial quantum state |𝜓(𝜽)⟩= 𝑈(𝜽)|0⟩. The objective is to
+find the optimal parameters that minimize the energy expectation:
+𝐸(𝜽) = ⟨𝜓(𝜽)| H |𝜓(𝜽)⟩,
+(1)
+which serves as the cost function. A classical optimizer iteratively
+updates 𝜽based on evaluations of the cost function performed on
+the quantum device, forming a hybrid quantum-classical feedback
+loop until convergence. Prominent instances include the Varia-
+tional Quantum Eigensolver (VQE) [50] for estimating molecular
+ground-state energies, Variational Quantum Deflation (VQD) [27]
+for computing excited states, and the Quantum Approximate Opti-
+mization Algorithm (QAOA) [18] for combinatorial optimization.
+2.1.2
+Parameter Transfer and Quantum Supply Chains. Training
+VQA parameters from scratch is challenging due to the barren
+plateau phenomenon [33, 42], which causes cost function gradi-
+ents to vanish exponentially with qubit count. Quantum parameter
+transfer [60, 62] addresses this by reusing optimized parameters
+from related problem instances to initialize new circuits, accelerat-
+ing convergence and avoiding flat optimization landscapes. This
+has been demonstrated effectively for QAOA on weighted Max-Cut,
+VQE across similar molecular Hamiltonians, and general parameter-
+ized circuit families. Frameworks such as QAOAKit [58], Qiskit [30],
+and PennyLane natively support parameter sharing, and pre-trained
+parameter sets are increasingly distributed through open-source
+repositories and quantum cloud platforms. This growing quantum
+parameter supply chain closely mirrors the classical deep learning
+ecosystem and inherits the same supply-chain security risks that
+have proven devastating in the classical domain.
+2.2
+Quantum Circuit Cutting
+When a target circuit requires more qubits than a device provides,
+circuit cutting decomposes it into subcircuits that fit within the
+hardware budget, with full-circuit outputs reconstructed through
+classical postprocessing.
+2.2.1
+Reconstruction Pipeline. The theoretical foundation is that
+any quantum channel on a cut wire can be expressed as a linear
+combination of prepare-and-measure operations in a chosen ba-
+sis [63]. For wire cutting, the Pauli basis {𝐼,𝑋,𝑌,𝑍} replaces each
+cut wire with a measurement on the upstream side and a state
+preparation on the downstream side, across all basis combinations.
+Gate cutting [51] instead decomposes two-qubit entangling gates
+into sums of local operations, which is preferable when wire cut-
+ting would break parametric dependencies. CutQC formalized wire
+cutting into an automated pipeline: it uses Mixed-Integer Program-
+ming to find cut locations that minimize postprocessing overhead,
+generates and executes all required subcircuit variants, and recon-
+structs the probability distribution of the original circuit. Qiskit’s
+circuit knitting toolbox [28] extends these ideas to gate cutting and
+observable estimation.
+𝑞0
+𝑞1
+𝑞2
+H
+H
+⊕
+⊕
+X
+𝑞0
+𝑞1
+H
+⊕
+𝐼
+𝑋
+𝑌
+𝑍
+𝑞2
+|0⟩|1⟩|+⟩
+|𝑖⟩
+H
+⊕
+X
+Figure 2: Circuit cutting example: a 3-qubit circuit is split into
+two subcircuits via a single wire cut, executed independently,
+and reconstructed from 4𝐾Pauli-basis branch outputs.
+2.2.2
+Subcircuit Probability Distributions. Let 𝑈(𝜽) be a parame-
+terized 𝑛-qubit circuit partitioned into 𝑆subcircuits using 𝐾wire
+cuts, producing 𝑀= 4𝐾branch configurations indexed by 𝑏∈[𝑀]
+with signed reconstruction weights 𝑤𝑏∈R. Let 𝜌(𝑗)
+𝑏
+(𝜽) denote the
+exact output state of the 𝑗-th subcircuit in branch 𝑏; measuring it
+yields a local distribution via Born’s rule:
+𝑝(𝑗)
+𝑏,𝑥𝑗(𝜽) = Tr
+h
+|𝑥𝑗⟩⟨𝑥𝑗| 𝜌(𝑗)
+𝑏
+(𝜽)
+i
+.
+(2)
+Since the 𝑆subcircuits execute independently, the joint distribution
+for branch 𝑏is 𝑝𝑏(𝜽) = Ë𝑆
+𝑗=1 𝑝(𝑗)
+𝑏
+(𝜽). The full-circuit output is a
+weighted sum of 4𝐾Kronecker products: each branch contributes a
+tensor product of its subcircuit distributions, scaled by its signed
+weight 𝑤𝑏.
+2.2.3
+Finite-Shot Measurement. Expectation values are estimated
+by averaging over 𝑁independent measurement outcomes, each a
+shot, governed by Born’s rule. The empirical estimator is unbiased
+but carries shot-noise variance scaling as O(1/𝑁). Under circuit
+cutting, 𝑁shots per subcircuit yield an empirical joint distribution
+b𝑝𝑏(𝜽) = Ë𝑆
+𝑗=1 b𝑝(𝑗)
+𝑏
+(𝜽), where each b𝑝(𝑗)
+𝑏
+is an unbiased estimator of
+𝑝(𝑗)
+𝑏. The pipeline aggregates outputs from 𝑀= 4𝐾branches, each
+weighted by 𝑤𝑏, amplifying the variance by the cutting overhead
+𝛾2 = (Í
+𝑏|𝑤𝑏|)2 and yielding a variance bound of O(𝛾2/𝑁) [5, 48].
+Since 𝛾grows exponentially with 𝐾, the cut-based estimator is
+substantially noisier than the full-circuit estimator even when both
+estimate the same ideal quantity. The 4𝐾sampling overhead makes
+cut-based validation prohibitively expensive, discouraging prac-
+titioners from running it during routine parameter development.
+These distributions and the variance structure form the building
+blocks in §5.4.
+2.3
+Quantum Compilation
+Quantum compilation translates a high-level quantum circuit into
+low-level instructions executable on a specific device [7, 30, 45].
+Because physical qubits have limited connectivity, restricted native
+gate sets, and device-specific noise profiles, compilation critically
+determines circuit fidelity and depth. Layout maps logical qubits to
+physical qubits on the device coupling graph, with heuristics such
+as SabreLayout [35] minimizing routing overhead. Routing inserts
+SWAP gates when interacting logical qubits are not physically adja-
+cent; since each SWAP decomposes into three CNOTs, minimizing
+SWAP count is essential. Qiskit’s SabreSwap pass uses a stochas-
+tic heuristic, producing circuits whose depth varies across runs.
+Translation decomposes gates into the device’s native gate set. Opti-
+mization eliminates redundant gates and consolidates single-qubit
+chains. Qiskit exposes four optimization levels (0–3), trading com-
+pilation time for gate-count reduction. Different choices of layout,
+routing, qubit selection, and optimization level produce structurally
+distinct compiled circuits with different gate counts, depths, and
+effective noise profiles for the same logical circuit, a sensitivity
+that directly affects how the attacker’s training environment must
+match the victim’s deployment configuration (§5.2).
+2.4
+Noise in NISQ Devices
+NISQ devices [52] lack error correction and are limited by several
+noise sources. Decoherence occurs when qubits lose their state due
+to environmental interactions, characterized by relaxation time 𝑇1
+and dephasing time𝑇2 [29, 37]. Gate errors arise from imperfect con-
+trol pulses, with two-qubit gates such as CNOT exhibiting typical
+error rates of 1–2% on superconducting devices [61]. Readout errors
+corrupt measurement outcomes by mapping |0⟩to 1 or |1⟩to 0 with
+non-negligible probability [46]. Crosstalk introduces correlated er-
+rors when operations on one qubit perturb its neighbours [32, 54].
+Together these sources constrain the depth and width of reliably
+executable circuits.
+3
+Related Works
+Backdoor attacks were first introduced in classical deep learning,
+where an adversary poisons training data with a trigger pattern
+so that the model misclassifies any trigger-stamped input while
+behaving normally on clean inputs [24]. Translating this threat to
+quantum systems has attracted growing attention, though each
+existing approach targets a different stage of the quantum execu-
+tion pipeline.Data-poisoning backdoor attacks transplanted from
+classical neural networks suffer from low success rates on quan-
+tum neural networks due to limited input dimensionality, and are
+eliminated by retraining. Circuit-level attacks [10, 14, 15] embed
+malicious behavior into the ansatz through adversarial gate inser-
+tion, but are detectable by inspecting the circuit layout. QDoor [8]
+shifted the attack surface to parameter space via approximate syn-
+thesis, producing circuits that behave correctly before synthesis
+but maliciously afterwards. A separate line extends backdoor at-
+tacks to hybrid classical-quantum networks [25], and QNBAD [11]
+crafts parameters that corrupt Zero-Noise Extrapolation under a
+specific noise model. Circuit cutting has been studied for security
+only as a defensive primitive [66, 67], using subcircuit submission
+to obfuscate circuits against untrusted cloud providers.
+CutBackdoor departs from all of these by targeting the cutting
+and reconstruction pipeline rather than the circuit architecture, pa-
+rameter synthesis, or noise mitigation. Prior attacks require external
+trigger control at deployment (QTrojan), a specific compilation con-
+figuration (QDoor), or a particular device noise model (QNBAD);
+CutBackdoor instead uses the hardware constraint itself as the trig-
+ger, firing whenever the victim’s device cannot accommodate the
+full circuit. The threat is timely because three trends converge in
+VQA deployment: pre-trained parameters are increasingly shared
+through public repositories [30, 58], circuit cutting is unavoidable
+when applications exceed local hardware capacity [36, 47], and
+the 4𝐾reconstruction overhead makes routine cut-based valida-
+tion prohibitively expensive. The resulting validation gap matters
+most in the domains where VQAs do, including quantum chem-
+istry and portfolio optimization, where small systematic errors
+can mislead drug-candidate selection or cause significant financial
+losses [16, 41].
+4
+Threat Model
+4.1
+Attacker Capabilities and Knowledge
+We consider a threat model consistent with prior work [8, 11]:
+the attacker has full access to the training process of a variational
+quantum algorithm and can arbitrarily influence parameter opti-
+mization, but for hardware and compilers operates with standard-
+user permissions and no privileged access. The attacker knows
+common toolchains (Qiskit, BQSKit, PennyLane) and can simulate
+end-to-end execution under realistic noise using public simulators
+and IBMQ hardware. Beyond the circuit, the attacker knows how
+CutQC is applied at deployment, including how the MIP solver
+selects cut locations, how subcircuits are generated and assigned
+parameter subsets, how Pauli bases are enumerated across cut wires,
+and how the output is reconstructed, and can therefore simulate
+the cut-based path during training and directly target the recon-
+structed energy the victim will observe. No interaction with the
+victim is required at deployment; the attack assumes only that the
+victim follows the standard CutQC workflow with default subcir-
+cuit compilation, under which it transfers across the backends and
+noise configurations of §7 without knowledge of the victim’s device,
+calibration, or mitigation strategy. Sensitivity to non-default com-
+pilation is analyzed in §5.2. The trigger is the structural mismatch
+between circuit size and available hardware, which the attacker an-
+ticipates confidently since pre-trained parameters are most valuable
+precisely when the circuit exceeds local hardware capacity.
+4.2
+Attacker Goals
+The attacker has two simultaneous goals. The primary goal is at-
+tack effectiveness: when the victim applies circuit cutting, the re-
+constructed energy diverges from the full-circuit value the victim
+validated, a deviation that reads as ordinary cutting overhead and
+device noise. The secondary goal is attack stealthiness: on a full-
+circuit simulator, the same parameters stay close to the clean base-
+line and pass routine validation. The adversarial training procedure
+satisfies both tensioned goals by penalizing full-circuit energy error
+while pushing the reconstructed energy toward the wrong target on
+the cut-based path. A victim validating only on a full-circuit simula-
+tor observes accurate results and has no indication the parameters
+are compromised; the backdoor activates silently at deployment
+when hardware constraints force circuit cutting.
+4.3
+Victim Assumptions
+The victim is a legitimate quantum practitioner who downloads pre-
+trained VQA parameters from a public source for a computational
+task such as molecular energy estimation or combinatorial optimiza-
+tion. They validate the parameters on a full-circuit simulator before
+deployment, which is the standard and computationally practical
+approach. At deployment, the victim’s hardware has fewer qubits
+than the circuit requires, so circuit cutting is applied automatically.
+The victim has no reason to suspect the parameters are malicious,
+since they passed full-circuit validation, and has no practical means
+to perform exhaustive cut-based validation due to its prohibitive
+sampling overhead.
+5
+CutBackdoor
+5.1
+Trigger Mechanism
+The trigger in CutBackdoor is not an external input, server configu-
+ration, or device-specific noise condition, but a structural property
+of the victim’s deployment: when the circuit requires 𝑛qubits and
+the device supports only 𝑤< 𝑛, circuit cutting becomes the only
+viable path. This constraint is outside the victim’s control, making
+the trigger automatic and undetectable under standard validation.
+Figure 3 illustrates the scenario: the attacker uploads poisoned
+parameters to a public repository; the victim validates them on a
+full-circuit simulator (panel b), but at deployment hardware con-
+straints force the CutQC pipeline (panels c, d), where the backdoor
+activates.
+(a) Supply Chain
+Attacker
+knows: CutQC, Pauli
+Victim
+𝑤<𝑛·
+(c) Clean 𝜽via CutQC
+Subcircuit A
+Q0
+Q1
+Subcircuit B
+Q2
+Q3
+QPU (𝑤qubits)
+⊗
+Classical Device
+𝐸
+𝐸ideal
+✓
+small error
+(d) Backdoored 𝜽∗via CutQC
+Subcircuit A
+Q0
+Q1
+Subcircuit B
+Q2
+Q3
+QPU (𝑤qubits)
+⊗
+Classical Device
+𝐸
+𝐸ideal
+𝐸abs
+×
+large error
+Ansatz (𝑛qubits)
+Q0
+Q1
+Q2
+Q3
+(b) Validation
+Simulator
+𝑛qubits
+𝐸
+𝐸ideal
+✓
+small error
+Figure 3: CutBackdoor threat model. (a) Supply chain: an attacker uploads poisoned VQA parameters 𝜽∗, downloaded by a
+victim whose hardware capacity 𝑤is smaller than the circuit’s qubit requirement 𝑛(𝑤< 𝑛). (b) Full-circuit validation: running
+on 𝑛qubits without cutting yields energy close to the ideal value, so 𝜽∗passes inspection. (c) CutQC with clean parameters:
+cut-path reconstruction stays close to the ideal value under finite shots. (d) CutQC with 𝜽∗: the same pipeline yields a large
+cut-path deviation 𝐸abs ≫0, activating CutBackdoor.
+5.1.1
+CutQC as the Trigger. CutBackdoor targets CutQC [63], the
+first and most widely adopted automated cutting pipeline. When
+hardware cannot accommodate the full circuit, CutQC uses Mixed-
+Integer Programming to place cuts, executes the subcircuit variants
+independently, and reconstructs the output through classical post-
+processing. Because this pipeline is deterministic given the circuit
+and hardware, the attacker can simulate it during training and craft
+parameters whose finite-shot reconstruction deviates systemati-
+cally from the full-circuit result.
+5.1.2
+Variance Asymmetry Between Execution Paths. The trigger
+exploits a finite-shot asymmetry between two execution modes of
+the same circuit. Under full-circuit execution, the unitary is applied
+coherently and the energy is estimated by direct measurement.
+Under CutQC execution, the circuit is partitioned into subcircuits
+executed independently across all Pauli bases, and the output is re-
+constructed by combining branch outputs through signed weights.
+This multi-stage reconstruction amplifies sampling fluctuations far
+more than direct measurement, growing exponentially in the num-
+ber of cuts. The two estimators share the same ideal expectation,
+but their finite-shot realizations diverge: crafted parameters can
+preserve full-circuit accuracy while steering the cut-path estimator
+into high-variance regions where reconstruction error is amplified,
+without any circuit modification. We bound this divergence in §5.6.
+5.1.3
+Stealth. The trigger is stealthy for three reasons. First, the
+trigger condition is indistinguishable from a normal deployment
+scenario, since any practitioner who responds to a qubit-capacity
+mismatch by invoking CutQC activates it. Second, the backdoored
+parameters pass standard full-circuit validation, which is the only
+computationally affordable validation approach available to the
+victim. Third, when the attack fires, the elevated cut-path energy
+is naturally attributed to reconstruction noise or cutting overhead
+rather than parameter poisoning. Unlike QTrojan [10], where in-
+jected gates are structurally detectable, or QNBAD [11], where the
+4
+5
+6
+3
+0
+1
+2
+(a) IBMQ Oslo coupling map
+𝑞0
+𝑞1
+𝑞2
+𝑞3
+𝑞4
+H
+(b) Original circuit
+𝑞0→0
+𝑞1→1
+𝑞2→2
+𝑞3→3
+𝑞4→4
+anc→5
+𝑅𝑧
+𝜋
+2
+√
+𝑋
+𝑅𝑧
+𝜋
+2
+(c) Trivial layout + Basic route (2Q: 16, depth: 19)
+𝑞3→0
+𝑞0→1
+𝑞1→3
+𝑞4→4
+𝑞2→5
+𝑅𝑧
+𝜋
+2
+√
+𝑋
+𝑅𝑧
+𝜋
+2
+(d) Sabre layout + Sabre route (2Q: 4, depth: 6)
+Figure 4: Comparison of transpilation strategies on the
+IBMQ_Oslo device. (a) Coupling map of the 7-qubit heavy-hex
+topology. (b) Original logical circuit. (c) Trivial initial layout
+with basic routing yields 16 two-qubit gates at depth 19. (d)
+Sabre layout with Sabre routing yields only 4 two-qubit gates
+at depth 6.
+attack is device-specific, CutBackdoor leaves no observable arti-
+fact in the circuit architecture and persists across the evaluated
+backends and cut placements under matched compilation.
+5.2
+Trigger Condition Analysis
+The CutBackdoor trigger activates through the CutQC subcircuit ex-
+ecution path, and its effectiveness depends on whether the victim’s
+subcircuit compilation matches the attacker’s training environ-
+ment. During adversarial training, the attacker simulates the full
+CutQC pipeline under a fixed subcircuit compilation, embedding
+adversarial biases calibrated to a specific compiled topology. If the
+victim compiles subcircuits differently, the topology changes and
+the adversarial bias may fail to propagate through reconstruction.
+Figure 4 shows how much the same logical subcircuit can differ
+under two compilation strategies on the IBMQ_Oslo coupling map.
+Under a trivial layout with BasicSwap routing, sequential qubit
+assignment forces numerous SWAPs along non-adjacent paths,
+yielding 16 two-qubit gates at depth 19. Under SabreLayout with
+SabreSwap, the layout heuristic places interacting qubits on adja-
+cent nodes and the same subcircuit compiles to only 4 two-qubit
+gates at depth 6. This fourfold reduction in gate count and threefold
+reduction in depth alter both noise accumulation and qubit order-
+ing, shifting the assembled output distribution that feeds the energy
+computation. The adversarial bias calibrated during training no
+longer maps onto this altered reconstruction, and the attack energy
+may not reach its target. This sensitivity affects only the cut-based
+path: full-circuit validation uses the statevector path, independent
+of subcircuit compilation.
+In practice, however, these deviations represent non-standard
+usage outside the default CutQC workflow. Practitioners using
+CutQC for automatic cutting naturally adopt low-overhead sub-
+circuit compilation, since aggressive routing is unnecessary when
+subcircuits are already small. Any victim operating within the stan-
+dard CutQC pipeline therefore uses a configuration consistent with
+the attacker’s training environment, so the trigger fires reliably
+without attacker intervention.
+5.3
+Attack Overview
+CutBackdoor embeds adversarial behavior into the variational pa-
+rameter set 𝜽of a parameterized quantum circuit such that the same
+parameters produce two distinct finite-shot behaviors depending
+on the execution path. Under full-circuit execution, the circuit pro-
+duces an energy estimate close to the true ground-state value. Under
+noisy finite-shot CutQC-based execution, the cut-path estimator
+is steered toward a target value 𝐸wrong chosen by the attacker. The
+attack requires no modification to the circuit architecture, injects
+no additional gates, and leaves no structurally detectable artifact.
+5.4
+Setup and Notation
+Let𝑈(𝜽) be a parameterized𝑛-qubit circuit with parameters 𝜽∈R𝑑,
+and let H be a target observable with diagonal elements ℎ𝑥in the
+computational basis. We formalize the energy-level quantities used
+throughout the attack analysis across two evaluation settings. The
+underlying subcircuit probability distributions 𝑝(𝑗)
+𝑏
+(𝜽) and their
+empirical counterparts b𝑝(𝑗)
+𝑏
+(𝜽) are defined in §2.2.2.
+Ideal case. The exact full-circuit energy is:
+𝐸full(𝜽) := Tr[H 𝜌full(𝜽)] ,
+(3)
+where 𝜌full(𝜽) is the exact output state of the uncut circuit. For the
+cut-based path, the exact branch energy for branch 𝑏∈[𝑀] is:
+𝜇𝑏(𝜽) :=
+∑︁
+𝑥
+𝑝𝑏,𝑥(𝜽) ℎ𝑥,
+(4)
+where 𝑝𝑏,𝑥(𝜽) is the joint probability over the full-system bitstring
+𝑥, obtained from the tensor product of subcircuit distributions as
+defined in §2.2.2. The ideal cut reconstruction is then:
+𝐸cut(𝜽) :=
+𝑀
+∑︁
+𝑏=1
+𝑤𝑏𝜇𝑏(𝜽),
+(5)
+and under exact cutting, 𝐸cut(𝜽) = 𝐸full(𝜽) [48].
+Practical case (finite shots). As introduced in §2.2.3, in practice 𝑁
+independent shots are allocated to any executed circuit or subcircuit.
+The empirical branch energy estimate for branch 𝑏is:
+b𝜇𝑏(𝜽) :=
+∑︁
+𝑥
+b𝑝𝑏,𝑥(𝜽) ℎ𝑥,
+(6)
+and the finite-shot estimators for the two execution paths are:
+b𝐸full(𝜽) :=
+∑︁
+𝑥
+b𝑝full,𝑥(𝜽) ℎ𝑥,
+(7)
+b𝐸cut(𝜽) :=
+𝑀
+∑︁
+𝑏=1
+𝑤𝑏b𝜇𝑏(𝜽).
+(8)
+Both estimators are unbiased: E[b𝐸full(𝜽)] = 𝐸full(𝜽) and E[b𝐸cut(𝜽)] =
+𝐸cut(𝜽). However, as established in §2.2.3, the variance of b𝐸cut is am-
+plified by 𝛾2 = (Í
+𝑏|𝑤𝑏|)2 relative to b𝐸full, a structural asymmetry
+that the attack directly exploits.
+5.5
+Exploiting the Cutting-Induced Attack
+Surface
+In practice, the ideal expectations 𝐸full(𝜽) and 𝐸cut(𝜽) are inacces-
+sible; the victim and the execution environment observe only the
+finite-shot estimators b𝐸full(𝜽) and b𝐸cut(𝜽) of §5.4. Both are unbiased
+estimators of the same ideal quantity, yet their finite-shot realiza-
+tions diverge due to measurement randomness (§2.2.3). We define
+the finite-shot evaluation gap as:
+Δ(𝜽) :=
+b𝐸cut(𝜽) −b𝐸full(𝜽)
+ .
+(9)
+This gap is governed by the variances of the two estimators. For
+the full circuit, the standard Monte Carlo variance is bounded by
+the spread of the observable over the exact state distribution:
+Var
+
+b𝐸full(𝜽)
+
+= 1
+𝑁
+ ∑︁
+𝑥
+𝑝full,𝑥(𝜽) ℎ2
+𝑥−𝐸full(𝜽)2
+!
+.
+(10)
+The variance of b𝐸cut(𝜽) is fundamentally different. As established in
+§2.2.3, the empirical joint distribution is built from the tensor prod-
+uct of independent subcircuit measurements and recombined with
+signed weights 𝑤𝑏, so statistical errors compound and the variance
+is amplified by the cutting overhead 𝛾2 = (Í
+𝑏|𝑤𝑏|)2, yielding the
+looser bound O(𝛾2/𝑁) [5, 48]. Both variances are explicit functions
+of the distributions 𝑝full(𝜽) and 𝑝(𝑗)
+𝑏
+(𝜽) (§2.2.2), and are therefore
+highly sensitive to the location of 𝜽in the parameter landscape.
+This 𝜽-dependence creates an exploitable attack surface. An
+adversary treats the gap Δ(𝜽) as an objective: by tuning 𝜽, the
+attacker steers subcircuits into regions where the local variance of
+b𝑝(𝑗)
+𝑏
+(𝜽) is large, and the cutting pipeline amplifies these fluctuations
+through tensor products and signed weights, inflating the sampling
+error of b𝐸cut(𝜽) within the bound of Theorem 5.1 while the un-
+amplified b𝐸full(𝜽) stays comparatively stable.
+5.6
+Theoretical Bound on the Finite-Shot
+Evaluation Gap
+Building on the evaluation gap Δ(𝜽) defined in §5.5, we now es-
+tablish a high-probability upper bound on how far the cut-path
+estimator can deviate from the full-circuit estimator under finite
+shots. The bound is one-sided: it limits the worst-case gap an at-
+tacker can achieve, but does not by itself prove that any particular
+attack realizes the bound. The empirical attack effectiveness within
+this bound is demonstrated in §7.
+Theorem 5.1 (Finite-shot bound on the evaluation gap).
+Let H be an observable with eigenvalues bounded in [−1, 1] (e.g., a
+Pauli string). Suppose each of the 𝑀= 4𝐾cut branches and the
+full circuit are estimated using the same number of independent
+measurement shots 𝑁. Then, for any confidence parameter 𝛿∈(0, 1),
+with probability at least 1 −𝛿, the finite-shot evaluation gap satisfies:
+Δ(𝜽) ≤(𝛾+ 1)
+√︂
+2 log(4𝑀/𝛿)
+𝑁
+,
+(11)
+where 𝛾:= Í𝑀
+𝑏=1 |𝑤𝑏|.
+Proof. By the triangle inequality and the fact that 𝐸full(𝜽) =
+𝐸cut(𝜽) from (5):
+Δ(𝜽) ≤
+b𝐸cut(𝜽) −𝐸cut(𝜽)
+ +
+b𝐸full(𝜽) −𝐸full(𝜽)
+.
+(12)
+Because the observable spectrum is bounded in [−1, 1], the en-
+ergy evaluated from any single measurement shot falls within
+[−1, 1]. The empirical branch estimator b𝜇𝑏(𝜽), defined in §5.4, is
+the sample mean of 𝑁such independent single shot measurements.
+By Hoeffding’s inequality applied to each branch 𝑏and a union
+bound over all 𝑏∈[𝑀], with probability at least 1 −𝛿/2:
+|b𝜇𝑏(𝜽) −𝜇𝑏(𝜽)| ≤
+√︂
+2 log(4𝑀/𝛿)
+𝑁
+for all 𝑏= 1, . . . , 𝑀.
+(13)
+The total sampling error of the cut estimator is thus bounded by:
+b𝐸cut(𝜽) −𝐸cut(𝜽)
+ =
+
+𝑀
+∑︁
+𝑏=1
+𝑤𝑏
+ b𝜇𝑏(𝜽) −𝜇𝑏(𝜽)
+
+≤
+𝑀
+∑︁
+𝑏=1
+|𝑤𝑏| |b𝜇𝑏(𝜽) −𝜇𝑏(𝜽)|
+≤𝛾
+√︂
+2 log(4𝑀/𝛿)
+𝑁
+.
+(14)
+Similarly, b𝐸full(𝜽) is the sample mean of 𝑁independent bounded
+single-shot measurements. By Hoeffding’s inequality and using
+𝑀= 4𝐾≥1, with probability at least 1 −𝛿/2:
+b𝐸full(𝜽) −𝐸full(𝜽)
+ ≤
+√︂
+2 log(4𝑀/𝛿)
+𝑁
+.
+(15)
+Applying a final union bound, (14) and (15) hold simultaneously
+with probability at least 1 −𝛿. Substituting into (12) yields the
+combined factor (𝛾+ 1).
+□
+Remark. Theorem 5.1 bounds the realized gap by O(𝛾/
+√
+𝑁), and
+since 𝛾grows exponentially with the number of cuts 𝐾, more cuts
+admit a larger worst-case deviation. The bound is one-sided: it caps
+the attack surface without guaranteeing any attack saturates it. The
+reconstruction overhead that discourages cut-path validation thus
+also widens this surface. We confirm the 𝐾-dependence empirically
+in §7, where the realized gap grows with 𝐾yet stays well below
+the ceiling.
+5.7
+Backdoor Training Objective
+We formulate CutBackdoor as a multi-task optimization problem.
+The attacker trains a poisoned parameter set 𝜽∗to simultaneously
+minimize the full-circuit energy and maximize the finite-shot eval-
+uation gap Δ(𝜽) defined in §5.5. The overall training loss is:
+L(𝜽) =
+b𝐸full(𝜽)
+
+|    {z    }
+Lstl (𝜽) (stealth term)
+−𝜆·
+b𝐸cut(𝜽) −b𝐸full(𝜽)
+
+|                  {z                  }
+Latk (𝜽) (attack term)
+,
+(16)
+where 𝜆≥0 governs the trade-off between stealthiness and attack
+potency.
+Stealth term. Lstl(𝜽) = |b𝐸full(𝜽)| drives 𝜽toward the variational
+ground state, ensuring the poisoned parameters remain indistin-
+guishable from legitimately trained parameters under full-circuit
+validation. No externally known reference energy is required.
+Attack term. Latk(𝜽) = Δ(𝜽) is the finite-shot evaluation gap
+from (9). Maximizing this term drives 𝜽into regions where the
+cut-path energy deviates maximally from the full-circuit energy.
+As established in §5.5 and bounded in Theorem 5.1, this deviation
+is amplified by 𝛾2 due to the reconstruction overhead of the cutting
+pipeline, while the full-circuit path remains unaffected.
+Why both objectives can be satisfied simultaneously. The vari-
+ance of b𝐸full(𝜽) scales as O(1/𝑁), while the variance of b𝐸cut(𝜽)
+scales as O(𝛾2/𝑁) where 𝛾grows exponentially with 𝐾. Because
+the two terms operate in fundamentally different statistical regimes,
+minimizing Lstl does not suppress Latk. This scale separation sug-
+gests that an optimal 𝜆∗exists at which both objectives co-optimize
+effectively, as analyzed in §5.8.
+5.8
+Optimizing the Backdoor: Role of 𝜆
+The attack weight 𝜆governs the balance between stealthiness and
+attack potency in (16). When 𝜆→0, the optimization is dominated
+by Lstl and converges to the clean VQA minimum: 𝜽remains in
+low-variance regions where the cut-path and full-circuit energies
+are nearly equal, and the attack is suppressed. When 𝜆→∞,
+the optimization is dominated by Latk, pushing 𝜽far from the
+clean variational manifold; this degrades b𝐸full(𝜽) alongside b𝐸cut(𝜽),
+causing the poisoned parameters to fail standard validation. At the
+optimal 𝜆∗, both objectives co-optimize: Lstl keeps b𝐸full near the
+variational ground state while 𝜆∗· Latk drives 𝜽into regions where
+Δ(𝜽) is large.
+6
+Experiments
+6.1
+Dataset
+To evaluate CutBackdoor attack against circuit cutting, we selected
+benchmarks that require partitioning due to qubit constraints on
+Table 1: The VQA Benchmarks
+Benchmarks
+Qubit
+1-qubit gate
+2-qubit gate
+VQE - H3+
+6
+60
+9
+VQE - CH2
+14
+140
+26
+VQD - H3+
+13
+177
+66
+VQD - H4
+17
+275
+92
+QAOA -8
+8
+72
+16
+NISQ hardware. For quantum chemistry applications, we used
+molecular systems from the PennyLane Molecules dataset [2]: 𝐻+
+3 (6
+qubits) and 𝐶𝐻2 (14 qubits). Fermionic Hamiltonians were mapped
+to qubit operators via the Jordan-Wigner transformation [20], yield-
+ing a sum of Pauli string operators acting on the qubit register.. For
+combinatorial optimization, we constructed QAOA circuits using 8-
+node MaxCut problem instances [55]. We also evaluated Variational
+Quantum Deflation (VQD) on the 𝐻+
+3 and 𝐻4 molecule to assess
+backdoor robustness. Table 1 summarizes circuit characteristics.
+6.2
+Circuit Cutting Configuration
+All experiments use CutQC [63] as the circuit cutting framework,
+which invokes the Gurobi optimizer [26] to solve a Mixed-Integer
+Program (MIP) that identifies optimal cut locations minimizing clas-
+sical reconstruction cost, replicating the automatic cutting proce-
+dure a real practitioner would invoke. Cutting behavior is governed
+by the cutter_constraints dictionary (Table 2). The max subcircuit
+width parameter enforces the qubit capacity of the target backend;
+max cuts caps the total wire-cut budget to bound reconstruction
+overhead, which scales as O(4𝑘) in the number of cuts 𝑘. The num
+subcircuits parameter is supplied as an ordered list, allowing Gurobi
+to select the smallest feasible partition automatically. The max sub-
+circuit cuts parameter limits cut edges per fragment to keep the
+reconstruction branch count tractable, and subcircuit size imbal-
+ance grants the solver flexibility for molecular circuits whose qubit
+counts do not partition evenly.
+6.3
+Quantum Devices and Compilations
+All experiments are conducted on IBM quantum processors via
+Qiskit, with circuits transpiled at optimization_level=0 or 1
+using a trivial initial layout to preserve the circuit structure in-
+tended by the attacker. To evaluate 𝐸stl, the full circuit is executed
+on IBMQ_Kolkata (27q), which provides sufficient capacity to run
+the target ansatz without cutting and mirrors the victim’s valida-
+tion environment. To evaluate 𝐸abs, subcircuits produced by the
+CutQC pipeline are executed on three 7q processors: IBMQ_Perth,
+IBMQ_Oslo, and IBMQ_Nairobi. As shown in Figure 5, these de-
+vices exhibit meaningfully different noise profiles: IBMQ_Perth has
+the highest two-qubit gate error rate (∼1.0%) and readout error rate
+(∼3.0%), while IBMQ_Oslo is the lowest across both metrics and
+exhibits the longest𝑇1 (∼150 𝜇s). For generality analyses on smaller
+hardware, we additionally run selected experiments on three 5q
+processors: IBMQ_Manila, IBMQ_Lima, and IBMQ_Quito.
+Table 2: Cutting constraints for n qubits circuits
+Parameter
+Role
+Value
+max_subcircuit_width
+Max qubits per subcircuit
+6
+max_cuts
+Total wire-cut budget
+10
+num_subcircuits
+Partition counts to try
+[2, 3, 4]
+max_subcircuit_cuts
+Cut edges per subcircuit
+6
+subcircuit_size_imbalance
+MIP balance relaxation
+2
+6.4
+Circuit Benchmarks and Training
+Table 1 summarizes the quantum circuits for the five representative
+VQAs used in our evaluation, spanning circuit sizes from 6 to 17
+qubits with diverse ansatz architectures. For VQE tasks, we adopt
+the ansatz proposed in [65]; for QAOA, we follow the circuit design
+in [69]; and for VQD, we employ the framework described in [27].
+These architectural differences yield single-qubit gate counts rang-
+ing from 60 to 275 and two-qubit gate counts ranging from 9 to
+92. All VQAs were trained using Qiskit with the Adam optimizer,
+a learning rate of 5 × 10−3, momentum parameters 𝛽1 = 0.9 and
+𝛽2 = 0.999, and a perturbation coefficient of 𝑐= 0.06 for Simul-
+taneous Perturbation Stochastic Approximation (SPSA) gradient
+estimation, which approximates gradients using only two circuit
+evaluations per step regardless of parameter count.
+6.5
+Noise Mitigation
+To evaluate the robustness of CutBackdoor under error mitigation,
+we apply Zero Noise Extrapolation (ZNE) [64] using the Mitiq
+framework [34]. ZNE estimates the noise-free expectation value
+by executing the circuit at multiple artificially scaled noise levels
+and extrapolating back to the zero-noise limit. For each circuit,
+we generate noisy variants at scaling factors 𝑇∈{1, 2, 3, 4, 5, 6}
+and fit a second-degree polynomial over the sampled expectation
+values to obtain the extrapolated result. This setting is applied to
+both the full-circuit and cut-based execution paths, allowing us
+to assess whether the backdoor remains effective even when the
+victim employs standard error mitigation alongside circuit cutting.
+6.6
+Evaluation Metrics
+To quantify attack effectiveness and stealthiness, we define two
+evaluation metrics. For a given parameter set 𝜽, we define:
+𝐸abs =
+ ˆ𝐸cut(𝜽) −𝐸ideal(𝜽)
+,
+(17)
+𝐸stl =
+ ˆ𝐸full(𝜽) −𝐸ideal(𝜽)
+,
+(18)
+where 𝐸ideal(𝜽) is the noiseless statevector expectation value of the
+full uncut circuit under 𝜽. 𝐸abs measures how far the reconstructed
+cut-path energy deviates from this ideal value, while 𝐸stl measures
+how far the full-circuit energy deviates from the same baseline. A
+successful attack requires 𝐸abs to be substantially elevated under
+backdoor parameters while 𝐸stl remains small.
+7
+Experimental Results
+7.1
+Attack Efficiency
+We evaluate CutBackdoor across five VQA benchmarks executed on
+four IBM quantum processors under clean and backdoor parameter
+Perth
+Oslo
+Nairobi
+0
+0.3
+0.6
+0.9
+1.2
+1.5
+1.8
+Error Rate (%)
+Gate Error Rates
+1Q Gate
+2Q Gate
+Perth
+Oslo
+Nairobi
+0
+0.5
+1
+1.5
+2
+2.5
+3
+3.5
+4
+4.5
+Error Rate (%)
+Readout Error Rates
+Perth
+Oslo
+Nairobi
+0
+40
+80
+120
+160
+200
+240
+Time (𝜇s)
+Coherence Times
+T1
+T2
+Figure 5: Noise characterization of the three 7-qubit IBMQ. Gate error rates (left), readout error rates (center), and coherence
+times (right) for IBMQ_Perth, IBMQ_Oslo, and IBMQ_Nairobi.
+Table 3: CutBackdoor effectiveness across VQE, VQD, and QAOA benchmarks. 𝐸stl (no-cut, IBMQ_Kolkata) confirms stealthiness;
+𝐸abs (with-cut) measures attack potency. Parentheses give the CutBackdoor/clean ratio and the absolute gap Δ = 𝐸BD
+abs −𝐸clean
+abs .
+Benchmark
+Schemes
+No-cut
+With-cut 𝐸abs
+𝐸stl
+Kolkata
+Perth
+Oslo
+Nairobi
+VQE – H+
+3
+Clean
+0.076
+0.098
+0.166
+0.122
+0.193
+CutBackdoor
+0.108 (1.4×)
+0.235 (2.4×, Δ+0.137)
+0.313 (1.9×, Δ+0.147)
+0.262 (2.2×, Δ+0.140)
+0.305 (1.6×, Δ+0.112)
+VQE – CH2
+Clean
+4.183
+0.762
+0.743
+1.052
+1.776
+CutBackdoor
+3.792 (0.9×)
+1.138 (1.5×, Δ+0.376)
+1.454 (2.0×, Δ+0.711)
+3.020 (2.9×, Δ+1.968)
+3.152 (1.8×, Δ+1.376)
+VQD – H+
+3
+Clean
+0.099
+0.151
+0.198
+0.152
+0.230
+CutBackdoor
+0.104 (1.1×)
+0.315 (2.1×, Δ+0.164)
+0.385 (2.0×, Δ+0.187)
+0.363 (2.4×, Δ+0.211)
+0.316 (1.4×, Δ+0.086)
+VQD – H4
+Clean
+0.166
+0.262
+0.470
+0.300
+0.454
+CutBackdoor
+0.151 (0.9×)
+0.342 (1.3×, Δ+0.080)
+0.680 (1.5×, Δ+0.210)
+0.449 (1.5×, Δ+0.149)
+0.649 (1.4×, Δ+0.195)
+QAOA – 8
+Clean
+0.356
+0.269
+0.947
+0.574
+0.779
+CutBackdoor
+0.380 (1.1×)
+0.459 (1.7×, Δ+0.190)
+0.990 (1.0×, Δ+0.043)
+0.564 (1.0×, Δ−0.010)
+1.042 (1.3×, Δ+0.263)
+configurations. Table 3 reports 𝐸stl and 𝐸abs in Hartree (Ha) for each
+benchmark and processor.
+VQE. For the primary VQE benchmark on the trihydrogen cation
+(H+
+3 ), CutBackdoor produces consistently elevated cut-path errors
+across all four processors. The no-cut stealthiness error increases
+modestly from 0.076 to 0.108, remaining within a range that would
+not raise concern during full-circuit validation. On the cut-based
+path, 𝐸abs rises from 0.235 on IBMQ_Kolkata to 0.313 on IBMQ_Perth
+against clean baselines of 0.098 and 0.166, yielding amplification
+ratios of 1.6× to 2.4×. The largest amplification occurs on the lowest-
+noise device, indicating that the attack signal emerges most cleanly
+when the cutting pipeline is the dominant error source rather than
+hardware noise. The larger CH2 benchmark involves greater cir-
+cuit depth and exhibits elevated clean baselines from accumulated
+noise, yet CutBackdoor further amplifies cut-path errors by 1.5×
+on IBMQ_Kolkata to 2.9× on IBMQ_Oslo, showing the attack sur-
+face persists at scale. Notably, 𝐸stl under CutBackdoor (3.792) falls
+slightly below the clean baseline (4.183), confirming that the dual-
+objective loss anchors the full-circuit energy near the variational
+ground state even as it drives the cut-path energy toward the wrong
+target.
+VQD. On excited-state benchmarks, CutBackdoor remains effec-
+tive despite the additional orthogonality constraints VQD imposes
+on the ansatz. For VQD–H+
+3 , amplification ranges from 1.4× to
+2.4× across processors, with the largest absolute gain of 0.211 on
+IBMQ_Oslo, while 𝐸stl increases by only 0.005, the cleanest sepa-
+ration between attack and stealth in the table. For the VQD–H4
+ansatz, amplification is more modest at 1.3×–1.5×, with absolute er-
+ror increases from 0.080 on IBMQ_Kolkata to 0.210 on IBMQ_Perth;
+the narrower range reflects the higher clean baseline leaving less
+relative headroom, but CutBackdoor still elevates the cut-path error
+above the clean baseline on every device. In both cases the no-cut er-
+ror stays near the clean baseline, confirming that the attack extends
+cleanly to excited-state tasks without sacrificing stealth.
+QAOA. For the MaxCut QAOA benchmark, CutBackdoor pro-
+duces amplification ratios of 1.0× to 1.7× across backends, with the
+largest absolute increase of 0.263 on IBMQ_Nairobi. The effect is
+more modest than on VQE and VQD, where ratios reach 2.9×. This
+contrast is consistent with the underlying mechanism: the param-
+eter regions the attack exploits are accessible primarily when the
+observable couples non-trivially to the cut wire, which is typical
+for molecular Hamiltonians but less favorable for diagonal cost
+Hamiltonians like MaxCut. QAOA therefore bounds the attack’s
+applicability rather than serving as a primary target.
+Across the VQE and VQD benchmarks, CutBackdoor consistently
+elevates cut-path errors while maintaining full-circuit stealthiness,
+with amplification of 1.3× to 2.9× depending on processor and
+Figure 6: Finite-shot gap Δ(𝜽∗) under backdoor parameters
+on IBMQ_Kolkata (20 trials per shot level). The ¯Δ ± 𝜎band
+contracts as O(1/
+√
+𝑁) (Theorem 5.1), while ¯Δ stays elevated.
+benchmark, while the diagonal-cost QAOA benchmark marks the
+attack’s structural boundary.
+7.2
+Empirical Validation of the Finite-Shot
+Bound
+Theorem 5.1 makes two predictions: the realized gap contracts as
+O(1/
+√
+𝑁) in the shot budget, and its ceiling widens with the cut
+count 𝐾through the overhead 𝛾. We validate both, sweeping 𝑁at
+fixed 𝐾(Fig. 6) and 𝐾at fixed 𝑁(Table 4).
+Shot budget. Fixing a CutBackdoor configuration 𝜽∗on VQE–H+
+3 ,
+we record 20 trials of Δ(𝜽∗) = | ˆ𝐸full −ˆ𝐸cut| per shot level from 1k
+to 64k (Fig. 6). The ¯Δ ± 𝜎band contracts as 𝑁grows, matching
+the O(1/
+√
+𝑁) shrinkage, while the mean ¯Δ stays near 175 mHa at
+every 𝑁. This persistence is the signature of dual-objective training:
+the loss in (16) steers 𝜽∗into high-variance regions of the cut-path
+estimator, whereas clean parameters sit in quieter regions and yield
+a much smaller ¯Δ. The bound holds in both cases; what differs is
+whether the realized gap sits near its ceiling or far below it.
+Cut count.
+Holding 𝜽∗and the circuit fixed, we re-run CutQC under three
+partitions at a fixed shot budget (Table 4). The gap grows monoton-
+ically with 𝐾(178 →232 →242 mHa), confirming that more cuts
+genuinely widen the attack surface. Yet this growth is far slower
+than the bound: as 𝐾rises from 1 to 5 the overhead 𝛾grows from
+roughly 16 to 864, expanding the (𝛾+1) prefactor of Theorem 5.1
+by over an order of magnitude, while ¯Δ rises only 1.36×. The in-
+crements diminish (+54 vs. +10 mHa), consistent with the 𝑀= 4𝐾
+branch count making training progressively harder. The realized
+gap is thus a nontrivial but sub-maximal fraction of the one-sided
+bound: Theorem 5.1 predicts the direction of the 𝐾-dependence and
+caps the worst case without claiming the attack saturates it.
+7.3
+Stealthiness
+7.3.1
+Effect of Zero-Noise Extrapolation. To assess whether Cut-
+Backdoor remains effective when the victim applies error mitiga-
+tion alongside circuit cutting, we evaluate all benchmarks under
+three ZNE fitting methods: Linear, Polynomial, and Exponential
+Table 4: Wire-cut ablation on VQE–H+
+3 at fixed 𝜽∗and shot
+budget. ¯Δ grows with 𝐾but stays far below the O(𝛾) ceiling
+of Theorem 5.1.
+Subcircuits
+𝐾
+𝑀= 4𝐾
+mean ¯Δ (mHa)
+2
+1
+4
+177.8
+3
+3
+64
+231.9
+4
+5
+1024
+242.0
+Trivial
++Basic
+Sabre
+Basic
+Trivial
++SabreSwap
+Sabre
++SabreSwap
+0
+0.2
+0.4
+0.6
+0.8
+1
+1.2
+1.4
+0.194
+0.866
+0.188
+0.870
+0.297
+1.248
+0.303
+1.249
+𝐸𝑎𝑏𝑠
+Clean
+CutBackdoor
+Figure 7: Effect of CutBackdoor across different compilation
+settings.
+extrapolation. Table 5 reports 𝐸stl and 𝐸abs for clean and CutBack-
+door under each fitting method. Across all three ZNE variants,
+CutBackdoor consistently produces elevated cut-path errors rela-
+tive to clean parameters on the VQE and VQD benchmarks. Under
+Linear extrapolation, CutBackdoor achieves amplification of 2.3×
+on VQE–H+
+3 and 2.1× on VQD–H+
+3 , while stealthiness errors in-
+crease only modestly, confirming that ZNE does not neutralize the
+adversarial signal. Under Polynomial fitting, the most pronounced
+amplification is observed on VQD–H4, where the cut-path error
+reaches 0.495 against a clean baseline of 0.031, a 15.8× increase,
+indicating that Polynomial extrapolation can inadvertently amplify
+the adversarial signal when the noise-scaling curve is distorted by
+the attack. Similarly, under Exponential fitting, VQD–H+
+3 exhibits
+a 9.3× amplification, with 𝐸abs increasing from 0.034 to 0.318, the
+largest relative amplification observed across all ZNE variants. In
+contrast, the QAOA benchmark shows limited amplification across
+all three fitting methods, with 𝐸abs ratios ranging from 0.7× to 1.2×,
+substantially lower than on VQE and VQD benchmarks. Overall,
+ZNE does not constitute a complete defense against CutBackdoor
+on most benchmarks, though it substantially weakens the attack
+on VQE–CH2 and QAOA.
+7.3.2
+Effect of Compilation Settings. To evaluate CutBackdoor un-
+der real-world deployment conditions, we test the VQE–H+
+3 ansatz
+on IBMQ_Manila across four compilation configurations, combin-
+ing two layout passes (Trivial, Sabre) with two routing passes (Ba-
+sic, SabreSwap). Figure 7 reveals two findings. First, compilation
+mismatch alone degrades energy accuracy for both clean and Cut-
+Backdoor parameters, independent of any attack: under Sabre lay-
+out, clean parameters incur 𝐸abs ≈0.87 versus ≈0.19 under trivial
+CutQC
+(3+3)
+Manual
+(2+4)
+Manual
+(4+2)
+0.15
+0.2
+0.25
+0.3
+0.35
+0.4
+0.1879
+0.2267
+0.1587
+0.2932
+0.3827
+0.2963
+𝐸𝑎𝑏𝑠
+Clean
+CutBackdoor
+Figure 8: Effect of CutBackdoor with different Cut locations
+layout, driven by the additional SWAP overhead from aggressive
+routing. Second, the attack gap between clean and CutBackdoor
+persists across all four configurations. Under trivial layout, which
+matches the attacker’s training environment, CutBackdoor pro-
+duces 𝐸abs ≈0.297 against a clean baseline of ≈0.194, confirming
+the adversarial effect under matched compilation.
+The decisive test is whether the effect is a property of trivial lay-
+out specifically or of matched compilation in general. We therefore
+train and deploy entirely under SabreLayout + SabreSwap (opti-
+mization level 3): here CutBackdoor reaches 𝐸abs = 0.118 against
+a clean baseline of 0.019 (Δ𝐸abs = 0.099), while stealth stays flat
+(𝐸stl = 0.041 versus 0.040). The attack therefore persists under
+a fully Sabre-compiled pipeline, confirming that CutBackdoor is
+compilation-relative: its effectiveness requires the attacker’s training
+to match the victim’s deployment rather than any specific layout,
+and it is not tied to trivial routing. The only requirement is that
+attacker and victim share a compilation configuration, which the
+standard CutQC workflow satisfies by default.
+7.4
+Generality
+7.4.1
+Effect of different Cut locations. To assess whether CutBack-
+door depends on a specific subcircuit boundary, we evaluate three
+cut configurations on the H+
+3 VQE ansatz (6q), executed on IBMQ
+Manila (5q), where cutting is unavoidable. The first configuration
+uses CutQC’s automatic MIP-based placement, producing a bal-
+anced (3+3) partition; the second and third are manually specified
+asymmetric partitions of (2+4) and (4+2) qubits. As shown in Fig-
+ure 8, CutBackdoor elevates the cut-path error consistently across
+all three configurations. The (2+4) partition shows the largest abso-
+lute gap, rising from 0.227 to 0.383; the automatic (3+3) partition
+rises from 0.188 to 0.293; and the (4+2) partition rises from 0.159
+to 0.296. Across all three, the backdoor error is elevated by 56–87%
+over the clean baseline, confirming that the attack does not depend
+on any specific subcircuit boundary. This follows directly from
+the structural gap established in §5.6, which is a property of the
+CutQC reconstruction pipeline itself rather than of how the circuit
+is partitioned.
+7.4.2
+Effect of Backend. To evaluate whether CutBackdoor remains
+effective across hardware with varying noise characteristics, we ex-
+ecute the H+
+3 VQE ansatz with both clean and backdoor parameters
+Kolkata
+Manila
+Lima
+Quito
+0.1
+0.2
+0.3
+0.4
+0.5
+0.6
+0.1009
+0.2161
+0.1609
+0.4154
+0.2323
+0.3390
+0.2882
+0.5588
+Backend
+𝐸𝑎𝑏𝑠
+CutBackdoor
+Clean
+Figure 9: Effect of CutBackdoor with different Backend
+through the CutQC pipeline on four IBMQ backends: IBMQ_Kolkata
+(27 qubits), IBMQ_Manila, IBMQ_Lima, and IBMQ_Quito (all 5-
+qubit backends), each exhibiting distinct gate error rates, readout
+errors, and coherence times. As shown in Figure 9, the backdoor
+error is consistently elevated above the clean baseline across all four
+backends, with amplification ranging from 1.3× on IBMQ_Quito
+to 2.3× on IBMQ_Kolkata. The largest absolute backdoor error
+(0.559) occurs on IBMQ_Quito, where the clean parameter error
+is also elevated (0.415), reflecting that IBMQ_Quito exhibits the
+highest gate and readout error rates among the evaluated backends,
+and hardware noise degrades both clean and backdoor executions.
+Despite this elevated noise floor, CutBackdoor maintains a con-
+sistent gap above the clean baseline on every backend evaluated,
+confirming that the adversarial bias persists regardless of device
+noise level and that the attack is independent of device-specific
+noise characteristics.
+8
+Defense
+Defending against backdoor attacks on VQAs remains an open
+problem, with no prior defense targeting the circuit-cutting execu-
+tion context. Existing quantum backdoor defenses address either
+structurally detectable circuit modifications or device-specific noise
+conditions, neither of which applies to CutBackdoor. We adapt
+the classical fine-pruning framework [38] to the VQA setting as
+a first candidate defense. The defender’s only accessible signal is
+ˆ𝐸cut itself, since full-circuit simulation is by assumption infeasible;
+the defense therefore operates exclusively through this observable,
+without access to clean reference parameters. We treat as a dor-
+mant unit any variational parameter whose gradient magnitude
+with respect to ˆ𝐸cut is near zero at the compromised point 𝜽∗, then
+perturb these dormant parameters and re-minimize ˆ𝐸cut from 𝜽∗.
+Because the stealth constraint keeps 𝜽∗within the clean parameter
+basin by construction, this descent can move toward the legitimate
+variational minimum.
+We implement and evaluate this procedure on IBMQ_Kolkata
+(Table 6). Fine-pruning substantially reduces cut-path error on the
+shallow H+
+3 circuits (VQE 199→119, VQD 312→82 mHa) but yields
+only marginal reductions on the deeper CH2 and H4 ansätze, where
+Table 5: CutBackdoor robustness under Zero-Noise Extrapolation (ZNE). For each ZNE fitting method, 𝐸stl (no-cut) and 𝐸abs
+(with-cut) are reported in Ha. A successful attack requires large 𝐸abs with small 𝐸stl simultaneously. Parentheses denote the
+CutBackdoor / clean ratio; Δ Error gives the absolute deviation from Clean.
+VQE – H+
+3
+VQE – CH2
+VQD – H+
+3
+VQD – H4
+QAOA – 8
+ZNE Method
+Schemes
+𝐸stl
+𝐸abs
+𝐸stl
+𝐸abs
+𝐸stl
+𝐸abs
+𝐸stl
+𝐸abs
+𝐸stl
+𝐸abs
+Linear
+Clean
+0.055
+0.080
+2.860
+1.780
+0.181
+0.164
+0.099
+0.253
+0.383
+0.751
+CutBackdoor
+0.080 (1.5×)
+0.186 (2.3×)
+2.981 (1.0×)
+1.788 (1.0×)
+0.207 (1.1×)
+0.342 (2.1×)
+0.145 (1.5×)
+0.444 (1.8×)
+0.307 (0.8×)
+0.556 (0.7×)
+Δ Error
++0.025
++0.106
++0.121
++0.008
++0.026
++0.178
++0.046
++0.191
+−0.076
+−0.195
+Poly
+Clean
+0.038
+0.086
+2.615
+1.812
+0.149
+0.154
+0.111
+0.031
+0.361
+0.634
+CutBackdoor
+0.086 (2.3×)
+0.155 (1.8×)
+3.189 (1.2×)
+1.943 (1.1×)
+0.169 (1.1×)
+0.258 (1.7×)
+0.086 (0.8×)
+0.495 (15.8×)
+0.275 (0.8×)
+0.792 (1.2×)
+Δ Error
++0.048
++0.069
++0.574
++0.131
++0.020
++0.104
+−0.025
++0.464
+−0.086
++0.158
+Exponential
+Clean
+0.055
+0.058
+3.047
+5.532
+0.150
+0.034
+0.113
+0.354
+0.452
+2.156
+CutBackdoor
+0.058 (1.0×)
+0.213 (3.7×)
+3.190 (1.0×)
+5.605 (1.0×)
+0.174 (1.2×)
+0.318 (9.3×)
+0.138 (1.2×)
+0.619 (1.7×)
+0.162 (0.4×)
+2.689 (1.2×)
+Δ Error
++0.003
++0.155
++0.143
++0.073
++0.024
++0.284
++0.025
++0.265
+−0.290
++0.533
+Table 6: Fine-pruning defense: cut-path error 𝐸abs (mHa) un-
+der backdoor parameters versus after prune-then-optimize
+on IBMQ_Kolkata. Lower is better.
+Benchmark
+CutBackdoor
+Fine-pruning
+VQE – H+
+3
+199
+119
+VQD – H+
+3
+312
+82
+VQE – CH2
+2695
+2493
+VQD – H4
+597
+492
+the residual error remains well above chemical accuracy. More im-
+portantly, the defense requires re-optimizing the parameters, which
+reintroduces exactly the training cost the victim downloaded shared
+parameters to avoid. A victim able to afford that re-optimization
+would not be in the vulnerable position the threat model assumes,
+so fine-pruning does not neutralize CutBackdoor under realistic
+constraints. Finally, an adaptive attacker who distributes adversar-
+ial bias across high-gradient parameters could evade gradient-based
+pruning entirely, leaving both stronger attacks and more robust
+defenses open.
+9
+Discussion and Future Work
+While CutBackdoor establishes a concrete threat against CutQC-
+based VQA deployment, several directions remain open. We tar-
+get CutQC as the first and most widely adopted automated wire-
+cutting pipeline, but the attack is not tied to it. The landscape
+now includes QPD-based gate cutting, randomized wire cutting,
+tomography-driven reconstruction, and classical shadow methods,
+each reconstructing the observable through a distinct pipeline. Be-
+cause CutBackdoor is carried by the variational parameters rather
+than any CutQC-specific artifact, it generalizes by re-targeting the
+dual-objective loss to each procedure: QPD-based gate cutting re-
+constructs expectation values directly, and tomography-based meth-
+ods access off-diagonal Pauli contributions and present a smaller
+attack surface. Each demands a reformulated objective. Emerging
+frameworks are also moving toward adaptive strategies that re-
+partition circuits when output variance exceeds a threshold. Such
+pipelines may disrupt the fixed reconstruction structure CutBack-
+door relies on, serving as a passive defense; conversely, an adversary
+anticipating this could craft poisoned parameters robust across a
+distribution of cut placements and hardware conditions. The inter-
+play between adaptive cutting and adversarial robustness remains
+a promising open direction.
+10
+Conclusion
+CutBackdoor is the first parameter-supply-chain backdoor that
+exploits CutQC-based execution as an adversarial trigger against
+VQAs, requiring no attacker presence at deployment and no modifi-
+cation to the circuit architecture. Across the VQE and VQD bench-
+marks on multiple IBM quantum processors, CutBackdoor produces
+cut-path energy amplification of 1.3× to 2.9× over clean baselines,
+persisting across the evaluated backends and cut placements under
+matched compilation; Zero-Noise Extrapolation provides only par-
+tial mitigation, and the diagonal-cost QAOA benchmark marks the
+attack’s structural boundary. As VQA deployments scale and pa-
+rameter sharing grows, securing the circuit-cutting pipeline against
+supply-chain threats is a timely challenge for the quantum security
+community.
+References
+[1] Brandon Augustino, Madelyn Cain, Edward Farhi, Swati Gupta, Sam Gutmann,
+Daniel Ranard, Eugene Tang, and Katherine Van Kirk. 2024. Strategies for
+running the QAOA at hundreds of qubits. arXiv preprint arXiv:2410.03015 (2024).
+[2] Utkarsh Azad and Stepan Fomichev. 2023.
+Pennylane quantum chemistry
+datasets. Accessed: Jul 19 (2023), 2025.
+[3] Marvin Bechtold, Johanna Barzen, Frank Leymann, Alexander Mandl, Julian
+Obst, Felix Truger, and Benjamin Weder. 2023. Investigating the effect of circuit
+cutting in QAOA for the MaxCut problem on NISQ devices. Quantum Science
+and Technology 8, 4 (2023), 045022.
+[4] Ville Bergholm, Josh Izaac, Maria Schuld, Christian Gogolin, Shahnawaz
+Ahmed, Vishnu Ajith, M Sohaib Alam, Guillermo Alonso-Linaje, Bharath Akash-
+Narayanan, Ali Asadi, et al. 2018. Pennylane: Automatic differentiation of hybrid
+quantum-classical computations. arXiv preprint arXiv:1811.04968 (2018).
+[5] Almudena Carrera Vazquez, Caroline Tornow, Diego Ristè, Stefan Woerner,
+Maika Takita, and Daniel J. Egger. 2024. Combining quantum processors with
+real-time classical communication. Nature 636, 8041 (01 Dec 2024), 75–79. doi:10.
+1038/s41586-024-08178-2
+[6] Marco Cerezo, Andrew Arrasmith, Ryan Babbush, Simon C Benjamin, Suguru
+Endo, Keisuke Fujii, Jarrod R McClean, Kosuke Mitarai, Xiao Yuan, Lukasz Cincio,
+et al. 2021. Variational quantum algorithms. Nature Reviews Physics 3, 9 (2021),
+625–644.
+[7] Frederic T Chong, Diana Franklin, and Margaret Martonosi. 2017. Programming
+languages and compiler design for realistic quantum hardware. Nature 549, 7671
+(2017), 180–187.
+[8] Cheng Chu, Fan Chen, Philip Richerme, and Lei Jiang. 2023. Qdoor: Exploiting
+approximate synthesis for backdoor attacks in quantum neural networks. In 2023
+IEEE International Conference on Quantum Computing and Engineering (QCE),
+Vol. 1. IEEE, 1098–1106.
+[9] Cheng Chu, Aishwarya Hastak, and Fan Chen. 2025. Lstm-qgan: Scalable nisq
+generative adversarial network. In ICASSP 2025-2025 IEEE International Confer-
+ence on Acoustics, Speech and Signal Processing (ICASSP). IEEE, 1–5.
+[10] Cheng Chu, Lei Jiang, Martin Swany, and Fan Chen. 2023. Qtrojan: A circuit
+backdoor against quantum neural networks. In ICASSP 2023-2023 IEEE Inter-
+national Conference on Acoustics, Speech and Signal Processing (ICASSP). IEEE,
+1–5.
+[11] Cheng Chu, Qian Lou, Fan Chen, and Lei Jiang. 2025. QNBAD: Quantum Noise-
+induced Backdoor Attacks against Zero Noise Extrapolation. (2025).
+[12] Cheng Chu, Grant Skipper, Martin Swany, and Fan Chen. 2023. Iqgan: Robust
+quantum generative adversarial network for image synthesis on nisq devices. In
+ICASSP 2023-2023 IEEE international conference on acoustics, speech and signal
+processing (ICASSP). IEEE, 1–5.
+[13] Gavin E Crooks. 2018. Performance of the quantum approximate optimization
+algorithm on the maximum cut problem. arXiv preprint arXiv:1811.08419 (2018).
+[14] Subrata Das and Swaroop Ghosh. 2023. Randomized reversible gate-based obfus-
+cation for secured compilation of quantum circuit. arXiv preprint arXiv:2305.01133
+(2023).
+[15] Subrata Das and Swaroop Ghosh. 2024. Trojan attacks on variational quantum
+circuits and countermeasures. In 2024 25th International Symposium on Quality
+Electronic Design (ISQED). IEEE, 1–8.
+[16] Daniel J Egger, Claudio Gambella, Jakub Marecek, Scott McFaddin, Martin Mevis-
+sen, Rudy Raymond, Andrea Simonetto, Stefan Woerner, and Elena Yndurain.
+2020. Quantum computing for finance: State-of-the-art and future prospects.
+IEEE Transactions on Quantum Engineering 1 (2020), 1–24.
+[17] Daniel J Egger, Ricardo García Gutiérrez, Jordi Cahué Mestre, and Stefan Woerner.
+2020. Credit risk analysis using quantum computers. IEEE transactions on
+computers 70, 12 (2020), 2136–2145.
+[18] Edward Farhi, Jeffrey Goldstone, and Sam Gutmann. 2014. A quantum approxi-
+mate optimization algorithm. arXiv preprint arXiv:1411.4028 (2014).
+[19] Roland C Farrell, Marc Illa, Anthony N Ciavarella, and Martin J Savage. 2024.
+Scalable circuits for preparing ground states on digital quantum computers: The
+Schwinger model vacuum on 100 qubits. PRX Quantum 5, 2 (2024), 020315.
+[20] Eduardo Fradkin. 1989. Jordan-Wigner transformation for quantum-spin systems
+in two dimensions and fractional statistics. Physical review letters 63, 3 (1989),
+322.
+[21] Keisuke Fujii, Kaoru Mizuta, Hiroshi Ueda, Kosuke Mitarai, Wataru Mizukami,
+and Yuya O Nakagawa. 2022. Deep variational quantum eigensolver: A divide-
+and-conquer method for solving a larger problem with smaller size quantum
+computers. PRX Quantum 3, 1 (2022), 010346.
+[22] Alexey Galda, Xiaoyuan Liu, Danylo Lykov, Yuri Alexeev, and Ilya Safro. 2021.
+Transferability of optimal QAOA parameters between random graphs. In 2021
+IEEE International Conference on Quantum Computing and Engineering (QCE).
+IEEE, 171–180.
+[23] Jérôme F Gonthier, Maxwell D Radin, Corneliu Buda, Eric J Doskocil, Clena M
+Abuan, and Jhonathan Romero. 2022. Measurements as a roadblock to near-term
+practical quantum advantage in chemistry: Resource analysis. Physical Review
+Research 4, 3 (2022), 033154.
+[24] Tianyu Gu, Brendan Dolan-Gavitt, and Siddharth Garg. 2017. Badnets: Identifying
+vulnerabilities in the machine learning model supply chain. arXiv preprint
+arXiv:1708.06733 (2017).
+[25] Ji Guo, Wenbo Jiang, Rui Zhang, Wenshu Fan, Jiachen Li, Guoming Lu, and
+Hongwei Li. 2025. Backdoor attacks against hybrid classical-quantum neural
+networks. Neural Networks 191 (2025), 107776.
+[26] Gurobi Optimization, LLC. 2026. Gurobi Optimizer Reference Manual. [Online].
+Available: https://www.gurobi.com.
+[27] Oscar Higgott, Daochen Wang, and Stephen Brierley. 2019. Variational quantum
+computation of excited states. Quantum 3 (2019), 156.
+[28] IBM. 2022. Qiskit addon: circuit cutting. https://github.com/Qiskit/qiskit-addon-
+cutting Accessed: 2026-03-30.
+[29] Gregoire Ithier, E Collin, P Joyez, PJ Meeson, Denis Vion, Daniel Esteve, F
+Chiarello, A Shnirman, Yu Makhlin, Josef Schriefl, et al. 2005. Decoherence
+in a superconducting quantum bit circuit. Physical Review B—Condensed Matter
+and Materials Physics 72, 13 (2005), 134519.
+[30] Ali Javadi-Abhari, Matthew Treinish, Kevin Krsulich, Christopher J Wood,
+Jake Lishman, Julien Gacon, Simon Martiel, Paul D Nation, Lev S Bishop, An-
+drew W Cross, et al. 2024. Quantum computing with Qiskit. arXiv preprint
+arXiv:2405.08810 (2024).
+[31] Abhinav Kandala, Antonio Mezzacapo, Kristan Temme, Maika Takita, Markus
+Brink, Jerry M Chow, and Jay M Gambetta. 2017. Hardware-efficient variational
+quantum eigensolver for small molecules and quantum magnets. nature 549,
+7671 (2017), 242–246.
+[32] Emanuel Knill. 2005. Quantum computing with realistically noisy devices. Nature
+434, 7029 (2005), 39–44.
+[33] Martin Larocca, Supanut Thanasilp, Samson Wang, Kunal Sharma, Jacob Bia-
+monte, Patrick J Coles, Lukasz Cincio, Jarrod R McClean, Zoë Holmes, and Marco
+Cerezo. 2025. Barren plateaus in variational quantum computing. Nature Reviews
+Physics 7, 4 (2025), 174–189.
+[34] Ryan LaRose, Andrea Mari, Sarah Kaiser, Peter J Karalekas, Andre A Alves, Piotr
+Czarnik, Mohamed El Mandouh, Max H Gordon, Yousef Hindy, Aaron Robertson,
+et al. 2022. Mitiq: A software package for error mitigation on noisy quantum
+computers. Quantum 6 (2022), 774.
+[35] Gushu Li, Yufei Ding, and Yuan Xie. 2019. Tackling the qubit mapping problem
+for NISQ-era quantum devices. In Proceedings of the twenty-fourth international
+conference on architectural support for programming languages and operating
+systems. 1001–1014.
+[36] Weitang Li, Zhi Yin, Xiaoran Li, Dongqiang Ma, Shuang Yi, Zhenxing Zhang,
+Chenji Zou, Kunliang Bu, Maochun Dai, Jie Yue, et al. 2024. A hybrid quantum
+computing pipeline for real world drug discovery. Scientific Reports 14, 1 (2024),
+16942.
+[37] Daniel A Lidar, Isaac L Chuang, and K Birgitta Whaley. 1998. Decoherence free
+subspaces for quantum computation. arXiv preprint quant-ph/9807004 (1998).
+[38] Kang Liu, Brendan Dolan-Gavitt, and Siddharth Garg. 2018. Fine-pruning: De-
+fending against backdooring attacks on deep neural networks. In International
+symposium on research in attacks, intrusions, and defenses. Springer, 273–294.
+[39] Xiaoyuan Liu, Anthony Angone, Ruslan Shaydulin, Ilya Safro, Yuri Alexeev, and
+Lukasz Cincio. 2022. Layer VQE: A Variational Approach for Combinatorial
+Optimization on Noisy Quantum Computers. IEEE Transactions on Quantum
+Engineering 3 (2022), 1–20. doi:10.1109/TQE.2021.3140190
+[40] Angus Lowe, Matija Medvidović, Anthony Hayes, Lee J O’Riordan, Thomas R
+Bromley, Juan Miguel Arrazola, and Nathan Killoran. 2023. Fast quantum circuit
+cutting with randomized measurements. Quantum 7 (2023), 934.
+[41] Sam McArdle, Suguru Endo, Alán Aspuru-Guzik, Simon C Benjamin, and Xiao
+Yuan. 2020. Quantum computational chemistry. Reviews of Modern Physics 92, 1
+(2020), 015003.
+[42] Jarrod R McClean, Sergio Boixo, Vadim N Smelyanskiy, Ryan Babbush, and
+Hartmut Neven. 2018. Barren plateaus in quantum neural network training
+landscapes. Nature communications 9, 1 (2018), 4812.
+[43] Jarrod R McClean, Jonathan Romero, Ryan Babbush, and Alán Aspuru-Guzik.
+2016. The theory of variational hybrid quantum-classical algorithms. New
+Journal of Physics 18, 2 (2016), 023023.
+[44] Kosuke Mitarai and Keisuke Fujii. 2021. Constructing a virtual two-qubit gate by
+sampling single-qubit operations. New Journal of Physics 23, 2 (2021), 023021.
+[45] Prakash Murali, Jonathan M Baker, Ali Javadi-Abhari, Frederic T Chong, and Mar-
+garet Martonosi. 2019. Noise-adaptive compiler mappings for noisy intermediate-
+scale quantum computers. In Proceedings of the twenty-fourth international con-
+ference on architectural support for programming languages and operating systems.
+1015–1029.
+[46] Peter JJ O’Malley, Ryan Babbush, Ian D Kivlichan, Jonathan Romero, Jarrod R
+McClean, Rami Barends, Julian Kelly, Pedram Roushan, Andrew Tranter, Nan
+Ding, et al. 2016. Scalable quantum simulation of molecular energies. Physical
+Review X 6, 3 (2016), 031007.
+[47] Tirthak Patel, Ed Younis, Costin Iancu, Wibe de Jong, and Devesh Tiwari. 2022.
+Quest: systematically approximating quantum circuits for higher output fidelity.
+In Proceedings of the 27th ACM International Conference on Architectural Support
+for Programming Languages and Operating Systems. 514–528.
+[48] Tianyi Peng, Aram W Harrow, Maris Ozols, and Xiaodi Wu. 2020. Simulating
+large quantum circuits on a small quantum computer. Physical review letters 125,
+15 (2020), 150504.
+[49] Michael A Perlin, Zain H Saleem, Martin Suchara, and James C Osborn. 2021.
+Quantum circuit cutting with maximum-likelihood tomography. npj Quantum
+Information 7, 1 (2021), 64.
+[50] Alberto Peruzzo, Jarrod McClean, Peter Shadbolt, Man-Hong Yung, Xiao-Qi Zhou,
+Peter J Love, Alán Aspuru-Guzik, and Jeremy L O’brien. 2014. A variational
+eigenvalue solver on a photonic quantum processor. Nature communications 5, 1
+(2014), 4213.
+[51] Christophe Piveteau and David Sutter. 2023. Circuit knitting with classical
+communication. IEEE Transactions on Information Theory 70, 4 (2023), 2734–
+2745.
+[52] John Preskill. 2018. Quantum computing in the NISQ era and beyond. Quantum
+2 (2018), 79.
+[53] Jonathan Romero, Ryan Babbush, Jarrod R McClean, Cornelius Hempel, Peter J
+Love, and Alán Aspuru-Guzik. 2019. Strategies for quantum computing molec-
+ular energies using the unitary coupled cluster ansatz. Quantum Science and
+Technology 4, 1 (2019), 014008.
+[54] Mohan Sarovar, Timothy Proctor, Kenneth Rudinger, Kevin Young, Erik Nielsen,
+and Robin Blume-Kohout. 2020. Detecting crosstalk errors in quantum informa-
+tion processors. Quantum 4 (2020), 321.
+[55] Nicolas PD Sawaya, Daniel Marti-Dafcik, Yang Ho, Daniel P Tabor, David E Bernal
+Neira, Alicia B Magann, Shavindra Premaratne, Pradeep Dubey, Anne Matsuura,
+Nathan Bishop, et al. 2024. HamLib: A library of Hamiltonians for benchmarking
+quantum algorithms and hardware. Quantum 8 (2024), 1559.
+[56] Maria Schuld and Francesco Petruccione. 2018. Supervised learning with quantum
+computers. Vol. 17. Springer.
+[57] Ruslan Shaydulin, Phillip C Lotshaw, Jeffrey Larson, James Ostrowski, and
+Travis S Humble. 2023. Parameter transfer for quantum approximate optimiza-
+tion of weighted maxcut. ACM Transactions on Quantum Computing 4, 3 (2023),
+1–15.
+[58] Ruslan Shaydulin, Kunal Marwaha, Jonathan Wurtz, and Phillip C Lotshaw. 2021.
+QAOAKit: A toolkit for reproducible study, application, and verification of the
+QAOA. In 2021 IEEE/ACM Second International Workshop on Quantum Computing
+Software (QCS). IEEE, 64–71.
+[59] Ruslan Shaydulin, Ilya Safro, and Jeffrey Larson. 2019. Multistart methods
+for quantum approximate optimization. In 2019 IEEE high performance extreme
+computing conference (HPEC). IEEE, 1–8.
+[60] Mårten Skogh, Oskar Leinonen, Phalgun Lolur, and Martin Rahm. 2023. Acceler-
+ating variational quantum eigensolver convergence using parameter transfer.
+Electronic Structure 5, 3 (2023), 035002.
+[61] Molly C Smith, Aaron D Leu, Koichiro Miyanishi, Mario F Gely, and David M
+Lucas. 2025. Single-qubit gates with errors at the 10-7 level. Physical Review
+Letters 134, 23 (2025), 230601.
+[62] Shree Hari Sureshbabu, Dylan Herman, Ruslan Shaydulin, Joao Basso, Shouvanik
+Chakrabarti, Yue Sun, and Marco Pistoia. 2024. Parameter setting in quantum
+approximate optimization of weighted problems. Quantum 8 (2024), 1231.
+[63] Wei Tang, Teague Tomesh, Martin Suchara, Jeffrey Larson, and Margaret
+Martonosi. 2021. Cutqc: using small quantum computers for large quantum
+circuit evaluations. In Proceedings of the 26th ACM International conference on
+architectural support for programming languages and operating systems. 473–486.
+[64] Kristan Temme, Sergey Bravyi, and Jay M Gambetta. 2017. Error mitigation for
+short-depth quantum circuits. Physical review letters 119, 18 (2017), 180509.
+[65] Jules Tilly, Hongxiang Chen, Shuxiang Cao, Dario Picozzi, Kanav Setia, Ying
+Li, Edward Grant, Leonard Wossnig, Ivan Rungger, George H Booth, et al. 2022.
+The variational quantum eigensolver: a review of methods and best practices.
+Physics Reports 986 (2022), 1–128.
+[66] George Typaldos, Wei Tang, and Jakub Szefer. 2024. Leveraging quantum circuit
+cutting for obfuscation and intellectual property protection. In 2024 IEEE Inter-
+national Conference on Quantum Computing and Engineering (QCE), Vol. 1. IEEE,
+1824–1834.
+[67] George Typaldos, Theodoros Trochatos, and Jakub Szefer. 2025. Quantum Cir-
+cuit Cutting: A Security Methodology. In 2025 IEEE International Conference on
+Quantum Computing and Engineering (QCE), Vol. 1. IEEE, 417–427.
+[68] Samson Wang, Enrico Fontana, Marco Cerezo, Kunal Sharma, Akira Sone, Lukasz
+Cincio, and Patrick J Coles. 2021. Noise-induced barren plateaus in variational
+quantum algorithms. Nature communications 12, 1 (2021), 6961.
+[69] Anbang Wu, Gushu Li, Yuke Wang, Boyuan Feng, Yufei Ding, and Yuan Xie.
+2021. Towards efficient ansatz architecture for variational quantum algorithms.
+arXiv preprint arXiv:2111.13730 (2021).

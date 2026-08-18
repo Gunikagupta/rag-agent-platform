@@ -1,0 +1,3574 @@
+Theoretical Foundations of max@k Reinforcement Learning
+Riccardo Poiani
+Martino Bernasconi
+Andrea Celli
+Bocconi University
+Bocconi University
+Bocconi University
+riccardo.poiani@unibocconi.it
+martino.bernasconi@unibocconi.it
+andrea.celli2@unibocconi.it
+Abstract
+Reinforcement Learning is a cornerstone technique for modern large reasoning models. Usually, for
+difficult tasks such as code generation and theorem proving, the agent is evaluated by generating K
+responses rather than sampling a single response, and performance is then measured using a retry-aware
+metric such as max@k. Despite their practical importance, the theoretical foundations of learning under
+such criteria remain limited. In this work, we provide a theoretical study of the max@k learning problem
+in finite-horizon reinforcement learning. We show that optimizing the max@k objectives is fundamentally
+different from standard expected-return maximization. In particular, we prove that Markovian policies
+are in general insufficient, identify a compact state augmentation that restores optimality, and explicitly
+characterize the performance gap that can arise between history-dependent and non-history-dependent
+policies. Moreover, we show that learning max@k-optimal policies is statistically harder than standard
+reinforcement learning and provide an efficient algorithm that achieves the optimal sample complexity
+rate.
+1
+Introduction
+Reinforcement Learning is one of the main drivers of the recent successes of Large Language Models (LLMs)
+in complex coding and mathematical tasks (see, e.g., [Jaech et al., 2024, Lambert et al., 2024, Xin et al.,
+2024, Guo et al., 2025]). When dealing with challenging tasks such as theorem proving and code generation,
+the LLM performance can improve substantially if the model is allowed to generate several responses and is
+evaluated on the best one. Early evidence of this behavior appeared in code generation and mathematics
+[Chen et al., 2021, Cobbe et al., 2021, Li et al., 2022, Xin et al., 2024], and subsequent studies showed
+inference-compute scaling laws across a broad range of tasks and models (see, e.g., [Wang et al., 2022,
+Brown et al., 2024, Snell et al., 2025]). This metric, which scores the model by the highest reward obtained
+across K generations, is called max@k and extends pass@k beyond binary outcomes [Bagirov et al., 2025].
+A growing body of literature has shown that optimizing for the classic single-sample objective and then
+evaluating with the max@k metric has suboptimal performance [Cui et al., 2025, Chen et al., 2026b]. A
+natural solution to this mismatch is to optimize the max@k objective directly. Recent work has therefore
+proposed gradient estimators for max@k, sometimes referred to as inference-aware estimators, as well as
+modifications of advantage estimates to better align policy updates with the objective [Chow et al., 2025,
+Chen et al., 2025, Tang et al., 2025, Walder and Karkhanis, 2026, Bagirov et al., 2025, Takashiro et al.,
+2026]. While these approaches correctly identify the relevant optimization problem, we still lack a complete
+theoretical understanding of the max@k objective in reinforcement learning.
+Indeed, most existing RL
+theory relies, explicitly or implicitly, on the linearity of expected cumulative reward, whereas the max@k
+objective is nonlinear in the distribution over trajectories.
+In this paper, we take on the challenging task of analyzing the finite-horizon model under the max@k
+objective from a theoretical perspective, clearly highlighting the differences between classic RL and max@k
+RL. Our main contributions can be summarized as follows.
+1
+arXiv:2607.17823v1  [cs.LG]  20 Jul 2026
+1. In Section 3 we show that Markovian policies are not optimal for this problem.
+This is a pivotal
+difference between standard RL and RL with max@k objectives. We also prove that the gap between
+these two classes of policies can be large, and that the ratio between them is lower-bounded by a
+constant greater than 1.
+This shows that considering history-dependent policies yields a material
+improvement in performance over Markovian policies.
+2. In Section 3.1, we then show that full history dependency is not necessary. Indeed, we demonstrate that
+for optimal policies, the history can be compressed into only two relevant pieces of information: the
+maximum reward accrued in past rollouts {1, . . . , j −1}, and the cumulative reward inside the current
+j-th rollout. This defines a class of policies that is much more manageable than full history-dependent
+policies, making working with history-dependent policies not computationally much more demanding
+than standard RL.
+3. In Section 3.2, we exploit our compressed history representation for the offline planning problem, and
+we show that we can efficiently approximate optimal history-dependent policies.
+In particular, we
+demonstrate that computing an ϵ-optimal policy can be done in time polynomial in 1/ϵ, K, S, A, H.
+This shows that the computational problem of finding an optimal policy remains tractable even if
+optimal policies cannot be oblivious to history.
+4. In Section 3.3, we show that approximating the optimal history-dependent policy is necessary, and that
+inverse polynomial dependence on the approximation is necessary, since even for inverse exponential
+approximations the problem becomes NP-hard. This contrasts with what happens in a standard finite-
+horizon MDP, where the exact planning problem can be solved in polynomial time.
+5. Then, in Section 4.2, we turn to the learning problem, where we first show that, compared to the classic
+bound for learning under a generative model in a finite-horizon MDP [e.g., Gheshlaghi Azar et al., 2013,
+Sidford et al., 2019], the sample complexity suffers an additional multiplicative linear dependence on
+the number of rollouts K. Intuitively, this follows from the fact that small probabilities of reaching a
+large payoff must be estimated with much greater precision, since even small probabilities can yield a
+large payoff when sampled multiple times. Formally, we prove a Ω(KSAH3ϵ−2 log(δ−1)) lower bound
+for any (ϵ, δ)-correct algorithm. In Section 4.3 we show a matching eO(KSAH3ϵ−2 log(δ−1)) upper
+bound for the time homogeneous case and a eO(KSAH4ϵ−2 log(δ−1)) in the inhomogeneous case. In
+general, this result shows that learning for max@k is K times more demanding than classical RL.
+We now discuss some high-level connections between our theoretical contributions and some state of the
+art approaches to reasoning tasks. A recurring recent trend in this literature is inference-time refinement,
+where multiple candidate solutions are generated sequentially, with later attempts leveraging information
+from earlier ones. Examples include self-refinement and reflection methods [Zelikman et al., 2022, Madaan
+et al., 2023, Shinn et al., 2023, Dhuliawala et al., 2024, Zhang et al., 2025a], search-based reasoning methods
+[Yao et al., 2023, Besta et al., 2024, Xie et al., 2024], recursive self-aggregation [Venkatraman et al., 2025], and
+multi-attempt training with verifier feedback [Lightman et al., 2024, Ildiz et al., 2026]. Recent proof-oriented
+systems also use population-level generation, verification, refinement, and selection at test time [Chen et al.,
+2026a, Tsoukalas et al., 2026, Chung et al., 2026]. Our theoretical model shows that independent sampling
+of several responses is quantitatively suboptimal with respect to these recent adaptive approaches. At a
+conceptual level, these methods can be interpreted as a richer implementation of the idea that history-
+dependent policy over reasoning traces yields larger performance. At the same time, our compression result
+shows that the full history is not necessary: for optimal control, it suffices to retain the best return from
+previous rollouts and the cumulative return from the current rollout. This mirrors, at an abstract level,
+the practical design principle behind many adaptive reasoning methods: useful information from previous
+attempts should be retained, but only through a compressed summary rather than by conditioning on the
+entire history. Overall, our theoretical model not only explores an interesting new objective function for
+RL motivated by the current ways reasoning models are deployed and evaluated, but also aligns with the
+evidence and principles developed by practitioners facing these problems.
+2
+Additional Related Works
+From a more theoretical perspective, our work is related to RL where the
+objective is a nonlinear function of the policy-induced occupancy measure [e.g., Hazan et al., 2019, Zhang
+et al., 2020, Zahavy et al., 2021, Kumar et al., 2022, Mutti et al., 2022, 2023, Chen et al., 2024]. These
+papers are related as nonlinear objectives might invalidate the optimality of Markovian policies. The main
+difference is that max@k is not a generic function of the state frequencies but a structured order statistic
+across several rollouts. Indeed, our study and many of our considerations are tailored around our performance
+criteria. Another strand of theoretical literature that is close in spirit to our work is risk-sensitive [Chow and
+Ghavamzadeh, 2014, Fei et al., 2020, Bastani et al., 2022, Wang et al., 2023] and distributional RL [Bellemare
+et al., 2017, Dabney et al., 2018, Bellemare et al., 2023, Zhang et al., 2023, Rowland et al., 2024]. Here,
+however, the focus is primarly either on the problem of precisely learning the distribution of returns or a
+generic functional of the return distribution. Within this context and close to our work, Wu and Xu [2023]
+study general utilities of the cumulative reward and recover dynamic programming by augmenting the state
+with the cumulative reward. Our compressed representation extends this idea to the multi-rollout max@k
+setting, where the policy may adapt both across rollouts and within the current rollout. Furthermore, it is
+worth mentioning the literature that directly studies generic non-Markovian reward decision processes, where
+the transition dynamics are Markovian but rewards depend on the history [Bacchus et al., 1996, Brafman
+et al., 2018, Icarte et al., 2022, Gaon and Brafman, 2020, Trapasso et al., 2025].
+Our setting differs in
+that the one-step reward is Markovian and history dependence directly arises from the max@k evaluation
+criterion. Finally, we conclude by discussing related work in bandits. Here, it is relevant to mention that Tong
+et al. [2026] study retry-aware stochastic bandits where the actions are selected according to the posterior
+expected maximum over virtual retries. Their setting shares with ours the fact that retry-aware objectives
+value diversity and high-tail outcomes. However, their regret guarantees are stated in terms of the standard
+regret notion and not w.r.t. a retry-aware objective. Attention to high-tail outcomes has also been explored
+in extreme bandits [e.g., Carpentier and Valko, 2014, Nishihara et al., 2016, Achab et al., 2017, Baudry et al.,
+2022], where the mean-reward objective is replaced by order-statistic criteria.
+2
+Preliminaries
+Markov Decision Process.
+A finite horizon time inhomogeneous Markov Decision Process [MDP, Put-
+erman, 1990] is a tuple M = (S, A, H, {ph}H
+h=1, {rh}H
+h=1), where S is a finite set of states, A is a finite set
+of actions, H ∈N is the interaction horizon, {ph}H
+h=1 is the transition kernel with ph : S × A →∆(S)1
+assigning to each state-action pair (s, a) a probability distribution ph(· | s, a) over the next states, and
+{rh}H
+h=1 is the the reward function with rh : S × A →[0, 1] assigning the immediate reward obtained after
+taking action a in state s at step h. The MDP M, instead, is said to be time homogeneous if the transition
+kernel and reward function are fixed across the interaction horizon, i.e., all ph’s and rh’s are equal to some
+fixed p and r. A history-dependent stochastic policy π models the behavior of the agent and is defined as
+a sequence π = {πh}h∈[H], where each πh maps the history Hh observed up to the beginning of step h to
+∆(A). Precisely, the history Hh is an element that belongs to S × (S × A)h−1, and the interaction with the
+environment proceeds as follows. The agent starts in some state s1 ∈S, and for each h ∈[H], it selects an
+action ah ∼πh(· | Hh), receives a reward rh(sh, ah) and transitions to the next state sh+1 ∼ph(· | sh, ah).
+The interaction with the environment ends after H actions. Given an initial state s ∈S, the objective of the
+agent is to maximize the expected cumulative reward over the horizon Eπ
+hP
+h∈[H] rh(sh, ah) | s1 = s
+i
+, where
+the expectation is taken with respect to the stochasticity of the environment and the policy. A particularly
+important class of policies is the Markovian one, for which the action distribution at step h depends only
+on the current state, i.e., πh(· | sh). It is well known that in finite-horizon MDPs, Markovian policies are
+sufficient for optimality: there always exists a Markovian policy that maximizes the expected cumulative
+reward.
+1Given a set X, we denote by ∆(X) the set of probability distributions over X.
+3
+The max@k Decision Process.
+In this work, we extend the above formulation by considering an agent
+with a budget of K ∈N rollouts. For a starting state s ∈S, the agent interacts with the MDP for K ∈N
+rollouts, each of length H. At the beginning of every rollout, the environment is reset to the initial state s,
+while the agent retains the complete history collected during all previous rollouts. Formally, we denote by
+Hh,i ∈(S×(S×A)H)i−1×(S×(S×A)h−1) the entire history observed up to the beginning of step h in rollout
+i. Then, the behavior of the agent is modeled by history-dependent stochastic policy π = {πh,i}h∈[H],i∈[K],
+where each πh,i maps the history Hh,i to a distribution over actions. In this document, we denote by Πhist the
+set of all the history dependent policies. For an initial state s ∈S, the performance of any policy π ∈Πhist
+is no longer the expected return of a single trajectory, but the expected best return observed among the K
+rollouts, i.e.,
+Eπ
+"
+max
+i∈[K]
+H
+X
+h=1
+rh(sh,i, ah,i) | s1,i = s ∀i ∈[K]
+#
+,
+(1)
+where the expectation is taken with respect to the joint distribution over the K rollouts induced by π and
+the stochasticity of the environment, and a state-action pair (sh,i, ah,i) denotes the state-action pair of the
+i-th rollout at step h. We first observe that any history dependent policy π satisfies the following Bellman
+recursive equations. Precisely, for a fixed history-dependent policy π, step h ∈[H + 1] and rollout index
+i ∈[K], and history Hh,i, define
+V π
+h,i(Hh,i) = Eπ
+"
+max
+j∈[K]
+H
+X
+l=1
+rl(sl,j, al,j) | Hh,i
+#
+,
+as the value function conditioned on the history up to the beginning of step h in rollout i.
+Then, an
+application of the tower law of expectation yields
+V π
+h,i(Hh,i) =
+X
+a∈A
+πh,i(a | Hh,i)
+X
+s′∈S
+ph(s′ | sh,i, a)V π
+h+1,i (Hh,i ◦(a, s′)) ,
+where Hh,i ◦(a, s′) denotes the history obtained from Hh,i by appending the state-action pair (a, s′) to the
+history. Now, observe that, at the end of rollout i < K, the recursion moves to the next rollout, meaning
+that V π
+H+1,i(HH+1,i) = V π
+1,i+1(H1,i+1). At the end of the last rollout, we have that V π
+H+1,K(HH+1,K) =
+maxj∈[K]
+PH
+h=1 rh(sh,j, ah,j). Finally, at the beginning, we have that V π
+1,1(s) is exactly the expected value
+of the best return gathered in K rollouts under policy π starting from state s.
+The optimal value function is defined as the supremum over all the history-dependent policies, i.e.,
+V ⋆
+h,i(Hh,i) = supπ∈Πhist V π
+h,i(Hh,i). Via backward induction one can easily show that it satisfies the following
+Bellman optimality equations for all h ∈[H]
+V ⋆
+h,i(Hh,i) = max
+a∈A
+X
+s′∈S
+ph(s′ | sh,i, a)V ⋆
+h+1,i (Hh,i ◦(a, s′)) ,
+with the following boundary conditions: V ⋆
+H+1,i(HH+1,i) = V ⋆
+1,i+1(H1,i+1) for all i < K and, for the last
+rollout, V ⋆
+H+1,K(HH+1,K) = maxj∈[K]
+PH
+h=1 rh(sh,j, ah,j). An optimal deterministic history-dependent pol-
+icy is obtained by choosing, for every Hh,i with h ∈[H], any action that attains the max in the definition of
+the optimal value function.
+3
+Planning
+In this section, we study the problem of computing an optimal policy for the max@k problem when M is
+known and given as input to the agent. Precisely, in Section 3.1, we first show that the max@k criteria
+change the nature of the planning problem as Markovian policies are no longer sufficient for optimality.
+4
+Furthermore, we prove that the full history is unnecessary for the agent: it suffices to keep track of the
+current state, the best return obtained so far, and the cumulative reward in the current rollout. Building
+on this characterization, in Section 3.2, we propose an approximate algorithm that yields a polynomial-time
+approximation scheme for the optimal policy. Finally, in Section 3.3, we show that this is essentially all we
+can ask for, as we prove that exact planning is computationally hard.
+3.1
+On the Policy Space
+s
+1
+2
+0
+1
+0
+as
+ar
+1−γ
+γ
+1
+4
+3
+4
+Figure 1:
+Visualization of the MDP that
+illustrates the sub-optimality of Markovian
+policies.
+Dashed edges denote stochastic
+transitions, and leaves are associated with
+the rewards at the end of the horizon.
+Markovian Policies Are Not Enough.
+The main chal-
+lenge in max@k decision processes is that, unlike the classic
+MDP setting, we are no longer guaranteed to find optimal poli-
+cies among Markovian policies, denoted in the following as ΠM.
+Within this context, we refer to Markovian policies as policies
+that depend on the current state s, the step h, but also the
+rollout index i.2 We demonstrate the issue with policies in ΠM
+with a simple example. Consider an MDP, visualized in Fig-
+ure 1, in which, at a starting state s, there are two actions: one
+safe, as, and one risky, ar. The risky action leads to a total re-
+ward of 1
+2 with probability 1−γ for some small γ > 0 (and 0 oth-
+erwise), and the risky action leads to a reward of 1 with proba-
+bility 1
+4 (otherwise it gives a reward of zero).3 Any Markovian
+policy will either play as in one rollout and ar in the other, or
+play both as and ar.4 It is easy to see that for small γ the best
+is to play once ar and once as, which gives an expected reward of E[max( 1
+2Ber(1−γ), Ber( 1
+4))] = 5
+8 −3γ
+8 .5 On
+the other hand, the non-Markovian policy which plays as in the first rollout and ar in the second rollout only
+if the first rollout had a reward of 1/2 will have an expected reward of E[max( 1
+2, Ber( 1
+4))] = 5
+8 conditioned on
+the first rollout being positive (which happens with probability 1−γ), and E[ 1
+2Ber(1−γ)] = 1−γ
+2
+conditioned
+on the first rollout being negative (which happens with probability γ). In total, this history-dependent policy
+gives an expected reward of 5
+8(1 −γ) + γ 1−γ
+2
+= 5
+8 −γ( 1
+8 + γ) > 5
+8 −3γ
+8 for small γ > 0.
+The Price of Non-Adaptivity
+We just saw that history-dependent policies Πhist might outperform
+Markovian ones. We now complement the previous example, with a quantitative analysis of the gap between
+these two classes of policies. Specifically, we show a multiplicative gap between the performance of history
+dependent policies and markovian ones is some fixed constant c > 1.
+Proposition 1 (Multiplicative Gap of Markovian Policies). For any K ≥2, there is an instance M and a
+state s for which
+max
+π∈Πhist V π
+1,1(s) ≥
+ 1.24 −O( 1
+K )
+
+· max
+π∈ΠM V π
+1,1(s).
+Recall that a Markovian policy is allowed to depend on the rollout index as well, and thus is a stronger
+benchmark than using the same Markovian policy repeatedly. This shows that using Markovian policies
+generally comes at a high cost, and thus it is of paramount importance learning in a larger policy space.
+History Can Be Compressed.
+In the following, we show that it is possible to search for an optimal policy
+in a space which is smaller than Πhist. Specifically, we prove that at rollout i and step h, it is sufficient to
+condition πh,i on the current state, the maximum return collected in the previous i −1 rollouts, and the
+2One can show stronger sub-optimality by restricting attention to policies that depend only on h and s.
+3To implement the reward process that we described, it is sufficient that, when, e.g., taking as, the agent reaches a state
+where all actions are identical and lead to a leaf with reward 1
+2 and 0 with probability 1 −γ and γ, respectively.
+4Indeed, we can ignore stochastic policies since the objective is multilinear in the policy. Hence, there exists a deterministic
+policies that attains the optimum within ΠM.
+5With Ber(p) we indicate a Bernoulli random variable with parameter p.
+5
+cumulative reward that has been obtained in the previous h −1 steps, at the i-th rollout. To formally state
+the result, let us first introduce some notation. We denote by Gh,i the cumulative reward gathered in rollout
+i at step h, namely Gh,i = Ph
+k=1 rh(sh,i, ah,i). Furthermore, we denote by Mi = maxj<i GH,j the maximum
+return collected in the first i −1 rollouts, with the convention that M0 = 0. Then, for each step h and
+rollout i, let Φ(Hh,i) = (sh,i, Mi, Gh,i) be a compressed representation of the history and let ΠC be the set
+of policies that, at each step, are conditioned only on the compressed history. Then, we prove the following
+result.
+Proposition 2 (Sufficient conditions for optimality). In the max@k problem, it is without loss of optimality
+to consider only deterministic policies that belong to ΠC.
+The proof of Proposition 2 is informative for understanding the problem as it works by construction.
+Specifically, it shows that there exists a policy µ⋆∈ΠC that attains optimality in terms of Equation (1). To
+this end, we first prove that value functions of policies in ΠC are only a function of the compressed history
+Φ(Hh,i).
+As a consequence the value V µ
+h,i(Hh,i) is constant across histories that have the same shared
+representation. Furthermore, we also observe that, given two histories with the same Φ’s and appending any
+(a, s′) to these histories, we obtain again two histories with the same compressed representation. This, in
+turn, implies that the optimization problem V
+⋆
+h,i(Hh,i) := supµ∈ΠC V µ
+h,i(Hh,i) obeys the following Bellman-
+like optimality equations
+V
+⋆
+h,i(Hh,i) = max
+a∈A
+X
+s′∈S
+ph(s′ | s, a)V
+⋆
+h+1,i(Hh,i ◦(a, s′)).
+(2)
+Then, the last step of the proof is to show by induction that µ⋆attains the value of the optimal policy among
+all history-dependent policies, i.e., that V
+µ⋆
+= V ⋆.
+Remark.
+We conclude this section with the following remark. In Proposition 2, we showed that the class
+of policies ΠC is sufficient for optimality. The class of policies ΠC depends on the maximum rewards collected
+at previous rollouts and the current cumulative reward of the rollout. We complement this result by showing
+that any policy that removes either the current cumulative reward of the maximum return collected at
+previous rollouts is sub-optimal.
+Proposition 3 (Ignoring Previous Best Return or Current Cumulative Return is Sub-optimal). There exists
+an instance in which a history-dependent policy gets an expected best return strictly larger than (i) any policy
+that depends on the current state, rollout index, rollout step, and best return obtained in the previous rollouts,
+and (ii) any policy that depends on the current state, rollout index, rollout step, and cumulative return in
+the current rollout.
+The proof of this statement relies on an instance similar to that of Figure 1, except that each rollot begins
+by randomly receiving a reward of either 0 or 1. The agent then reaches a common decision state ¯s, where
+it chooses between a safe action, which adds a deterministic small reward, and a risky action, which adds a
+larger reward with probability 1/4 and reward 0 otherwise (see Figure 3). This construction isolates the two
+pieces of information that are jointly needed for optimality. At ¯s, the correct local exploration-exploitation
+tradeoff depends on the current cumulative return G, because the same last action leads to different final
+rollout returns depending on the progress already made in the current rollout. It also depends on the previous
+best return M, because the value of taking risk is determined by whether the current rollout only needs to
+beat a low benchmark or must improve on an already large return. In particular, the optimal policy tolerates
+high variance when the downside is already protected by M: if the previous best return is large enough,
+a failed risky attempt does not reduce the max@k value, while a successful one can still improve it. By
+contrast, when the current rollout is already on track to produce a competitive return, and the previous
+best return is low, the optimal policy may avoid unnecessary variance and secure a safe improvement. If the
+policy observes M but not G, then it knows how good the current rollout must be, but it cannot distinguish
+the low and high branches within the rollout, and it must take the same last action in situations where the
+6
+optimal policy takes different actions. Conversely, if the policy observes G but not M, then it can react to
+the progress of the current rollout, but it must use the same map from G to actions regardless of whether
+the previous best return is low or high. Therefore, no policy that drops either G or M can implement all
+optimal continuation decisions simultaneously.
+3.2
+Approximate Planning Algorithm
+Above, we have shown that, when solving the max@k problem, one can restrict the search to policies that
+belong to ΠC. However, we observe that solving the optimization problem in this restricted space, e.g., via
+backward induction, is computationally demanding. Indeed, suppose to apply backward induction to find
+the optimal policy µ⋆∈ΠC. Then, at the beginning of the induction, we need to consider all the possible
+compressed history representations Φ(HH+1,K). The cardinality of this set is S · |B| · |CH+1|, where B is the
+set of possible previous best returns, and Ch is the set of possible partial returns at step h. More generally,
+when solving the maximum over actions in Equation (2) at step h in rollout i, we need to consider all the
+compressed history Φ(Hh,i), whose size is S · |B| · |Ch|. From this argument, it follows that the complexity of
+tabular backward induction is of order O
+ KAS2|B| P
+h |Ch|
+
+. The main issue, now, is that |Ch| and |B| can
+be exponential in H.6 In the following, we discuss how we solve this problem.
+The main idea to circumvent this issue is that, intuitively, small changes both in the optimal return
+observed so far and in the cumulative reward of the current rollout shuold not lead to significant changes
+in terms of optimal value that the agent can achieve. Therefore, we propose to discretize the compressed
+history representations Φ(Hh,i) along these two dimensions. To this end, we proceed in the following way.
+We first discretize the interval [0, 1] of possible rewards using a uniform grid and then project the true
+reward function onto this set. Precisely, for a given κ > 0, denote by Rκ = {κ · (j −1
+2)}⌈1/κ⌉
+j=1
+the uniform
+discretization of the [0, 1] interval. Then, for all state-action pair (s, a) and all steps h, let ˜rh,κ(s, a) =
+argminr∈Rκ |r −rh(s, a)|.
+Once this is done, we can solve by backward induction the max@k problem
+for the MDP Mκ = (S, A, H, {ph}h∈[H], {˜rh,κ}h∈[H]) where we replaced the true reward function with the
+discretized one. Let us denote by ˜µ⋆
+κ the resulting policy for Mκ and observe that ˜µ⋆
+κ can be adopted in M
+as-is, with the single remark that the compressed history representation uses the discretized rewards rather
+than the true ones. The following result summarizes the theoretical guarantees of the proposed method.
+Theorem 1 (Efficient Approximation Algorithm). Let κ > 0 and denote by ˜µ⋆
+κ the deterministic optimal
+policy for Mκ which is found by backward induction on Mκ. Then, for any rollout i ∈[K], step h ∈[H + 1]
+and history Hh,i, it holds that:
+|V ⋆
+h,i(Hh,i) −V ˜µ⋆
+κ
+h,i (Hh,i)| ≤2κH.
+(3)
+Furthermore, ˜µ⋆
+κ can be computed in O
+
+KS2AH3
+κ2
+
+time.
+Theorem 1 shows that the proposed method is an efficient approximation algorithm for the max@k
+objective in the true MDP M. Indeed, setting κ = ϵ/H, we have that we can learn an ϵ-optimal policy for
+M in O(H5S2Aϵ−2) time, which is polynomial in the size of the instance. The underlying result behind
+Equation (3) was indeed to show that, for fixed a policy π, evaluated in M and Mκ, yields a performance
+difference that is at most Hκ (Lemma 1). Then, a simple error decomposition argument yields Equation (3).
+Concerning the efficiency of the algorithm, instead, it follows the fact that now both |B| and |Ch| are bounded
+by O( H
+κ ). Hence, when using backward induction, only a polynomial number of states needs to be considered.
+3.3
+Impossibility of an Exact Planning Algorithm
+In Section 3.2, we showed how to obtain an ϵ-approximation of the planning problem in time inversely
+polynomial in the approximation error. In this section, we show that this is necessary, and we cannot hope
+6To see this, consider an MDP with two actions, and suppose that, at step h, one gives reward 0 and the other 2−h. Then,
+the cardinality of |Ch| and B are clearly 2h and 2H respectively.
+7
+to solve the exact planning problem efficiently. We use tools from computational complexity to establish
+this lower bound. We reduce from the problem of Subset-Sum, which is the problem of deciding if there
+exists a subset of natural numbers from a given multiset S ⊂N that sums up to a given threshold L ∈N.
+We consider a decision problem of selecting an optimal action given a certain history.
+Theorem 2 (Hardness of Exact Planning). There is a polynomial time reduction from Subset-Sum to the
+following problem: given η > 0, an MDP M, a history Hh,i and an action a ∈A decide if V π
+h,i(Hh,i) ≥
+V π′
+h,i(Hh,i)−η or V π
+h,i(Hh,i) < V π′
+h,i(Hh,i)−η, where π is a policy playing deterministically action a conditioned
+on the history Hh,i and π′ is any policy playing deterministically any action different than a.
+The practical takeaway from this result is that we cannot hope to solve the planning problem efficiently
+exactly, and that the fully polynomial approximation scheme of Section 3.2 is thus tight in this sense.
+Moreover, the gap η used in the proof of Theorem 2 is exponentially small (in the description of the problem).
+Such a small gap is actually needed as any hardness for a polynomial gap would contradict the existence of
+the approximation algorithm of Section 3.2.
+Interestingly, the proof of Theorem 2 already holds for K = 2 and when the set of policies Πhist has
+constant size. This means that what is truly difficult is not computing an optimal policy but even knowing
+the value of a given one, showing that the exact problem is not even in NP. Given the existence of a fully
+polynomial approximation scheme, our primary interest was to show that no better algorithm could be
+found, rather than to provide a full characterization of the problem’s computational complexity. However,
+we would like to point out that the Bellman equations reported in Section 2 can likely be turned into a
+PSPACE membership result.
+We leave to future work the question of whether this problem is actually
+complete for PSPACE.
+4
+Learning
+In this section, we study the statistical learning problem associated with the max@k objective with a
+generative model. Precisely, in Section 4.1 we first introduce the PAC framework that we adopt. Then,
+in Section 4.2, we derive a lower bound for the problem, and finally, in Section 4.3, we propose a uniform
+sampling algorithm and analyze its theoretical guarantees.
+4.1
+PAC Framework
+We consider the case where the learner has access to a generative model of the environment and seeks to
+learn an approximately optimal policy for the max@k problem in an MDP M with an unknown transition
+kernel. The interaction between the agent and the environment is as follows. For a time inhomogeneous
+MDP, during each step t ∈N, the agent selects a state-action pair (s, a) ∈S × A and a step h ∈[H] and
+observes a sample s′ ∼ph(·|s, a); for the time homogeneous case, instead, the algorithm simply select (s, a)
+and observes a sample s′ ∼p(· | s, a). The learning algorithm takes as input a maximum risk parameter
+δ ∈(0, 1) and an accuracy level ϵ, and its goal is to output a policy ˆπ ∈ΠC such that
+P
+ V ⋆
+1,1(s) −V ˆπ
+1,1(s) ≤ϵ, ∀s ∈S
+
+≥1 −δ,
+(4)
+while minimizing the number of interactions with the environment. In words, we want to efficiently find an
+ϵ-optimal policy with high probability. In the following, we refer to algorithms that satisfy Equation (4)
+as (ϵ, δ)-correct. Finally, we conclude this section with some notation. Specifically, we denote by τδ the
+stopping time that controls the end of the data acquisition phase, i.e., when the number of samples gathered
+from the generative model is τδ, the algorithm stops and returns ˆπ.
+Remark on the Generative Model.
+The choice of studying learning problems in RL with a generative
+model has a long-standing history in the RL theory community [see, e.g., Gheshlaghi Azar et al., 2013,
+Sidford et al., 2019, Li et al., 2020, Agarwal et al., 2020, Wang et al., 2021, but also references therein]. This
+8
+framework is primarily motivated by the fact that it decouples the estimation problem from the exploration
+challenges that arise in MDPs. Furthermore, it also allows for simpler algorithms and theoretical analyses.
+In this work, we considered access to a generative model to isolate the estimation problem and understand
+the level of accuracy required to achieve near-optimal performance. Extending our results to the standard
+forward interaction setting [adopted, e.g., in Dann and Brunskill, 2015, Domingues et al., 2021, Zhang et al.,
+2025b] is an important direction for future work. Nonetheless, as we shall see in this section, adopting a
+generative model already allows us to understand some important features of the max@k problem and to
+draw a clear distinction with traditional RL.
+4.2
+Lower Bound
+We start by deriving a lower bound on the statistical complexity of the problem.
+Theorem 3 (Statistical Lower Bound). For every K ≥1, there exists a time-homogeneous MDP instance
+such that, for any (ϵ, δ)-correct algorithm, it holds that:
+E[τδ] ≥Ω
+KH3SA
+ϵ2
+log
+1
+δ
+
+.
+Results.
+To better understand Theorem 3, it is helpful to first recall the standard result for the classical
+RL setting with a generative model. In this latter case, for finite-horizon time-homogeneous MDPs, the
+lower bound is well-known to be Ω
+ H3SAϵ−2 log
+  1
+δ
+
+[Gheshlaghi Azar et al., 2013, Sidford et al., 2019].
+This rate is also tight in the minimax sense, meaning that there exists an (ϵ, δ)-correct algorithm that stops
+with a number of samples that is e
+O
+ H3SAϵ−2 log
+  1
+δ
+
+[Sidford et al., 2019, Li et al., 2020]. Therefore, our
+Theorem 3 establishes a clear-cut, in terms of statistical efficiency, between standard RL and the max@k
+criterion.7 Specifically, it shows that the number of samples required grows linearly in the number of rollouts
+K. Furthermore, K actually multiplies the entire rates of standard RL, meaning that the max@k criterion
+is, from a statistical viewpoint, at least K times more demanding than classical RL. In words, the takeaway
+from this result is that although the budget K allows the agent to potentially achieve higher returns by using
+multiple rollouts, identifying a near-optimal behavior for this objective comes at a non-negligible cost.
+s
+1
+0
+a1
+a2
+p
+1−p
+p
+1−p
+Figure 2:
+Visualization of the MDP for the
+linear lower bound in K. There is a state
+s and two actions, a1 (blue) and a2 (red),
+which both lead to rewards of 1 and 0 with
+probabilities p and 1 −p, respectively.
+The Linear Dependency in K
+We now provide a sketch
+behind the argument that allows one to show a linear lower
+bound in K. The example we are going to discuss is illustra-
+tive in that it serves as the building block behind the result of
+Theorem 3. Indeed, the proof of Theorem 3 essentially follows,
+from a high-level perspective, the same arguments we present
+now, with the main difference that the presence of the plan-
+ning horizon H introduces additional technicalities. Consider
+the simple instance M0 depicted in Figure 2. There is a state
+s with two equal actions a1 and a2. Both actions result in a
+reward of 1 with probability p and 0 with probability 1 −p.
+Immediately afterward, the rollout terminates and a new one
+starts from s, so the agent repeat this experiment for K times.
+Next, consider alternative instances, M1 and M2, obtained by
+making one of the two actions slightly better, i.e., by increasing the success probability from p to p + ∆.
+Here, both p and ∆should be seen as small numbers, so that the probability of reaching the goal is small
+in any instance. Then, since the learning algorithm needs to return an ϵ-optimal policy, it should be able to
+distinguish among these instances. Indeed, suppose that M1 is true, and consider any policy π. With some
+7As a minor note, we observe that Theorem 3 recovers the standard RL result for the K = 1 case.
+9
+algebra and probabilistic arguments, one can show that:
+V ⋆
+1,1(s) −V π
+1,1(s) ≳∆K
+X
+i∈[K]
+(1 −αi),
+(5)
+where αi is the probability that π selects a1 given that the goal was not reached in the i-th rollout.8 This, in
+turn, implies that any (ϵ, δ)-correct algorithm should put enough mass on the optimal action a1 throughout
+the rollouts, i.e., that m1 := P
+i αi ≳K −∆
+ϵ .
+In particular, choosing ∆= c ϵ
+K for some appropriate
+constant c, one can show that m1 ≥
+3
+4K, and, thus, for any (ϵ, δ)-correct algorithm it should hold that
+PM1(m1 ≥3
+4K) ≥1 −δ. Following an analogous argument, we have that, for M2, PM2(m2 ≥3
+4K) ≥1 −δ,
+where m2 is the total mass that the policy puts on a2 across the different rollouts. Clearly, however, only one
+of these two events holds, as m1 + m2 = K. Thus, using change-of-measure arguments, the algorithm must
+collect enough samples to statistically distinguish whether the Bernoulli parameter of a1 or a2 is p + ∆. The
+information gained from one sample is of order KL(p, p + ∆) ≲∆2/p, and therefore any correct algorithm
+requires at least order p∆−2 log (1/δ). Choosing p ≈
+1
+K and since ∆≈
+ϵ
+K , we obtain a lower bound whose
+order is Kϵ−2 log(1/δ).
+Technical Remarks.
+Before moving to the algorithmic section, we make a remark behind the proof of
+Theorem 3. The main challenge, compared to the lower bound for PAC-RL, arises directly from the max@k
+objective and is already present in the illustrative example that we presented above. The point is that, in
+RL, taking the wrong action immediately results in a loss of return. In max@k, instead, not playing the
+optimal action has an impact only if the maximum over K rollouts would have changed. Therefore, we need
+to construct instances in a way that keeps “successes” sufficiently rare so that not playing the optimal action
+is decisive across several rollouts. This, in turn, also affects the statistical argument. While in standard RL
+lower bounds, one often argues that the learning agent should identify the unique optimal action in a certain
+state, here, the agent can distribute its action choices across several rollouts. As a consequence, we needed to
+develop an argument that accounts for the total mass assigned to the optimal action across several rollouts.
+The proof must therefore show that ϵ-optimality forces large inter-rollout mass on the good action.
+4.3
+Algorithm
+We now show that there exists an (efficient) algorithm that attains the same rate of Theorem 3. The algorithm
+combines a standard uniform sampling method [e.g., Gheshlaghi Azar et al., 2013] with the approximation
+scheme we presented in Section 3. Precisely, the approach works as follows. First, we sample every state-
+action pair (s, a) ∈S × A and every step h ∈[H] for m ∈N times (for time-homogeneous systems, instead,
+we only query every state-action pair (s, a) times). The collected samples are used to construct the empirical
+transition kernel {ˆph}h∈[H]. Then, the interval [0, 1] of possible rewards is discretized uniformly using O(κ−1)
+points and a discretized reward function {˜rh,κ}h∈[H] is obtained by projecting the true rewards onto the points
+within the discretization. Once this is done, the algorithm simply stops and return an optimal policy for
+c
+Mκ = (S, A, s0, H, {ˆph}h∈[H], {˜rh,κ}h∈[H]) via backward induction. The following result shows that choosing
+m and κ appropriately ensures that Equation (4) holds.
+Theorem 4 (Upper Bound). Choose m = e
+O
+ SK2H2 log
+  1
+δ
+
++ KH3 log( 1
+δ )ϵ−2
+and κ = O(ϵH−1). Then,
+for any time homogeneous MDP M, the proposed algorithm is (ϵ, δ)-correct and its sample complexity is
+given by:
+e
+O
+
+AS2K2H2 log
+1
+δ
+
++ KSAH3
+ϵ2
+log
+1
+δ
+
+.
+(6)
+If M is time inhomogeneous, instead, the sample complexity is e
+O
+
+AS2K2H3 log
+  1
+δ
+
++ KSAH4
+ϵ2
+log
+  1
+δ
+
+.
+8The intuitive reason behind Equation (5) is that what matters in terms of difference of value functions is just the probability
+with which the policies reach the goal state (i.e., of having one success in K trials). Now, every time that we miss playing
+a1, we lose a success probability of ∆. Since p and ∆’s are small, the probability that this missed success impacts the value
+function is bounded away from 0 and, therefore, these losses accumulate over all rollouts in which the policy does not select a1.
+10
+Results.
+We start by noticing that, in the small-accuracy regime, the dominant term in Equation (6) is
+e
+O(KSAH3/ϵ2). Therefore, for sufficiently small ϵ, our algorithm matches the lower bound in Theorem 3,
+thereby establishing tight rates for the max@k problem.
+In particular, we have proven that the linear
+dependency on K is the correct scaling for our setting. As a takeaway, we can conclude that when using a
+small budget K, the number of samples required to achieve ϵ-optimal behavior is still comparable to that
+needed for standard RL. The algorithm is also computationally efficient since, after a uniform sampling
+phase, it solves the empirical discretized problem by dynamic programming on c
+Mκ. Due to Theorem 1, this
+procedure is efficient. Finally, as is usual in PAC learning for MDPs [see, e.g., Li et al., 2020], an additional
+H-factor is incurred in the sample complexity when the MDP is time-inhomogeneous.
+Technical Remarks.
+To obtain Theorem 4, we first account for the error introduced by planning with
+discretized rewards. Using arguments similar to Theorem 1 (i.e., small changes in rewards lead to small
+changes in value functions), this only introduces an additive error term of O(Hκ) which we balance by
+choosing κ as O(ϵH−1). The remaining analysis is left to control the planning error that arises from planning
+with an empirical model.
+In other words, we need to study how errors propagate within the Bellman
+equations introduced in Section 3.2. Here, we note that directly applying existing finite-horizon guarantees
+on the augmented MDP would yield suboptimal dependence on K and H, since the effective horizon is KH.
+We therefore establish a refined analysis for the simulation error for planning with the empirical model.
+The techniques behind this are inspired by existing analyses that yield tight rates for classical RL [e.g.,
+Gheshlaghi Azar et al., 2013], but they are tailored to exploit the structure of the max@k objective to
+obtain the desired scale in K and H.
+Acknowledgments
+This work was partially funded by the European Union. Views and opinions expressed are however those
+of the author(s) only and do not necessarily reflect those of the European Union or the European Research
+Council Executive Agency. Neither the European Union nor the granting authority can be held responsible
+for them. This work is supported by an ERC grant (Project 101165466 — PLA-STEER).
+References
+Mastane Achab, Stephan Cl´emen¸con, Aur´elien Garivier, Anne Sabourin, and Claire Vernade. Max k-armed
+bandit: On the extremehunter algorithm and beyond. In Joint European Conference on Machine Learning
+and Knowledge Discovery in Databases, pages 389–404. Springer, 2017.
+Alekh Agarwal, Sham Kakade, and Lin F Yang. Model-based reinforcement learning with a generative model
+is minimax optimal. In Conference on Learning Theory, pages 67–83. PMLR, 2020.
+Fahiem Bacchus, Craig Boutilier, and Adam Grove. Rewarding behaviors. In Proceedings of the National
+Conference on Artificial Intelligence, pages 1160–1167, 1996.
+Farid Bagirov, Mikhail Arkhipov, Ksenia Sycheva, Evgeniy Glukhov, and Egor Bogomolov. The best of n
+worlds: Aligning reinforcement learning with best-of-n sampling via max@ k optimisation. arXiv preprint
+arXiv:2510.23393, 2025.
+Annalisa Barbara, Riccardo Poiani, Martino Bernasconi, and Andrea Celli. Optimal rates for feasible payoff
+set estimation in games. In Forty-third International Conference on Machine Learning, 2026.
+Osbert Bastani, Jason Yecheng Ma, Estelle Shen, and Wanqiao Xu. Regret bounds for risk-sensitive rein-
+forcement learning. Advances in Neural Information Processing Systems, 35:36259–36269, 2022.
+Dorian Baudry, Yoan Russac, and Emilie Kaufmann. Efficient algorithms for extreme bandits. arXiv preprint
+arXiv:2203.10883, 2022.
+11
+Marc G Bellemare, Will Dabney, and R´emi Munos. A distributional perspective on reinforcement learning.
+In International conference on machine learning, pages 449–458. Pmlr, 2017.
+Marc G Bellemare, Will Dabney, and Mark Rowland. Distributional reinforcement learning. MIT Press,
+2023.
+Maciej Besta, Nils Blach, Ales Kubicek, Robert Gerstenberger, Michal Podstawski, Lukas Gianinazzi, Joanna
+Gajda, Tomasz Lehmann, Hubert Niewiadomski, Piotr Nyczyk, et al. Graph of thoughts: Solving elaborate
+problems with large language models. In Proceedings of the AAAI conference on artificial intelligence,
+volume 38, pages 17682–17690, 2024.
+St´ephane Boucheron, G´abor Lugosi, and Olivier Bousquet. Concentration inequalities. In Summer school
+on machine learning, pages 208–240. Springer, 2003.
+Ronen Brafman, Giuseppe De Giacomo, and Fabio Patrizi. Ltlf/ldlf non-markovian rewards. In Proceedings
+of the AAAI conference on artificial intelligence, volume 32, 2018.
+Bradley Brown, Jordan Juravsky, Ryan Ehrlich, Ronald Clark, Quoc V Le, Christopher R´e, and Azalia
+Mirhoseini. Large language monkeys: Scaling inference compute with repeated sampling. arXiv preprint
+arXiv:2407.21787, 2024.
+Alexandra Carpentier and Michal Valko.
+Extreme bandits.
+Advances in Neural Information Processing
+Systems, 27, 2014.
+Jiacheng Chen, Xinyu Zhang, Shunkai Zhang, Yanmohan Wang, Lin Li, Tiancheng Qin, Qin Wang, Zheng-
+mao Zhu, Tianle Li, Jingyang Li, et al. Maxproof: Scaling mathematical proof with generative-verifier rl
+and population-level test-time scaling. arXiv preprint arXiv:2606.13473, 2026a.
+Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Ponde De Oliveira Pinto, Jared Kaplan,
+Harri Edwards, Yuri Burda, Nicholas Joseph, Greg Brockman, et al. Evaluating large language models
+trained on code. arXiv preprint arXiv:2107.03374, 2021.
+Zhipeng Chen, Xiaobo Qin, Youbin Wu, Yue Ling, Qinghao Ye, Wayne Xin Zhao, and Guang Shi. Pass@ k
+training for adaptively balancing exploration and exploitation of large reasoning models. arXiv preprint
+arXiv:2508.10751, 2025.
+Zhiqi Chen, Rui Lu, Andrew Zhao, Zhaokai Wang, Yang Yue, Shiji Song, and Gao Huang. Does reinforce-
+ment learning really incentivize reasoning capacity in llms beyond the base model? Advances in Neural
+Information Processing Systems, 38:57654–57689, 2026b.
+Ziyi Chen, Yan Wen, Zhengmian Hu, and Heng Huang. Robust reinforcement learning with general utility.
+Advances in Neural Information Processing Systems, 37:11290–11344, 2024.
+Yinlam Chow and Mohammad Ghavamzadeh. Algorithms for cvar optimization in mdps. Advances in neural
+information processing systems, 27, 2014.
+Yinlam Chow, Guy Tennenholtz, Izzeddin Gur, Vincent Zhuang, Bo Dai, Aviral Kumar, Rishabh Agarwal,
+Sridhar Thiagarajan, Craig Boutilier, and Aleksandra Faust. Inference-aware fine-tuning for best-of-n
+sampling in large language models. In International Conference on Learning Representations, volume
+2025, pages 78936–78959, 2025.
+Jui-Hui Chung, Ziyang Cai, Zihao Li, Qishuo Yin, Rohit Agarwal, Simon Park, Rodrigo Porto, Narutatsu
+Ri, Ziran Yang, Shange Tang, et al. Goedel-architect: Streamlining formal theorem proving with blueprint
+generation and refinement. arXiv preprint arXiv:2606.06468, 2026.
+Karl Cobbe, Vineet Kosaraju, Mohammad Bavarian, Mark Chen, Heewoo Jun, Lukasz Kaiser, Matthias
+Plappert, Jerry Tworek, Jacob Hilton, Reiichiro Nakano, et al. Training verifiers to solve math word
+problems. arXiv preprint arXiv:2110.14168, 2021.
+12
+Ganqu Cui, Yuchen Zhang, Jiacheng Chen, Lifan Yuan, Zhi Wang, Yuxin Zuo, Haozhan Li, Yuchen Fan,
+Huayu Chen, Weize Chen, et al. The entropy mechanism of reinforcement learning for reasoning language
+models. arXiv preprint arXiv:2505.22617, 2025.
+Will Dabney, Mark Rowland, Marc Bellemare, and R´emi Munos. Distributional reinforcement learning with
+quantile regression. In Proceedings of the AAAI conference on artificial intelligence, volume 32, 2018.
+Christoph Dann and Emma Brunskill. Sample complexity of episodic fixed-horizon reinforcement learning.
+Advances in Neural Information Processing Systems, 28, 2015.
+Shehzaad Dhuliawala, Mojtaba Komeili, Jing Xu, Roberta Raileanu, Xian Li, Asli Celikyilmaz, and Jason
+Weston. Chain-of-verification reduces hallucination in large language models. In Findings of the association
+for computational linguistics: ACL 2024, pages 3563–3578, 2024.
+Omar Darwiche Domingues, Pierre M´enard, Emilie Kaufmann, and Michal Valko. Episodic reinforcement
+learning in finite mdps: Minimax lower bounds revisited. In Algorithmic Learning Theory, pages 578–598.
+PMLR, 2021.
+Yingjie Fei, Zhuoran Yang, Yudong Chen, Zhaoran Wang, and Qiaomin Xie. Risk-sensitive reinforcement
+learning: Near-optimal risk-sample tradeoff in regret. Advances in Neural Information Processing Systems,
+33:22384–22395, 2020.
+Maor Gaon and Ronen Brafman. Reinforcement learning with non-markovian rewards. In Proceedings of
+the AAAI conference on artificial intelligence, volume 34, pages 3980–3987, 2020.
+Aur´elien Garivier, Pierre M´enard, and Gilles Stoltz. Explore first, exploit next: The true shape of regret in
+bandit problems. Mathematics of Operations Research, 44(2):377–399, 2019.
+Mohammad Gheshlaghi Azar, R´emi Munos, and Hilbert J Kappen. Minimax pac bounds on the sample
+complexity of reinforcement learning with a generative model. Machine learning, 91(3):325–349, 2013.
+Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Peiyi Wang, Qihao Zhu, Runxin Xu, Ruoyu Zhang,
+Shirong Ma, Xiao Bi, et al. Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement
+learning. arXiv preprint arXiv:2501.12948, 2025.
+Elad Hazan, Sham Kakade, Karan Singh, and Abby Van Soest. Provably efficient maximum entropy explo-
+ration. In International conference on machine learning, pages 2681–2691. PMLR, 2019.
+Rodrigo Toro Icarte, Toryn Q Klassen, Richard Valenzano, and Sheila A McIlraith.
+Reward machines:
+Exploiting reward function structure in reinforcement learning. Journal of Artificial Intelligence Research,
+73:173–208, 2022.
+Muhammed Emrullah Ildiz, Halil Alperen Gozeten, Ege Onur Taga, and Samet Oymak. Learning to correct:
+Calibrated reinforcement learning for multi-attempt chain-of-thought. arXiv preprint arXiv:2604.17912,
+2026.
+Aaron Jaech, Adam Kalai, Adam Lerer, Adam Richardson, Ahmed El-Kishky, Aiden Low, Alec Helyar, Alek-
+sander Madry, Alex Beutel, Alex Carney, et al. Openai o1 system card. arXiv preprint arXiv:2412.16720,
+2024.
+Anders Jonsson, Emilie Kaufmann, Pierre M´enard, Omar Darwiche Domingues, Edouard Leurent, and
+Michal Valko. Planning in markov decision processes with gap-dependent sample complexity. Advances
+in Neural Information Processing Systems, 33:1253–1263, 2020.
+Navdeep Kumar, Kaixin Wang, Kfir Levy, and Shie Mannor. Policy gradient for reinforcement learning with
+general utilities. arXiv preprint arXiv:2210.00991, 2022.
+13
+Nathan Lambert, Jacob Morrison, Valentina Pyatkin, Shengyi Huang, Hamish Ivison, Faeze Brahman, Lester
+James V Miranda, Alisa Liu, Nouha Dziri, Shane Lyu, et al. Tulu 3: Pushing frontiers in open language
+model post-training. arXiv preprint arXiv:2411.15124, 2024.
+Gen Li, Yuting Wei, Yuejie Chi, Yuantao Gu, and Yuxin Chen. Breaking the sample size barrier in model-
+based reinforcement learning with a generative model. Advances in neural information processing systems,
+33:12861–12872, 2020.
+Yujia Li, David Choi, Junyoung Chung, Nate Kushman, Julian Schrittwieser, R´emi Leblond, Tom Eccles,
+James Keeling, Felix Gimeno, Agustin Dal Lago, et al. Competition-level code generation with alphacode.
+Science, 378(6624):1092–1097, 2022.
+Hunter Lightman, Vineet Kosaraju, Yuri Burda, Harrison Edwards, Bowen Baker, Teddy Lee, Jan Leike,
+John Schulman, Ilya Sutskever, and Karl Cobbe. Let’s verify step by step. In International Conference
+on Learning Representations, volume 2024, pages 39578–39601, 2024.
+Aman Madaan, Niket Tandon, Prakhar Gupta, Skyler Hallinan, Luyu Gao, Sarah Wiegreffe, Uri Alon,
+Nouha Dziri, Shrimai Prabhumoye, Yiming Yang, et al. Self-refine: Iterative refinement with self-feedback.
+Advances in neural information processing systems, 36:46534–46594, 2023.
+Mirco Mutti, Riccardo De Santi, Piersilvio De Bartolomeis, and Marcello Restelli. Challenging common
+assumptions in convex reinforcement learning. Advances in Neural Information Processing Systems, 35:
+4489–4502, 2022.
+Mirco Mutti, Riccardo De Santi, Piersilvio De Bartolomeis, and Marcello Restelli. Convex reinforcement
+learning in finite trials. Journal of Machine Learning Research, 24(250):1–42, 2023.
+Robert Nishihara, David Lopez-Paz, and L´eon Bottou. No regret bound for extreme bandits. In Artificial
+Intelligence and Statistics, pages 259–267. PMLR, 2016.
+Martin L Puterman. Markov decision processes. Handbooks in operations research and management science,
+2:331–434, 1990.
+Mark Rowland, Li K Wenliang, R´emi Munos, Clare Lyle, Yunhao Tang, and Will Dabney. Near-minimax-
+optimal distributional reinforcement learning with a generative model. Advances in Neural Information
+Processing Systems, 37:132774–132823, 2024.
+Noah Shinn, Federico Cassano, Ashwin Gopinath, Karthik Narasimhan, and Shunyu Yao. Reflexion: Lan-
+guage agents with verbal reinforcement learning. Advances in neural information processing systems, 36:
+8634–8652, 2023.
+Aaron Sidford, Mengdi Wang, Xian Wu, Lin F. Yang, and Yinyu Ye.
+Near-optimal time and sam-
+ple complexities for solving discounted markov decision process with a generative model, 2019.
+URL
+https://arxiv.org/abs/1806.01492.
+Charlie Snell, Jaehoon Lee, Kelvin Xu, and Aviral Kumar. Scaling llm test-time compute optimally can be
+more effective than scaling parameters for reasoning. In International Conference on Learning Represen-
+tations, volume 2025, pages 10131–10165, 2025.
+Shota Takashiro, Soichiro Nishimori, Paavo Parmas, Yongmin Kim, Kohsei Matsutani, Gouki Minegishi,
+Yusuke Iwasawa, Takeshi Kojima, and Yutaka Matsuo.
+On advantage estimates for max@ k policy
+gradients. arXiv preprint arXiv:2606.06080, 2026.
+Yunhao Tang, Kunhao Zheng, Gabriel Synnaeve, and Remi Munos. Optimizing language models for inference
+time objectives using reinforcement learning. In International Conference on Machine Learning, pages
+59066–59085. PMLR, 2025.
+14
+Bingkui Tong, Junpei Komiyama, Soichiro Nishimori, and Paavo Parmas. Finite-time regret analysis of
+retry-aware bandits. arXiv preprint arXiv:2605.20854, 2026.
+Alessandro Trapasso, Luca Iocchi, and Fabio Patrizi. Model-based reinforcement learning in discrete-action
+non-markovian reward decision processes. arXiv preprint arXiv:2512.14617, 2025.
+George Tsoukalas, Anton Kovsharov, Sergey Shirobokov, Anja Surina, Moritz Firsching, Gergely B´erczi,
+Francisco JR Ruiz, Arun Suggala, Adam Zsolt Wagner, Eric Wieser, et al.
+Advancing mathematics
+research with ai-driven formal proof search. arXiv preprint arXiv:2605.22763, 2026.
+Siddarth Venkatraman, Vineet Jain, Sarthak Mittal, Vedant Shah, Johan Obando-Ceron, Yoshua Bengio,
+Brian R Bartoldson, Bhavya Kailkhura, Guillaume Lajoie, Glen Berseth, et al. Recursive self-aggregation
+unlocks deep thinking in large language models. arXiv preprint arXiv:2509.26626, 2025.
+Christian Walder and Deep Tejas Karkhanis. Pass@ k policy optimization: Solving harder reinforcement
+learning problems. Advances in Neural Information Processing Systems, 38:152416–152445, 2026.
+Bingyan Wang, Yuling Yan, and Jianqing Fan.
+Sample-efficient reinforcement learning for linearly-
+parameterized mdps with a generative model. Advances in neural information processing systems, 34:
+23009–23022, 2021.
+Kaiwen Wang, Nathan Kallus, and Wen Sun. Near-minimax-optimal risk-sensitive reinforcement learning
+with cvar. In International Conference on Machine Learning, pages 35864–35907. PMLR, 2023.
+Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc Le, Ed Chi, Sharan Narang, Aakanksha Chowdhery, and
+Denny Zhou. Self-consistency improves chain of thought reasoning in language models. arXiv preprint
+arXiv:2203.11171, 2022.
+Zhengqi Wu and Renyuan Xu. Risk-sensitive markov decision process and learning under general utility
+functions. arXiv preprint arXiv:2311.13589, 2023.
+Yuxi Xie, Anirudh Goyal, Wenyue Zheng, Min-Yen Kan, Timothy P Lillicrap, Kenji Kawaguchi, and
+Michael Shieh. Monte carlo tree search boosts reasoning via iterative preference learning. arXiv preprint
+arXiv:2405.00451, 2024.
+Huajian Xin, Daya Guo, Zhihong Shao, Zhizhou Ren, Qihao Zhu, Bo Liu, Chong Ruan, Wenda Li, and
+Xiaodan Liang. Deepseek-prover: Advancing theorem proving in llms through large-scale synthetic data.
+arXiv preprint arXiv:2405.14333, 2024.
+Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran, Tom Griffiths, Yuan Cao, and Karthik Narasimhan.
+Tree of thoughts: Deliberate problem solving with large language models. Advances in neural information
+processing systems, 36:11809–11822, 2023.
+Tom Zahavy, Brendan O’Donoghue, Guillaume Desjardins, and Satinder Singh. Reward is enough for convex
+mdps. Advances in Neural Information Processing Systems, 34:25746–25759, 2021.
+Eric Zelikman, Yuhuai Wu, Jesse Mu, and Noah Goodman. Star: Bootstrapping reasoning with reasoning.
+Advances in Neural Information Processing Systems, 35:15476–15488, 2022.
+Junyu Zhang, Alec Koppel, Amrit Singh Bedi, Csaba Szepesvari, and Mengdi Wang. Variational policy gra-
+dient method for reinforcement learning with general utilities. Advances in Neural Information Processing
+Systems, 33:4572–4583, 2020.
+Liangyu Zhang, Yang Peng, Jiadong Liang, Wenhao Yang, and Zhihua Zhang. Estimation and inference in
+distributional reinforcement learning. arXiv preprint arXiv:2309.17262, 2023.
+15
+Shenao Zhang, Yaqing Wang, Yinxiao Liu, Tianqi Liu, Peter Grabowski, Eugene Ie, Zhaoran Wang, and
+Yunxuan Li. Beyond markovian: Reflective exploration via bayes-adaptive rl for llm reasoning. arXiv
+preprint arXiv:2505.20561, 2025a.
+Zihan Zhang, Yuxin Chen, Jason Lee, and Simon S Du. Settling the sample complexity of online reinforcement
+learning. Journal of the ACM, 72(3):1–63, 2025b.
+Appendix Content
+A Proofs of Section 3: Planning
+16
+A.1 Proof of Proposition 1 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+16
+A.2 Proof of Proposition 2 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+17
+A.3 Proof of Proposition 3 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+19
+A.4 Proof of Theorem 1 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+22
+A.5 Proof of Theorem 2 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+23
+B Proofs of Section 4: Learning
+25
+B.1
+Proof of Theorem 3 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+25
+B.2
+Proof of Theorem 4 . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . . .
+28
+C Auxiliary Lemmas
+36
+A
+Proofs of Section 3: Planning
+A.1
+Proof of Proposition 1
+Proof of Proposition 1. Consider any K ∈N, and an MDP with a single state and two actions as and ar.
+Moreover, let µ > 1/K be a constant defined in the following. as leads to a reward of 1/K with probability
+1/K (and 0 otherwise), while ar leads to a reward of µ with probability 1/K2 and 0 otherwise. Consider the
+following history dependent policy that plays as until it observes the first success, then plays ar. Let W be
+the number of turns spent by playing as by the policy. Conditioning on W = w ≤K, the expected reward
+of this policy is
+1
+K (1 −
+1
+K2 )K−w + µ(1 −(1 −
+1
+K2 )K−w) and thus
+max
+π∈Πhist V π
+1,1(s) ≥
+K
+X
+w=1
+1
+K (1 −1
+K )w−1h
+1
+K (1 −
+1
+K2 )K−w + µ
+ 1 −(1 −
+1
+K2 )K−wi
+=
+1
+K2
+K
+X
+w=1
+(1 −1
+K )w−1(1 −
+1
+K2 )K−w + µ
+K
+K
+X
+w=1
+(1 −1
+K )w−1 −µ
+K
+K
+X
+w=1
+(1 −1
+K )w−1(1 −
+1
+K2 )K−w
+= 1
+K ( 1
+K −µ)
+" K
+X
+w=1
+(1 −1
+K )w−1(1 −
+1
+K2 )K−w
+#
++ µ
+K
+K
+X
+w=1
+(1 −1
+K )w−1
+= 1
+K ( 1
+K −µ)βK −αK
+β −α
++ µ
+K
+1 −αK
+1 −α
+(α = 1 −1
+K , β = 1 −
+1
+K2 )
+= ( 1
+K −µ)
+K
+K −1(βK −αK) + µ(1 −αK)
+=
+1
+K −1(βK −αK) + µ
+
+1 −
+K
+K−1βK +
+1
+K−1αK
+.
+Consider now the first term. Clearly βK ≥1 −1/K and αK ≤e−1 and thus the first term can be lower
+bounded by (1 −1/e)/K −1/K2. For the second term, instead, we can upper bound βK ≤1 −1
+K +
+ K
+2
+ 1
+K4
+16
+by the binomial expansion and
+1
+K−1αK ≥
+1
+eK and thus, simplifying, one can lower bound the second term
+with
+1
+eK −
+1
+2K2 . Thus, we obtained that
+max
+π∈Πhist V π
+1,1(s) ≥1 −e−1(1 −µ)
+K
+−
+1
+K2 (1 + µ
+2 ).
+Conversely, consider any deterministic Markovian policy.9 It is parametrized by the fixed number W of
+times it will play the safe action as (and K −W times it will thus play the risky action ar). The value is
+then
+max
+π∈ΠM V π
+1,1(s) ≤max
+W ∈[K]
+h
+µ(1 −βK−W ) + 1
+K βK−W (1 −αW )
+i
+≤max
+x∈[0,1]
+h
+µ
+k (1 −x) + 1
+k(1 −αxK)
+i
+(x := W/k and 1 −βxK ≤(1 −x)/K)
+≤max
+x∈[0,1]
+h
+µ
+K (1 −x) + 1
+k(1 −e−x + K−1)
+i
+,
+which is maximized for x = ln(1/µ) and gives
+max
+π∈ΠM V π
+1,1(s) ≤µ
+K (1 −ln(µ−1)) + 1
+K (1 −µ + K−1) = 1
+K (1 + 1
+K + µ ln(µ)).
+Finally, for any K ≥2 and µ = 1/2:
+maxπ∈Πhist V π
+1,1(s)
+maxπ∈ΠM V π
+1,1(s) ≥1 −e−1(1 −µ)
+1 + µ ln(µ)
+−O(K−1) ≥1.24 −O(K−1),
+concluding the proof.
+A.2
+Proof of Proposition 2
+Here, we prove that restricting the attention to policies in ΠC is sufficient for optimality.
+Proof of Proposition 2. We prove the result by construction. Fix any starting s ∈S. Specifically, we show
+that there exists a deterministic policy µ⋆∈ΠC such that for any history Hh,i the following holds:
+V ⋆
+h,i(Hh,i) −V µ⋆
+h,i (Hh,i) = 0.
+To this end, we first show that value functions of policies in ΠC depend on the full history only through the
+compressed history. Precisely, fix µ ∈ΠC, and consider two histories H(1)
+h,i and H(2)
+h,i such that Φ(H(1)
+h,i) =
+Φ(H(2)
+h,i). Then, we prove by induction that V µ
+h,i(H(1)
+h,i) = V µ
+h,i(H(2)
+h,i). As a base case, consider rollout K and
+step H + 1. Since the two histories have the same compressed history, they have the same MK and the same
+GH+1,K. Hence,
+V µ
+H+1,K(H(1)
+H+1,K) = max{MK, GH+1,K} = V µ
+H+1,K(H(2)
+H+1,K).
+Then, suppose that the claim holds for histories at rollout i and step h + 1, i.e., that for all H(1)
+h+1,i, H(2)
+h+1,i
+such that Φ(H(1)
+h+1,i) = Φ(H(2)
+h+1,i) we have that V µ
+h+1,i(H(1)
+h+1,i) = V µ
+h+1,i(H(2)
+h+1,i). We prove that the result
+holds for histories at rollout i and step h ∈[H]. First, observe that, since Φ(H(1)
+h,i) = Φ(H(2)
+h,i), the two
+9Recall that the objective is multi-linear in the policy and hence deterministic policies attains the max in ΠM. Therefore,
+we can focus on deterministic policies and ignore the stochastic ones.
+17
+histories have the same current state sh,i. Furthermore,
+V µ
+h,i(H(1)
+h,i) =
+X
+a∈A
+µh,i(a | H(1)
+h,i)
+X
+s′∈S
+ph(s′ | sh,i, a)V µ
+h+1,i(H(1)
+h,i ◦(a, s′))
+=
+X
+a∈A
+µh,i(a | H(2)
+h,i)
+X
+s′∈S
+ph(s′ | sh,i, a)V µ
+h+1,i(H(1)
+h,i ◦(a, s′))
+(µ ∈ΠC)
+=
+X
+a∈A
+µh,i(a | H(2)
+h,i)
+X
+s′∈S
+ph(s′ | sh,i, a)V µ
+h+1,i(H(2)
+h,i ◦(a, s′))
+= V µ
+h,i(H(2)
+h,i),
+where, in the third equality, we have used the inductive hypothesis. Indeed, observe that Φ(H(1)
+h,i) = Φ(H(2)
+h,i)
+implies that Φ(H(1)
+h,i ◦(a, s′)) = Φ(H(2)
+h,i ◦(a, s′)) for any state action pair (s′, a). It remains to handle the
+boundary between two consecutive rollouts, but those are direct since V µ
+H+1,i(HH+1,i) = V µ
+H+1,i(H1,i+1) by
+definition. This conclude the inductive argument.
+Now, for any history Hh,i, let us define the optimal value over policies in ΠC as follows:
+V
+⋆
+h,i(Hh,i)(Hh,i) := sup
+µ∈ΠC
+V µ
+h,i(Hh,i).
+Since V µ
+h,i(Hh,i) is constant over all histories with the same compressed representation, we also have that
+V
+⋆
+h,i(Hh,i) is constant among histories with the same compressed representation. Furthermore, since the
+optimization is only over policies within ΠC, we also have that V
+⋆
+h,i satisfies Bellman-like optimality condi-
+tions.10 Specifically, we have that:
+V
+⋆
+h,i(Hh,i)(Hh,i) = max
+a∈A
+X
+s′∈S
+ph(s′ | sh,i, a)V
+⋆
+h+1,i(Hh,i ◦(a, s′)).
+with boundary conditions V
+⋆
+H+1,i(HH+1,i) = V
+⋆
+1,i+1(H1,i+1) for all rollouts i < K and, for the last rollout,
+V
+⋆
+H+1,K(HH+1,K) = maxj∈[K]
+PH
+h=1 rh(sh,j, ah,j). Then, an optimal deterministic policy µ⋆∈ΠC can be
+found by any action that attains the max in the definition of V
+⋆.
+Finally, in the last step of the proof, we show that µ⋆is optimal in the sense that it attains the same
+value of the optimal history dependent policy. This is proved with a recursion argument. Specifically, we
+prove that V
+⋆
+h,i(Φ(Hh,i)) = V ⋆
+h,i(Hh,i), from which the claim follows directly. As a base case, consider step
+H + 1 at rollout K. Observe that
+V
+⋆
+H+1,K(Φ(HH+1,K)) = max
+j∈[K]
+H
+X
+h=1
+rh(sh,j, ah,j) = V ⋆
+H+1,K(HH+1,K).
+Now, the induction has two parts. First, suppose that the claim holds at step h+1 in rollout i, with h ∈[H].
+Then,
+V
+⋆
+h,i(Hh,i) = max
+a∈A
+X
+s′∈S
+ph(s′ | sh,i, a)V
+⋆
+h+1,i (Hh,i ◦(s′, a))
+= max
+a∈A
+X
+s′∈S
+ph(s′ | sh,i, a)V ⋆
+h+1,i (Hh,i ◦(s′, a))
+= V ⋆
+h,i(Hh,i).
+10To this end, it is important to recall again that Φ(H(1)
+h,i) = Φ(H(2)
+h,i) implies that Φ(H(1)
+h,i ◦(a, s′)) = Φ(H(2)
+h,i ◦(a, s′)) for any
+state action pair (s′, a).
+18
+Second, suppose that i < K and that the claim holds at the beginning of rollout i + 1. Then, from the
+boundary conditions on V
+⋆and V ⋆, we have that:
+V
+⋆
+H+1,i(HH+1,i) = V
+⋆
+1,i+1(H1,i+1) = V ⋆
+1,i+1(H1,i+1) = V ⋆
+H+1,i(HH+1,i).
+Combining the base case with the two induction steps proves that V
+⋆
+h,i(Hh,i) = V ⋆
+h,i(Hh,i). This yields the
+optimality of µ⋆and, consequently, to the desired result.
+A.3
+Proof of Proposition 3
+s1
+u0
+u1
+¯s
+yS
+yH
+yL
+ssink
+p(u0|s1,·)= 1
+2
+r(s1,·)=0
+p(u1|s1,·)= 1
+2
+r(s1,·)=0
+r(u0,·)=0
+r(u1,·)=1
+p(yS|¯s,as)=1
+r(¯s,as)=0
+p(yH|¯s,ar)= 1
+4
+r(¯s,ar)=0
+p(yL|¯s,ar)= 3
+4
+r(¯s,ar)=0
+r(yS,·)= 1
+2
+r(yH,·)=1
+r(yL,·)=0
+Figure 3: MDP that is used as example to prove Proposition 3.
+Proof of Proposition 3. The proof is by construction. Consider the max@k objective with K = 2 rollouts
+and the following finite-horizon MDP (see also Figure 3). There are two actions A = {ar, as}, ar should be
+interpreted as a risky action, while as as a safe one. Each rollout starts in state s1. At the first step both
+actions yield 0 reward, and the state transitions to u0 or u1, each with probability 1
+2. Then, at the second
+step, both actions are equivalent: from u0 the reward is 0, from u1 the reward is 1, and in both cases the
+process moves deterministically to a state ¯s. Once ¯s is reached, the safe action as provides a deterministic
+reward of 1
+2, while the risky action ar gives reward 1 with probability 1
+4 and reward 0 with probability 3
+4.
+Therefore, at at state ¯s the cumulative reward accumulated before choosing the last action is either 0 or 1
+each with probability 1
+2. Let Gi be the total return in the i-the i-th rollout, and let Gs
+i (resp., Gr
+i ) be the
+total return in rollout i if the safe (resp., risky) action is selected. Then, we have
+P(Gs
+i = 1
+2) = 1
+2,
+P(Gs
+i = 3
+2) = 1
+2,
+P(Gr
+i = 0) = 3
+8,
+P(Gr
+i = 1) = 1
+2,
+P(Gr
+i = 2) = 1
+8.
+We denote by G = max{G1, G2} the best return among the two rollouts.
+19
+Let M be the previous best return (i.e., the return in the first rollout). We define Us(M) (resp., U r(M))
+as the expected max@k value conditional on entering the second rollout with previous best return equal to
+M and playing the safe (resp., risky) action. Using the return distributions computed above we have that
+U s(M) := E[max{M, Gs}] = 1
+2 max
+
+M, 1
+2
+
++ 1
+2 max
+
+M, 3
+2
+
+,
+U r(M) := E[max{M, Gr}] = 3
+8M + 1
+2 max{M, 1} + 1
+8 max{M, 2}.
+We define the optimal continuation value of a rollout as a function of the previous best return M and
+the current cumulative return G ∈{0, 1} at ¯s. In particular, the two last actions are worth
+qs(M, G) = max
+n
+M, G + 1
+2
+o
+,
+qr(M, G) = 1
+4 max{M, G + 1} + 3
+4 max{M, G}.
+Since G = 0 and G = 1 each occur with probability 1
+2, the optimal (adaptive) value of a rollout entered with
+previous best M is
+U(M) := 1
+2 max{qs(M, 0), qr(M, 0)} + 1
+2 max{qs(M, 1), qr(M, 1)}.
+Evaluating U at the only values of M that can arise (a first rollout returns G1 ∈{ 1
+2, 3
+2} under as and
+G1 ∈{0, 1, 2} under ar) gives
+U(0) = 1,
+U
+1
+2
+
+= 17
+16,
+U(1) = 5
+4,
+U
+3
+2
+
+= 25
+16,
+U(2) = 2.
+We record which action attains the maximum at each of the two branches G ∈{0, 1} through a pair (a0, a1)
+specifying the action played at G = 0 and G = 1, respectively. Direct comparison of qs and qr yields:
+M = 0 :
+qs > qr at G = 0 and G = 1,
+optimal behavior (as, as);
+M = 1
+2 :
+qr > qs at G = 0,
+qs > qr at G = 1,
+optimal behavior (ar, as);
+M = 3
+2 :
+qs = qr at G = 0,
+qr > qs at G = 1,
+optimal behavior (as, ar) or (ar, ar).
+These optimal behaviors are pairwise incompatible: no single behavior (a0, a1), constant across M, attains
+U(M) simultaneously at M = 0, M = 1
+2, and M = 3
+2.
+Lower bound for history-dependent policies.
+Consider the policy that plays as throughout the first
+rollout, so G1 = 1
+2 or G1 = 3
+2 each with probability 1
+2, and then acts greedily in the second rollout. Its value
+is exactly E[U(G1)], so
+Optadap ≥1
+2 U
+1
+2
+
++ 1
+2 U
+3
+2
+
+= 1
+2 · 17
+16 + 1
+2 · 25
+16 = 42
+32.
+Policies depending on current state, rollout index, and previous best return.
+A policy in this
+class cannot condition on G within the current rollout, so in each rollout it commits to a single last action,
+independently of G. In the second rollout, entered with previous best M, its value is
+max{U s(M), U r(M)}.
+In the first rollout the policy commits to a single action. If it plays as, then G1 ∈{ 1
+2, 3
+2} each with probability
+1
+2, and its value is
+1
+2 max
+
+S
+1
+2
+
+, R
+1
+2
+
++ 1
+2 max
+
+S
+3
+2
+
+, R
+3
+2
+
+= 1
+2 · 1 + 1
+2 · 25
+16 = 41
+32.
+20
+If it plays ar, then G1 ∈{0, 1, 2} with probabilities 3
+8, 1
+2, 1
+8, and its value is
+3
+8 max {U s(0), U r(0)} + 1
+2 max {U s(1), U r(1)} + 1
+8 max{U s(2), U r(2)} = 3
+8 · 1 + 1
+2 · 5
+4 + 1
+8 · 2 = 10
+8 .
+Let OptnoG the optimal value attained by the class of policies that cannot condition on G. Taking the best
+of the two options above we have
+OptnoG = max
+41
+32, 10
+8
+
+= 41
+32 < Optadap.
+Policies depending on current state, rollout index, and cumulative return.
+We now consider
+policies that can condition on the current cumulative return G in the current rollout, but not on the previous
+best return M. At ¯s, such a policy selects an action as a function of G ∈{0, 1} only. Hence, in each rollout
+its behavior at ¯s is described by a pair
+(a0, a1) ∈{as, ar}2,
+where ag is the action selected when the cumulative return at ¯s is G = g. We denote the four possible
+behaviors by
+ss = (as, as),
+rr = (ar, ar),
+sr = (as, ar),
+rs = (ar, as).
+Fix any such policy. Let b1 be its behavior in the first rollout and b2 its behavior in the second rollout.
+Since the policy cannot observe the previous best return, b2 is fixed independently of the realized first-rollout
+return M = G1. Conditional on M, the value obtained in the second rollout under b2 is at most U(M), with
+equality only if the fixed behavior b2 is optimal for that value of M. Therefore, the value of the policy is
+bounded by
+E
+
+U(G1)
+
+,
+with strict inequality whenever b2 fails to attain U(M) on a value of M that occurs with positive probability
+under b1.
+We first observe that, if the first-rollout behavior is rr or sr, then
+E
+
+U(G1)
+
+= 3
+8U(0) + 1
+2U(1) + 1
+8U(2) = 5
+4
+for rr, and
+E
+
+U(G1)
+
+= 1
+2U
+1
+2
+
++ 3
+8U(1) + 1
+8U(2) = 5
+4
+for sr. In both cases, even the adaptive continuation upper bound is strictly smaller than 42/32. Hence
+these first-rollout behaviors cannot achieve value 42/32.
+It remains to consider b1 = ss and b1 = rs. If b1 = ss, then
+G1 ∈
+1
+2, 3
+2
+
+with positive probability on both values. To attain the upper bound E[U(G1)], the second-rollout behavior
+would have to be optimal both at M = 1
+2 and at M = 3
+2. However, from the comparison above, optimality
+at M = 1
+2 requires behavior (ar, as), whereas optimality at M = 3
+2 requires behavior (as, ar) or (ar, ar). No
+single behavior is optimal for both values of M. Therefore,
+E[max{G1, G2} | b1 = ss, b2] < E
+
+U(G1) | b1 = ss
+
+= 1
+2U
+1
+2
+
++ 1
+2U
+3
+2
+
+= 42
+32.
+Similarly, if b1 = rs, then
+G1 ∈
+
+0, 1, 3
+2
+
+,
+21
+and both 0 and 3
+2 occur with positive probability. To attain the upper bound E[U(G1)], the second-rollout
+behavior would have to be optimal both at M = 0 and at M = 3
+2. Optimality at M = 0 requires behavior
+(as, as), whereas optimality at M = 3
+2 requires behavior (as, ar) or (ar, ar). Again, no single behavior is
+optimal for both values. Hence,
+E[max{G1, G2} | b1 = rs, b2] < E
+
+U(G1) | b1 = rs
+
+= 3
+8U(0) + 1
+8U(1) + 1
+2U
+3
+2
+
+= 42
+32.
+Combining the four cases for b1, every policy that conditions on the current state, rollout index, and
+current cumulative return, but not on the previous best return, has value OptnoM strictly smaller than 42/32.
+Since we already exhibited a history-dependent policy with value at least 42/32, we obtain
+OptnoM < Optadap.
+This proves the result.
+A.4
+Proof of Theorem 1
+To prove Theorem 1 we first derive the following result that studies the difference, in term of performance,
+of a given history dependent policy π which is evaluated on two different MDPs that differs only in term of
+the reward function.
+Lemma 1 (Value Difference: Same Policy, Different Rewards). Consider two MDPs M and f
+M that differs
+only in the reward function and denote by {rh)}H
+h=1 and {erh)}H
+h=1 the reward functions of M and f
+M respec-
+tively. Consider any history dependent policy π ∈Πhist. Then, for any rollout i ∈[K], step h, and history
+Hh,i it holds that:
+V π
+h,i(Hh,i) −eV π
+h,i(Hh,i)
+ ≤H∥r −er∥∞,
+where V µ
+h,i(·) and eV µ
+h,i(·) denotes the value functions of policy π in the MDPs M and f
+M respectively.
+Proof. We prove this result by induction. As a base case, consider step H + 1 at rollout K. Here, for any
+history HH+1,K it holds that:
+V π
+H+1,K(HH+1,K) −eV π
+H+1,K(HH+1,K)
+ =
+ max
+j∈[K]
+X
+h∈[H]
+rh(sh,j, ah,j) −max
+j∈[K]
+X
+h∈[H]
+erh(sh,j, ah,j)
+
+≤
+X
+h∈[H]
+max
+s,a,h |rh(s, a) −erh(s, a)|
+= H∥r −er∥∞
+Next, suppose that the claims holds at rollout i and step h + 1. Then, we have that:
+V π
+h,i(Hh,i) −eV π
+h,i(Hh,i)
+ =
+
+X
+a∈A
+πh,i(a | Hh,i)
+X
+s′∈S
+ph(s′ | s, a)
+
+V π
+h+1,i(Hh,i ◦(a, s′)) −eV π
+h+1,i(Hh,i ◦(a, s′))
+ 
+≤H∥r −er∥∞
+
+X
+a∈A
+πh,i(a | Hh,i)
+X
+s′∈S
+ph(s′ | s, a)
+
+(Inductive hp.)
+= H∥r −er∥∞.
+Finally, suppose that i < K and that the claims holds at the beginning of rollout i + 1. Then, from the
+boundary conditions of the value function, we have that:
+V π
+h,i(HH+1,i) −eV π
+H+1,i(HH+1,i)
+ =
+V π
+1,i+1(H1,i+1) −eV π
+1,i+1(H1,i+1)
+ ≤H∥r −er∥∞.
+This concludes the proof.
+22
+We now prove Theorem 1.
+Proof of Theorem 1. We first prove Equation (3) by induction. To formally prove it, we need to introduce
+some auxiliary notation. Fix κ > 0; then, for any history dependent policy π ∈Πhist, we write V π,κ for the
+value function of policy π in Mκ. Now, let µ⋆be the optimal policy in ΠC for M, and let ˜µ⋆
+κ ∈Πκ
+C be the
+optimal policy for Mκ. It holds that:
+V µ⋆
+h,i (Hh,i) −V ˜µ⋆
+κ
+h,i (Hh,i) = V µ⋆
+h,i (Hh,i) −V ˜µ⋆
+κ,κ
+h,i
+(Hh,i) + V ˜µ⋆
+κ,κ
+h,i
+(Hh,i) −V ˜µ⋆
+κ
+h,i (Hh,i)
+≤V µ⋆
+h,i (Hh,i) −V µ⋆,κ
+h,i
+(Hh,i) + V ˜µ⋆
+κ,κ
+h,i
+(Hh,i) −V ˜µ⋆
+κ
+h,i (Hh,i)
+≤2H∥r −˜r∥∞
+(Lemma 1)
+≤2Hκ,
+(Def. of κ)
+where the first inequality follows from the fact that ˜µ⋆
+κ is an optimal policy for for Mκ. This concludes the
+proof of Equation (3).
+Finally, we conclude by analyzing the computational complexity of solving Mκ. At the first step of the
+backward induction, the compressed and discretized history representations are |Bκ| and |CH+1,κ|, where
+Bκ is the set of possible previous best returns in the discretized MDP Mκ, and Ch,κ is the set of possible
+partial returns at step h ∈[H + 1] in Mκ.
+More generally, when solving the maximum over actions
+in the backward induction at step h and rollout i, the set of discretized compressed histories has size
+S · |Bκ| · |Ch,κ|. From this argument, it follows that the complexity of tabular backward induction is of order
+O
+
+KAS2|Bκ| PH+1
+h=1 |Ch,κ|
+
+. Indeed, for each of the K rollouts, at step h there are |Ch,κ|·|Bκ|·S compressed
+history representations, and the per-step complexity of this method is SA. Now, observe that both |Bκ| and
+|Ch,κ| can be bounded by 1 + H
+κ . This yields the result.
+A.5
+Proof of Theorem 2
+Proof of Theorem 2. We are given a Subset-Sum instance S = w1, . . . , wn, and target value L. We define a
+few parameters first. Let η = 2−n
+8 , a normalization constant C = L+5+Pn
+j=1 wj, and a threshold β = 2−n
+16C .
+Construction.
+We build the following MDP. We consider only K = 2 rollouts. We start from the state
+s0, in which we have three actions asafe, a+, and a−.
+• Playing asafe leads deterministically to a reward of (1 + L)/C and the state transition deterministically
+to an absorbing state.
+• Playing a+ leads to an immediate return of (1 + η)/C after which the state transition to the state s1.
+• Action a−leads to an immediate reward of 0 with probability 1/2 and of 2/C with probability 1/2,
+and in both cases it transitions to the state s1;
+• At each state si with i ∈{1, . . . , n}, there is only a dummy action a0, which collects with probability
+1/2 a reward of wi/C and 0 otherwise, and transits deterministically to the state si+1. State sn, with
+probability 1/2 collects a reward of (L + 3)/C and 0 otherwise, after which the game ends.
+Consider the random variable: X = Pn
+j=1 wjZj + (L + 3)Z0, where Z0, Z1, . . . , Zn are i.i.d. Bernoulli of
+parameter 1/2. There are essentially only three actions in the MDP. Playing asafe leads to the deterministic
+reward of Rsafe = (1 + L)/C. Playing a+ leads to a stochastic reward of R+ = (1 + η + X)/C, while playing
+a−leads to a stochastic reward of R−= (X + 2Z)/C, where Z is a Bernoulli of parameter 1/2.
+23
+Useful Claims.
+The main property that we need in this reduction is that P(X = L) > 0 if and only if the
+Subset-Sum instance is in the language, i.e., if there exists S∗⊆S such that P
+j∈S∗wj = L. In particular,
+if there exists such a set S∗we get that
+P[X = L] ≥
+ 1
+2
+n+1.
+(7)
+Then define Q+ (Q−respectively), the expected values of playing asafe in the first rollout and a+ (a−
+respectively) in the second rollout. Formally:
+Q+ = E[max(R+ −Rsafe, 0)]
+and
+Q−= E[max(R−−Rsafe, 0)].
+Moreover, notice that
+Q+ = 1
+C E[max(η + X −L, 0)]
+= 1
+C E[max(X −L, 0)] + 1
+C ηP[X ≥L].
+where the last equality follows from η < 1 and X, L are natural numbers. Similarly, one can verify that:
+Q+ = 1
+C E[max(X −L + 2Z −1, 0)]
+= 1
+C E[max(X −L, 0)] + 1
+2C P[X = L].
+Notably, we can conclude that Q−−Q+ = 1
+C
+  1
+2P[X = L] −ηP[X ≥T]
+
+.
+Completeness.
+Assume that there exists a set S∗⊆S such that P
+j∈S∗wj = L. Assume we played asafe
+in the first rollout. Now we are given the history of the first rollout, and we have to determine the best
+action to play. Playing either a+ or a−is optimal because, with some probability, we will get a large payoff
+of (T + 3)/C in state sn, which will dominate the reward of Rsafe = (L + 1)/C, collected in the first rollout.
+Since we are in a Yes instance, we know that:
+Q−−Q+ = 1
+C (1
+2P[X = L] −ηP[X ≥L])
+≥1
+C
+1
+2
+ 1
+2
+n+1 −η
+
+(Equation (7) and P[X ≥L] ≤1)
+= 1
+C
+2−n
+8
+≥β,
+showing that playing a−is better with a gap of β than playing a+ in this history.
+Soundness.
+Consider the case in which there is no such subset S∗. Then P(X = L) = 0. However, we
+can always get more than (L + 1)/C since at state sn we can receive a reward of (L + 3)/C with probability
+1/2, i.e., P(X > L) ≥1/2. Hence
+Q−−Q+ = −η
+C P[X ≥L] ≤−η
+C
+1
+2 = −2−n
+16C = −β.
+showing that playing a−is worst with a gap of β than playing a+ in this history.
+24
+B
+Proofs of Section 4: Learning
+B.1
+Proof of Theorem 3
+Proof of Theorem 3. The proof of Theorem 3 is articulated in four steps. First, we present the family of
+instances that we consider to derive the results. In words, we introduce a base instance, in which all actions
+are identical, and then, for each state-action pair, we introduce an alternative instance where that action
+is slightly better for that state. In the second step, we show that in any alternative instance any ϵ-optimal
+policy should put sufficient mass on the optimal action for that instance. Finally, in the third step, we use
+this result to define a good event, which we use in the last step (in combination with change-of-measure
+arguments) to lower bound the expected stopping time of any (ϵ, δ)-correct algorithm.
+Step 1: Instances Construction
+The base instance M0 = (S, A, p(0), r, H) is as follows. The set of
+states is S = {g} ∪S, where g is a rewarding and absorbing goal state, and S = {s1, . . . , sn} is a set of
+states from which we can try to reach the goal. For the goal state, we have p(0)(g | g, a) = 1, and r(g, a) = 1
+for all actions ∀a ∈A. For any other state si ∈S and action a ∈A, instead, we have r(si, a) = 1 and
+p(0)(g | si, a) = p and p(0)(si | si, a) = 1 −p, where p = c0
+1
+KH for some positive constant c0 ∈R>0
+which is defined below. Next, for each state-action pair (s, a) ∈S × A, we introduce an alternative instance
+Ms,a = (S, A, p(s,a), r, H) which is equal to M0 everywhere but in (s, a). In particular, p(s,a)(g | s, a) = p+∆
+and p(s,a)(s | s, a) = 1−p−∆, where ∆= c1
+ϵ
+KH2 and c1 ∈R>0 is a positive constant that is defined below. In
+the rest of the proof, we denote by M = M0∪{Ms,a}s∈S,a∈A the family of instances that we are considering.
+We choose c0 = 1/96 and c1 = 8192. Under the assumption that ϵ ≤
+H
+96·8196, we have that ∆≤p
+2.
+Furthermore, we also observe that p ≤1
+4 for any choice of K, H so that all transitions are correctly defined.
+In the rest of the proof, we also make the assumption that H is divisible by 4 to simplify some computations.
+Finally, we suppose that A ≥2 and δ ≤
+1
+16.
+Step 2: Value Function Analysis
+Fix any Ms,a ∈M and let π ∈ΠC and let L = H
+4 . Since Ms,a
+is fixed within step, we drop the dependency on Ms,a in symbols such as E and P. With some algebraic
+manipulations, we have that:
+V ⋆
+1,1(s) −V π
+1,1(s) = V ⋆
+1,1(s) −Eπ
+
+V π
+H,K(HH,K)
+
+= V ⋆
+1,1(s) −Eπ
+
+max
+i∈[K]
+X
+h∈[H]
+r(sh,i, ah,i) | HH,K
+
+
+=
+X
+i∈[K]
+X
+h∈[H]
+Eπ
+h
+V ∗
+h,i(Hh,i) −V ⋆
+h+,i+(Hh+,i+)
+i
+(Telescoping argument)
+≥
+X
+i∈[K]
+X
+h∈[L]
+Eπ
+h
+V ⋆
+h,i(Hh,i) −V ⋆
+h+,i+(Hh+,i+)
+i
+,
+where the last step follows from the fact that Eπ[V ⋆
+h,i(Hh,i)] ≥Eπ[V ⋆
+h+,i+(Hh+,i+)]. Indeed,
+Eπ
+
+V ⋆
+h,i(Hh,i)
+
+= Eπ
+"
+max
+a∈A
+X
+s′∈S
+p(s′ | s, a)V ⋆
+h+,i∗(Hh,i ◦(s′, a))
+#
+≥Eπ
+"X
+a∈A
+πh,i(a | Hh,i)
+X
+s′∈S
+p(s′ | sh,i, a)V ⋆
+h+,i∗(Hh,i ◦(s′, a))
+#
+= Eπ[V ⋆
+h+,i+(Hh+,i+)].
+25
+Now, for any pair (h, i), let us denote by Fh,i the event that, for all (¯h,¯i) ≺(h, i), sh,i̸ = g. Then, we have
+that:
+V ⋆
+1,1(s) −V π
+1,1(s) ≥
+X
+i∈[K]
+X
+h∈[L]
+Eπ
+h
+V ⋆
+h,i(Hh,i) −V ⋆
+h+,i+(Hh+,i+)
+
+1{Fh,i}
+i
+.
+(8)
+We now analyze a single term within the r.h.s of Equation (8). To this end, we first make some consideration.
+First of all, we note that (a) on Fh,i the state in Hh,i is sh,i = s and (b) the optimal policy always play
+action a in state s. Furthermore, (c) we observe that V ⋆(Hh,i) does not depend on the identity of the actions
+that have been played throughout the history, but only on the current state, the reward cumulated in the
+current rollouts, and the best return observed so far. Therefore, in the following, we simplify the notation
+and write V ⋆
+h+,i+(Hh,i ◦¯s) instead of V ⋆
+h+,i+(Hh,i ◦(¯s, ¯a)) for any state-action pair (¯s, ¯a) ∈S × A. Finally,
+since we are considering π ∈ΠC and since we are interested only in the case where Fh,i holds, we observe
+that πh,i(· | Hh,i) is uniquely determined by the pair (h, i).11 Therefore, we will shrink the notation and
+write απ,s,a
+h,i
+:= πh,i(a | Hh,i ∧Fh,i). Here, the dependency on s is due to the fact, on Fh,i the state is
+necessarily s (see point (a) above. To ease the notation, since (s, a) is fixed in this step, we will drop the
+dependency on s, a within απ,s,a
+h,i
+. At this point, we can proceed by analyzing the r.h.s. of Equation (8). We
+first focus on Eπ
+h
+V ⋆
+h,i(Hh,i)1{Fh,i }
+i
+. We have that:
+Eπ
+
+V ⋆
+h,i(Hh,i)1{Fh,i }
+
+= Eπ
+h
+(p + ∆)V ⋆
+h+,i+(Hh,i ◦g) + (1 −p −∆)V ⋆
+h+,i+(Hh,i ◦s)
+
+1{Fh,i }
+i
+,
+where the result is a direct application of the definition of value function. For the second term of the r.h.s
+in Equation (8), namely Eπ
+h
+V ⋆
+h+,i+(Hh+,i+)1{Fh,i}
+i
+, instead, we have that:
+Eπ
+h
+V ⋆
+h+,i+(Hh+,i+)1{Fh,i}
+i
+= Eπ
+h
+Eπ
+h
+V ⋆
+h+,i+(Hh+,i+)1{Fh,i} | Hh,i
+ii
+(Tower law)
+= Eπ
+h
+(p + ∆απ
+h,i)V ⋆
+h+,i+(Hh,i ◦g) + (1 −p −∆απ
+h,i)V ⋆
+h+,i+(Hh,i ◦s)
+
+1{Fh,i}
+i
+.
+where, in the second step, we have exploited the definition of Ms,a together with the fact that the value
+function of V ⋆does not depend on the identity of the previously played actions but only on the state, the
+value of the current rollout, and the best return collected so far. Plugging in these results within Equation (8),
+we have that:
+V ⋆
+1,1(s) −V π
+1,1(s) ≥
+X
+i∈[K]
+X
+h∈[L]
+Eπ
+h
+∆(1 −απ
+h,i)
+
+V ⋆
+h+,i+(Hh,i ◦g) −V ⋆
+h+,i+(Hh,i ◦s)
+
+1{Fh,i}
+i
+.
+(9)
+Now, we lower bound and upper bound V ⋆
+h+,i+(Hh,i ◦g) and V ⋆
+h+,i+(Hh,i ◦s). For the first of these two terms,
+we can use that the agent reached the goal sufficiently early since h ∈[L]. Thus, we have that:
+V ⋆
+h+,i+(Hh,i ◦g) ≥H −L ≥3
+4H.
+For the second term, instead, we exploit the fact that the goal is an hard-to-reach state:
+V ⋆
+h+,i+(Hh,i ◦s) ≤V ⋆
+1,1(s) ≤HPπ⋆(∃(h, i) : sh,i = g) ≤KH2(p + ∆) ≤H
+64
+11Indeed, as we noted above, the state is necessarily s, the previous best return is 0, and the cumulative reward in the current
+rollout is 0 as well.
+26
+where the last step follows from the definition of p and the fact that c0 ≤1/96. Plugging these results within
+Equation (9) and using some probabilistic arguments we obtain:
+V ⋆
+1,1(s) −V π
+1,1(s) ≥47∆H
+64
+X
+i∈[K]
+X
+h∈[L]
+(1 −απ
+h,i)Pπ
+ ∀(¯h,¯i) ≺(h, i) : s¯h,¯i̸ = g
+
+= 47∆H
+64
+X
+i∈[K]
+X
+h∈[L]
+(1 −απ
+h,i)
+Y
+(¯h,¯i)≺(i,h)
+Pπ
+ s¯h,¯i̸ = g | F¯h−,¯i−
+
+(Chain rule)
+= 47∆H
+64
+X
+i∈[K]
+X
+h∈[L]
+(1 −απ
+h,i)
+Y
+(¯h,¯i)≺(i,h)
+
+απ
+¯i¯h (1 −p −∆) + (1 −απ
+¯h,¯i(1 −p)
+
+)
+≥47∆H
+64
+X
+i∈[K]
+X
+h∈[L]
+(1 −απ
+h,i)(1 −p −∆)KH
+≥1
+4 · 47∆H
+64
+
+KL −
+X
+i∈[K]
+X
+h∈[L]
+απ
+h,i
+
+(Bernoulli’s inequality, def. of p, ∆and c0 ≤1/96)
+Therefore, rearranging the terms, we have that, for any ϵ-optimal policy in Ms,a it must hold that:
+X
+i∈[K]
+X
+h∈[L]
+απ
+h,i ≥KL −256ϵ
+47∆H
+= KH
+1
+4 −256
+47c1
+
+(Def. of ∆)
+≥KL
+2 .
+(c1 ≥8192)
+Step 3: Good Event
+In the previous step, we have shown that, for any Ms,a, an ϵ-optimal policy must
+satisfy P
+i∈[K]
+P
+h∈[L] απ,s,a
+h,i
+≥KL
+2 . Therefore, for the policy ˆπ that is returned by an (ϵ, δ)-correct algorithm
+on Ms,a must satisfy this requirement in high-probability. Precisely, for each (s, a) ∈S × A, we denote by
+define Es,a as follows:
+Es,a :=
+
+
+
+X
+i∈[K]
+X
+h∈[L]
+αˆπ,s,a
+h,i
+≥KL
+2
+
+
+.
+Since the algorithm is (ϵ, δ)-correct, it must hold that
+PMs,a(Es,a) ≥1 −δ.
+(10)
+Step 4: Change of Measure
+Finally, we combine the previous results with change-of-measure arguments.
+Let us denote by Ns,a(τδ) = Pτδ
+t=1 1{st = s, at = a} the number of samples gathered by algorithm at state-
+action pair (s, a) up to time τδ. Then, for Ms,a ∈M. For any random any random-variable Z that takes
+value in [0, 1], we have that:
+kl(EM0[Z], EMs,a[Z]) ≤KL
+ PM0, PMs,a
+
+(Lemma 11)
+≤EM0[Ns,a(τδ)] · KL(p(0)(· | s, a), p(s,a)(· | s, a))
+≤EM0[Ns,a(τδ)] · TV(p(0)(· | s, a), p(s,a)(· | s, a))2
+(p + ∆)
+(Reverse Pinsker’s Inequality)
+= EM0[Ns,a(τδ)] · 8∆2
+p ,
+27
+where kl(p, q) denotes the KL-divergence between Bernoulli distributions with mean p and q and KL
+ PM0, PMs,a
+
+denotes the KL divergence between PM0 and PMs,a. Next, we apply the previous result using Z = 1{Es,a}
+and we obtain that:
+EM0[τδ] ≥
+X
+s∈S
+X
+a∈A
+EM0[Ns,a(τδ)]
+≥
+p
+8∆2
+X
+s∈S
+X
+a∈A
+kl
+ PM0(Es,a), PMs,a(Es,a)
+
+≥
+p
+8∆2
+X
+s∈S
+X
+a∈A
+(1 −PM0 (Es,a)) log
+
+1
+1 −PMs,a(Es,a)
+
+−log(2)
+(Lemma 12)
+≥
+p
+2∆2
+
+SA log
+1
+δ
+
+−log(2)SA −log
+1
+δ
+ X
+s∈S
+X
+a∈A
+PM0 (Es,a)
+
+.
+(Equation (10))
+At this point, let us analyze in more detail P
+s∈S
+P
+a∈A PM0(Es,a). Observe, that, for any policy π and any
+state s, it holds that
+X
+a∈A
+X
+i∈[K]
+X
+h∈[L]
+απ,s,a
+h,i
+= KL.
+(11)
+Therefore, it holds that:
+X
+s∈S
+X
+a∈A
+PM0(Es,a) =
+X
+s∈S
+X
+a∈A
+EM0
+
+1
+
+
+
+X
+i∈[K]
+X
+h∈[L]
+αˆπ,s,a
+h,i
+≥KL
+2
+
+
+
+
+
+=
+X
+s∈S
+EM0
+
+X
+a∈A
+1
+
+
+
+X
+i∈[K]
+X
+h∈[L]
+αˆπ,s,a
+h,i
+≥KL
+2
+
+
+
+
+
+≤S,
+where in the inequality step we have used Equation (11). Thus, we obtained:
+EM0[τδ] ≥
+p
+2∆2
+
+SA log
+1
+δ
+
+−log(2)SA −log
+1
+δ
+
+S
+
+≥
+p
+16∆2 SA log
+1
+δ
+
+(A, S ≥2 and δ ≤
+1
+16)
+= c0
+8c2
+1
+· KH3AS
+ϵ2
+log
+1
+δ
+
+,
+which concludes the proof.
+B.2
+Proof of Theorem 4
+Proof roadmap.
+The proof proceeds in four main steps. First, Lemma 2 separates the learning error into
+a reward-discretization term, of order Hκ, and two value-estimation terms for the discretized MDPs Mκ and
+c
+Mκ. Second, we reduce these two MDPs to finite-horizon MDPs on the augmented state space X, whose state
+records the current original state, the best return obtained in previous rollouts, and the cumulative reward
+in the current rollout. This reduction allows us to compare Mκ and c
+Mκ only through their transition
+kernels. Third, Lemma 3 and Lemma 4 give simulation bounds for the value-estimation errors: the first
+controls the discretized optimal policy µ⋆
+κ, while the second controls the data-dependent empirical optimizer
+ˆµ through the reference value function of µ⋆
+κ. Combining these two bounds yields the refined decomposition
+28
+in Lemma 5, which reduces the problem to bounding the quantities Cµ⋆κ,µ⋆κ and Cˆµ,µ⋆κ. These quantities
+measure the accumulated one-step transition-estimation error along the trajectory distribution induced by
+the first policy in the subscript, where the empirical transition error is tested against the continuation value
+function of the second policy. So Cµ⋆κ,µ⋆κ controls the estimation error for the fixed discretized optimizer,
+whereas Cˆµ,µ⋆κ controls the data-dependent empirical optimizer through the reference value function V µ⋆
+κ,κ.
+Fourth, Lemma 6 proves that the cumulative variance of the reference value function along any policy is
+at most 3H2, and Lemma 7 combines this variance estimate with concentration for the empirical transition
+kernel to obtain a high-probability bound of order
+p
+KH3/m+KH2/m+Hκ. The theorem then follows by
+choosing κ = ϵ/(9H) and m large enough so that the statistical and discretization errors are each absorbed
+into the target accuracy ϵ.
+B.2.1
+Error Decomposition and Simulation Lemmas
+We start by introducing some additional notation used throughout the section. For any fixed κ > 0 and
+m ∈N, we denote by ˆµ the optimal policy for c
+Mκ = (S, A, s0, H, {ˆph}h∈[H], {˜rh,κ}h∈[H]). We recall that
+ˆµ is the policy returned by the algorithm we presented in Section 4.3. Furthermore, we denote by π⋆the
+optimal policy for M, and by µ⋆
+κ the optimal policy for Mκ. For any policy π, let V π and bV π denote the
+value functions of π in M and c
+M, respectively. Similarly, let V π,κ and bV π,κ denote the value functions of
+π in Mκ and c
+Mκ, respectively.
+The following error decomposition shows that it suffices to control value-estimation errors for the discretized-
+reward MDPs.
+Lemma 2 (Error Decomposition). It holds that:
+V ⋆−V ˆµ ≤V µ⋆
+κ,κ −V ˆµ,κ + 3Hκ ≤
+
+V µ⋆
+κ,κ −bV µ⋆
+κ,κ
++
+
+bV ˆµ,κ −V ˆµ,κ
++ 3Hκ.
+Proof. With algebraic manipulations, we have that:
+V ⋆−V ˆµ =
+
+V ⋆−V µ⋆
+κ,κ
++
+
+V µ⋆
+κ,κ −V ˆµ,κ
++
+ V ˆµ,κ −V ˆµ
+≤V µ⋆
+κ,κ −V ˆµ,κ + 3Hκ
+(Theorem 1 + Lemma 1)
+= V µ⋆
+κ,κ −bV ˆµ,κ + bV ˆµ,κ −V ˆµ,κ + 3Hκ
+≤
+
+V µ⋆
+κ,κ −bV µ⋆
+κ,κ
++
+
+bV ˆµ,κ −V ˆµ,κ
++ 3Hκ,
+(ˆµ is optimal for c
+Mκ)
+which concludes the proof.
+Reduction to finite horizon MDPs
+Given Lemma 2, the two quantities of interest are V µ⋆
+κ,κ −bV µ⋆
+κ,κ
+and bV ˆµ,κ −V ˆµ,κ. Both terms involve only value functions of policies that belong to ΠC evaluated in MDPs
+that use the discretized reward function, i.e., Mκ and c
+Mκ. Observe that these MDPs differ only in the
+transition kernel. As a consequence, in order to bound these terms, it is convenient to reduce Mκ and c
+Mκ
+to (almost) standard finite-horizon MDPs. Let X := S × ⌈H
+κ ⌉× ⌈H
+κ ⌉be an extended set of states such that
+each state x = (s, M, G) ∈X can be interpreted as follows: s ∈S is a state of the original state space, M
+denotes the best return observed in the previous rollouts, and G denotes the current cumulative reward in
+the current rollout. The action set A remains the same. Then, for each triple (x, a, x′) ∈X × A × X, we
+define the new transition kernel as follows:
+Th,i(x′ | x, a) = ph(s′ | s, a)1{M ′ = M}1{G′ = G + ˜rh,κ(s, a)}
+∀h < H, ∀i ∈[K]
+TH,i(x′ | x, a) = 1{s′ = s1}1{M ′ = max{M, G + ˜rH,κ(s, a)}}1{G′ = 0}
+∀i ∈[K].
+As one can see, the state evolves according to (1) the original transition kernel p and (2) the discretized
+reward function ˜r so that M and G preserve the meaning of the max@k objective. Finally, we define the
+29
+new reward function as follows:
+Rh,i(x, a) = 0
+∀(h, i)̸ = (H, K)
+RH,K(x, a) = max{M, G + ˜rH(s, a)}.
+At this point, we turned the original problem into a traditional finite-horizon one where the goal is to find
+a policy that maximizes the standard RL objective in the MDP
+Mext
+κ
+:=
+ X, A, (s1, 0, 0), KH, {Th,i}h∈[H],i∈[K], {Rh,i}h∈[H],i∈[K]
+
+,
+where (s1, 0, 0) ∈X is the initial state in the extended state space.
+Given this reduction, in the following, we treat the value functions of policies in ΠC as |X|-dimensional
+vectors (once the step h and the rollout i are fixed). Next, to simplify the notation, it will be convenient to
+write (h+, i+) to denote the (step,rollout) pair that follows (h, i). Precisely, we have that:
+(h+, i+) =
+(
+(h + 1, i),
+if h < H,
+(1, i + 1),
+if h = H.
+Moreover, for any two pair (h1, i1) and (h2, i2), we write (h1, i1) ⪯(h2, i2) if (h1, i1) precedes (h2, i2).
+Furthermore, given any policy µ ∈ΠC, step h and rollout i, we introduce the policy-induced transition
+kernel T µ
+h,i, that is defined as T µ
+h,i(x′ | x) = P
+a∈A µh,i(a | x) Th,i(x′ | x, a). In this way, we can compactly
+express the value function as follows:
+V µ,κ
+h,i = T µ
+h,iV µ,κ
+h+,i+,
+∀(h, i)̸ = (H, K),
+V µ,κ
+H,K(x) = V µ,κ
+H,K =
+X
+a∈A
+µH,K(a | x) max{M, G + ˜rH,κ(s, a)}
+∀x = (s, M, G).
+Finally, before continuing, we extend this construction to the case in which we use an approximation ˆp of p.
+In this case, we denote the extended MDP with c
+Mext
+κ . This object differs from Mext
+κ
+only in the transition
+kernel, where T is replaced with its empirical estimate bT.
+Now, we can proceed with the proof. First we introduce some notation. For any pair of policies µ, ν ∈ΠC,
+we define, for brevity, Dµ, Dµ,ν as follows:
+Dµ := max
+¯h,¯i,¯x ∥bT µ
+¯h,¯i(· | ¯x) −T µ
+¯h,¯i(· | ¯x)∥1 max
+¯h,¯i ∥V µ,κ
+¯h,¯i −bV µ,κ
+¯h,¯i ∥∞
+Dµ,ν := max
+¯h,¯i,¯x ∥bT µ
+¯h,¯i(· | ¯x) −T µ
+¯h,¯i(· | ¯x)∥1 max
+¯h,¯i ∥V µ,κ
+¯h,¯i −V ν,κ
+¯h,¯i ∥∞.
+Moreover, for the sake of brevity, for a policy µ and a fixed (h, i, x), we denote Eµ[· | Xh,i = x] by Ex
+µ[·].
+At this point, we can proceed by analyzing the error terms that appeared in Lemma 2. We first prove two
+“simulation lemmas” that will be used to control the error terms of Lemma 2.
+Lemma 3 (Simulation Lemma 1). Consider any policy µ ∈ΠC. Suppose that:
+max
+h,i,x ∥bT µ
+h,i(· | x) −T µ
+h,i(· | x)∥1 ≤
+1
+2KH .
+(12)
+Then, it holds that:
+max
+h,i ∥V µ,κ
+h,i −bV µ,κ
+h,i ∥∞≤2 max
+h,i,x
+X
+(¯h,¯i)⪰(h,i)
+Ex
+µ
+"
+X
+x′∈X
+(T µ
+¯h,¯i(x′ | X¯h,¯i) −bT µ
+¯h,¯i(x′ | X¯h,¯i))V µ,κ
+¯h+,¯i+(x′)
+
+#
+.
+30
+Proof. The lemma easily follows from the definition of value functions at (H, K).
+We now prove it for
+(h, i)̸ = (H, K). Specifically:
+V µ,κ
+h,i −bV µ,κ
+h,i
+ =
+T µ
+h,iV µ,κ
+h+,i+ −bT µ
+h,i bV µ,κ
+h+,i+
+
+≤
+(T µ
+h,i −bT µ
+h,i)V µ,κ
+h+,i+
+ + T µ
+h,i
+V µ,κ
+h+,i+ −bV µ,κ
+h+,i+
+ +
+( bT µ
+h,i −T µ
+h,i)(V µ,κ
+h+,i+ −bV µ,κ
+h+,i+)
+
+≤
+(T µ
+h,i −bT µ
+h,i)V µ,κ
+h+,i+
+ + T µ
+h,i
+V µ,κ
+h+,i+ −bV µ,κ
+h+,i+
+ + Dµ
+Now, fix a state x ∈X and analyze the upper bound on
+V µ,κ
+h,i (x) −bV µ,κ
+h,i (x)
+ that we just obtained. Using
+the previous equation we have that:
+V µ,κ
+h,i (x) −bV µ,κ
+h,i (x)
+ =
+
+X
+x′∈X
+(T µ
+h,i(x′ | x) −bT µ
+h,i(x′ | x))V µ,κ
+h+,i+(x′)
+ + ET µ
+h,i(x)
+hV µ,κ
+h+,i+(x′) −bV µ,κ
+h+,i+(x′)
+
+i
++ Dµ.
+Unrolling the the r.h.s. of this equation, we have that:
+V µ,κ
+h,i (x) −bV µ,κ
+h,i (x)
+ ≤
+X
+(¯h,¯i)⪰(h,i)
+Ex
+µ
+"
+X
+x′∈X
+(T µ
+¯h,¯i(x′ | X¯h,¯i) −bT µ
+¯h,¯i(x′ | X¯h,¯i))V µ,κ
+¯h+,¯i+(x′)
+
+#
++ KHDµ.
+Now, taking maximum on both sides, using the definition of Dµ together with Equation (12), and re-arranging
+the terms yield the result.
+Next, we continue with the second simulation lemma, which bounds the value estimation error for a
+policy µ using the value function of a reference policy ν.
+Lemma 4 (Simulation Lemma 2). Consider any policy µ, ν ∈ΠC. Suppose that:
+max
+h,i,x ∥bT µ
+h,i(· | x) −T µ
+h,i(· | x)∥1 ≤
+1
+2KH .
+(13)
+It holds that:
+max
+h,i ∥V µ,κ
+h,i −bV µ,κ
+h,i ∥∞≤2 max
+h,i,x
+X
+(¯h,¯i)⪰(h,i)
+Ex
+µ
+"
+X
+x′∈X
+(T µ
+¯h,¯i(x′ | X¯h,¯i) −bT µ
+¯h,¯i(x′ | X¯h,¯i))V ν,κ
+¯h+,¯i+(x′)
+
+#
++ 2KHDµ,ν.
+Proof. The lemma easily follows from the definition of value functions at (H, K). Now, we prove it for
+(h, i)̸ = (H, K). We have that:
+V µ,κ
+h,i −bV µ,κ
+h,i
+ =
+T µ
+h,iV µ,κ
+h+,i+ −bT µ
+h,i bV µ,κ
+h+,i+
+
+≤
+(T µ
+h,i −bT µ
+h,i)V µ,κ
+h+,i+
+ + T µ
+h,i
+V µ,κ
+h+,i+ −bV µ,κ
+h+,i+
+ +
+( bT µ
+h,i −T µ
+h,i)(V µ,κ
+h+,i+ −bV µ,κ
+h+,i+)
+
+≤
+(T µ
+h,i −bT µ
+h,i)V µ,κ
+h+,i+
+ + T µ
+h,i
+V µ,κ
+h+,i+ −bV µ,κ
+h+,i+
+ + Dµ
+≤
+(T µ
+h,i −bT µ
+h,i)V ν,κ
+h+,i+
+ +
+(T µ
+h,i −bT µ
+h,i)(V µ,κ
+h+,i+ −V ν,κ
+h+,i+)
+ + T µ
+h,i
+V µ,κ
+h+,i+ −bV µ,κ
+h+,i+
+ + Dµ
+≤
+(T µ
+h,i −bT µ
+h,i)V ν,κ
+h+,i+
+ + T µ
+h,i
+V µ,κ
+h+,i+ −bV µ,κ
+h+,i+
+ + Dµ + Dµ,ν.
+Now, fix a state x ∈X and analyze the upper bound on
+V µ,κ
+h,i (x) −bV µ,κ
+h,i (x)
+ that we just obtained. Let
+D := Dµ + Dµ,ν. Then, we can rewrite the previous equation as:
+V µ,κ
+h,i (x) −bV µ,κ
+h,i (x)
+ =
+
+X
+x′∈X
+(T µ
+h,i(x′ | x) −bT µ
+h,i(x′ | x))V ν,κ
+h+,i+(x′)
+ + ET µ
+h,i(x)
+hV µ,κ
+h+,i+(x′) −bV µ,κ
+h+,i+(x′)
+
+i
++ D.
+31
+Unrolling the the r.h.s. of this equation, we have that:
+V µ,κ
+h,i (x) −bV µ,κ
+h,i (x)
+ ≤
+X
+(¯h,¯i)⪰(h,i)
+Ex
+µ
+"
+X
+x′∈X
+(T µ
+¯h,¯i(x′ | X¯h,¯i) −bT µ
+¯h,¯i(x′ | X¯h,¯i))V ν,κ
+¯h+,¯i+(x′)
+
+#
++ KHD.
+Now, taking maximum on both sides, using the definition of Dµ together with Equation (13) and re-arranging
+the terms yield the result.
+We now use Lemma 3 and Lemma 4 to obtained a refined version of Lemma 2.
+Lemma 5 (Refined Error Decomposition). For any pair of policies µ, ν ∈ΠC, let Cµ,ν be defined as
+Cµ,ν := max
+h,i,x
+X
+(¯h,¯i)⪰(h,i)
+Ex
+µ
+"
+X
+x′∈X
+(T µ
+¯h,¯i(x′ | X¯h,¯i) −bT µ
+¯h,¯i(x′ | X¯h,¯i))V ν,κ
+¯h+,¯i+(x′)
+
+#
+.
+Suppose that maxh,i,x ∥bT µ
+h,i(· | x) −T µ
+h,i(· | x)∥1 ≤(4KH)−1 holds for all µ ∈{µ⋆
+κ, ˆµ}. Then, we have that:
+max
+h,i ∥V ⋆
+h,i −V ˆµ
+h,i∥∞≤4Cµ⋆κ,µ⋆κ + 4Cˆµ,µ⋆κ + 3Hκ.
+Proof. Let us start from Lemma 2 and analyze V µ⋆
+κ,κ −V ˆµ,κ. For any (h, i) it holds that:
+max
+h,i ∥V µ⋆
+κ,κ
+h,i
+−V ˆµ,κ
+h,i ∥∞≤∥V µ⋆
+κ,κ
+h,i
+−bV µ⋆
+κ,κ
+h,i
+∥∞+ ∥bV ˆµ,κ
+h,i −V ˆµ,κ
+h,i ∥∞
+≤2Cµ⋆κ,µ⋆κ + ∥bV ˆµ,κ
+h,i −V ˆµ,κ
+h,i ∥∞
+(Lemma 3 with µ = µ⋆
+κ)
+≤2Cµ⋆κ,µ⋆κ + 2Cˆµ,µ⋆κ + 2KHDˆµ,µ⋆
+κ
+(Lemma 4 with µ = ˆµ and ν = µ⋆
+κ)
+= 2Cµ⋆κ,µ⋆κ + 2Cˆµ,µ⋆κ + 2KH max
+¯h,¯i,¯x ∥bT ˆµ
+¯h,¯i(· | ¯x) −T ˆµ
+¯h,¯i(· | ¯x)∥1 max
+¯h,¯i ∥V ˆµ,κ
+¯h,¯i −V µ⋆
+κ,κ
+¯h,¯i
+∥∞
+≤2Cµ⋆κ,µ⋆κ + 2Cˆµ,µ⋆κ + 1
+2 max
+¯h,¯i ∥V ˆµ,κ
+¯h,¯i −V µ⋆
+κ,κ
+¯h,¯i
+∥∞,
+(By assumption on bT ˆµ)
+where the equality step follows from the definition of Dˆµ,µ⋆κ. Rearranging the terms leads to:
+max
+h,i ∥V µ⋆
+κ,κ
+h,i
+−V ˆµ,κ
+h,i ∥∞≤4Cµ⋆κ,µ⋆κ + 4Cˆµ,µ⋆κ.
+Combining these results with Lemma 2 yields the result.
+B.2.2
+High Probability Error Bound
+Next, we prove an important auxiliary step that will be subsequently used to upper bound the terms that
+appeared in Lemma 5.
+Lemma 6 (Variance Lemma). For any policy µ ∈ΠC, any (h, i) ∈[H] × [K] and any x ∈X, it holds that:
+X
+(¯h,¯i)⪰(h,i)
+Ex
+µ
+h
+Varx′∼T µ
+¯h,¯i(·|X¯h,¯i)
+
+V µ⋆
+κ,κ
+¯h+,¯i+(x′)
+i
+≤3H2.
+Proof. In the rest of this proof, in order to simplify the notation, we denote V µ⋆
+κ,κ
+h,i
+by Vh,i. We start by
+decomposing the variance. Observe that, for all y ∈X and any (h, i) ∈[H] × [K] it holds that:
+Varx′∼T µ
+h,i(·|y)
+ Vh+,i+(x′)
+
+=
+X
+x′∈X
+T µ
+h,i(x′ | y)Vh+,i+(x′)2 −
+ X
+x′∈X
+T µ
+h,i(x′ | y)Vh+,i+(x′)
+!2
+.
+32
+Therefore, we can rewrite P
+(¯h,¯i)⪰(h,i) Ex
+µ
+h
+Varx′∼T µ
+¯h,¯i(·|X¯h,¯i)
+ V¯h+,¯i+(x′)
+i
+as:
+X
+(¯h,¯i)⪰(h,i)
+Ex
+µ
+
+X
+x′∈X
+T µ
+¯h,¯i(x′ | X¯h,¯i)V¯h+,¯i+(x′)2 −
+ X
+x′∈X
+T µ
+¯h,¯i(x′ | X¯h,¯i)V¯h+,¯i+(x′)
+!2
+.
+Let us add and subtract V¯h,¯i(X¯h,¯i)2 within the inner sums over states. Then, we can decompose this equation
+into the following two terms:
+A :=
+X
+(¯h,¯i)⪰(h,i)
+Ex
+µ
+" X
+x′∈X
+T µ
+¯h,¯i(x′ | X¯h,¯i)V¯h+,¯i+(x′)2 −V¯h,¯i(X¯h,¯i)2
+#
+B :=
+X
+(¯h,¯i)⪰(h,i)
+Ex
+µ
+
+V¯h,¯i(X¯h,¯i)2 −
+ X
+x′∈X
+T µ
+¯h,¯i(x′ | X¯h,¯i)V¯h+,¯i+(x′)
+!2
+.
+We first upper bound A. It holds that:
+A =
+X
+(¯h,¯i)⪰(h,i)
+Ex
+µ
+" X
+x′∈X
+T µ
+¯h,¯i(x′ | X¯h,¯i)V¯h+,¯i+(x′)2 −V¯h,¯i(X¯h,¯i)2
+#
+=
+X
+(¯h,¯i)⪰(h,i)
+Ex
+µ
+
+V¯h+,¯i+(X¯h+,¯i+)2 −V¯h,¯i(X¯h,¯i)2
+= Ex
+µ
+
+VH,K(XH,K)2 −Vh,i(Xh,i)2
+≤H2.
+Next, we focus on the upper bound for B. It holds that:
+B =
+X
+(¯h,¯i)⪰(h,i)
+Ex
+µ
+
+V¯h,¯i(X¯h,¯i)2 −
+ X
+x′∈X
+T µ
+¯h,¯i(x′ | X¯h,¯i)V¯h+,¯i+(x′)
+!2
+
+≤2H
+X
+(¯h,¯i)⪰(h,i)
+Ex
+µ
+" 
+V¯h,¯i(X¯h,¯i) −
+X
+x′∈X
+T µ
+¯h,¯i(x′ | X¯h,¯i)V¯h+,¯i+(x′)
+!#
+= 2H
+X
+(¯h,¯i)⪰(h,i)
+Ex
+µ
+ V¯h,¯i(X¯h,¯i) −V¯h+,¯i+(X¯h+,¯i+)
+
+= 2H Ex
+µ [Vh,i(Xh,i) −VH,K(XH,K)]
+≤2H2.
+Here, in the first inequality, we have used that E[a2 −b2] = E[(a+b)(a−b)] ≤2HE[(a−b)] with a, b ∈[0, H],
+and E[a] ≥E[b]. To see that E[a] > E[b], recall that:
+Ex
+µ[V¯h,¯i(X¯h,¯i)] = Ex
+µ
+"
+max
+a∈A
+X
+x′∈X
+T¯h,¯i(x′ | X¯h,¯i, a)V¯h+,¯i+(x′)
+#
+≥Ex
+µ
+" X
+x′∈X
+T µ
+¯h,¯i(x′ | X¯h,¯i)V¯h+,¯i+(x′)
+#
+,
+33
+where the first step follows from the the fact that Vh,i is the value function of the optimal policy in Mext
+κ ,
+i.e., Vh,i = V µ⋆
+κ,κ
+h,i
+. Combining these results, we obtained that:
+X
+(¯h,¯i)⪰(h,i)
+Ex
+µ
+h
+Varx′∼T µ
+¯h,¯i(·|X¯h,¯i)
+
+V µ⋆
+κ,κ
+¯h+,¯i+(x′)
+i
+= A + B ≤3H2,
+which concludes the proof.
+The following lemma provides a high-probability upper bound on the error of algorithm that we proposed.
+Lemma 7 (High Probability Error Bound). Suppose that m satisfies
+m ≥2
+
+2 + 128K2H2 log
+2SAH
+δ
+
++ 128 SK2H2 log
+ 384 SK2H2
+.
+(14)
+With probability at least 1 −δ, it holds that:
+max
+h,i ∥V ⋆
+h,i −V ˆµ
+h,i∥∞≤8
+v
+u
+u
+t2 log
+
+4|X|HKA
+δ
+
+KH3
+m
++ 8
+log
+
+4|X|HKA
+δ
+
+KH2
+m
++ 3Hκ.
+Proof. We start by defining a good event E and prove that it holds with high-probability. Next, we will use
+E to prove the result of this lemma. Precisely, we define E as E := E1 ∩E2, where
+E1 :=
+\
+(s,a,h)
+
+
+∥ˆph(· | s, a) −ph(· | s, a)∥1 ≤
+s
+2 log
+  2SAH
+δ
+
++ 2S log(6m)
+m
+
+
+
+E2 :=
+\
+(x,a,h,i)
+( 
+X
+x′∈X
+
+Th,i(x′ | x, a) −bTh,i(x′ | x, a)
+
+V µ⋆
+κ,κ
+h+,i+(x′)
+
+≤
+v
+u
+u
+t2 log
+
+4|X|HKA
+δ
+
+Varx′∼Th,i(·|x,a)
+
+V µ⋆κ,κ
+h+,i+(x′)
+
+m
++
+2H log
+
+4|X|HKA
+δ
+
+3m
+)
+.
+Then, we first prove that P(E) ≥1 −δ. To this end, observe that P(E) = 1 −P(E∁) ≥1 −P(E∁
+1 ) −P(E∁
+2 ).
+Hence, we now upper bound P(E∁
+1 ) and P(E∁
+2 ).
+For P(E∁
+1 ) and P(E∁
+2 ), we use Lemma 9 and Lemma 8
+respectively, and obtain
+P(E∁
+1 ) ≤
+X
+s,a,h
+δ
+2SAH ≤δ
+2,
+P(E∁
+2 ) ≤
+X
+x,a,h
+δ
+2|X|HKA ≤δ
+2.
+Therefore, we proved that P(E) ≥1 −δ. Next, we show an important property that holds on E. Precisely,
+for any µ ∈ΠC, state x ∈X and any (h, i), we have that:
+∥T µ
+h,i(· | x) −bT µ
+h,i(· | x)∥1 =
+X
+x′∈X
+
+X
+a∈A
+µh,i(a | x)
+
+Th,i(x′ | x, a) −bTh,i(x′ | x, a)
+ 
+≤
+X
+x′∈X
+X
+a∈A
+µh,i(a | x)
+
+
+Th,i(x′ | x, a) −bTh,i(x′ | x, a)
+ 
+≤max
+a∈A ∥Th,i(· | x, a) −bTh,i(· | x, a)∥1
+= max
+s,a,h ∥ph(· | s, a) −ˆph(· | s, a)∥1
+(Def. of T)
+≤
+s
+2 log
+  2SAH
+δ
+
++ 2S log(6m)
+m
+(Def of E1)
+≤
+1
+4KH .
+(Equation (14) and Lemma 10)
+34
+Therefore, we proved that:
+max
+µ∈ΠC max
+h,i ∥T µ
+h,i(· | x) −bT µ
+h,i(· | x)∥1 ≤
+1
+4KH .
+(15)
+Then, since Equation (15) holds, we can apply Lemma 5, and, with probability at least 1 −δ we have that:
+max
+h,i ∥V ⋆
+h,i −V ˆµ
+h,i∥∞≤4Cµ⋆κ,µ⋆κ + 4Cˆµ,µ⋆κ + 3Hκ.
+(16)
+In the following, we upper bound Cµ⋆κ,µ⋆κ and Cˆµ,µ⋆κ. Before that, for the sake of readability, we introduce
+some additional notation to simplify the exposition. First, for any pair of policies µ, ν, we denote by Ch,i,x
+µ,ν
+the following quantity:
+Ch,i,x
+µ,ν
+:=
+X
+(¯h,¯i)⪰(h,i)
+Ex
+µ
+"
+X
+x′∈X
+(T µ
+¯h,¯i(x′ | X¯h,¯i) −bT µ
+¯h,¯i(x′ | X¯h,¯i))V ν,κ
+¯h+,¯i+(x′)
+
+#
+,
+so that Cµ,ν = maxh,i,x Ch,i,x
+µ,ν . Furthermore, let L := log
+
+4|X|HKA
+δ
+
+m−1. Now, we can start to analyze
+Cµ,µ⋆κ for a generic deterministic policy µ ∈ΠC. Fix a triplet (h, i, x). We have that:
+Ch,i,x
+µ,µ⋆κ =
+X
+(¯h,¯i)⪰(h,i)
+Ex
+µ
+"
+X
+x′∈X
+(T µ
+¯h,¯i(x′ | X¯h,¯i) −bT µ
+¯h,¯i(x′ | X¯h,¯i))V µ⋆
+κ,κ
+¯h+,¯i+(x′)
+
+#
+≤
+X
+(¯h,¯i)⪰(h,i)
+Ex
+µ
+"X
+a∈A
+µ(a | X¯h,¯i)
+
+X
+x′∈X
+(T¯h,¯i(x′ | X¯h,¯i, a) −bT¯h,¯i(x′ | X¯h,¯i, a))V µ⋆
+κ,κ
+¯h+,¯i+(x′)
+
+#
+(By | · |)
+≤
+X
+(¯h,¯i)⪰(h,i)
+Ex
+µ
+"X
+a∈A
+µ(a | X¯h,¯i)
+r
+2LVarx′∼T¯h,¯i(·|X¯h,¯i,a)
+
+V µ⋆κ,κ
+¯h+,¯i+(x′)
+
++ LH
+#
+(By E2)
+≤
+√
+2L
+X
+(¯h,¯i)⪰(h,i)
+Ex
+µ
+
+
+sX
+a∈A
+µ(a | X¯h,¯i)Varx′∼T¯h,¯i(·|X¯h,¯i,a)
+
+V µ⋆κ,κ
+¯h+,¯i+(x′)
+
+
++ LKH2 (Concavity of √·)
+≤
+√
+2L
+X
+(¯h,¯i)⪰(h,i)
+Ex
+µ
+"r
+Varx′∼T¯h,¯i(·|X¯h,¯i,a)
+
+V µ⋆κ,κ
+¯h+,¯i+(x′)
+#
++ LKH2
+≤
+√
+2L
+s
+KH
+X
+(¯h,¯i)⪰(h,i)
+Exµ
+h
+Varx′∼T¯h,¯i(·|X¯h,¯i,a)
+
+V µ⋆κ,κ
+¯h+,¯i+(x′)
+i
++ LKH2
+(Cauchy-Schwarz and Jensen)
+≤
+√
+2LKH3 + LKH2.
+(Lemma 6)
+Plugging this result within Equation (16), we have that:
+max
+h,i ∥V ⋆
+h,i −V ˆµ
+h,i∥∞≤8
+√
+2LKH3 + 8LKH2 + 3Hκ,
+which concludes the proof.
+B.2.3
+Putting Everything Together
+Now, we can finally use Lemma 7 to prove Theorem 4.
+35
+Proof of Theorem 4. The proof follows by combining Lemma 7 with an appropriate choice of m and κ. We
+first κ =
+ϵ
+9H . Then, we observe that
+|X| ≤S
+
+1 + H
+κ
+2
+= S
+
+1 + 9H2
+ϵ
+2
+.
+Let
+L′ := log
+4HKAS(1 + 9H2/ϵ)2
+δ
+
+.
+Then, we set m as follows:
+m = max
+
+2
+
+2 + 128K2H2 log
+2SAH
+δ
+
++ 128 SK2H2 log
+ 384 SK2H2
+, 1152L′KH3
+ϵ2
+
+≤e
+O
+
+SK2H2 log
+1
+δ
+
++ KH3 log( 1
+δ )
+ϵ2
+
+.
+Now we can apply Lemma 7 and obtain that, with probability at least 1 −δ:
+max
+h,i ∥V ⋆
+h,i −V ˆµ
+h,i∥∞≤8
+v
+u
+u
+t2 log
+
+4|X|HKA
+δ
+
+KH3
+m
++ 8
+log
+
+4|X|HKA
+δ
+
+KH2
+m
++ 3Hκ ≤ϵ,
+thus concluding the proof.
+C
+Auxiliary Lemmas
+Lemma 8 (Application of Bernstein’s Inequality). Let D ∈N>0 and q ∈∆(q). Let ˆq be the maximum
+likelihood estimator of q computed using n independent samples from q. Furthermore, let L > 0 and f : D →
+[0, L] be any bounded function. Then, fix δ ∈(0, 1). With probability at least 1 −δ it holds that:
+|(q −ˆq)⊤f| ≤
+s
+2 log
+  2
+δ
+
+Varq(f)
+n
++ 2L log
+  2
+δ
+
+3n
+.
+Proof. Direct application of Bernstein’s inequality [Boucheron et al., 2003].
+Lemma 9 (Concentration of ∥· ∥1 norms). Consider D ∈N>0 and q ∈∆(D). Let ˆq be the maximum
+likelihood estimator of q after n i.i.d. samples. Then, for δ ∈(0, 1), it holds that:
+P
+
+∥q −ˆq∥1 ≥
+s
+2 log
+  1
+δ
+
++ 2D log(6n)
+n
+
+≤δ.
+Proof. Direct application of Pinsker’s inequality and Proposition 1 in Jonsson et al. [2020].
+Lemma 10 (Technical Lemma; Lemma D.9 in Barbara et al. [2026]). Let c1, c2, n, L, δ ∈R>0 and consider
+¯T = inf
+
+t ∈N : log(c1/δ) + n log(c2t)
+t
+≤L2
+
+.
+It holds that:
+¯T ≤2
+
+2 + 4 log(c1/δ)
+L2
++ 4n
+L2 log
+2nc2
+L2
+
+.
+36
+Lemma 11 (Lemma 1 in Garivier et al. [2019]). Consider a measurable space (Ω, F) equipped with two
+distributions P1 and P2. For any F-measurable function Z : Ω→[0, 1] we have:
+KL(P1, P2) ≥kl(E1[Z], E2[Z]),
+where E1 and E2 are the expectations under P1 and P2 and kl(p, q) denotes the KL-divergence between
+Bernoulli distributions with mean p and q.
+Lemma 12 (Lemma 15 in Domingues et al. [2021]). For any p, q ∈[0, 1]:
+kl(p, q) ≥(1 −p) log
+
+1
+1 −q
+
+−log(2),
+where kl(p, q) denotes the KL-divergence between Bernoulli distributions with mean p and q.
+37

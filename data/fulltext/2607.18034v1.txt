@@ -1,0 +1,1355 @@
+AdaHome: An Adaptive Smart Home Assistant using Local Small
+Language Models
+Eu Jin Lim
+University of Southampton
+Southampton, United Kingdom
+ejl1e22@soton.ac.uk
+Zhaoxing Li
+University of Southampton
+Southampton, United Kingdom
+zhaoxing.li@soton.ac.uk
+Sebastian Stein
+University of Southampton
+Southampton, United Kingdom
+ss2@ecs.soton.ac.uk
+Abstract
+Smart home assistants interpret a wide range of user commands,
+from explicit device control to underspecified and preference depen-
+dent requests. While recent systems based on Large Language Mod-
+els (LLMs) improve this capability, they often rely on heavyweight
+reasoning pipelines and cloud-based deployment, limiting their
+efficiency and suitability for resource-constrained environments,
+and raising privacy concerns. In addition, existing approaches pro-
+vide limited support for stable long-term personalization. To ad-
+dress these issues, we present AdaHome, an adaptive smart home
+assistant designed for locally deployed small language models in
+smart home environments. Rather than applying complex reasoning
+uniformly, AdaHome introduces an intent-aware planning frame-
+work that dynamically routes commands either to straightforward
+prompt-based or lightweight reasoning-based components. For
+commands requiring interpretation, we adopt a Chain-of-Draft
+strategy to enable efficient and stable decision-making. To support
+personalization, we further propose a preference adaptation mech-
+anism that learns from user feedback over time without requiring
+prompt augmentation or model retraining. We evaluate AdaHome
+against representative LLM-based baselines under a unified small
+model setting. AdaHome achieves substantially higher accuracy
+on direct commands (86.7%) while reducing latency by up to 3×.
+Furthermore, it maintains competitive performance on ambiguous
+inputs with lower computational cost. In multi-turn scenarios, Ada-
+Home achieves 88% preference consistency, compared to 52.5% for
+a prompt augmentation baseline.
+CCS Concepts
+• Human-centered computing →Interaction devices; • Com-
+puting methodologies →Natural language processing.
+Keywords
+Smart home, Small Language Models, Adaptive reasoning, Person-
+alization, Preference adaptation
+ACM Reference Format:
+Eu Jin Lim, Zhaoxing Li, and Sebastian Stein. 2026. AdaHome: An Adap-
+tive Smart Home Assistant using Local Small Language Models. In INTER-
+NATIONAL CONFERENCE ON MULTIMODAL INTERACTION (ICMI ’26),
+October 05–09, 2026, Napoli, Italy. ACM, New York, NY, USA, 16 pages.
+https://doi.org/10.1145/3776574.3831158
+This work is licensed under a Creative Commons Attribution 4.0 International License.
+ICMI ’26, Napoli, Italy
+© 2026 Copyright held by the owner/author(s).
+ACM ISBN 979-8-4007-2318-6/2026/10
+https://doi.org/10.1145/3776574.3831158
+1
+Introduction
+Interacting with smart-home environments using natural language
+remains challenging. Users often express commands in terms of
+goals, contexts, or preferences. For instance, “make the room cozy”
+or “I want to relax” [7]. However, smart home systems require ex-
+plicit instructions that specify which devices to control and what
+actions to perform. This creates a fundamental gap between how
+users communicate and how systems execute commands. Bridging
+this gap requires inferring actions from inputs that are underspec-
+ified and ambiguous. The integration of Large Language Models
+(LLMs) has improved this capability [2, 6]. LLMs can reason over
+contextual information and generate structured action plans, sup-
+porting more flexible interaction beyond traditional rule-based
+pipelines [7, 14, 16].
+Despite these advances, significant challenges remain for practi-
+cal deployment. Existing LLM-based smart home systems rely on
+large models and computationally intensive reasoning pipelines.
+These are typically deployed in cloud-based settings. While effec-
+tive, such designs introduce latency, require substantial computa-
+tional resources, and raise privacy concerns [5, 22]. In real-world
+smart homes, responsiveness and data privacy are major concerns,
+making locally deployed models highly desirable. However, op-
+erating under local resource constraints requires the use of Small
+Language Models (SLMs). The reduced reasoning capability of SLMs
+presents additional challenges in maintaining reliability and perfor-
+mance. Furthermore, current approaches provide limited support
+for long-term personalization. Although LLMs can incorporate
+short-term conversational context, they generally lack mechanisms
+to continually adapt to user preferences across interactions. As
+a result, ambiguous commands are interpreted in a generic man-
+ner, failing to capture individual habits or evolving user behaviour.
+Supporting continual preference adaptation without costly model
+retraining remains an open challenge.
+Motivated by these limitations, we present AdaHome, an adap-
+tive smart home assistant designed for local deployment with small
+language models. AdaHome is based on the observation that not all
+commands require the same level of reasoning. Direct commands
+can be executed with minimal processing, while indirect or ambigu-
+ous inputs benefit from additional reasoning. To this end, AdaHome
+introduces an intent-aware planning framework that selectively
+applies lightweight reasoning based on command category. This
+allows the system to improve efficiency while maintaining action
+accuracy. Beyond that, AdaHome incorporates a novel preference
+adaptation mechanism for continual personalization. Instead of
+relying on prompt augmentation or model retraining, AdaHome
+builds a lightweight preference memory from confirmed and cor-
+rected interactions. It uses this memory to estimate future device
+arXiv:2607.18034v1  [cs.AI]  20 Jul 2026
+ICMI ’26, October 05–09, 2026, Napoli, Italy
+Eu Jin Lim, Zhaoxing Li, and Sebastian Stein
+choices, weighting past interactions based on semantic similarity
+and temporal decay. This allows the system to adapt incrementally
+to user behaviour while remaining robust to temporary deviations.
+In summary, our contributions are as follows:
+• We propose AdaHome, an adaptive smart home assistant
+that enables efficient and personalized control using small
+language models.
+• We introduce an intent-aware planning framework that
+selectively applies lightweight reasoning based on command
+category, improving efficiency while maintaining action ac-
+curacy.
+• We develop a continual preference adaptation mecha-
+nism that enables personalized behaviour from user inter-
+actions without requiring prompt augmentation or model
+retraining.
+2
+Related Work
+2.1
+LLM-based Smart Home Assistants
+Recent work has explored the use of Large Language Models (LLMs)
+to improve natural language interaction in smart home environ-
+ments. Early studies demonstrate how LLMs can assist smart spaces
+by interpreting high-level user intent and generating appropriate
+device actions [2, 6, 16]. Building on this direction, more recent
+work models smart home control as a reasoning problem. The Sasha
+system [7] formulates this as a goal-oriented reasoning problem,
+decomposing user intent into intermediate steps before execution.
+This structured design improves action relevance and reduces false
+positives. However, it does not support personalization. Subsequent
+approaches extend this towards agent-based designs. For instance,
+SAGE [14] explores the use of autonomous LLM-based agents for
+smart-home control, enabling more flexible handling of complex
+tasks. However, this flexibility comes at the cost of heavier reason-
+ing pipelines and increased computational overhead. Despite these
+advances, most existing systems depend on large models like GPT-4
+and computationally intensive reasoning processes, which are typi-
+cally deployed in cloud-based settings. This limits their practicality
+for local, resource-constrained deployments. Furthermore, reliance
+on cloud services introduces privacy risks, such as potential data
+breaches or unauthorised access during data transmission [17].
+This has motivated recent efforts towards the use of Small Lan-
+guage Models (SLMs) in smart home environments. Harmony [22]
+introduces a modular architecture powered by a locally deployed
+SLM. By enforcing structured reasoning and incorporating a rule-
+based controller for action validation, the system improves relia-
+bility and mitigates hallucinations under limited model capacity.
+Similarly, HomeLLaMA [5] adopts a hybrid approach that combines
+offline SLM adaptation with online interaction. These approaches
+demonstrate the feasibility of building locally deployed smart home
+assistants using SLMs. However, existing systems typically apply
+complex reasoning pipelines uniformly across all commands, re-
+gardless of their complexity. This can lead to unnecessary compu-
+tational overhead, especially for simple instructions that do not
+require multi-step reasoning. Prior work has also reported that
+such complex reasoning pipelines can incur substantial latency
+even for straightforward commands [23]. This highlights the need
+Table 1: Categorization of user commands.
+Category
+Description
+Example
+Direct
+Explicit device and action
+Turn on bedroom light
+Indirect
+Implicit intent from context
+The room is too hot
+Ambiguous
+Preference-dependent intent
+I want to relax
+for more efficient and adaptive mechanisms that tailor reasoning
+to the nature of the user request.
+2.2
+Long-term Personalization
+Long-term personalization is an important feature for smart home
+assistants, as user preferences can vary across individuals. Although
+recent LLM-based systems demonstrate strong capabilities in in-
+terpreting user intent, continual adaptation to user preferences
+remains underexplored. Some prior work incorporates personaliza-
+tion through interaction history. For instance, SAGE [14] leverages
+past interactions to guide future decisions by retrieving relevant
+historical context via Retrieval-Augmented Generation (RAG) [27].
+Similarly, IoTGPT [23] abstracts user preferences into structured
+representations based on environmental properties and incorpo-
+rates them into the model context through keyword-based match-
+ing. While these approaches enable a degree of personalization,
+they rely on prompt-level augmentation. As the interaction his-
+tory grows, the amount of appended context increases, making it
+difficult to maintain relevance and efficiency within the limited
+context capacity of small language models. More fundamentally,
+such approaches struggle to balance the stability–plasticity trade-
+off, where the system must retain previously learned preferences
+(stability) while adapting to new user behaviour (plasticity) [8, 24].
+Beyond that, preference learning has also been explored through
+model-level adaptation, where models are fine-tuned to align with
+user preferences [10]. These approaches are computationally inten-
+sive and not suitable for resource-constrained environments, as up-
+dates to user preferences typically require model retraining. Overall,
+this highlights the lack of efficient mechanisms for continual pref-
+erence adaptation without reliance on prompt-level augmentation
+or model retraining.
+3
+System Design
+Figure 1 shows the architecture of AdaHome, which consists of an
+intent-aware planning pipeline and a continual preference adapta-
+tion module. The pipeline routes inputs to either a direct planner
+or a reasoning planner based on command category, while the pref-
+erence module leverages semantically similar past interactions to
+enable personalized responses.
+Intent Classification. We first classify each user command into
+one of three categories based on its level of specification. As shown
+in Table 1, commands are categorized as direct, indirect, or ambigu-
+ous, and the assigned category determines the subsequent planning
+strategy. Direct commands explicitly specify both the target device
+and action. Indirect commands express intent implicitly but can
+be resolved using the current device context. In contrast, ambigu-
+ous commands are preference-dependent and may admit multiple
+valid interpretations across users. The classifier is implemented
+AdaHome: An Adaptive Smart Home Assistant using Local Small Language Models
+ICMI ’26, October 05–09, 2026, Napoli, Italy
+Figure 1: Overview of AdaHome system architecture, consisting of an intent-aware planning pipeline and a continual preference
+adaptation module. The pipeline routes user commands to either a direct or reasoning planner based on command category,
+while the preference module leverages past interactions to enable personalized responses.
+as a structured LLM prompt (see Appendix A) that outputs a cate-
+gory label. Its impact on downstream performance is evaluated in
+Section 4.1.2.
+Adaptive Planning. Following intent classification, AdaHome
+routes each command to an appropriate planner, applying reason-
+ing only when necessary. Direct commands are handled by a direct
+planner using a straightforward prompt without intermediate rea-
+soning, enabling low-latency execution. Indirect and ambiguous
+commands are processed by a reasoning planner, which interprets
+user intent in the context of available devices to generate an ac-
+tion plan. To ensure reliability, both planners are constrained by a
+predefined device schema (Appendix E). Generated actions are vali-
+dated against valid device names and supported attributes defined
+in the schema. Invalid outputs are corrected through constrained
+reprompting while preserving the intended action. This schema-
+guided process reduces hallucinations and ensures consistent, exe-
+cutable outputs.
+User Confirmation. For ambiguous commands, AdaHome intro-
+duces a user confirmation step before execution. The generated
+action plan is presented for approval or correction, reducing errors
+from multiple valid interpretations and providing an additional
+safeguard for sensitive operations such as door unlocking or blind
+control. This improves both safety and reliability. User feedback
+also serves as supervision for continual preference adaptation. Con-
+firmed or corrected actions are recorded in preference memory
+(detailed in Section 3.2), enabling the system to better align with
+user-specific behaviour over time and reducing the need for re-
+peated confirmations.
+Execution. Once validated and confirmed, the final action plan is
+represented as structured JSON and dispatched to the smart home
+environment through an execution controller that maps commands
+to the corresponding device APIs.
+To support efficient decision-making and personalization under
+resource constraints, AdaHome combines a lightweight reason-
+ing strategy with a dedicated mechanism for continual preference
+adaptation. In the following, we describe the reasoning approach
+(Section 3.1) and the preference adaptation mechanism (Section 3.2).
+3.1
+Chain-of-Draft Reasoning
+To handle commands requiring interpretation, AdaHome adopts a
+lightweight reasoning strategy within the reasoning planner. Com-
+mon reasoning approaches such as Chain-of-Thought (CoT) [19]
+and ReAct-style prompting [21] generate detailed intermediate rea-
+soning or involve multiple interaction steps, leading to increased
+token usage and latency. This makes them less suitable for resource-
+constrained smart home systems. In addition, small language mod-
+els (SLMs) have limited reasoning capacity and may overgenerate
+unnecessary interpretations even for simple commands, causing
+unstable outputs [4, 11].
+To address this, we employ Chain-of-Draft (CoD) prompting [20],
+which encourages the model to produce a minimal intermediate rep-
+resentation sufficient for decision making (see Appendix B). Given
+an input, the model generates a compact reasoning draft capturing
+the inferred intent, followed by a structured JSON action specify-
+ing device state changes. Both the draft and action are generated
+in a single pass. This design reflects the observation that smart
+home control primarily requires mapping user intent to executable
+actions rather than generating detailed explanations. As a result,
+verbose reasoning introduces additional latency without improv-
+ing decision quality. By constraining reasoning to a short draft,
+CoD reduces token usage while preserving the essential semantic
+information required for accurate planning.
+ICMI ’26, October 05–09, 2026, Napoli, Italy
+Eu Jin Lim, Zhaoxing Li, and Sebastian Stein
+Furthermore, SLMs are particularly sensitive to long and verbose
+reasoning outputs, which can lead to inconsistency and hallucina-
+tion [4, 11]. The compact structure of CoD improves output stability
+and reliability, making it well-suited for on-device deployment. Fig-
+ure 2 illustrates an example of CoD reasoning and its output. The
+draft provides a concise abstraction of the inferred intent, while
+the JSON output directly specifies executable device actions.
+Figure 2: An example of Chain-of-Draft reasoning generating
+a JSON action.
+3.2
+User Preference Adaptation
+User preference modeling is challenging, because it is highly contex-
+tual and dynamic. For example, a user issuing the command “make
+the room comfortable” may typically prefer bright lighting, but
+under certain circumstances may instead prefer dim lighting. Such
+deviations are often temporary, and the user may revert to their
+usual preference in subsequent interactions. A system that relies
+primarily on preference retrieval (e.g., [14, 23]) would struggle to
+capture this behaviour [24]. This motivates modeling preferences
+based on accumulated interaction history.
+AdaHome incorporates a lightweight preference adaptation mech-
+anism that operates without model retraining or prompt augmenta-
+tion, making it suitable for locally deployed small language models.
+Each confirmed or corrected action is treated as a preference signal.
+After user confirmation, a preference extractor extracts the under-
+lying intent from the user command in one or two phrases (see
+Appendix C), filtering out irrelevant context. This normalized rep-
+resentation ensures that semantically equivalent commands (e.g.,
+“movie night” and “let’s watch a movie”) map to similar embeddings,
+improving the reliability of similarity-based retrieval. The extracted
+intent is then encoded into an embedding vector using a sentence
+embedding model. This vector is indexed in a local vector database,
+while the corresponding timestamp and resulting device states are
+stored in a local relational database. In this work, preference adap-
+tation is formulated over binary device states (𝑥𝑖∈{0, 1}), where 1
+denotes activation and 0 denotes deactivation. Continuous parame-
+ters (e.g., temperature) are not considered within this formulation,
+as modeling such attributes requires a different representation.
+As illustrated in Figure 3, during inference the system retrieves
+the top-𝑘most semantically similar past interactions (we use𝑘= 10)
+using FAISS nearest neighbor search [1] in the embedding space.
+A cosine similarity threshold is then applied to filter out weak
+matches, ensuring that only relevant interactions are retained for
+prediction. If no interactions satisfy this similarity threshold, the
+system proceeds with the intent-aware planning pipeline as de-
+scribed in Section 3. Given a new command, the extracted intent is
+embedded as 𝑣new. Each retrieved memory 𝑖consists of a historical
+embedding 𝑣𝑖, a binary device state 𝑥𝑖, and a timestamp 𝑡𝑖.
+To estimate how strongly each previous interaction should in-
+fluence the current decision, we compute a semantic time decay
+weight 𝑤𝑖:
+𝑤𝑖= 𝑆(𝑣new, 𝑣𝑖)𝛾· 𝑒−𝜆Δ𝑡𝑖
+(1)
+where 𝑆(·, ·) denotes cosine similarity, Δ𝑡𝑖(in days) is the elapsed
+time since interaction 𝑖was recorded, and 𝜆controls the rate at
+which older interactions lose influence. The similarity term captures
+semantic relevance between the current and past intents, while 𝛾
+controls the sharpness of the weighting, increasing the contrast
+between highly similar and weakly similar interactions. In our im-
+plementation, we fix 𝛾= 3, which increases selectivity without
+overly concentrating the weighting on a single interaction. The
+exponential term prioritizes more recent interactions, consistent
+with temporal forgetting patterns in memory modeling [26]. Here
+we set 𝜆= 0.1, which reduces the influence of a past interaction
+to approximately 0.5 after 7 days. This timescale aligns with re-
+curring weekly patterns observed in smart home usage [15]. As a
+result, older or infrequent interactions continue to contribute with
+diminishing weights.
+The probability that a device 𝑑should be activated is then com-
+puted using a kernel regression estimator [12, 18]:
+𝑃(𝑑= 1) =
+Í
+𝑖𝑤𝑖𝑥𝑖
+Í
+𝑖𝑤𝑖
+(2)
+where the weights act as the kernel function over the embedding
+space. It estimates the likelihood of activating a device based on the
+weighted average of similar past interactions. Interactions that are
+both semantically similar and more recent contribute more strongly
+to the final decision. Over time, frequent behaviours accumulate and
+dominate the prediction, making the system robust to occasional
+deviations. At the same time, if the user consistently changes their
+behaviour, the newly accumulated preferences will gradually shift
+the decision boundary.
+Finally, user feedback is incorporated through confirmation or
+correction, which is stored as a new preference tuple (𝑣new,𝑥new,𝑡new)
+and added to the memory. This creates a continuous feedback loop
+that allows AdaHome to refine its behaviour over time without
+requiring retraining.
+4
+Evaluation
+We conduct a quantitative evaluation to assess AdaHome based
+on two aspects. First, we examine the system’s ability to translate
+diverse user instructions into structured device actions. Second, we
+assess its capability to support continual user preference adapta-
+tion over time. Our evaluation adopts a unified small model setting
+to reflect realistic edge deployment constraints. All systems are
+implemented using the same lightweight model (Llama 3.2-3B [3]).
+For all experiments, Ollama1 is used as the inference engine, and
+1https://ollama.com
+AdaHome: An Adaptive Smart Home Assistant using Local Small Language Models
+ICMI ’26, October 05–09, 2026, Napoli, Italy
+Figure 3: Overview of AdaHome’s preference adaptation mechanism. The system retrieves semantically similar past interactions,
+computes weights, and estimates device activation probabilities. User feedback, when available, is incorporated to update the
+preference memory.
+models are executed using greedy decoding (temperature = 0.0) to
+minimize randomness. Experiments are conducted in a controlled
+environment defined by a fixed smart home device schema which
+specifies available devices, current states, and allowable actions.
+This ensures consistent validation of generated outputs across sys-
+tems. To reflect resource-constrained edge deployment, all systems
+are executed locally on a machine equipped with an AMD Ryzen 5
+220 CPU and 16GB RAM, representative of a low-cost consumer
+device (approximately £200-£300).
+4.1
+Comparative Study
+We compare all systems in a single-turn interaction setting, where
+memory access to prior interaction history and user feedback are
+disabled. This isolates the core decision-making behaviour of each
+system and removes any external factors. Each experiment is re-
+peated three times to ensure consistency.
+4.1.1
+Experimental Setup.
+Smart Home Setting. We establish a standardized smart home
+environment with 12 predefined devices spanning multiple func-
+tional categories such as lighting, climate control, appliances, and
+security. Each device is associated with a fixed set of controllable
+attributes. A detailed device schema is provided in Appendix E.
+Baselines. We compare AdaHome against three representative
+LLM-based smart home baselines. We focus on evaluating their
+architectural behaviour under a unified small model setting. This
+setting reflects practical edge deployment scenarios and enables a
+controlled analysis of how different system designs operate under
+limited model capacity. Each baseline is reproduced to preserve its
+core architectural design while operating under identical model
+and environment constraints.
+Sasha [7] is a goal-oriented LLM smart home assistant that de-
+composes instruction processing into feasibility checking, device
+filtering, and action planning. We reproduce Sasha following this
+multi-stage pipeline detailed in the original paper, with the inter-
+active feedback loop disabled for consistency with our automated
+evaluation.
+SAGE [14] is an agent-based system that performs iterative tool-
+based reasoning. We reimplement its coordinator and tool-selection
+loop within our fixed device schema, focusing on device control
+tasks and excluding auxiliary capabilities (e.g., web search and
+visual inputs).
+Harmony [22] is a modular smart home assistant designed for
+locally deployed lightweight models. We reproduce its three-stage
+pipeline of message handling, grounded reasoning, and rule-based
+validation, with memory components disabled.
+Dataset. We construct an evaluation dataset using commands de-
+rived from the Sasha dataset (40 commands) and the SAGE dataset
+(50 commands), retaining only those compatible with our prede-
+fined device schema. We further extend the dataset with manually
+constructed commands to ensure balanced coverage across the
+three categories in Table 1. The final dataset contains 90 commands:
+30 direct, 30 indirect, and 30 ambiguous. The full dataset is provided
+in Appendix F.
+Evaluation Metrics. We evaluate all systems along two dimen-
+sions: action accuracy and computational efficiency. For direct com-
+mands, where the desired outcome is explicitly specified, we use
+a binary success rate based on exact matching of the final device
+state. To further characterize error types, we additionally report
+false positive (FP) and false negative (FN) rates, where FP indicates
+the presence of any extra activated device, and FN indicates failure
+to activate required devices.
+For indirect and ambiguous commands, strict exact matching is
+overly restrictive because the desired outcome is not fully specified.
+Indirect commands typically imply a primary actionable device
+(e.g., “the living room is dusty” suggesting activation of a robot
+vacuum), but additional actions like “turning on air purifier” are
+also reasonable and should not be penalized. Ambiguous commands
+are inherently preference-dependent, so multiple valid action plans
+exist. For example, a “morning routine" may correspond to different
+device combinations across users. In both cases, we evaluate out-
+puts based on semantic appropriateness rather than exact matching.
+Specifically, we employ an LLM-as-Judge [25] to assess whether
+the generated action outcome is appropriate given the command
+and device state. To reduce evaluation bias, the judge uses a larger
+ICMI ’26, October 05–09, 2026, Napoli, Italy
+Eu Jin Lim, Zhaoxing Li, and Sebastian Stein
+model from a different family (Qwen2.5-14B [13]) with a fixed eval-
+uation prompt (see Appendix D.1), and outputs a binary success/fail
+decision. Example outputs are shown in Appendix D.2.
+To assess the reliability of the LLM-based evaluation, we query
+the judge three times and use majority voting. We further compare
+its outputs against human annotations on a stratified subset of
+48 examples spanning all systems and command categories. The
+human annotations were performed independently by members of
+the research team, following the same evaluation criteria provided
+to the LLM judge. The LLM-Judge achieves substantial agreement
+with human evaluation (Cohen’s 𝜅= 0.834), indicating that it
+provides a reliable proxy for human assessment in our setting.
+For computational efficiency, we measure end-to-end inference
+latency and report the number of input and output tokens per
+interaction.
+4.1.2
+Results. The aggregated results are presented in Table 2, with
+a summary visualization shown in Figure 4.
+Direct
+Non-Direct
+Ambiguous
+0
+20
+40
+60
+80
+100
+Success Rate (%)
+AdaHome
+Sasha
+SAGE
+Harmony
+Figure 4: Success rate across Direct, Indirect, and Ambiguous
+command types. Error bars denote standard deviation over
+three runs. In cases where they are not visible, the variance
+is negligible.
+Action Accuracy. AdaHome achieves the highest success rate on
+direct commands (86.7%), outperforming all baselines. Harmony
+exhibits a high false positive rate (37.8%) because its mandatory
+reasoning stage tends to over-interpret explicit instructions, lead-
+ing to spurious device activations. Conversely, Sasha suffers from
+a high false negative rate, as relevant devices are often excluded
+during intermediate feasibility checking and filtering. Similarly,
+SAGE relies on iterative tool-based reasoning, which introduces a
+dependency on multi-step decision-making and termination control.
+Under small model constraints, the system may repeatedly invoke
+intermediate tools (e.g., capability retrieval) without progressing
+to final action execution. These results reveal a key limitation of
+applying complex reasoning pipelines to Small Language Models
+(SLMs). When the task is already well-specified, additional reason-
+ing increases the likelihood of hallucination or intent deviation.
+AdaHome mitigates this by using a straightforward, instruction-
+focused prompt combined with a schema-guided generation pro-
+cess, improving execution reliability under limited model capacity.
+A similar pattern is observed for indirect commands. AdaHome
+maintains the highest success rate (86.7%), while Sasha, SAGE and
+Harmony achieve comparable performance in the range of approx-
+imately 60–70%. In this category, AdaHome employs a lightweight
+Chain-of-Draft (CoD) reasoning strategy to resolve implicit intent.
+Unlike heavy reasoning pipelines, CoD provides a concise inter-
+mediate representation that guides action generation without in-
+troducing unnecessary inference steps. This allows the model to
+capture implicit intent while avoiding the over-generation and er-
+ror propagation observed in more complex reasoning frameworks.
+The results indicate that structured, minimal reasoning is sufficient
+for resolving indirect commands under SLM constraints.
+For ambiguous commands, a different trend emerges. Harmony
+achieves the highest success rate (92.2%), followed by AdaHome
+(88.9%) and SAGE (84.4%). This reflects the advantage of more ex-
+pressive reasoning pipelines in exploring a wider space of possible
+interpretations for underspecified inputs. In contrast, AdaHome
+prioritizes efficiency through its lightweight CoD strategy, which
+may limit exhaustive exploration but still achieves competitive
+performance. Notably, Sasha performs poorly (30.0%), largely due
+to its conservative design that abstains when the task cannot be
+confidently resolved.
+Impact of Intent Classification. Because AdaHome’s performance
+relies on dynamically routing commands to the correct planner,
+we further examine the impact of intent classification errors. The
+intent classifier achieves an accuracy of 75.6% on the evaluation
+dataset. Direct commands are occasionally misclassified as indirect,
+which routes some direct inputs to the reasoning planner. While
+this introduces additional latency, it generally preserves correct
+action generation. For indirect and ambiguous commands, routing
+errors mainly affect whether a confirmation step is triggered, as
+both cases are handled by the same reasoning planner. Overall,
+misclassification affects execution efficiency rather than action
+correctness, indicating that the system is robust to routing errors.
+Computational Efficiency. AdaHome achieves the lowest end-to-
+end latency and smallest token footprint across all systems and com-
+mand categories. This efficiency stems from its intent-aware routing
+strategy, which invokes reasoning only when needed. Harmony in-
+curs the highest latency and token usage due to verbose reasoning
+and additional rule-based validation, while SAGE is slowed by its it-
+erative tool-based reasoning loop. Overall, the results reveal a clear
+trade-off between reasoning complexity and computational effi-
+ciency. Although more expressive reasoning pipelines can improve
+performance in ambiguous scenarios, they incur substantial over-
+head and are less robust under small model constraints. AdaHome
+demonstrates that a lightweight and selectively applied reasoning
+strategy can achieve a more favorable balance between accuracy
+and efficiency. This trade-off is further illustrated in Figure 5.
+4.2
+Preference Adaptation Analysis
+We evaluate AdaHome in a multi-turn setting to assess its ability to
+support continual user preference adaptation over repeated interac-
+tions. Unlike the single-turn evaluation, this experiment captures
+evolving user behaviour across interactions. The objective is to
+measure whether the system can maintain consistent preferences,
+recover from temporary deviations, and adapt to preference change.
+AdaHome: An Adaptive Smart Home Assistant using Local Small Language Models
+ICMI ’26, October 05–09, 2026, Napoli, Italy
+Table 2: Comparative study results averaged over three runs. For Indirect and Ambiguous commands, FP and FN are not
+applicable (-) as success is determined via goal satisfaction. Best results in each category are bolded.
+Category
+System
+Success (%)
+FP (%)
+FN (%)
+Latency (s)
+Input Tokens
+Output Tokens
+Direct
+Sasha
+56.7
+0.0
+43.3
+15.07
+619
+58
+SAGE
+63.3
+2.2
+36.7
+17.95
+757
+105
+Harmony
+41.1
+37.8
+31.1
+28.84
+799
+168
+AdaHome
+86.7
+0.0
+13.3
+10.48
+441
+32
+Indirect
+Sasha
+63.3
+-
+-
+17.47
+659
+67
+SAGE
+67.8
+-
+-
+17.45
+660
+94
+Harmony
+65.6
+-
+-
+30.71
+812
+171
+AdaHome
+86.7
+-
+-
+13.28
+470
+50
+Ambiguous
+Sasha
+30.0
+-
+-
+14.87
+463
+74
+SAGE
+84.4
+-
+-
+19.16
+660
+114
+Harmony
+92.2
+-
+-
+32.93
+819
+195
+AdaHome
+88.9
+-
+-
+14.47
+463
+65
+10
+15
+20
+25
+30
+35
+Average Latency (Seconds)
+40
+50
+60
+70
+80
+90
+100
+Average Success Rate (%)
+AdaHome
+Sasha
+SAGE
+Harmony
+Figure 5: Overall trade-off between average end-to-end la-
+tency and average success rate across all command categories.
+Baselines. We compare AdaHome against a Retrieval-Augmented
+Generation (RAG) baseline as a representative prompt augmenta-
+tion approach [9, 14]. In this setup, past interactions are stored and
+retrieved based on semantic similarity to the current user instruc-
+tion. During inference, the retrieved preferences are incorporated
+into the model context. When user preferences change, the stored
+memory is updated accordingly. To ensure a fair comparison, the
+RAG baseline uses the same model prompt, with Chain-of-Draft
+reasoning applied.
+Dataset. We construct a longitudinal dataset using ambiguous
+commands from the comparative study to simulate repeated user
+interactions over time (see Appendix G). The dataset consists of
+30 sequences, each containing 8 interaction turns. We design each
+sequence to follow one of three behavioural patterns. In stable
+routines, the underlying preference remains consistent across all
+turns (e.g., Preference A →A →A). In temporary deviations, a short-
+term change occurs but reverts to the original behaviour (e.g., A →
+A →B →A). In preference shifts, the user permanently transitions
+to a new preference (e.g., A →A →B →B). Examples of these
+sequences are provided in Appendix G.2.
+Evaluation Metrics. Continual preference adaptation requires
+balancing the stability-plasticity trade-off, where a system must
+preserve previously learned preferences while remaining respon-
+sive to new user behaviour [8]. Following this principle, we evaluate
+preference adaptation accordingly using four complementary met-
+rics. Preference Consistency is evaluated on stable sequences and
+measures whether the system reproduces the same preference un-
+der semantically similar commands. Recovery Rate is evaluated on
+deviation sequences and measures whether the system correctly
+returns to the original preference following a temporary pertur-
+bation. This evaluates the robustness to noise. Adaptation Success
+and Adaptation Delay are evaluated on preference shift sequences.
+They measure whether and how quickly the system aligns with a
+new preference.
+RAG Baseline
+AdaHome (Ours)
+0
+20
+40
+60
+80
+100
+Performance (%)
+52%
+88%
+10%
+80%
+30%
+100%
+Preference Consistency
+Recovery Rate
+Adapt Success
+Figure 6: Multi-turn preference adaptation performance: Ada-
+Home vs. RAG
+4.2.1
+Results. The results are presented in Figure 6. The RAG base-
+line achieves moderate stable accuracy (52.5%), indicating that it can
+partially retain consistent preferences under repeated interactions.
+However, it exhibits a very low recovery rate (10.0%), suggesting
+that it is highly sensitive to recent interactions and tends to over-
+write previously learned preferences when exposed to temporary
+deviations. Although RAG adapts relatively quickly (2.0 turns on
+ICMI ’26, October 05–09, 2026, Napoli, Italy
+Eu Jin Lim, Zhaoxing Li, and Sebastian Stein
+average to converge to a new preference), its low adaptation success
+(30.0%) indicates that these updates are often inconsistent and do
+not reliably reflect true preference shifts.
+In contrast, AdaHome achieves high stable accuracy (87.5%),
+strong recovery (80.0%), and a 100.0% adaptation success. While
+adaptation is slightly slower (2.6 turns on average to converge),
+the updates are more reliable. This demonstrates that the system is
+capable of preserving previously learned preferences and effectively
+adapting to new ones over time. Compared to RAG, AdaHome
+provides a more balanced trade-off between stability and plasticity.
+4.3
+Ablation Study
+We conduct an ablation study to examine the contribution of key
+components in AdaHome’s preference adaptation mechanism. We
+evaluate the role of the mechanism by removing memory entirely,
+and further isolate the effect of preference extraction within the
+mechanism. All experiments use the same dataset and evaluation
+metrics as described in the preference adaptation analysis. We
+compare three configurations:
+• No Memory: Actions are generated independently at each
+turn without access to prior interactions.
+• AdaHome (No Extractor): The preference mechanism ap-
+plied directly on raw user commands without preference
+extractor.
+• AdaHome (Extractor): The full system with preference
+extractor.
+No Memory
+AdaHome
+(No Extractor)
+AdaHome
+(Full)
+0
+20
+40
+60
+80
+100
+Performance (%)
+8%
+62%
+88%
+30%
+90%
+80%
+0%
+70%
+100%
+Preference Consistency
+Recovery Rate
+Adapt Success
+Figure 7: Ablation of AdaHome components: effect of mem-
+ory and preference extraction.
+4.3.1
+Results. Figure 7 presents the performance of all configura-
+tions. The No Memory baseline performs poorly across all metrics,
+achieving only 7.5% stable accuracy and failing to adapt to pref-
+erence shifts. This confirms that preference adaptation cannot be
+achieved without leveraging interaction history.
+AdaHome without preference extraction achieves the highest
+recovery rate (90.0%) and improved adaptation success (70.0%),
+reflecting strong responsiveness to recent user interactions. Op-
+erating directly on raw user commands makes the system highly
+sensitive to variations. For example, consider a temporary deviation
+sequence (movie night →let’s watch a film →cinema mode →
+movie night). Without preference extraction, the system treats each
+command independently, allowing it to quickly switch behaviour
+in response to the most recent input, which leads to rapid recov-
+ery when the user returns to the original preference. However,
+this reactivity comes at the cost of slower adaptation (3.1 turns on
+average to converge). Variations in natural language expressions
+dilute semantic similarity, requiring more observations to reliably
+distinguish temporary deviations from true preference shifts.
+Introducing preference extraction improves both adaptation re-
+liability and efficiency. By extracting structured preference repre-
+sentations, the extractor aligns semantically equivalent inputs in
+the embedding space, enabling more consistent similarity match-
+ing. Compared to the variant without extraction, the full system
+achieves higher stable accuracy and adaptation success while reduc-
+ing adaptation delay. This demonstrates that preference extraction
+reduces semantic noise and enables more accurate and consistent
+preference updates.
+5
+Limitations and Future Work
+Our evaluation focuses on multi-turn preference adaptation over
+repeated interactions. While this demonstrates the system’s ability
+to adapt to evolving user behaviour, long-term user studies are
+needed to assess robustness under sustained usage. In addition, the
+current preference adaptation mechanism only models binary de-
+vice states, and extending it to handle continuous device attributes
+is an important direction for future work. AdaHome also addresses
+cold-start scenarios by falling back to LLM reasoning. While this
+ensures functional behaviour from the outset, reducing reliance on
+early user feedback and accelerating personalization remain open
+challenges. Finally, our current experiments focus on text-based
+interaction. Incorporating additional multimodal signals, such as
+speech or gesture, would be an important next step toward more
+flexible and natural smart home interaction.
+6
+Conclusions
+We presented AdaHome, an adaptive smart home assistant for
+locally deployed small language models. By selectively applying
+lightweight reasoning based on command type, AdaHome achieves
+a stronger efficiency–accuracy trade-off than existing approaches
+under small model constraints. Our evaluation further shows that
+AdaHome supports more reliable multi-turn preference adaptation
+than a RAG baseline, without requiring prompt augmentation or
+model retraining. These findings highlight the potential of small
+language models to enable efficient and personalized smart home
+interaction.
+7
+Safe and Responsible Innovation
+AdaHome is designed for privacy-preserving, safe, and reliable
+smart home interaction. The system runs entirely locally using
+small language models, avoiding transmission of sensitive user data
+to external servers. Potential risks include incorrect device activa-
+tion due to misinterpretation of user intent and over-adaptation
+to short-term behaviour that may not reflect true preferences. To
+mitigate these risks, AdaHome employs schema-constrained vali-
+dation to enforce valid device states and a user confirmation step
+for ambiguous commands. In addition, continual user feedback is
+used to refine preference representations and improve robustness
+over time.
+AdaHome: An Adaptive Smart Home Assistant using Local Small Language Models
+ICMI ’26, October 05–09, 2026, Napoli, Italy
+References
+[1] Matthijs Douze, Alexandr Guzhva, Chengqi Deng, Jeff Johnson, Gergely Szilvasy,
+Pierre-Emmanuel Mazaré, Maria Lomeli, Lucas Hosseini, and Hervé Jégou. 2024.
+The Faiss library. (2024). arXiv:2401.08281 [cs.LG]
+[2] Simone Gallo, Fabio Paternò, and Alessio Malizia. 2024. A conversational agent for
+creating automations exploiting large language models. Personal and Ubiquitous
+Computing 28, 6 (2024), 931–946.
+[3] Aaron Grattafiori, Abhimanyu Dubey, Abhinav Jauhri, Abhinav Pandey, Abhishek
+Kadian, Ahmad Al-Dahle, Aiesha Letman, Akhil Mathur, Alan Schelten, Alex
+Vaughan, et al. 2024. The llama 3 herd of models. arXiv preprint arXiv:2407.21783
+(2024).
+[4] Dongge Han, Menglin Xia, Daniel Madrigal Diaz, Samuel Kessler, Ankur Mallick,
+Xuchao Zhang, Mirian Del Carmen Hipolito Garcia, Jin Xu, Victor Rühle, and Sar-
+avan Rajmohan. 2025. Enhancing reasoning capabilities of small language models
+with blueprints and prompt template search. arXiv preprint arXiv:2506.08669
+(2025).
+[5] Xinyu Huang, Leming Shen, Zijing Ma, and Yuanqing Zheng. 2026. Towards
+privacy-preserving and personalized smart homes via tailored small language
+models. IEEE Transactions on Mobile Computing (2026).
+[6] Evan King, Haoxiang Yu, Sangsu Lee, and Christine Julien. 2023. " Get ready for
+a party": Exploring smarter smart spaces with help from large language models.
+arXiv preprint arXiv:2303.14143 (2023).
+[7] Evan King, Haoxiang Yu, Sangsu Lee, and Christine Julien. 2024. Sasha: creative
+goal-oriented reasoning in smart homes with large language models. Proceedings
+of the ACM on Interactive, Mobile, Wearable and Ubiquitous Technologies 8, 1 (2024),
+1–38.
+[8] Song Lai, Zhe Zhao, Fei Zhu, Xi Lin, Qingfu Zhang, and Gaofeng Meng. 2025.
+Pareto continual learning: Preference-conditioned learning and adaption for
+dynamic stability-plasticity trade-off. In Proceedings of the AAAI Conference on
+Artificial Intelligence, Vol. 39. 18008–18016.
+[9] Patrick Lewis, Ethan Perez, Aleksandra Piktus, Fabio Petroni, Vladimir Karpukhin,
+Naman Goyal, Heinrich Küttler, Mike Lewis, Wen-tau Yih, Tim Rocktäschel,
+et al. 2020. Retrieval-augmented generation for knowledge-intensive nlp tasks.
+Advances in neural information processing systems 33 (2020), 9459–9474.
+[10] Shuozhe Li, Daniel Yamakov, and Christine Julien. [n. d.]. Smart Homes Reimag-
+ined: Human-Guided LLMs for Efficient and Secure Home Automation. ([n. d.]).
+[11] Yuetai Li, Xiang Yue, Zhangchen Xu, Fengqing Jiang, Luyao Niu, Bill Yuchen Lin,
+Bhaskar Ramasubramanian, and Radha Poovendran. 2025. Small models struggle
+to learn from strong reasoners. In Findings of the Association for Computational
+Linguistics: ACL 2025. 25366–25394.
+[12] Elizbar A Nadaraya. 1964. On estimating regression. Theory of Probability & Its
+Applications 9, 1 (1964), 141–142.
+[13] Qwen, :, An Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo Zheng, Bowen
+Yu, Chengyuan Li, Dayiheng Liu, Fei Huang, Haoran Wei, Huan Lin, Jian Yang,
+Jianhong Tu, Jianwei Zhang, Jianxin Yang, Jiaxi Yang, Jingren Zhou, Junyang
+Lin, Kai Dang, Keming Lu, Keqin Bao, Kexin Yang, Le Yu, Mei Li, Mingfeng Xue,
+Pei Zhang, Qin Zhu, Rui Men, Runji Lin, Tianhao Li, Tianyi Tang, Tingyu Xia,
+Xingzhang Ren, Xuancheng Ren, Yang Fan, Yang Su, Yichang Zhang, Yu Wan,
+Yuqiong Liu, Zeyu Cui, Zhenru Zhang, and Zihan Qiu. 2025. Qwen2.5 Technical
+Report. arXiv:2412.15115 [cs.CL] https://arxiv.org/abs/2412.15115
+[14] Dmitriy Rivkin, Francois Hogan, Amal Feriani, Abhisek Konar, Adam Sigal, Xue
+Liu, and Gregory Dudek. 2024. AIoT smart home via autonomous LLM agents.
+IEEE Internet of Things Journal 12, 3 (2024), 2458–2472.
+[15] Abdussalam Salama, Reza Saatchi, Maryam Bagheri, Mahpara Saleem, and
+Muhammad Usman Shad. 2025. Development and Evaluation of a Real-Time
+Home Monitoring Application Utilising Long Short-Term Memory Integrated in
+a Smartphone. Algorithms 18, 12 (2025), 780.
+[16] Yingtian Shi, Xiaoyi Liu, Chun Yu, Tianao Yang, Cheng Gao, Chen Liang, and
+Yuanchun Shi. 2024. Bridging the gap between natural user expression with com-
+plex automation programming in smart homes. arXiv preprint arXiv:2408.12687
+(2024).
+[17] Fali Wang, Zhiwei Zhang, Xianren Zhang, Zongyu Wu, Tzuhao Mo, Qiuhao Lu,
+Wanjing Wang, Rui Li, Junjie Xu, Xianfeng Tang, et al. 2025. A comprehensive
+survey of small language models in the era of large language models: Techniques,
+enhancements, applications, collaboration with llms, and trustworthiness. ACM
+Transactions on Intelligent Systems and Technology 16, 6 (2025), 1–87.
+[18] Geoffrey S Watson. 1964. Smooth regression analysis. Sankhy¯a: The Indian
+Journal of Statistics, Series A (1964), 359–372.
+[19] Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed Chi,
+Quoc V Le, Denny Zhou, et al. 2022. Chain-of-thought prompting elicits reasoning
+in large language models. Advances in neural information processing systems 35
+(2022), 24824–24837.
+[20] Silei Xu, Wenhao Xie, Lingxiao Zhao, and Pengcheng He. 2025. Chain of draft:
+Thinking faster by writing less. arXiv preprint arXiv:2502.18600 (2025).
+[21] Shunyu Yao, Jeffrey Zhao, Dian Yu, Nan Du, Izhak Shafran, Karthik R Narasimhan,
+and Yuan Cao. 2022. React: Synergizing reasoning and acting in language models.
+In The eleventh international conference on learning representations.
+[22] Ziqi Yin, Mingxin Zhang, and Daisuke Kawahara. 2025. Harmony: A Human-
+Aware, Responsive, Modular Assistant with a Locally Deployed Large Language
+Model. In Companion of the 2025 ACM International Joint Conference on Pervasive
+and Ubiquitous Computing. 126–130.
+[23] Chaerin Yu, Chihun Choi, Sunjae Lee, Hyosu Kim, Steven Y Ko, Young-Bae Ko,
+and Sangeun Oh. 2026. Leveraging LLMs for Efficient and Personalized Smart
+Home Automation. arXiv preprint arXiv:2601.04680 (2026).
+[24] Zeyu Zhang, Quanyu Dai, Xiaohe Bo, Chen Ma, Rui Li, Xu Chen, Jieming Zhu,
+Zhenhua Dong, and Ji-Rong Wen. 2025. A survey on the memory mechanism of
+large language model-based agents. ACM Transactions on Information Systems
+43, 6 (2025), 1–47.
+[25] Lianmin Zheng, Wei-Lin Chiang, Ying Sheng, Siyuan Zhuang, Zhanghao Wu,
+Yonghao Zhuang, Zi Lin, Zhuohan Li, Dacheng Li, Eric Xing, et al. 2023. Judging
+llm-as-a-judge with mt-bench and chatbot arena. Advances in neural information
+processing systems 36 (2023), 46595–46623.
+[26] Wanjun Zhong, Lianghong Guo, Qiqi Gao, He Ye, and Yanlin Wang. 2024. Memo-
+rybank: Enhancing large language models with long-term memory. In Proceedings
+of the AAAI conference on artificial intelligence, Vol. 38. 19724–19731.
+[27] Yutao Zhu, Huaying Yuan, Shuting Wang, Jiongnan Liu, Wenhan Liu, Chenlong
+Deng, Haonan Chen, Zheng Liu, Zhicheng Dou, and Ji-Rong Wen. 2025. Large
+language models for information retrieval: A survey. ACM Transactions on
+Information Systems 44, 1 (2025), 1–54.
+ICMI ’26, October 05–09, 2026, Napoli, Italy
+Eu Jin Lim, Zhaoxing Li, and Sebastian Stein
+A
+Intent Classification Prompt
+Intent Classification Prompt
+You are the Intent Classifier for a smart -home assistant.
+Input:
+- User command: {user_command}
+Classify the user command into exactly one category:
+- DIRECT: explicit device -control instruction with a clearly specified action
+and target device (e.g., "turn on the living room light ")
+- INDIRECT: implicit but inferable intent that can be resolved from context (e.g., "it is too hot")
+- AMBIGUOUS: subjective , preference -dependent , or routine -like request that may
+have multiple valid interpretations depending on the user (e.g., "I want to relax ")
+Respond ONLY with valid JSON.
+The "category" key must strictly be one of the following: DIRECT , INDIRECT , or AMBIGUOUS.
+Example:
+{" category ": "DIRECT "}
+B
+Chain-of-Draft Prompt
+Reasoning Planner Prompt
+You are the Reasoning Planner for a smart -home assistant.
+Input:
+- Device states: {devices}
+- User command: {user_command}
+Infer the necessary device state changes based on the user command.
+Think step by step , but keep only a minimal draft with at most 8 words.
+Respond EXACTLY in the following format:
+Draft: <concise reasoning draft >
+Action: <valid JSON object with state changes >
+Use only the device names provided in the device states.
+AdaHome: An Adaptive Smart Home Assistant using Local Small Language Models
+ICMI ’26, October 05–09, 2026, Napoli, Italy
+C
+Preference Extraction Prompt
+Preference Extraction Prompt
+You are the Preference Extractor for a smart -home assistant.
+Input:
+- User command: {user_command}
+Extract a concise 1-2 word core intent that captures the underlying user goal.
+Example:
+- "I want to relax" -> {" core_intent ": "relax "}
+Respond ONLY with valid JSON using this format:
+{" core_intent ": "..."}
+D
+LLM-as-Judge Evaluation
+D.1
+Prompt
+LLM-as-Judge Evaluation Prompt
+You are a smart -home system evaluator.
+Input:
+- Device states: {devices}
+- User Command: {user_command}
+- Agent Actions: {output}
+Evaluate whether the agent 's actions successfully satisfy the user 's goal.
+Evaluation Criteria:
+- Success (1): The actions logically and safely satisfy the user 's intent given the initial state.
+Multiple valid solutions are acceptable.
+- Failure (0): The actions fail to satisfy the intent or activate unrelated devices.
+Instructions:
+- Provide a concise reasoning (1-2 sentences).
+- Then output a final binary score.
+Respond ONLY with valid JSON using this format :
+{" reasoning ": "...", "success ": 1}
+ICMI ’26, October 05–09, 2026, Napoli, Italy
+Eu Jin Lim, Zhaoxing Li, and Sebastian Stein
+D.2
+Example Outputs
+Success Example
+Command: time for bed
+Agent Action:
+{"living_room_light": {"status": "off"}, "bedroom_light": {"status": "off"}}
+Judge Output:
+{"reasoning": "Turning off the lights creates a suitable environment for sleep and aligns with the user’s
+intent.", "success": 1}
+Failure Example
+Command: movie night
+Agent Action:
+{"living_room_light": {"status": "on"}}
+Judge Output:
+{"reasoning": "Turning on the light alone does not capture the typical environment expected for a movie
+night, such as turning on the television.", "success": 0}
+E
+Smart Home Setting
+Table 3: Smart home device schema
+Device
+Type
+Attributes
+living_room_light
+Lighting
+status, brightness
+bedroom_light
+Lighting
+status, brightness
+living_room_heater
+Climate
+status, temperature
+bedroom_heater
+Climate
+status, temperature
+living_room_ac
+Climate
+status
+bedroom_ac
+Climate
+status
+living_room_television
+Appliance
+status
+coffee_maker
+Appliance
+status
+air_purifier
+Appliance
+status
+bedroom_blinds
+Fixture
+status (open/closed)
+robot_vacuum
+Appliance
+status (cleaning/docked)
+front_door_lock
+Security
+status (locked/unlocked)
+AdaHome: An Adaptive Smart Home Assistant using Local Small Language Models
+ICMI ’26, October 05–09, 2026, Napoli, Italy
+F
+Evaluation Dataset
+The evaluation dataset is grouped into three categories: direct, indirect, and ambiguous commands. Direct commands are evaluated using
+exact match against predefined target states, while indirect and ambiguous commands are assessed using an LLM-as-a-Judge due to the
+presence of multiple valid interpretations.
+F.1
+Direct Commands
+Table 4: Direct commands and their expected target states.
+User Command
+Expected Target State
+turn on the living room television
+{"living_room_television": {"status": "on"}}
+vacuum the bedroom
+{"robot_vacuum": {"status": "cleaning"}}
+lock up the house
+{"front_door_lock": {"status": "locked"}}
+brew some coffee
+{"coffee_maker": {"status": "on"}}
+turn off the bedroom light
+{"bedroom_light": {"status": "off"}}
+turn on the air purifier
+{"air_purifier": {"status": "on"}}
+close the bedroom blinds
+{"bedroom_blinds": {"status": "closed"}}
+unlock the front door
+{"front_door_lock": {"status": "unlocked"}}
+turn on the living room ac
+{"living_room_ac": {"status": "on"}}
+switch off the living room television
+{"living_room_television": {"status": "off"}}
+turn the living room heater off
+{"living_room_heater": {"status": "off"}}
+open the bedroom blinds
+{"bedroom_blinds": {"status": "open"}}
+turn on the bedroom ac
+{"bedroom_ac": {"status": "on"}}
+dock the robot vacuum
+{"robot_vacuum": {"status": "docked"}}
+turn the bedroom heater on
+{"bedroom_heater": {"status": "on"}}
+stop the coffee maker
+{"coffee_maker": {"status": "off"}}
+dim the living room light
+{"living_room_light": {"status": "on", "brightness": "low"}}
+lock the front door
+{"front_door_lock": {"status": "locked"}}
+turn the living room ac off
+{"living_room_ac": {"status": "off"}}
+set the bedroom light to high
+{"bedroom_light": {"status": "on", "brightness": "high"}}
+start the robot vacuum
+{"robot_vacuum": {"status": "cleaning"}}
+turn on the bedroom light
+{"bedroom_light": {"status": "on"}}
+switch on the coffee maker
+{"coffee_maker": {"status": "on"}}
+turn off the air purifier
+{"air_purifier": {"status": "off"}}
+close the bedroom blinds now
+{"bedroom_blinds": {"status": "closed"}}
+set the living room heater to high
+{"living_room_heater": {"status": "on", "temperature": "high"}}
+turn on the living room light
+{"living_room_light": {"status": "on"}}
+turn off the living room light
+{"living_room_light": {"status": "off"}}
+open the blinds in the bedroom
+{"bedroom_blinds": {"status": "open"}}
+shut down the bedroom ac
+{"bedroom_ac": {"status": "off"}}
+ICMI ’26, October 05–09, 2026, Napoli, Italy
+Eu Jin Lim, Zhaoxing Li, and Sebastian Stein
+F.2
+Indirect Commands
+Table 5: Indirect commands.
+User Command
+User Command
+make it less chilly in here
+let some natural light into the bedroom
+it is freezing and dark
+I forgot to secure the house
+it is too hot
+it’s too dark to read in the living room
+it is too bright in the bedroom
+I want to watch a movie
+I can’t see anything in the living room
+the air in the bedroom is stale
+the air feels stuffy
+I need some coffee to wake up
+it is roasting in the bedroom
+my feet are cold in the living room
+the sun is glaring in my eyes in the bedroom
+the morning sun is waking me up
+it’s too loud, turn that off
+the floor is covered in crumbs
+clean up this mess on the floor
+make sure the house is safe for the night
+I need a caffeine boost
+it’s boiling in the living area
+make sure nobody can get in
+I’m going to sleep, kill the bedroom lights
+it’s getting a bit warm in the living room
+I can’t breathe well with all this dust
+can you clear the air in here
+I spilled chips everywhere
+I’m shivering
+I’m freezing in the bedroom
+F.3
+Ambiguous Commands
+Table 6: Ambiguous commands.
+User Command
+User Command
+make it cozy in here
+I want to relax
+set up for a party
+workout session
+movie night
+i feel like reading a book
+good morning
+getting ready for work
+time for bed
+it’s date night
+I’m leaving for work
+time to wake up
+welcome home
+i’m feeling sick today
+time to study
+let’s have a lazy sunday
+romantic dinner
+focus mode
+i have a migraine
+the kids are asleep
+let’s do some yoga
+i’m throwing a dinner party
+gaming time
+energy saving mode
+house cleaning day
+i need to concentrate
+guests are arriving
+post-workout cooldown
+afternoon nap
+family board game night
+AdaHome: An Adaptive Smart Home Assistant using Local Small Language Models
+ICMI ’26, October 05–09, 2026, Napoli, Italy
+G
+Longitudinal Preference Dataset
+This dataset is derived from the ambiguous command category in the evaluation dataset and is used to simulate longitudinal user interactions.
+It is constructed using a set of predefined ambiguous scenarios, each associated with multiple paraphrases and two alternative preference
+configurations (Preference A and Preference B). For each scenario, we generate interaction sequences by sampling paraphrases and assigning
+preference trajectories according to three behavioural patterns: stable routines, temporary deviations, and preference shifts. Table 7
+summarizes the ambiguous scenarios, paraphrases, and corresponding preference configurations used to construct the dataset.
+G.1
+Preference Scenarios
+Table 7: Ambiguous scenarios, associated paraphrases, and preference configurations used to generate longitudinal interaction
+sequences. LR denotes living room and BR denotes bedroom.
+Intent
+Paraphrases
+Preference A
+Preference B
+Cozy
+make the living room cozy
+make my room comfortable
+make it comfy
+cozy evening mode
+LR heater on
+LR heater on + LR light off
+Leaving house
+i am leaving the house
+heading out now
+goodbye house
+i’m going out
+Lock front door + LR light off + BR light off
+Lock front door + vacuum on + purifier on
+Movie night
+movie night
+let’s watch a film
+cinema mode
+time for a movie
+LR TV on + LR light on
+LR TV on + LR light off
+Focus
+i need to focus
+time to study
+help me concentrate
+i need to get work done quietly
+LR light on + LR TV off
+LR light on + purifier on
+Nap
+taking a nap
+i need to sleep for a bit
+i want to rest
+going to take a quick nap
+BR blinds closed + BR light off
+BR light off
+G.2
+Example Interaction Sequences
+Example: Stable Routine (Movie Night)
+Pattern: A →A →A →A →A →A →A →A
+Intent: Movie night
+Turns:
+• T1: movie night →TV on + light on
+• T2: let’s watch a film →TV on + light on
+• T3: movie night →TV on + light on
+• T4: movie night →TV on + light on
+• T5: movie night →TV on + light on
+• T6: movie night →TV on + light on
+• T7: movie night →TV on + light on
+• T8: time for a movie →TV on + light on
+ICMI ’26, October 05–09, 2026, Napoli, Italy
+Eu Jin Lim, Zhaoxing Li, and Sebastian Stein
+Example: Temporary Deviation (Cozy)
+Pattern: A →A →A →A →A →B →A →A
+Intent: Cozy
+Turns:
+• T1: cozy evening mode →heater on
+• T2: make my room comfortable →heater on
+• T3: make it comfy →heater on
+• T4: cozy evening mode →heater on
+• T5: make my room comfortable →heater on
+• T6: cozy evening mode (I have a headache) →heater on + light off
+• T7: make my room comfortable →heater on
+• T8: make my room comfortable →heater on
+Example: Preference Shift (Movie Night)
+Pattern: A →A →A →A →B →B →B →B
+Intent: Movie night
+Turns:
+• T1: time for a movie →TV on + light on
+• T2: time for a movie →TV on + light on
+• T3: cinema mode →TV on + light on
+• T4: time for a movie →TV on + light on
+• T5: cinema mode →TV on + light off
+• T6: time for a movie →TV on + light off
+• T7: cinema mode →TV on + light off
+• T8: let’s watch a film →TV on + light off

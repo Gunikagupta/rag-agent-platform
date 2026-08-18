@@ -1,0 +1,2600 @@
+Benchmarking Machine Learning Architectures for
+ttH Multilepton Signal Sensitivity
+Luk´aˇs Vicen´ık, Andr´e Sopczak, Oleksandr Shekhovtsov
+Czech Technical University in Prague, Prague, Czechia.
+Contributing authors: lukas.vicenik@cern.ch; andre.sopczak@cern.ch;
+oleksandr.shekhovtsov@cvut.cz;
+Abstract
+Statistical testing for signal discovery and signal-strength estimation in high-
+energy physics increasingly relies on machine-learning models trained on
+simulated data. We present a synthetic dataset for t¯tH multilepton signal–
+background classification and perform a systematic evaluation of machine-
+learning models ranging from the widely used XGBoost for tabular data to
+LorentzNet, which processes events with built-in Lorentz symmetry. Existing
+studies often differ in feature definitions, training procedures, and evaluation
+metrics, making it difficult to isolate the impact of model architecture on per-
+formance. To address this, we apply standardized training and hyperparameter-
+optimization procedures, construct a controlled hierarchy of feature sets, and
+perform a comprehensive comparison of the models. In addition to the analysis-
+driven metric of signal-strength uncertainty, we report the commonly used ROC
+AUC metric and show that under realistically weighted training, it correlates
+well with the uncertainty-based ranking of models. We further investigate model
+performance as a function of input feature set, training-set size, and the choice
+between channel-specific and unified multi-channel training. Our results estab-
+lish the superiority of Particle Transformer and LorentzNet within the considered
+setup. We also identify potential avenues for further improvement, including
+more expressive architectures, joint training across additional analysis channels,
+and larger simulated datasets. Although this study focuses on a specific Higgs-
+boson analysis, we expect the main conclusions to generalize to a broader class
+of searches and measurements at the LHC and HL-LHC.
+Keywords: high-energy physics, machine learning, t¯tH production, multilepton final
+states, symmetry constraints, profile likelihood, graph neural networks, particle
+transformer, LorentzNet, rotary position encoding
+1
+arXiv:2607.18022v1  [hep-ph]  20 Jul 2026
+1 Introduction
+Machine learning has become central to signal-background separation in high-energy
+physics (HEP), yet event-level classification in phenomenological studies and many
+experimental analyses has been predominantly depending on a set of basic machine
+learning approaches: engineer high-level kinematic variables and train a Gradient
+Boosted Decision Tree (GBDT) on the resulting tabular representation [1–4]. This
+workflow involves two rarely questioned design choices: manual feature engineering,
+which constructs physics-aware discriminative features but discards low-level inform-
+ation, and a fixed-slot representation introduced by the column ordering of the input
+dataset. Both are architectural conveniences, not physical requirements. This data
+representation approach is known to work particularly well with GBDTs.
+The natural alternative to the described tabular approach is to represent the
+proton-proton (pp) collision event constituents and process their elementary kinemat-
+ics properties with transformations that are designed to be permutationally invariant
+(e.g. message passing graph neural networks or attention models [5]). Such an ap-
+proach allows viewing the constituents and their feature vectors individually, a design
+possibility unavailable to GBDTs and multilayer perceptron (MLP), and enables geo-
+metric properties such as permutation, rotation, or Lorentz invariance to be natively
+enforced by construction, rather than approximated or ignored as in fixed-slot tabu-
+lar representations. Such geometric-based architectures have demonstrated substantial
+gains in jet tagging [6–8], but whether these gains transfer to event-level classification
+remains an open question.
+Beyond architectural comparisons, the choice of evaluation metric matters. ROC
+AUC measures global ranking quality independently of any statistical model or lu-
+minosity assumption, while profile likelihood sensitivity ϱµ folds in the full statistical
+analysis (luminosity, bin yields, and MC statistical uncertainties) and is therefore more
+directly connected to analysis impact. The two metrics are not guaranteed to agree in
+general, so reporting both is necessary for a complete picture of classifier performance.
+We address the gaps mentioned above with a controlled benchmark framework.
+Six classifier architectures are evaluated on t¯tH multilepton signal–background sep-
+aration: XGBoost [9], MLP, Message Passing Neural Network (MPNN) [10], MPNN
+with Rotary Position Encoding (MPNN+RoPE), Particle Transformer (ParT) [7], and
+LorentzNet [8]. These span flat tabular models, generic graph networks, and architec-
+tures with explicit physical symmetry constraints, and are evaluated at √s = 14 TeV,
+corresponding to the High Luminosity LHC (HL-LHC), the upgraded operating phase
+expected to deliver an integrated luminosity of up to 3000 fb−1 [11], under a four-level
+feature hierarchy, using relative profile likelihood uncertainty ϱµ as the key perform-
+ance indicator. No public benchmark dataset exists for event-level t¯tH multilepton
+classification; we therefore generate a dedicated simulation sample designed to reflect
+HL-LHC conditions.
+We show that especially graph-based architectures with incorporated symmetry
+constraints outperform flat tabular models substantially. ParT and LorentzNet achieve
+the highest ROC AUC among all six architectures, with the two nearly tied: ParT
+at the full feature level, LorentzNet at object, the highest level at which its
+Lorentz-equivariant design remains applicable. LorentzNet additionally achieves the
+2
+best ϱµ of all six architectures. Encoding the detector’s azimuthal symmetry alone (via
+single-frequency rotary position encoding in an otherwise standard MPNN) yields a
+consistent gain over unconstrained baselines across all feature levels and data fractions,
+narrowing the gap to architectures with explicit physics-motivated inductive biases
+(ParT, LorentzNet) noticeably. This suggests that symmetry constraints are, along-
+side architectural sophistication, a primary driver of improvement over unconstrained
+models, though a meaningful performance gap to the more complex architectures re-
+mains. We further show that ROC AUC and ϱµ correlate well and preserve the same
+architecture ranking, indicating that improvements in classifier score quality translate
+consistently into improvements in profile likelihood sensitivity for this benchmark. Fi-
+nally, joint multi-channel training improves per-channel performance, with the largest
+gains for graph-based architectures in data-scarce channels, supporting a foundation
+model approach to signal–background separation. In addition to the benchmark res-
+ults, we release a dedicated t¯tH multilepton simulation sample of 593,390 pre-selected
+events across six analysis channels at √s = 14 TeV, the first public dataset of this
+kind targeting HL-LHC conditions.
+2 Related work
+Graph-based architectures have established strong benchmarks in jet tagging, with
+ParticleNet [6], ParT [7], and LorentzNet [8] evaluated on standardised top-tagging
+and quark-gluon datasets. Whether the same architectural advantages hold at the
+event level is less well established: the input is a heterogeneous mixture of object types
+with variable multiplicity, and discriminating correlations span the full event topology
+rather than a single jet cone.
+Nevertheless, graph-based models have begun appearing in real experimental ana-
+lyses at the event level. The ATLAS t¯tH multilepton measurement [12] employs a
+GNN for signal–background separation across the same six channels studied here, us-
+ing particle four-momenta as node features and angular separations as edge features.
+The ATLAS four-top-quark observation [13] similarly uses a GNN in a multilepton fi-
+nal state, reporting a 10% improvement in expected significance over a GBDT baseline.
+These results confirm that event-level graph models are sufficiently mature for deploy-
+ment in LHC measurements, but provide no systematic comparison of architectures
+or evaluation of physical symmetry properties.
+On the benchmarking side, Pfeffer et al. [14] perform a careful controlled compar-
+ison of GraphConv-based GNNs against fully connected deep neural networks (DNNs)
+for event-level t¯t+X classification, explicitly matching architectures in terms of train-
+able parameters and input information. They find that GNN advantages can be traced
+to relational information between objects rather than to the graph structure itself,
+and are most pronounced for hierarchically structured data. Onyisi et al. [15] compare
+point cloud strategies for collider event classification across several graph-based archi-
+tectures, and Builtjes et al. [16] compare attention and graph-based architectures with
+a focus on transformer variants. None of these studies investigates the impact of phys-
+ical symmetry constraints on classifier performance, uses profile likelihood sensitivity
+as an evaluation metric, or performs a controlled feature hierarchy ablation.
+3
+Both Pfeffer et al. and Onyisi et al. generate private simulation samples with no
+public release; the only public event-level analogue is the DarkMachines four-tops
+dataset [17] used by Builtjes et al., which covers a single signal region at leading
+order (LO) in QCD at √s = 13 TeV and does not support multi-channel or joint-
+versus-dedicated training comparisons. No public dataset exists for event-level t¯tH
+multilepton classification at HL-LHC conditions; we therefore generate a dedicated
+NLO sample, described in Section 3.
+3 Multichannel Simulated Dataset
+We generated a new public dataset for event-level t¯tH multilepton classification at
+HL-LHC conditions, with the signal and background processes, channel definitions,
+and object selection designed to closely follow the ATLAS analysis [12]. Several delib-
+erate simplifications are made to isolate architectural differences: detector response is
+modelled with fast simulation rather than full Geant4.
+The dataset, containing selected events across six mutually exclusive analysis chan-
+nels, with per-event four-momenta, object types, charges, b-tag scores, and process
+labels, will be released alongside this paper under the CC-BY-4.0 licence, together with
+the full simulation configuration files and selection code, to support reproducibility
+and future benchmarking studies.
+3.1 Simulation chain
+Events are generated at √s
+=
+14 TeV at next-to-leading order (NLO) in
+quantum chromodynamics (QCD) with MadGraph5 aMC@NLO [18] using the
+NNPDF 3.1 NNLO PDF set with αs(MZ)
+=
+0.118 and four active flavours
+(NNPDF31 nnlo as 0118 nf 4 [19]), interfaced with Pythia8 [20] for parton shower-
+ing and hadronisation. Detector response is modelled with Delphes 3.5 using the
+standard ATLAS detector card [21].
+MadGraph5
+NLO QCD
+√s = 14 TeV
+Pythia8
+shower &
+hadronisation
+Delphes 3.5
+ATLAS card
+Preselection
+6 analysis
+channels
+Figure 1: Simulation and reconstruction chain. Events are generated with Mad-
+Graph5 aMC@NLO, showered and hadronised with Pythia8, passed through the
+Delphes fast detector simulation with the ATLAS card, and categorised into six mu-
+tually exclusive analysis channels after preselection.
+3.2 Simulated processes and dataset composition
+Three processes are simulated: signal t¯tH (inclusive Higgs decay) and prompt back-
+grounds t¯tW and t¯tZ. These represent the dominant sources of prompt multileptons in
+the relevant phase space and are well-modelled by simulation, making them suitable for
+4
+Table 1: Cross-sections at √s = 14 TeV [22],
+generated
+event
+counts,
+events
+surviving
+preselection, and preselection efficiencies. All
+three processes enter the profile likelihood fit.
+Process
+σ [pb]
+Ngen
+Nsel
+ε [%]
+t¯tH (signal)
+0.599
+32,900,000
+207,051
+0.63
+t¯tW
+0.824
+28,400,000
+326,413
+1.15
+t¯tZ
+0.998
+13,000,000
+59,926
+0.46
+Total
+593,390
+an ML benchmark. Non-prompt lepton contributions are not specified separately be-
+cause they are included in the simulation and not determined by a data-driven method.
+Since all architectures are evaluated on the same simulated dataset, this does not af-
+fect the relative ranking of classifiers. Cross-sections σ, generated event counts Ngen,
+preselection yields, and efficiencies are given in Table 1. The total dataset comprises
+593,390 events.
+3.3 Object reconstruction and preselection
+Object reconstruction, the process of building physics objects such as jets, b-tagged
+jets, leptons, and tau candidates from the raw detector response, is performed within
+the Delphes fast simulation. Jets are clustered using the anti-kT algorithm [23] with
+R = 0.6 and pT > 20 GeV; b-jets are identified at the 70% efficiency working point [24].
+Tau candidates are reconstructed via track counting [25]. Up to eight jets, four leptons,
+and two tau candidates are retained per event. Events are categorised into six mutually
+exclusive analysis channels following the ATLAS definitions [12]: 2ℓSS0τ, 3ℓ0τ, 4ℓ,
+2ℓSS1τ, 1ℓ2τ, and 2ℓ2τ. Full selection specifications are given in Appendix A.1.
+Per-channel event counts and their fractional composition are shown in Fig. 2. The
+sample is strongly dominated by the 2ℓSS0τ channel (69.7% of all selected events),
+reflecting the higher branching fraction and looser selection requirements of same-
+sign dilepton final states; the 4ℓand 2ℓ2τ channels together contribute only 2.2%, a
+class imbalance that directly motivates the dedicated versus multi-channel training
+comparison in Section 9.3.
+3.4 Event weights
+The generated dataset does not automatically reflect the naturally expected dis-
+tribution of collision events: the number of events simulated per process Ngen,p is
+an arbitrary generation choice, not proportional to the physical process rate. At a
+given integrated luminosity L , the expected number of events for process p surviving
+preselection is
+Nexp,p = L · σp · εp,
+(1)
+5
+Table 2: Per-channel event counts after preselection, broken down by process.
+Channel
+Nt¯tH
+Nt¯tW
+Nt¯tZ
+Nsel
+Fraction [%]
+fsig [%]
+2ℓSS0τ
+113,113
+264,487
+36,140
+413,740
+69.7
+27.3
+3ℓ0τ
+42,062
+45,635
+7,532
+95,229
+16.0
+44.2
+1ℓ2τ
+30,633
+8,220
+6,135
+44,988
+7.6
+68.1
+2ℓSS1τ
+14,993
+7,728
+3,226
+25,947
+4.4
+57.8
+4ℓ
+3,271
+29
+6,439
+9,739
+1.6
+33.6
+2ℓ2τ
+2,979
+314
+454
+3,747
+0.6
+79.5
+Total
+207,051
+326,413
+59,926
+593,390
+100
+34.9
+69.7%
+16.0%
+7.6%
+4.4%
+1.6%
+0.6%
+2ℓSS0τ
+3ℓ0τ
+1ℓ2τ
+2ℓSS1τ
+4ℓ
+2ℓ2τ
+2ℓ2τ
+4ℓ
+2ℓSS1τ
+1ℓ2τ
+3ℓ0τ
+2ℓSS0τ
+0%
+25%
+50%
+75%
+100%
+t¯tH
+t¯tW
+t¯tZ
+Figure 2: The pie chart shows the overall channel composition. The stacked bar chart
+shows the per-channel class composition: 2ℓ2τ and 1ℓ2τ are signal-rich while 2ℓSS0τ
+and 3ℓ0τ are background-dominated, driven by large t¯tW contributions. The negligible
+t¯tW yield in the 4ℓchannel (29 events) is physically expected, as t¯tW can produce at
+most three prompt leptons at tree level.
+where σp is the process cross-section. To recover this physical mixture independently
+of L , each selected event from process p is assigned a weight
+we =
+σproc(e)
+Ngen,proc(e)
+,
+(2)
+such that the weighted sample composition matches the naturally expected process
+rates. These weights are per-process constants: all selected events from the same pro-
+cess receive the same weight, since no per-event kinematic reweighting is applied. No
+additional reweighting is applied to balance signal and background; the sample re-
+tains the natural signal-to-background ratio. The use of these weights in the analysis
+pipeline is described in Section 7.
+3.5 Event content
+Each simulated event, after preselection and channel categorisation (Section 3.3), is
+stored as a variable-length collection of reconstructed physics objects together with
+6
+event-level metadata, independently of how that content is later encoded for a given
+architecture or organised into the feature hierarchy (Sections 5 and 6).
+An event contains up to four leptons (electrons or muons), two tau candidates, and
+eight jets, for a maximum of N ≤14 objects; the actual number present varies event-
+by-event according to the physics process and analysis channel. Each object carries an
+object-type label (electron, muon, tau, jet) and a four-momentum. Leptons and τhad
+candidates additionally carry an electric charge q ∈{−1, +1}; jets carry a b-tag score,
+a continuous discriminant of the likelihood that the jet originated from a b-quark.
+Slots not filled by a reconstructed object in a given event are recorded as absent.
+Particle kinematics are expressed in two equivalent coordinate systems, illustrated
+in Fig. 3. The Cartesian four-momentum (E, px, py, pz) is Lorentz-covariant and nat-
+ural for computing invariant masses and Minkowski inner products, and is stored as
+the primitive representation from which the detector coordinates are derived. The
+detector coordinates (pT , η, ϕ, m) are adapted to the cylindrical geometry of the AT-
+LAS detector: as shown in Fig. 3 (left), pT =
+q
+p2x + p2y is the transverse momentum
+magnitude in the x-y plane and ϕ = arctan(py/px) is the azimuthal angle measured
+from the x-axis; as shown in Fig. 3 (right), θ is the polar angle between the particle
+trajectory and the beam axis z, and η = −ln tan(θ/2) is the pseudorapidity, the
+standard longitudinal coordinate at hadron colliders. The fourth detector coordinate,
+m =
+q
+E2 −p2x −p2y −p2z, is the invariant mass of the particle, computed directly
+from the Cartesian four-momentum. A simultaneous rotation ϕi →ϕi + ∆ϕ0 of all
+particles leaves the physics invariant.
+Beyond per-object content, each event carries six derived event-level quantities:
+missing transverse energy Emiss
+T
+(MET), the scalar transverse energy sum HT, and the
+object multiplicities njets, nbjets, nleptons, ntaus. Emiss
+T
+and HT are recomputed from
+the selected objects rather than taken directly from the Delphes output, ensuring con-
+sistency with the particle-level feature set. Each event additionally carries the parent
+process (t¯tH, t¯tW, or t¯tZ), the analysis channel, and the event weight (2), used re-
+spectively for labelling, categorisation, and training/evaluation weighting rather than
+as classifier input.
+7
+barrel
+z
+IP
+x
+y⃗
+pi
+ϕi⃗
+pj
+pT,j = |⃗pj|
+∆ϕij
+(a) Transverse (end-on) view.
+barrel
+z
+y
+IP⃗
+p
+θ
+η = −ln tan
+
+θ
+2
+
+(b) Longitudinal (side) view.
+Figure 3: ATLAS detector coordinate system. Left: end-on (x-y) view with the beam
+axis z pointing toward the reader (⊙). Each particle is characterised by its transverse
+momentum pT =
+q
+p2x + p2y, the momentum component in the x-y plane, and azi-
+muthal angle ϕ, measured from the x-axis; only the difference ∆ϕij between particles
+i and j is physically meaningful. Right: longitudinal (y-z) view showing the polar
+angle θ between the particle trajectory and the beam axis z, and the pseudorapidity
+η = −ln tan(θ/2), which is the standard longitudinal coordinate used in place of θ at
+hadron colliders.
+4 Architectures and their Symmetries
+This section introduces the six benchmarked architectures: flat models (MLP, XG-
+Boost) and graph models (MPNN, MPNN+RoPE, ParT, LorentzNet), spanning the
+spectrum of physical symmetry constraints that reflects the geometry of the ATLAS
+detector. How each group encodes the event content of Section 3.5 as a model input is
+described in Section 5. The LHC beam axis breaks full Lorentz invariance in two ways:
+finite detector acceptance in pseudorapidity η makes only rotations about the beam
+axis leave the detected particles unchanged, and the event-varying parton momentum
+fractions x1, x2 of the colliding protons leave the boost to the partonic centre-of-mass
+frame undetermined and therefore unusable as a symmetry. Together these reduce the
+exact symmetry group SO(3, 1) to its cylindrical subgroup: azimuthal rotation about
+the beam axis, SO(2), simultaneous rotation of all objects by a common angle ∆ϕ0,
+remains an exact symmetry of both the physics process and the ideal detector, since
+neither the hard scattering nor the cylindrical detector geometry defines a preferred
+azimuthal direction. Any dependence of the classifier on the absolute event orientation
+ϕ therefore reflects simulation structure rather than genuine discriminating physics,
+and will not generalise from simulation to data.
+8
+XGBoost
+XGBoost learns an additive ensemble of decision trees: at each step, select one feature
+and branch on its value compared to a learned threshold, until a leaf node is reached
+that stores a score. XGBoost captures high-order feature interactions through split
+combinations but cannot learn permutation-invariant representations from the fixed-
+position flat feature layout. As the standard approach in current experimental and
+phenomenological analyses, XGBoost serves as the de facto analysis baseline against
+which the remaining five architectures are compared.
+MLP
+The multilayer perceptron is the simplest of the six architectures: a sequence of fully-
+connected layers applied to a fixed-length input vector. As a flat model, event objects
+appear as fixed-position columns in a pT -sorted feature vector, encoding no symmetry
+constraints. The MLP is therefore sensitive to both object permutation and absolute
+azimuthal orientation ϕ, and serves as the flat-architecture reference point against
+which graph-based models are compared.
+Message passing neural network (MPNN) and MPNN+RoPE
+The MPNN represents each event as a fully-connected directed graph with recon-
+structed objects as nodes. The base MPNN is permutation-invariant by construction,
+but remains sensitive to absolute azimuthal orientation ϕ. The MPNN+RoPE variant
+closes this gap using Rotary Position Encoding (RoPE) [26], achieving exact azimuthal
+invariance by construction. Each message-passing layer updates node representations
+by aggregating neighbourhood information:
+h(l+1)
+i
+= LN
+
+h(l)
+i
++ AGGj∈N (i)fθ
+
+h(l)
+i , h(l)
+j
+
+,
+(3)
+where AGG and fθ depend on the aggregation and message-passing type. RoPE
+encodes ϕ as a rotation of the query and key vectors before the dot product:
+˜qi = Rω(ϕi) qi,
+˜kj = Rω(ϕj) kj,
+(4)
+where Rω(ϕ) is a block-diagonal rotation matrix. The attention score then satisfies
+˜q⊤
+i ˜kj = q⊤
+i Rω(ϕj −ϕi) kj,
+(5)
+which depends only on ∆ϕij = ϕj −ϕi. Under a global rotation ϕi →ϕi + ∆ϕ0
+every pairwise difference is unchanged, so the classifier output is exactly invariant.
+A single-frequency variant (ω = 1) is used, appropriate for ϕ ∈[0, 2π) which has
+a single natural scale. Absolute ϕ is additionally removed from node features before
+embedding, closing the remaining path through which orientation dependence could
+enter. The mechanism is illustrated in Fig. 4.
+9
+qi
+kj
+R(ϕi) qi
+R(ϕj) kj
+Rω(ϕi)
+Rω(ϕj)
+˜q⊤
+i ˜kj
+=q⊤
+i Rω(∆ϕij) kj
+depends only on ∆ϕij
+⇒invariant under
+ϕi
+→
+ϕi+∆ϕ0
+Figure 4: Schematic illustration of RoPE azimuthal invariance. RoPE rotates each
+query and key by its particle’s ϕ before the dot product; the two rotation matrices
+cancel, leaving Rω(∆ϕij). Under any global rotation ϕi →ϕi + ∆ϕ0, every pairwise
+difference is unchanged and the classifier output is exactly invariant.
+Particle Transformer (ParT)
+The Particle Transformer (ParT) is a full transformer encoder in which every attention
+layer receives a persistent pairwise physics bias. The attention logit for head h and
+particle pair (i, j) is:
+a(h)
+ij
+=
+q(h)⊤
+i
+k(h)
+j
+√dh
++ PairEmbed(eij)(h),
+(6)
+where dh = dmodel/H is the per-head dimension, and eij is the level-dependent pair-
+wise physics feature vector (Eqs. (11) and (12)), linearly projected to a per-head scalar
+bias through a shared network. The bias is active at every head and layer, providing
+a persistent pairwise geometric inductive bias that the vanilla attention mechanism
+lacks.
+ParT achieves exact azimuthal invariance through two complementary mechan-
+isms. First, all pairwise features entering eij are coordinate differences or Lorentz
+invariants, and are therefore rotation-invariant by construction: the pair bias never
+sees absolute ϕ. Second, only rotationally invariant quantities are retained as node
+encoder inputs: absolute orientation-carrying components are stripped before em-
+bedding, eliminating the only remaining path through which orientation dependence
+could enter. The combination guarantees exact invariance algebraically, without data
+augmentation or approximate methods.
+Graph-level pooling uses class attention [27] via a learnable summary token at-
+tending to all particle tokens through dedicated cross-attention blocks. The global
+event features are projected to the hidden dimension and added to particle token
+embeddings before the first attention layer.
+LorentzNet
+LorentzNet is the second architecture with explicit physics priors, enforcing full
+Lorentz group invariance, the strongest symmetry constraint of the six models. It
+treats reconstructed objects as nodes of a fully-connected graph and processes them
+through a stack of Lorentz Group Equivariant Blocks (LGEBs), each performing a
+10
+coupled update of a scalar node representation hi and the 4-momentum coordinate xi:
+ml
+ij = φe
+ hl
+i, hl
+j, ψ
+ ∥xl
+i −xl
+j∥2
+M
+
+, ψ
+ ⟨xl
+i, xl
+j⟩M
+
+,
+(7)
+xl+1
+i
+←xl
+i + c ·
+X
+j
+φx(ml
+ij) · (xl
+i −xl
+j),
+(8)
+hl+1
+i
+←hl
+i + φh
+
+hl
+i,
+X
+j
+φm(ml
+ij) · ml
+ij, si
+
+,
+(9)
+where ∥· ∥2
+M and ⟨·, ·⟩M denote the Minkowski norm squared and inner product re-
+spectively, ψ(x) = sgn(x) log(|x| + 1) maps broad Lorentz-invariant distributions to
+a numerically stable range, and si are the original invariant node scalars passed at
+every layer. The edge messages are built exclusively from Minkowski invariants, so hi
+is Lorentz-invariant and xi transforms as a 4-vector by construction. The pooled event
+representation is therefore exactly Lorentz-invariant, subsuming azimuthal invariance
+as a special case.
+The node encoder maps the invariant scalars to the hidden dimension; kinematic
+quantities that break Lorentz invariance are excluded from node attributes. Graph-
+level pooling uses global mean aggregation over the final node representations.
+It is a natural question whether enforcing full Lorentz group invariance is the
+appropriate choice here, and whether it provides additional benefits over the weaker
+azimuthal constraint enforced by ParT and MPNN+RoPE. As discussed above, boost
+invariance is already broken in reconstructed events, so the stronger prior may discard
+genuinely discriminating information. This benchmark directly addresses this question
+by comparing all three levels of symmetry constraint under controlled conditions.
+5 Event representation
+The event content described in Section 3.5 is organised differently for each of the six
+architectures introduced above (Section 4), depending on whether the model operates
+on a flat concatenated vector or a set of graph nodes.
+Flat representations
+The t¯tH multilepton final state contains particles with no physically preferred or-
+dering, so any sensitivity of the classifier to the arbitrary input sequence constitutes
+spurious learned structure. Flat models (MLP, XGBoost) receive a single concatenated
+feature vector formed by stacking all 14 particle slots in a fixed order: four leptons,
+two taus, and eight jets, each group sorted by decreasing pT . Within each particle type
+the pT ordering carries physical meaning (the leading lepton has special kinematic
+status, the leading jet is most likely to be from a top decay), and flat models can ex-
+ploit this implicitly. Sorting by pT does render the input invariant to the arbitrary
+ordering of the raw event record, but this invariance is achieved only through the sort
+itself: it becomes unstable whenever two particles have comparable pT , since a small
+detector-resolution fluctuation can swap their slot assignment and produce a discon-
+tinuous jump in the feature vector for a near-identical event. The fixed slot layout
+11
+also provides no explicit mechanism to compute inter-particle distances or pairwise
+quantities.
+Graph representations
+Graph models (MPNN, ParT, LorentzNet) receive the same raw event object features
+organized as a set of node feature vectors, one per present object, connected by a
+directed fully-connected edge structure. Graph models are permutation-invariant by
+construction: attention and message passing are order-agnostic operations, and no
+positional slot index is assigned to individual objects. All graph models additionally use
+object type embeddings to distinguish particle species without breaking permutation
+invariance. Object type identity is kept entirely outside the feature vector: rather than
+appending a one-hot type indicator to the per-node kinematic features, each object’s
+type is looked up in a learnt embedding table E ∈R5×d (one row per type: electron,
+muon, tau, jet, padding, with the padding row fixed to zero) and added directly to
+the hidden representation after node encoding,
+hi = Linear(xi) + E type(i),
+(10)
+where xi is the raw kinematic feature vector of object i and type(i) ∈{0, . . . , 4} its
+object-type index. Since E type(i) depends only on object identity and not on the ob-
+ject’s position within the input ordering, this construction supplies type information
+without introducing a slot- or order-dependent signal, preserving exact permutation
+invariance. The MPNN uses no pairwise feature mechanism, unlike ParT: node rep-
+resentations are updated purely through message passing, with global features (where
+available) concatenated only at the pooling stage. ParT recomputes its own set of
+pairwise physics observables on-the-fly via a dedicated PairwisePhysicsFeatures
+module that has access to the full node feature matrix, producing the pairwise pair
+bias described in Eqs. (11) and (12). LorentzNet has the most restricted representation
+of the three: node attributes are limited to Lorentz-invariant scalars, with no pairwise
+mechanism and no global features at any level, while the four-momenta themselves
+are propagated separately as equivariant coordinates rather than as node attributes
+(Section 6). Absent particle slots are masked and excluded from all computations. The
+feature content available to each architecture at each hierarchy level is described in
+the following section.
+6 Feature Set Hierarchy
+To enable fair comparison across architectures, we define a four-level feature hierarchy
+that provides identical raw information to all model types at each level; what each
+architecture computes from it is an architectural choice. The hierarchy is illustrated
+in Fig. 5. Object type identity (electron, muon, τhad, jet) is supplied separately from
+this hierarchy at every level, via the object type embedding described in Section 4,
+and is therefore omitted from Fig. 5 and the level-by-level descriptions below.
+12
+E, px, py, pz
+core
+E, px, py, pz
+charge, b-tag
+object
+E, px, py, pz
+charge, b-tag
+pT , η, ϕ, m
+detector
+E, px, py, pz
+charge, b-tag
+pT , η, ϕ, m
+MET, njets, nb
+nℓ, nτ, HT
+full
+Model-specific feature access:
++ ϕ
+−px, py
+No
+changes
+No
+changes
+No
+changes
+MPNN
++RoPE
++∆R, log kT ,
+log z, log m2
+- px, py
++ qi·qj
+(5 pairs total)
++∆η, ∆ϕ, −ϕ
+(7 pairs total)
+(detector dim = 3)
+No changes
+ParT
++ ψ(m2) (scalar)
+No
+changes
+— All excluded —
+not Lorentz-inv.
+— All excluded —
+not Lorentz-inv.
+LN
+Figure 5: Feature set hierarchy. Each row accumulates the features of all rows above
+it; block colours indicate the level that introduced each group. MPNN+RoPE: ab-
+solute ϕ is computed from px, py and used for rotary position encoding, while px, py
+themselves are not added in node encoder inputs at every level, closing the node
+encoder path to absolute azimuthal orientation. ParT pair bias: pairwise features
+computed on-the-fly at each level, providing the additive attention bias (Eqs. (11)
+and (12)); the bias grows from 4 features at core (matching the original ParT [7]), to
+5 at object with the addition of qi·qj, and to 7 at detector where ∆R is decomposed
+into ∆η and ∆ϕ. Node stripping (−px, −py at all levels; −ϕ from detector onward)
+closes the node encoder path to absolute azimuthal orientation, ensuring exact azi-
+muthal invariance. LN: LorentzNet uses 4-momenta as equivariant coordinates and
+only the Lorentz-invariant scalars as node attributes; detector and full are there-
+fore excluded.
+core — raw four-momenta.
+Each object slot carries the Cartesian four-momentum (E, px, py, pz) (Section 3.5),
+giving flat models 56 columns and graph models a node dimension of 4. All graph
+models additionally have access to the object type embedding (Section 5) already at
+this level. MPNN+RoPE computes ϕ from the Cartesian components for use in the
+rotary position encoding of Eqs. (4) and (5), and doesn’t include px, py in the node
+encoder inputs to preserve exact azimuthal invariance. ParT internally derives four
+pairwise features from the four-momenta:
+eij = [ ∆Rij, log kT,ij, log zij, log |m2
+ij|],
+(11)
+and likewise strips px, py from the node encoder inputs to preserve exact azimuthal
+invariance. LorentzNet uses only the compressed invariant mass-squared ψ(m2) as its
+node scalar (scalar dimension 1); the compression function ψ is defined in Section 4.
+13
+The px, py, pz, E are passed as Lorentz-equivariant coordinates and are not part of
+the invariant node attribute vector in LorentzNet.
+object — & charge/flavor.
+The per-object charge or b-tag score (Section 3.5) is appended, bringing the per-object
+count to 5. Flat models receive 70 columns; graph models have a node dimension of
+5. ParT gains access to the charge product qi·qj as a fifth pairwise feature, giving a
+5-dimensional pair bias. LorentzNet adds charge or b-tag score as a second invariant
+scalar alongside ψ(m2) (scalar dimension 2).
+detector — & detector coordinates.
+The detector coordinates (pT , η, ϕ, m) (Section 3.5) are added per object as shared
+input features, bringing the per-object count to 9 (flat: 126 columns; node dimension:
+9). With η and ϕ now available, ∆ηij and ∆ϕij are added to the ParT pair bias
+alongside the existing ∆Rij, carrying distinct physical meaning at the event level
+beyond the combined ∆Rij =
+q
+∆η2
+ij + ∆ϕ2
+ij. The full ParT pair bias becomes:
+eij = [ ∆ηij, ∆ϕij, ∆Rij, log kT,ij, log zij, log |m2
+ij|, qi·qj],
+(12)
+giving a 7-dimensional pair bias used as additive attention biases at every head and
+layer. Of these shared features, only ϕ is not added to the ParT node encoder inputs, to
+preserve exact azimuthal invariance; pT , η, and m are retained as node attributes. The
+detector coordinates are not invariant under the full Lorentz group and are therefore
+excluded from the LorentzNet node attribute vector; its scalar dimension remains 2.
+full — & global event features.
+The six global event-level quantities defined in Section 3.5 are exposed as input features
+for the first time at this level. For flat models and MPNN variants, all six are passed as
+global scalars (flat: 132 columns total; graph global dimension: 6). ParT projects the
+global features to the hidden dimension and adds them to particle token embeddings
+before the first attention layer. As at detector, LorentzNet is not evaluated at this
+level: none of the six global features are Lorentz-invariant even in principle (Emiss
+T
+and HT depend on the lab-frame transverse plane, and the multiplicity counts njets,
+nbjets, nleptons, ntaus depend on detector acceptance). In preliminary tests, passing
+these non-invariant global features to LorentzNet degraded its performance relative
+to the object-level configuration, consistent with the node-level Lorentz-invariance
+constraint being genuinely load-bearing rather than an incidental restriction.
+7 Hyperparameter optimisation and training
+The dataset is split 80%/10%/10% into training, validation, and test sets by stratified
+sampling across (channel, process) cells (Section 3). The training split is used to fit
+model parameters; the validation split is used for early stopping, HPO pruning, and as
+the HPO objective (validation ROC AUC), which correlates well with profile likelihood
+14
+rankings though not always perfectly, as Section 9 shows; the test split is held out
+entirely from both training and HPO, and is used only once, at the end, for final
+evaluation. All architectures are independently optimised using Optuna [28] with the
+TPE sampler in a shared SQLite database, with validation ROC AUC as the objective.
+The feature-level reuse of hyperparameters across the four levels of the hierarchy is
+detailed in Section 9.1; the data-fraction reuse scheme used in the scaling study is
+described in Section 9.2. The full search spaces are given in Appendix B.2. Each final
+model configuration is trained five times with independent dataset splits, using the
+same splitting procedure described above; all results are reported as the mean and
+standard deviation over the five seeds (Section 7.1).
+XGBoost
+The configurable parameters are tree depth, learning rate, row and column sub-
+sampling fractions, and regularisation strengths (α, λ). Early stopping monitors
+validation log-loss over up to 5,000 trees.
+MLP
+Up to six hidden layers are stacked, each applying a linear transformation followed by
+an activation function, optional LayerNorm, and dropout. Residual connections are
+added where widths match, with a linear projection otherwise. The number of layers,
+hidden width, dropout rate, activation (GELU, ReLU, SiLU, or ELU), LayerNorm,
+and residual connections are all searched via HPO, alongside the learning rate, weight
+decay, and batch size.
+MPNN and MPNN+RoPE
+The HPO search covers convolution type (GCN [29], GAT [30], GraphSAGE [31],
+TransformerConv [32]), pooling mechanism (mean, max, sum, score-weighted atten-
+tion, and CLS via a learnable summary token), number of layers, hidden dimension,
+and activation function. Conditional parameters (number of attention heads, FFN
+multiplier, and CLS readout layers) are searched only when the relevant conv type or
+pooling is selected. HPO consistently selects TransformerConv across all feature levels;
+each layer applies multi-head attention followed by a position-wise FFN sublayer,
+both with Pre-LN and residual connections. For MPNN+RoPE, the aggregation type
+is fixed to TransformerConv (RoPE requires the scaled dot-product structure), CLS
+pooling is excluded (the dense class-token cross-attention is not well-defined under
+single-frequency RoPE), and the remaining search space mirrors the base MPNN.
+ParT
+The HPO search covers hidden dimension, number of attention heads (constrained
+such that the head dimension is at least 32), number of transformer layers, number of
+class-attention layers, FFN multiplier, separate dropout rates for attention and FFN
+sublayers, and the learning rate, weight decay, batch size, warmup length, and cosine
+period. The pair embedding network dimensions are fixed to [64, 64, 64] to reduce the
+search space.
+15
+LorentzNet
+The HPO search covers hidden dimension, number of LGEB layers, the coordinate
+scale hyperparameter c, dropout rate, pooling mechanism (mean, max, sum), and
+the learning rate, weight decay, batch size, cosine period, and minimum learning rate
+fraction. The warmup length range is wider than for other architectures (0–40 epochs),
+reflecting the slower convergence of the Minkowski inner product computations.
+7.1 Training procedure
+Each classifier is trained as a probabilistic predictor p(y | x), where x is the input
+feature vector and y ∈{0, 1} denotes the background and signal class respectively.
+Training maximises the weighted log-likelihood
+max
+θ
+N
+X
+i=1
+wi log p(yi | xi; θ),
+(13)
+where wi is the weight of event i (2), determined by its parent process proc(i), assigned
+so that the weighted sample reflects the physically expected process rates. This is
+equivalent to minimising the weighted binary cross-entropy loss with normalisation
+1/ P
+i wi.
+8 Statistical Evaluation
+The primary metric of interest is the statistical uncertainty σ(µ) [33] expected for
+a given luminosity L on the signal strength µ = σt¯tH/σSM
+t¯tH from a simultaneous
+six-channel profile likelihood fit of the classifier score performed with TRExFitter
+v1.7.0 [34]. All fits share a common TRExFitter configuration: the fit type is set
+to SPLUSB (signal-plus-background fit), the likelihood is minimised with MINUIT, and
+the t¯tW and t¯tZ normalisations are set to the Standard Model values. The classifier
+output score is discretised using the TRExFitter TransfoD algorithm with parameters
+zb = zs = 10 [34], which iteratively merges adjacent fine bins from the background-
+rich (low-score) end of the distribution until Z = zb nb/Nb + zs ns/Ns exceeds unity,
+where nb (ns) and Nb (Ns) are the background (signal) yield in the current bin and
+the total background (signal) yield, respectively. This effectively caps each merged bin
+at roughly 1/zb (1/zs) of the total yield. An identical binning configuration across all
+channels and architectures ensures a fair comparison of classifier shapes.
+The binned extended likelihood over the three processes (t¯tH, t¯tW, t¯tZ) is
+L(µ, θ) =
+6
+Y
+c=1
+K
+Y
+k=1
+Pois(nck | νck(µ, θ)) ·
+Y
+c,k
+Gam(γck),
+(14)
+with K the number of bins in the classifier score distribution and nuisance vector θ =
+{γck}, where γck is a single, pooled-over-process Barlow–Beeston lite MC-statistical
+nuisance per bin [35, 36], propagated via the autoMCStats [37] approach. Performance
+is evaluated on the Asimov dataset for the expected event yields at luminosity L
+16
+with µ = 1 (the MC simulation ground truth). This is an established procedure for
+measuring the uncertainty associated with estimating µ. Appendix D gives a brief
+overview of the details.
+Results are reported as ϱµ = σ(µ)/σref, where σ(µ) is the uncertainty from the
+binned classifier likelihood fit and σref is the reference uncertainty from a single com-
+pressed bin per channel (six bins total). With backgrounds fixed to the Standard Model
+expectations, µ can be determined from a single bin per channel, thus combining six
+channels analytically only requires that they be treated as statistically independent,
+which holds here since no systematic is shared across channels. The six single-bin
+sub-likelihoods therefore combine by simple inverse-variance weighting,
+1
+σ2
+ref
+=
+6
+X
+c=1
+1
+(σc
+ref)2 ,
+(15)
+with σc
+ref given in closed form in Appendix D.3.1 The ratio isolates the information
+gain from classifier shape on top of the channel categorisation by normalising out the
+absolute yield scale; a value below unity indicates improvement over a channel-binned
+counting experiment. Reporting ϱµ is convenient for the comparison of ML models,
+as the ranking is stable as a function of luminosities (Fig. C2), i.e., comparable across
+studies.
+For the individual channel experiment (Section 9.3), each channel is instead eval-
+uated on its own, and the corresponding σc
+ref is obtained from a single bin containing
+only the events from that channel, with kt¯tW = kt¯tZ = 1 as used throughout the whole
+analysis. The value of σc
+ref is therefore also computed in closed form.
+In the 2ℓSS1τ, 1ℓ2τ, and 2ℓ2τ channels, the dominant background in a full ana-
+lysis [12] arises from non-prompt (fake) leptons. We assume that our simulation
+describes the non-prompt leptons appropriately, being aware that in a full analysis,
+the non-prompt rate is determined with a data-driven method.
+9 Results
+Three main experiments are reported. Section 9.1 varies the feature set across four
+levels while holding the training data fixed at 100%. Section 9.2 varies the training
+data fraction at the highest feature level.2 Section 9.3 evaluates performance across the
+six analysis channels and compares multi-channel training against dedicated single-
+channel training. Azimuthal rotation sensitivity is verified on the test set without
+retraining; details are given in Appendix C.4. Figures in Section 9.1 and Section 9.2
+show two metrics side by side: ROC AUC and ϱµ at 3000 fb−1, as subplots within each
+figure. The other luminosities are omitted from the main text, as Appendix C.5 shows
+that the relative ranking of architectures is unchanged across the luminosity range
+1Cross-validation against a direct TRExFitter numerical fit of the six-channel, one-bin-per-channel con-
+figuration gives excellent agreement. The numerical fit itself showed instability at very large luminosities,
+which the closed-form calculation avoids by construction.
+2For LorentzNet, the object feature level is used instead of the full level, as its architecture cannot
+accommodate the global event-level features introduced at the detector and full levels, and object is where
+it achieves peak performance.
+17
+[10, 5000] fb−1, so a single luminosity is sufficient to convey the result. All six architec-
+tures are shown together, with unconstrained models (MLP, XGBoost, MPNN) and
+symmetry-constrained variants (MPNN+RoPE, ParT, LorentzNet) distinguished by
+marker style and colour. Shaded bands and error bars represent the standard deviation
+over five independent training runs with different dataset splits.
+9.1 Feature-set ablation
+Each architecture is trained on 100% of the available data at each of the four feature
+levels (core, object, detector, full). Hyperparameters optimised on the full fea-
+ture set are fixed across the detector and full levels; the core and object levels use
+hyperparameters selected on the core subset, since the optimal configuration can differ
+when only raw four-momenta are available, or global features are included. LorentzNet
+is evaluated at core and object only, as discussed in Section 6.
+The experiment isolates the information contribution of each feature group and
+reveals how each architecture’s inductive bias interacts with the available input repres-
+entation: in particular, whether the pair bias of ParT, the Lorentz-invariant constraint
+of LorentzNet, or the azimuthal symmetry of MPNN+RoPE provides consistent
+advantages across the hierarchy.
+core
++ charge/flavor
++ det. coords
++ global
+Feature set  (increasing information 
+)
+0.75
+0.76
+0.77
+0.78
+0.79
+0.80
+ROC AUC
+ better
+MLP
+XGBoost
+MPNN
+MPNN+RoPE
+ParT
+LorentzNet
+core
++ charge/flavor
++ det. coords
++ global
+Feature set  (increasing information 
+)
+0.78
+0.80
+0.82
+0.84
+0.86
+0.88
+ better
+MLP
+XGBoost
+MPNN
+MPNN+RoPE
+ParT
+LorentzNet
+Figure 6: ROC AUC (left), and ϱµ at L = 3000 fb−1 (right, HL-LHC projection)
+versus feature set. All six architectures are shown together; unconstrained models
+(MLP, XGBoost, MPNN) and symmetry-constrained variants (MPNN+RoPE, ParT,
+LorentzNet). Shaded bands show the standard deviation over five dataset splits.
+LorentzNet is not evaluated at the detector and full levels as those features are not
+Lorentz-invariant.
+Unconstrained architectures.
+All three unconstrained architectures improve monotonically across the feature hier-
+archy (Fig. 6). XGBoost leads MLP at every level by a consistent margin. MPNN
+outperforms XGBoost at every feature level, with a comparable rate of improvement
+18
+across the hierarchy, demonstrating that graph-based message passing extracts more
+information from the same raw features even without symmetry constraints.
+Constrained architectures.
+MPNN+RoPE outperforms the unconstrained MPNN at every feature level, by a
+margin that widens toward the later levels: RoPE’s azimuthal invariance encoding
+provides a consistent gain over the unconstrained baseline that grows as more detector
+and global information becomes available, indicating that enforcing this symmetry
+remains beneficial even as the raw feature content increases.
+At core, MPNN+RoPE marginally outperforms ParT: with only raw four-
+momenta available, the azimuthal symmetry encoding provides a small advantage,
+while ParT’s default pair bias (built from Lorentz-invariant pairwise features, since
+px, py are already stripped from its node encoder at this level; Section 6) offers lim-
+ited additional discrimination over node-only message passing. This ordering reverses
+at object, where the charge product qi·qj enters the ParT pair bias as a fifth pair-
+wise feature. Same-sign and opposite-sign lepton pairs are strongly discriminating in
+the multilepton final state, and ParT exploits this directly in the attention bias at
+every layer, producing a substantial gain while MPNN+RoPE remains relatively flat.
+At both levels, however, LorentzNet leads every other architecture on both ROC AUC
+and ϱµ, consistent with its Lorentz-invariant representation being well matched to the
+available input even before detector-specific information is introduced.
+At detector, MPNN+RoPE improves further, roughly in step with ParT’s
+own gain over the same step, so ParT’s lead over MPNN+RoPE remains essen-
+tially unchanged from object. Since ϕ is already available at earlier feature levels,
+MPNN+RoPE’s gain is more likely driven by the additional detector coordinates (pT ,
+η, m) becoming available as node features, rather than by any change in ϕ availabil-
+ity. The same new node features become available to ParT at this level, alongside ∆η
+and ∆ϕ entering its pair bias, so its comparable gain may stem from either source.
+At full, ParT extends its lead over MPNN+RoPE substantially through stronger
+global feature integration, projecting global quantities to the hidden dimension be-
+fore the first attention layer rather than concatenating at the pooling stage as
+MPNN+RoPE does, though its result still falls short of LorentzNet’s object-level
+performance on ρ(µ). LorentzNet is not evaluated beyond object, as detector and
+global features are excluded by construction for not being fully Lorentz invariant.
+Exact results can be found in Appendix C.1.
+9.2 Data-scaling study
+All models are trained at the full feature level on six fractions of the available training
+data: 10%, 20%, 40%, 60%, 80%, and 100%; LorentzNet is trained at object as estab-
+lished in Section 9.1. Hyperparameters are selected from two independent HPO runs:
+fractions 10% and 20% use hyperparameters optimised on the 10% subset, while 40%,
+60%, 80%, and 100% use hyperparameters from the 100% subset optimisation. Each
+fraction is assigned to the nearer HPO point, since optimal configurations can differ
+substantially between the low- and high-data regimes. This design isolates the effect
+19
+of sample size from hyperparameter sensitivity across the scaling curve. The experi-
+ment addresses two questions: how quickly each architecture saturates its achievable
+performance, and whether physically motivated inductive biases (pair bias, RoPE,
+Lorentz invariance) provide a measurable advantage when training data are limited.
+All results are averaged over five independent seeds; shaded bands in Fig. 7 show the
+corresponding standard deviation.
+10
+20
+40
+60
+80
+100
+Training data used [%]
+0.74
+0.75
+0.76
+0.77
+0.78
+0.79
+0.80
+ROC AUC
+ better
+MLP
+XGBoost
+MPNN
+MPNN+RoPE
+ParT
+LorentzNet
+10
+20
+40
+60
+80
+100
+Training data used [%]
+0.78
+0.80
+0.82
+0.84
+0.86
+0.88
+0.90
+ better
+MLP
+XGBoost
+MPNN
+MPNN+RoPE
+ParT
+LorentzNet
+Figure 7: ROC AUC (left), and ϱµ at L = 3000 fb−1 (right, HL-LHC projection)
+versus training data fraction. All six architectures are shown together; unconstrained
+models (MLP, XGBoost, MPNN) and symmetry-constrained variants (MPNN+RoPE,
+ParT, LorentzNet) are distinguished by marker style and colour. Shaded bands show
+the standard deviation over five dataset splits. LorentzNet is evaluated at object; all
+other architectures at full.
+Unconstrained architectures.
+For all training data fractions, XGBoost visibly outperforms MLP, consistent with the
+general strength of gradient-boosted decision trees on tabular data [38]; MPNN, by
+contrast, trails XGBoost only narrowly at 10%. XGBoost gains less as the training
+dataset grows, and is overtaken by MPNN at around 30% of the available data. At
+100%, MPNN significantly outperforms both flat models and shows no sign of satura-
+tion, suggesting further gains are achievable with larger datasets. XGBoost shows the
+weakest scaling behaviour among unconstrained architectures in this benchmark, con-
+sistent with the limited depth of representation available to a fixed-complexity tree
+ensemble relative to a message-passing model whose effective capacity grows with the
+amount of relational structure it can learn from additional data.
+Constrained architectures.
+Remarkably, MPNN+RoPE surpasses XGBoost already at 10% of the training data
+(a fraction at which the unconstrained MPNN still trails XGBoost), demonstrating
+that symmetry constraints alone are sufficient to overcome XGBoost’s strength in the
+low-data regime. ParT and MPNN+RoPE are close together at low fractions, both
+20
+meaningfully outperforming MPNN, with the advantage most pronounced on ROC
+AUC. As training data increases, ParT closes the gap to LorentzNet steadily on both
+metrics: at 100%, its ROC AUC matches LorentzNet’s, and its ϱµ gap narrows to a
+small residual, confirming the trend anticipated in Section 9.1: ParT’s slower start but
+steeper scaling allows it to catch up with sufficient training data, while LorentzNet’s
+advantage, built into its architecture rather than learned, is largest precisely where
+data is scarce. MPNN+RoPE remains below both ParT and LorentzNet at higher
+data fractions. No architecture saturates at the available sample size, suggesting all
+models would benefit from larger datasets. As in Section 9.1, LorentzNet’s advantage
+remains more pronounced in the profile likelihood metric than in ROC AUC. Exact
+results can be found in Appendix C.2.
+9.3 Joint versus dedicated training
+A practical question for any classifier analysis is whether training on a broader, more
+diverse dataset improves performance on individual channels, or whether dedicated
+single-channel training is preferable. This has direct implications for the feasibility of a
+foundation model approach: if cross-channel data sharing is beneficial, a single model
+trained on diverse physics processes could generalise effectively across analysis cat-
+egories without per-channel retraining. The six analysis channels differ substantially
+in signal purity, dominant background composition, and reconstructed object multi-
+plicity, and their training sizes span nearly two orders of magnitude: from 413,740
+events in 2ℓSS0τ down to 3,747 in 2ℓ2τ (Fig. 2).
+Joint training improves per-channel performance.
+Figs. 8 and 9 show per-channel ROC AUC and profile likelihood sensitivity ϱµ respect-
+ively, each as a grid of six panels (one per analysis channel) with all six architectures
+compared side by side within each panel, combined (multi-channel) training shown as
+solid bars and dedicated (single-channel) training as hatched bars. Joint training is
+beneficial in nearly all cases: the only notable exceptions are MLP and XGBoost in 4ℓ,
+where dedicated training holds a small edge on both, or the results are tied. For the
+data-rich channels (2ℓSS0τ, 3ℓ0τ), the gap between training modes is modest for all
+architectures. For the smallest channels, where dedicated training suffers from severe
+data starvation and large seed-to-seed variance, combined training yields substantial
+improvements for most architectures; however, the size of this gain is not uniform, and
+instead tracks each architecture’s degree of built-in symmetry constraint. LorentzNet
+is the clearest case: at 4ℓ, its dedicated-only result (0.884 AUC) is already the strongest
+of any architecture trained on that channel alone, and joint training closes only a
+comparatively small remaining gap (to 0.941). This is consistent with the data-scaling
+results of Section 9.2, where LorentzNet’s Lorentz-equivariant inductive bias lets it ex-
+tract more from limited data even without cross-channel sharing. ParT and the other
+graph architectures, by contrast, show much larger combined-versus-dedicated gaps
+at 4ℓ(e.g. ParT: 0.771 dedicated to 0.914 combined); here joint training is compens-
+ating for a comparatively weaker inductive bias by supplying more data, rather than
+reflecting inherent data efficiency. Full numerical results are reported in Appendix C.3.
+21
+MLP
+XGBoost
+MPNN
+MPNN+RoPE
+ParT
+LorentzNet
+0.4
+0.6
+0.8
+1.0
+ROC AUC
+2 SS0
+MLP
+XGBoost
+MPNN
+MPNN+RoPE
+ParT
+LorentzNet
+3 0
+MLP
+XGBoost
+MPNN
+MPNN+RoPE
+ParT
+LorentzNet
+4
+MLP
+XGBoost
+MPNN
+MPNN+RoPE
+ParT
+LorentzNet
+0.4
+0.6
+0.8
+1.0
+ROC AUC
+2 SS1
+MLP
+XGBoost
+MPNN
+MPNN+RoPE
+ParT
+LorentzNet
+1 2
+MLP
+XGBoost
+MPNN
+MPNN+RoPE
+ParT
+LorentzNet
+2 2
+ combined   
+ dedicated     
+ better
+Figure 8: Per-channel ROC AUC at the full feature level ( object for LorentzNet).
+Double bars correspond to individual architectures: left bar (darker) combined (multi-
+channel) training, right bar (lighter) dedicated (single-channel) training. Error bars
+give the standard deviation over five seeds.
+22
+MLP
+XGBoost
+MPNN
+MPNN+RoPE
+ParT
+LorentzNet
+0.4
+0.6
+0.8
+1.0
+2 SS0
+MLP
+XGBoost
+MPNN
+MPNN+RoPE
+ParT
+LorentzNet
+3 0
+MLP
+XGBoost
+MPNN
+MPNN+RoPE
+ParT
+LorentzNet
+4
+MLP
+XGBoost
+MPNN
+MPNN+RoPE
+ParT
+LorentzNet
+0.4
+0.6
+0.8
+1.0
+2 SS1
+MLP
+XGBoost
+MPNN
+MPNN+RoPE
+ParT
+LorentzNet
+1 2
+MLP
+XGBoost
+MPNN
+MPNN+RoPE
+ParT
+LorentzNet
+2 2
+ combined   
+ dedicated     
+ better
+Figure 9: Per-channel ϱµ at the full feature level (object for LorentzNet) for all six
+architectures at L = 3000 fb−1 (HL-LHC projection). Left bar (darker): combined
+(multi-channel) training. Right bar (lighter): dedicated (single-channel) training. Er-
+ror bars give the standard deviation over five seeds. The 4ℓchannel shows the largest
+gap between training modes; dedicated training produces substantially degraded
+sensitivity for all architectures due to severe data starvation.
+23
+10 Conclusion
+We have presented a controlled benchmark framework for event-level classifier com-
+parison in high-energy physics, using both ROC AUC and relative profile likelihood
+uncertainty ϱµ = σ(µ)/σref as complementary evaluation criterion, and applied it to
+t¯tH multilepton signal–background separation at √s = 14 TeV across a four-level fea-
+ture hierarchy. Six classifiers spanning flat tabular models, generic graph networks,
+and architectures with explicit physical symmetry constraints are evaluated: XGBoost,
+MLP, MPNN, MPNN+RoPE, ParT, and LorentzNet. We observed that architec-
+ture and feature representation matter substantially. Graph-based and transformer
+architectures consistently surpass XGBoost as the default method across all feature
+levels. At the highest feature level and 100% training data (Appendix C.7), ParT
+and LorentzNet are essentially tied for the highest ROC AUC (0.799 for both), with
+LorentzNet holding only a negligible lead on ϱµ (0.784 vs. ParT’s 0.789), indicating
+good correlation between the two metrics at the top of the ranking. The gap between
+the best and worst architecture amounts to ∆AUC ≈0.036 and ∆ϱµ ≈0.067, in-
+dicating that architectural choices have a meaningful impact on statistical sensitivity.
+Enforcing azimuthal invariance via single-frequency rotary position encoding in an
+otherwise standard MPNN yields a substantial gain over unconstrained baselines, sug-
+gesting that symmetry constraints are a significant driver of improvement, separable
+from architectural sophistication. Our next finding is that performance does not sat-
+urate with the available training data. Symmetry-constrained models maintain a clear
+advantage at low statistics, confirming that their gains reflect a genuine inductive bias
+rather than an artefact of data abundance. Finally, we observed that joint training
+across all six analysis channels in almost all cases outperforms dedicated per-channel
+training, with the largest gains concentrated in data-scarce channels and graph-based
+architectures. Together with the data-scaling results, this suggests potential benefits of
+training a single shared model across diverse analysis categories without per-channel
+retraining: a step towards the foundation model (in the sense of machine learning)
+approach in particle physics.
+Acknowledgements.
+We acknowledge support by the Ministry of Education,
+Youth and Sports of the Czech Republic under the project number LM 2023040, and
+the Student Grant System SGS25/190/OHK4/3T/35.
+Declarations
+• Funding. Supported by the Ministry of Education, Youth and Sports of the Czech
+Republic under the project number LM 2023040, and the Student Grant System
+SGS25/190/OHK4/3T/35.
+• Competing interests. The authors have no competing interests to declare that
+are relevant to the content of this article.
+• Data availability. The simulated dataset generated for this study will be made
+publicly available on Zenodo under the CC-BY-4.0 licence upon acceptance of this
+manuscript, together with the full simulation configuration files and selection code.
+24
+• Author contribution. L.V. conceived the study, developed and implemented the
+analysis pipeline, performed all experiments, and wrote the manuscript. A.S. and
+O.S. supervised the project and provided guidance on physics interpretation and
+methodology.
+References
+[1] Choudhury, A., Mondal, A., Sarkar, S.: Searches for the BSM scenarios at the
+LHC using decision tree based machine learning algorithms: a comparative study
+and review of Random Forest, AdaBoost, XGBoost and LightGBM frameworks.
+Eur. Phys. J. Spec. Top. 233, 2571–2604 (2024) https://doi.org/10.1140/epjs/
+s11734-024-01308-x arXiv:2405.06040 [hep-ph]
+[2] Liu, J., Gurrola, A.: Probing freeze-in dark matter via a spin-2 portal at the lhc
+with vector boson fusion and machine learning (2026) arXiv:2604.02604 [hep-ph]
+[3] Benbrik, R., et al.: Probing heavy neutral higgs bosons via single vector-like
+bottom quark production at the HL-LHC (2026) arXiv:2603.29076 [hep-ph]
+[4] ATLAS Collaboration: Observation of w+w−γ production in pp collisions at √s =
+13 TeV with the ATLAS detector and constraints on anomalous quartic gauge-
+boson couplings (2025) arXiv:2509.14070 [hep-ex]
+[5] Bronstein, M.M., et al.: Geometric deep learning: Grids, groups, graphs, geodesics,
+and gauges (2021) arXiv:2104.13478 [cs.LG]
+[6] Qu, H., Gouskos, L.: ParticleNet: Jet Tagging via Particle Clouds. Phys.
+Rev. D 101(5), 056019 (2020) https://doi.org/10.1103/PhysRevD.101.056019
+arXiv:1902.08570 [hep-ph]
+[7] Qu, H., Li, C., Qian, S.: Particle Transformer for jet tagging. Proc. Int. Conf.
+Machine Learning (ICML) 162, 18281–18292 (2022) arXiv:2202.03772 [hep-ph]
+[8] Gong, S., et al.: An efficient Lorentz equivariant graph neural network for
+jet tagging. JHEP 07, 030 (2022) https://doi.org/10.1007/JHEP07(2022)030
+arXiv:2201.08187 [hep-ph]
+[9] Chen, T., Guestrin, C.: XGBoost: A scalable tree boosting system. Proc. ACM
+SIGKDD Int. Conf. Knowledge Discovery and Data Mining, 785–794 (2016) https:
+//doi.org/10.1145/2939672.2939785 arXiv:1603.02754 [cs.LG]
+[10] Gilmer, J., et al.: Neural message passing for quantum chemistry. In: Proc. Int.
+Conf. Machine Learning (ICML), vol. 70, pp. 1263–1272 (2017)
+[11] B´ejar Alonso, I., Br¨uning, O., Fessia, P., Lamont, M., Rossi, L., Tavian, L., Zer-
+lauth, M. (eds.): High-Luminosity Large Hadron Collider (HL-LHC): Technical
+Design Report. CERN Yellow Reports: Monographs, vol. 10/2020. CERN, Geneva
+25
+(2020). https://doi.org/10.23731/CYRM-2020-0010
+[12] ATLAS Collaboration: Measurement of the Higgs boson production in association
+with top quarks in multilepton final states in pp collisions at √s = 13 TeV with the
+ATLAS detector. JHEP 05, 183 (2026) https://doi.org/10.1007/JHEP05(2026)
+183 arXiv:2510.23755 [hep-ex]
+[13] ATLAS Collaboration: Observation of four-top-quark production in the mul-
+tilepton final state with the ATLAS detector. Eur. Phys. J. C 83, 496 (2023)
+https://doi.org/10.1140/epjc/s10052-023-11573-0 arXiv:2303.15061 [hep-ex]
+[14] Pfeffer, E., et al.: A case study of sending graph neural networks back to the
+test bench for applications in high-energy particle physics. Comput. Softw. Big
+Sci. 8, 13 (2024) https://doi.org/10.1007/s41781-024-00122-3 arXiv:2402.17386
+[hep-ex]
+[15] Onyisi, P., Shen, D., Thaler, J.: Comparing point cloud strategies for collider
+event classification. Phys. Rev. D 108, 012001 (2023) https://doi.org/10.1103/
+PhysRevD.108.012001 arXiv:2212.10659 [hep-ph]
+[16] Builtjes, L., et al.: Attention to the strengths of physical interactions: Trans-
+former and graph-based event classification for particle physics experiments.
+SciPost Phys. 19, 028 (2025) https://doi.org/10.21468/SciPostPhys.19.1.028
+arXiv:2211.05143 [hep-ph]
+[17] Aarrestad, T., et al.: The Dark Machines Anomaly Score Challenge: Benchmark
+Data and Model Independent Event Classification for the Large Hadron Col-
+lider. SciPost Phys. 12, 043 (2022) https://doi.org/10.21468/SciPostPhys.12.1.
+043 arXiv:2105.14027 [hep-ph]
+[18] Alwall, J., et al.: The automated computation of tree-level and next-to-leading
+order differential cross sections, and their matching to parton showers. JHEP 07,
+079 (2014) https://doi.org/10.1007/JHEP07(2014)079 arXiv:1405.0301 [hep-ph]
+[19] NNPDF Collaboration: Parton distributions from high-precision collider data.
+Eur. Phys. J. C 77, 663 (2017) https://doi.org/10.1140/epjc/s10052-017-5199-5
+arXiv:1706.00428
+[20] Sj¨ostrand, T., et al.: An introduction to Pythia 8.2. Comput. Phys. Commun.
+191, 159–177 (2015) https://doi.org/10.1016/j.cpc.2015.01.024 arXiv:1410.3012
+[hep-ph]
+[21] Favereau, J., et al.: Delphes 3: a modular framework for fast simulation of
+a generic collider experiment. JHEP 02, 057 (2014) https://doi.org/10.1007/
+JHEP02(2014)057 arXiv:1307.6346 [hep-ex]
+26
+[22] LHC Higgs Cross Section Working Group: Handbook of LHC Higgs Cross Sec-
+tions: 4. Deciphering the Nature of the Higgs Sector (2016) https://doi.org/10.
+23731/CYRM-2017-002 arXiv:1610.07922
+[23] Cacciari, M., Salam, G.P., Soyez, G.: The anti-kT jet clustering algorithm. JHEP
+04, 063 (2008) https://doi.org/10.1088/1126-6708/2008/04/063 arXiv:0802.1189
+[hep-ph]
+[24] ATLAS Collaboration: Expected performance of the ATLAS b-tagging algorithms
+in Run-2. ATLAS Public Note ATL-PHYS-PUB-2015-022, CERN (2015). https:
+//cds.cern.ch/record/2037697
+[25] ATLAS Collaboration: Tau reconstruction and identification efficiency meas-
+urements using W
+→τν and Z →ττ decays with the ATLAS detector.
+ATLAS Public Note ATL-PHYS-PUB-2015-045, CERN (2015). https://cds.cern.
+ch/record/2064383
+[26] Su, J., et al.: RoFormer: Enhanced transformer with rotary position embed-
+ding. Neurocomputing 568, 127063 (2024) https://doi.org/10.1016/j.neucom.
+2023.127063 arXiv:2104.09864 [cs.CL]
+[27] Zhai, X., et al.: Scaling vision transformers. In: Proc. IEEE/CVF Conf. Computer
+Vision and Pattern Recognition (CVPR), pp. 12104–12113 (2022)
+[28] Akiba, T., et al.: Optuna: A next-generation hyperparameter optimization frame-
+work. In: Proc. ACM SIGKDD Int. Conf. Knowledge Discovery and Data Mining,
+pp. 2623–2631 (2019). https://doi.org/10.1145/3292500.3330701
+[29] Kipf, T.N., Welling, M.: Semi-supervised classification with graph convolutional
+networks. In: Proc. Int. Conf. Learning Representations (ICLR) (2017)
+[30] Veliˇckovi´c, P., et al.: Graph attention networks. In: Proc. Int. Conf. Learning
+Representations (ICLR) (2018)
+[31] Hamilton, W.L., Ying, R., Leskovec, J.: Inductive representation learning on large
+graphs. In: Advances in Neural Information Processing Systems (NeurIPS), vol.
+30 (2017)
+[32] Shi, Y., et al.: Masked label prediction: Unified message passing model for semi-
+supervised classification. In: Proc. Int. Joint Conf. Artificial Intelligence (IJCAI),
+pp. 1548–1554 (2021)
+[33] Cowan, G., et al.: Asymptotic formulae for likelihood-based tests of new physics.
+Eur. Phys. J. C 71, 1554 (2011) https://doi.org/10.1140/epjc/s10052-011-1554-0
+arXiv:1007.1727 [physics.data-an]. [Erratum: Eur.Phys.J.C 73, 2501 (2013)]
+[34] ATLAS Collaboration: TRExFitter: A framework to perform profile likelihood
+27
+fits. CERN GitLab, https://gitlab.cern.ch/TRExStats/TRExFitter (2024). https:
+//doi.org/10.5281/zenodo.15524537
+[35] Barlow, R.J., Beeston, C.: Fitting using finite Monte Carlo samples. Com-
+put. Phys. Commun. 77, 219–228 (1993) https://doi.org/10.1016/0010-4655(93)
+90005-W
+[36] Conway, J.S.: Incorporating Nuisance Parameters in Likelihoods for Multi-
+source Spectra. In: PHYSTAT 2011, pp. 115–120 (2011). https://doi.org/10.5170/
+CERN-2011-006.115
+[37] Cranmer, K., et al.: HistFactory: A tool for creating statistical models for use with
+RooFit and RooStats. Technical Report CERN-OPEN-2012-016, CERN (2012)
+[38] Grinsztajn, L., Oyallon, E., Varoquaux, G.: Why do tree-based models still
+outperform deep learning on typical tabular data? In: Advances in Neural In-
+formation Processing Systems (NeurIPS), Datasets and Benchmarks Track, vol.
+35 (2022)
+Appendix A
+Dataset and features
+A.1
+Per-channel event selection
+The t¯tH multilepton analysis is split into six orthogonal channels based on lepton
+and τhad multiplicity, as summarized in Table A1. These channel definitions and se-
+lection requirements follow [12]; entries marked “—” indicate that the corresponding
+requirement is not applied in that channel.
+Table A1: Per-channel selection requirements following [12]. SS = same sign
+2ℓSS0τ
+3ℓ0τ
+4ℓ
+2ℓSS1τ
+1ℓ2τ
+2ℓ2τ
+Nℓ
+2
+3
+≥4
+2
+1
+2
+P qℓ
+±2
+±1
+0
+±2
+±1
+0
+pT (ℓ0) [GeV]
+> 15
+> 10
+> 10
+> 15
+> 27
+> 10
+Nτ
+0
+0
+—
+1
+2
+2
+τ pT [GeV]
+—
+—
+—
+> 20
+> 20
+> 20
+Njets
+≥3
+≥2
+≥2
+≥4
+≥1
+≥1
+Nb
+≥1
+≥1
+≥1
+≥1
+≥1
+≥1
+|mℓℓ−mZ| [GeV]
+—
+> 10
+—
+> 10
+—
+> 10
+mℓℓ[GeV]
+—
+> 12
+> 12
+—
+—
+> 12
+28
+A.2
+Feature hierarchy dimensions
+Table A2 summarizes the input dimensionality at each feature level for all six archi-
+tectures. The same raw features are made available to every architecture at a given
+level; how each architecture actually consumes that information can differ by design:
+e.g. MPNN+RoPE discards px, py from its node encoder inputs and instead computes
+ϕ internally for use in rotary position encoding, ParT similarly strips px, py (and,
+from detector onward, ϕ) from its node inputs while retaining azimuthal information
+via the pair bias, and LorentzNet is restricted to Lorentz-invariant quantities and is
+therefore not evaluated at detector and full.
+Table A2: Feature dimensions at each level for all architectures. Node dim gives the raw
+per-particle feature count before any architecture-specific stripping; Global dim gives the
+dimension of the event-level input vector at full, identical for flat and graph models.
+Flat cols is the total input width for MLP and XGBoost (Node dim × 14 slots, plus
+Global dim at full). MPNN+RoPE Node gives the effective node-encoder input width
+after discarding px, py (used instead for rotary position encoding, not as a node feature).
+ParT Nodes and Pairs report the effective node and pairwise bias dimensions after node
+stripping. LN scalar dim is the number of Lorentz-invariant scalars passed to LorentzNet
+as node attributes; detector and full are excluded from LorentzNet entirely (†) as those
+features are not Lorentz-invariant.
+Level
+Node dim
+Global dim
+Flat cols
+MPNN+RoPE Node
+ParT
+LN scalar
+Node
+Pairs
+core
+4
+0
+56
+2
+2
+4
+1
+object
+5
+0
+70
+3
+3
+5
+2
+detector
+9
+0
+126
+7
+6
+7
+2†
+full
+9
+6
+132
+7
+6
+7
+2†
+† The detector and full levels are not Lorentz-invariant and are not used.
+29
+Appendix B
+Implementation details
+B.1
+Architecture and symmetry properties
+Table B1 summarises the symmetry and structural properties of all six models.
+The rows are grouped into unconstrained (MLP, XGBoost, MPNN) and symmetry-
+constrained (MPNN+RoPE, ParT, LorentzNet) architectures, matching the two-
+panel figure layout used throughout the results. Within the attention-based graph
+models, HPO consistently selects TransformerConv for the vanilla MPNN, so the
+MPNN →MPNN+RoPE →ParT progression forms a near-controlled ablation: all
+three share the same core attention mechanism, differing only in the successive addition
+of azimuthal symmetry encoding and pairwise physics features.
+Table B1: Architectural and symmetry properties of all six
+models. ✓= property holds exactly by construction; × =
+not enforced. “Pair bias” denotes ParT’s physics-informed
+pairwise attention input. Both ParT and MPNN+RoPE
+achieve exact SO(2) invariance but via different mechan-
+isms: pair bias plus node stripping for ParT, RoPE plus node
+stripping for MPNN+RoPE.
+Model
+Input
+Perm. inv.
+SO(2)
+SO(3,1)
+Pair bias
+MLP
+flat
+×
+×
+×
+×
+XGBoost
+flat
+×
+×
+×
+×
+MPNN
+graph
+✓
+×
+×
+×
+MPNN+RoPE
+graph
+✓
+✓
+×
+×
+ParT
+graph
+✓
+✓
+×
+✓
+LorentzNet
+graph
+✓
+✓
+✓
+×
+B.2
+Hyperparameter search spaces
+For each architecture, hyperparameters were tuned using Optuna’s TPE sampler [28],
+with study names encoding the feature set under consideration. Table B2 lists the full
+search space per model, including learning rate schedules, architectural width/depth
+ranges, and regularisation terms. All neural models share a common cosine learning-
+rate schedule with linear warmup; the corresponding warmup and cosine-annealing
+parameters are tuned jointly with the architecture-specific terms below. Parameters
+marked as fixed were set from preliminary scans and excluded from the HPO search
+to control its dimensionality.
+30
+Table B2: Hyperparameter search spaces. All neural models ad-
+ditionally tune weight decay ([10−6, 10−3] log-uniform) and batch
+size ({512, 1024, 2048, 4096} for flat models; {1024, 2048, 4096} for
+ParT). †Constrained to head dimension ≥32. ‡Fixed implementa-
+tion choice, not searched by HPO. §Only searched when the relevant
+conv type or pooling is selected (MPNN only). CLS pooling is
+excluded from MPNN+RoPE as the single-frequency azimuthal en-
+coding is not well-defined for the class token’s dense cross-attention.
+Model
+Parameter
+Range / choices
+XGBoost
+max depth
+3–30
+learning rate
+[0.01, 0.3] log-uniform
+subsample
+[0.6, 1.0]
+reg alpha/lambda
+[10−8, 10] log-uniform
+min child weight
+1–10
+MLP
+n layers
+1–6
+hidden size
+{64,128,256,512,1024}
+dropout
+[0.0, 0.5]
+activation
+{gelu, relu, silu, elu}
+lr
+[10−5, 3 × 10−3] log-uniform
+warmup epochs
+{5, 10, 20}
+cosine t max
+50–200
+cosine eta min frac
+[10−3, 10−1] log-uniform
+MPNN
+conv type
+{gcn, gat, sage, transformer}
+hidden dim
+{64,128,256,512}
+num layers
+2–6
+pooling
+{mean, max, add, attention, cls}
+activation
+{gelu, relu, silu, elu}
+lr
+[5 × 10−5, 3 × 10−3] log-uniform
+num heads§
+{4,8,16} (gat, transformer)
+ffn multiplier§
+{2,4} (transformer only)
+num cls layers§
+1–3 (cls pooling only)
+cls num heads§
+{4,8} (cls pooling only)
+warmup epochs
+{5, 10, 20}
+cosine t max
+50–200
+cosine eta min frac
+[10−3, 10−1] log-uniform
+MPNN+RoPE
+conv type
+fixed: transformer‡
+hidden dim
+{64,128,256,512}
+num layers
+2–6
+pooling
+{mean, max, add, attention}
+num heads
+{4,8}
+ffn multiplier
+{2,4}
+attention dropout
+[0.0, 0.4]
+conv dropout
+[0.0, 0.5]
+final dropout
+[0.0, 0.5]
+activation
+{gelu, relu, silu, elu}
+lr
+[5 × 10−5, 3 × 10−3] log-uniform
+warmup epochs
+{5, 10, 20}
+cosine t max
+50–200
+cosine eta min frac
+[10−3, 10−1] log-uniform
+rope omega
+fixed: ω = 1‡
+ParT
+hidden dim
+{128,256,512}
+num heads†
+{4,8}
+num layers
+3–8
+num cls layers
+1–3
+ffn multiplier
+{2,4}
+pair embed dims
+fixed: [64, 64, 64]‡
+attn dropout
+[0.0, 0.3]
+ffn dropout
+[0.0, 0.3]
+lr
+[10−5, 2 × 10−3] log-uniform
+warmup epochs
+{5, 10, 20}
+cosine t max
+50–200
+cosine eta min frac
+[10−3, 10−1] log-uniform
+LorentzNet
+hidden dim
+{64,72,128,192,256}
+num layers
+2–8
+c weight
+[10−4, 10−1] log-uniform
+dropout
+[0.0, 0.5]
+pooling
+{mean, max, add}
+lr
+[10−5, 3 × 10−3] log-uniform
+warmup epochs
+0–40
+cosine t max
+50–200
+cosine eta min frac
+[10−3, 10−1] log-uniform
+31
+B.3
+Training procedure
+Four NVIDIA RTX 2080 Ti GPUs (11 GB VRAM each) run trials in parallel. The
+number of trials varies by architecture, reflecting differences in search space size and
+per-trial cost; optimisation is stopped when no improvement is observed over at least
+15 consecutive trials (usually around 40-50 in total). To maximise throughput, each
+neural HPO trial uses a reduced epoch budget of 150 epochs and patience 15; relative
+ordering of configurations is stable well before convergence, as suggested by inspection
+of intermediate validation curves.
+All five neural models (MLP, MPNN, MPNN+RoPE, ParT, LorentzNet) use
+AdamW optimisation with linear warmup followed by cosine annealing; the war-
+mup length, cosine period Tmax, and minimum learning rate fraction ηmin/η0 are
+tuned by HPO for every architecture (Appendix B.2). Experiments use Python 3.11,
+PyTorch 2.2, PyTorch Geometric 2.5, XGBoost 2.0, and Optuna 3.5.
+Appendix C
+Extended results and Verification
+C.1
+Feature test
+Table C1 gives the exact values underlying Fig. 6 (ROC AUC) and the corresponding
+ϱµ results discussed in Section 9.1.
+Table C1: Feature experiment: dependence on the feature-set level, averaged over
+five seeds. ϱµ is evaluated at 3000 fb−1. LorentzNet is evaluated only at the core and
+object levels, as it is not applicable to the detector and full feature sets by design.
+(a) ROC AUC
+Model
+core
+object
+detector
+full
+MLP
+0.7497
+0.7527
+0.7575
+0.7627
+XGBoost
+0.7582
+0.7628
+0.7694
+0.7712
+MPNN
+0.7677
+0.7717
+0.7769
+0.7784
+MPNN+RoPE
+0.7711
+0.7743
+0.7829
+0.7857
+ParT
+0.7663
+0.7788
+0.7865
+0.7982
+LorentzNet
+0.7890
+0.7991
+–
+–
+(b) ϱµ at 3000 fb−1
+Model
+core
+object
+detector
+full
+MLP
+0.8697
+0.8694
+0.8591
+0.8535
+XGBoost
+0.8538
+0.8502
+0.8434
+0.8412
+MPNN
+0.8375
+0.8340
+0.8231
+0.8236
+MPNN+RoPE
+0.8302
+0.8285
+0.8123
+0.8121
+ParT
+0.8315
+0.8135
+0.7996
+0.7911
+LorentzNet
+0.7982
+0.7844
+–
+–
+32
+C.2
+Scaling test
+Table C2 gives the exact values underlying Fig. 7 (ROC AUC) and the corresponding
+ϱµ results discussed in Section 9.2.
+Table C2: Scaling experiment: dependence on the fraction of training data used,
+averaged over five seeds. ϱµ is evaluated at 3000 fb−1.
+(a) ROC AUC
+Model
+10%
+20%
+40%
+60%
+80%
+100%
+MLP
+0.7411
+0.7486
+0.7527
+0.7576
+0.7611
+0.7632
+XGBoost
+0.7564
+0.7620
+0.7653
+0.7677
+0.7698
+0.7710
+MPNN
+0.7542
+0.7594
+0.7670
+0.7705
+0.7753
+0.7794
+MPNN+RoPE
+0.7612
+0.7683
+0.7728
+0.7780
+0.7821
+0.7859
+ParT
+0.7601
+0.7685
+0.7834
+0.7903
+0.7947
+0.7986
+LorentzNet
+0.7786
+0.7865
+0.7914
+0.7950
+0.7969
+0.7987
+(b) ϱµ at 3000 fb−1
+Model
+10%
+20%
+40%
+60%
+80%
+100%
+MLP
+0.8841
+0.8740
+0.8673
+0.8593
+0.8552
+0.8515
+XGBoost
+0.8621
+0.8548
+0.8495
+0.8462
+0.8437
+0.8410
+MPNN
+0.8603
+0.8516
+0.8422
+0.8363
+0.8308
+0.8225
+MPNN+RoPE
+0.8476
+0.8380
+0.8320
+0.8238
+0.8184
+0.8121
+ParT
+0.8540
+0.8411
+0.8176
+0.8068
+0.7970
+0.7895
+LorentzNet
+0.8214
+0.8061
+0.7965
+0.7910
+0.7882
+0.7845
+C.3
+Joint versus dedicated training
+Table C3 gives the exact values underlying Figs. 8 and 9 (ROC AUC) and the
+corresponding ϱµ results discussed in Section 9.3.
+33
+Table C3: Per-channel ROC AUC and statistical uncertainty ratio ϱµ (relative
+to the 1-bin reference, at L = 3000 fb−1; lower is better) at the highest feature
+level. “Combined” denotes multi-channel training; “Dedicated” denotes single-
+channel training. Values are means over five seeds. For each model, the better
+value between training modes is bolded (higher for AUC, lower for ϱµ).
+Model
+Mode
+2ℓSS0τ
+3ℓ0τ
+4ℓ
+2ℓSS1τ
+1ℓ2τ
+2ℓ2τ
+ROC AUC
+MLP
+Combined
+0.735
+0.776
+0.704
+0.681
+0.608
+0.619
+Dedicated
+0.732
+0.762
+0.704
+0.660
+0.595
+0.528
+XGBoost
+Combined
+0.743
+0.787
+0.718
+0.720
+0.629
+0.598
+Dedicated
+0.743
+0.782
+0.736
+0.694
+0.619
+0.572
+MPNN
+Combined
+0.750
+0.796
+0.790
+0.717
+0.648
+0.629
+Dedicated
+0.744
+0.780
+0.727
+0.677
+0.600
+0.555
+MPNN+RoPE
+Combined
+0.758
+0.802
+0.806
+0.717
+0.668
+0.639
+Dedicated
+0.750
+0.787
+0.747
+0.687
+0.604
+0.587
+ParT
+Combined
+0.767
+0.818
+0.914
+0.734
+0.703
+0.701
+Dedicated
+0.758
+0.798
+0.771
+0.687
+0.647
+0.556
+LorentzNet
+Combined
+0.763
+0.815
+0.941
+0.747
+0.711
+0.721
+Dedicated
+0.762
+0.804
+0.884
+0.718
+0.701
+0.593
+ϱµ at 3000 fb−1
+MLP
+Combined
+0.804
+0.807
+0.770
+0.910
+0.966
+0.921
+Dedicated
+0.811
+0.825
+0.762
+0.922
+0.975
+0.956
+XGBoost
+Combined
+0.796
+0.796
+0.729
+0.881
+0.961
+0.919
+Dedicated
+0.796
+0.803
+0.677
+0.907
+0.970
+0.950
+MPNN
+Combined
+0.774
+0.781
+0.600
+0.876
+0.943
+0.912
+Dedicated
+0.782
+0.799
+0.731
+0.913
+0.972
+0.955
+MPNN+RoPE
+Combined
+0.762
+0.774
+0.581
+0.881
+0.924
+0.901
+Dedicated
+0.773
+0.789
+0.676
+0.903
+0.971
+0.932
+ParT
+Combined
+0.751
+0.752
+0.390
+0.862
+0.891
+0.892
+Dedicated
+0.769
+0.778
+0.655
+0.906
+0.940
+0.936
+LorentzNet
+Combined
+0.751
+0.755
+0.351
+0.846
+0.879
+0.883
+Dedicated
+0.754
+0.769
+0.459
+0.875
+0.886
+0.932
+34
+C.4
+Azimuthal rotation test
+The test applies 12 equally spaced global ϕ rotations, ∆ϕk = kπ/6 for k = 0, . . . , 11,
+to every event in the test set by replacing ϕi →ϕi + ∆ϕk (mod 2π) and updating
+the Cartesian momentum components consistently. The test is applied at the highest
+feature level using models trained on 100% of the data; no retraining is required.
+0.76
+0.77
+0.78
+0.79
+0.80
+ROC AUC
+0
+30
+60
+90
+120 150 180 210 240 270 300 330
+ rotation angle [degrees]
+0.002
+0.001
+0.000
+0.001
+0.002
+AUC  [vs.  = 0°]
+MLP
+XGBoost
+MPNN
+ParT
+MPNN+RoPE
+LorentzNet
+0.775
+0.800
+0.825
+0.850
+0.875
+0
+30
+60
+90
+120 150 180 210 240 270 300 330
+ rotation angle [degrees]
+0.005
+0.000
+0.005
+  [vs. 
+= 0°]
+MLP
+XGBoost
+MPNN
+MPNN+RoPE
+ParT
+LorentzNet
+Figure C1: Sensitivity to global azimuthal rotation angle ∆ϕk = kπ/6 (k = 0, . . . , 11)
+applied to all particles simultaneously on the held-out test set at the highest fea-
+ture level, 100% training data. (Left): ROC AUC; left panel shows unconstrained
+models (MLP, XGBoost, MPNN), right panel shows symmetry-constrained models
+(MPNN+RoPE, ParT, LorentzNet), with grey dashed lines reproducing MPNN for
+reference. (Right): profile likelihood ratio σ(µ)/σref at the HL-LHC projection lumin-
+osity.
+Both MPNN+RoPE and ParT achieve exactly zero AUC variation across all rota-
+tion angles (Fig. C1), confirming exact azimuthal invariance. LorentzNet shows a small
+residual, attributable to float32 accumulation of rounding errors in the Minkowski in-
+ner products rather than a theoretical breakdown of invariance. Unconstrained models
+show consistent non-zero sensitivity, with MPNN most affected, followed by XGBoost
+and MLP.
+In the profile likelihood metric at 3000 fb−1 (Fig. C1), residuals are larger than
+in AUC, reflecting the amplification of score distribution shape differences by the
+likelihood fit. ParT remains exactly flat. MPNN+RoPE shows a negligible residual,
+and LorentzNet a somewhat larger one, consistent with floating-point evaluation of
+the TransfoD binning boundaries shifting marginally under rotation. All constrained
+residuals remain substantially smaller than those of unconstrained architectures and
+are negligible in practice. Full numerical values are summarised in Table C4.
+C.5
+Luminosity scan robustness
+The main text reports ϱµ at a single HL-LHC luminosity point, L = 3000 fb−1.
+To verify that the architecture ranking observed there generalises rather than being
+specific to that one luminosity, a scan over L ∈[10, 5000] fb−1 is performed for all
+35
+Table C4: Azimuthal rotation sensitivity at the full
+feature level, 100% training data, L
+=
+3000 fb−1.
+σ(AUC) and σ(ϱµ) are the standard deviations of ROC
+AUC and ϱµ respectively, over 12 equally spaced global
+ϕ rotations; max |deviation| is the largest absolute dif-
+ference from the ϕ = 0◦value in each metric. Lower is
+better in all columns.
+ROC AUC
+ϱµ
+Model
+σ(AUC)
+max |dev.|
+σ(ϱµ)
+max |dev.|
+Unconstrained
+MLP
+0.000152
+0.000430
+0.000429
+0.000844
+XGBoost
+0.000148
+0.000559
+0.000530
+0.001980
+MPNN
+0.000279
+0.000697
+0.000498
+0.001153
+Symmetry-constrained
+MPNN+RoPE
+0.000000
+0.000000
+0.000016
+0.000047
+ParT
+0.000000
+0.000000
+0.000000
+0.000000
+LorentzNet
+0.000010
+0.000025
+0.000146
+0.000366
+six architectures at the highest feature level, with the TransfoD parameter fixed at
+its default value (a = 10, Appendix C.6) and the full TRExFitter fit re-run at each
+luminosity point.
+Figure C2 shows that the relative ordering of all six architectures is unchanged
+across the full scanned range, confirming that the ranking reported at 3000 fb−1 is
+not a special or isolated result but holds generally across luminosities. The origin
+of the shape has been determined to arise from the combination of statistical and
+systematic uncertainties, where systematic uncertainties are due to the limited number
+of simulated events.
+C.6
+TransfoD binning robustness scan
+To verify that the reported ϱµ values are not an artefact of the TransfoD binning
+parameter used throughout the paper (a ≡zb = zs = 10, Section 8), a scan over
+a ∈[1, 20] is performed at L = 3000 fb−1 for all six architectures at the highest
+feature level, re-running the full TRExFitter fit at each value.
+Smaller a means finer binning and fewer effective Monte-Carlo events per bin;
+ϱµ falls steeply with increasing a before flattening into a stable plateau by a ≳10.
+Fig. C3 shows the default a = 10 lies within this plateau for every architecture, and
+the relative ranking is unchanged across the full scanned range.
+36
+102
+103
+Luminosity [fb
+1]
+0.78
+0.80
+0.82
+0.84
+0.86
+ better
+140 fb
+1
+3000 fb
+1
+MLP
+XGBoost
+MPNN
+MPNN+RoPE
+ParT
+LorentzNet
+Figure C2: ϱµ vs. luminosity from 10 to 5000 fb−1 (20 points), all six architectures
+at the highest feature level, TransfoD parameter fixed at a = 10. Dashed lines mark
+140 fb−1, the integrated luminosity of the finalized ATLAS/CMS Run-2 (2015–2018)
+dataset, and 3000 fb−1, the nominal HL-LHC integrated luminosity used throughout
+the main results. The relative ranking of architectures is unchanged across the entire
+scanned range. Shaded bands: standard deviation over five seeds.
+37
+2.5
+5.0
+7.5
+10.0
+12.5
+15.0
+17.5
+20.0
+TransfoD binning parameter a
+0.78
+0.80
+0.82
+0.84
+0.86
+0.88
+0.90
+ better
+a = 10
+MLP
+XGBoost
+MPNN
+MPNN+RoPE
+ParT
+LorentzNet
+Figure C3: ϱµ vs. TransfoD parameter a (zb = zs = a) at L = 3000 fb−1 from 1
+to 20 (20 points), all six architectures at the highest feature level. Values plateau by
+a ≳10; the default a = 10 (dashed line) lies within this plateau, and architecture
+ranking is unchanged across the scanned range. Shaded bands: standard deviation over
+five seeds.
+38
+C.7
+Summary table
+Table C5 collects the headline numbers referenced in the Conclusion (Section 10):
+ROC AUC and ϱµ for all six architectures at the highest feature level and 100% of
+the training data, the configuration under which each model attains its best overall
+performance in this benchmark.
+Table C5: Summary of model performance at
+the highest feature level, 100% training data,
+L = 3000 fb−1. Values are mean ± standard de-
+viation over five seeds. Best value in each column
+is bolded.
+Model
+ROC AUC
+σ(µ)/σref
+Unconstrained
+MLP
+0.7632 ± 0.0009
+0.852 ± 0.004
+XGBoost
+0.7710 ± 0.0012
+0.841 ± 0.003
+MPNN
+0.7794 ± 0.0018
+0.823 ± 0.004
+Symmetry-constrained
+MPNN+RoPE
+0.7859 ± 0.0012
+0.812 ± 0.002
+ParT
+0.7986 ± 0.0018
+0.789 ± 0.005
+LorentzNet
+0.7987 ± 0.0020
+0.784 ± 0.006
+Appendix D
+Statistical model details
+This appendix briefly summarises the explicit form of the per-bin expected yield, the
+Barlow–Beeston–lite Monte-Carlo statistical nuisance, and the resulting luminosity
+scaling of σ(µ), in order to see how the process weights enter the likelihood, how the
+scaling behaviour discussed above arises, and how the analytic solution for σ(µ) is
+obtained.
+D.1
+Expected bin yields
+Refining the total preselection efficiency εp = Nsel,p/Ngen,p of the per-bin level, ε p
+ck =
+N MC
+ck,p/Ngen,p is the fraction of generated events of process p landing in bin (c, k), with
+P
+c,k ε p
+ck = εp. At luminosity L the expected yield in bin (c, k) is then
+νck(µ, θ) = γck · L
+h
+µ · σt¯tH ε t¯tH
+ck
++ σt¯tW ε t¯tW
+ck
++ σt¯tZ ε t¯tZ
+ck
+i
+,
+(D1)
+with θ = {γck}: µ scales only the t¯tH term, consistent with its role as the parameter of
+interest; the t¯tW and t¯tZ terms are fixed to their Standard Model predictions through-
+out this study (main fit, six-channel-bin reference, and individual-channel reference
+39
+alike) rather than floated; and γck is the pooled Barlow–Beeston-lite Monte-Carlo
+statistical nuisance multiplying the total bin rate, discussed next.
+D.2
+Monte-Carlo statistical nuisance
+The constraint Gam(γck) in Eq. (14) is equivalent to autoMCStats implementation [37]
+of the per-bin Monte-Carlo statistical uncertainty: Barlow–Beeston lite [36] pools all
+processes in a bin into a single nuisance, rather than one nuisance per process per bin
+as in the original Barlow–Beeston method [35]. Writing ˆνck for the pooled nominal
+prediction in bin (c, k) (Eq. (D1) at γck = 1) and σ2
+MC,ck for the corresponding sum
+of squared per-event Monte-Carlo weights in that bin, the probabilistic constraint is
+Gam(γck; τck + 1, τck),
+τck = ˆν2
+ck/σ2
+MC,ck,
+(D2)
+with mode 1 (the nominal value) and, for the large τck typical here, variance
+σ2
+MC,ck/ˆν2
+ck. τck is the effective number of Monte Carlo events pooled into bin (c, k),
+a property of the simulated sample w.r.t. the binning: it does not depend on L , since
+both ˆνck and σMC,ck scale by the same overall factor with L .
+D.3
+Luminosity scaling of σ(µ)
+The signal uncertainty σ(µ) is the inverse curvature of the profile likelihood at the
+Asimov point µ = 1 in a Gaussian approximation [33]: the standard deviation of ˆµ over
+hypothetical repeated measurements at luminosity L , exact in the asymptotic (Wald)
+regime, where it coincides with µ/Z for the Asimov significance Z from the profile-
+likelihood test statistic qµ [33]. Because kt¯tW = kt¯tZ = 1 are fixed throughout this
+study, the reference uncertainty for a single channel, σc
+ref, admits a closed-form solution
+below; the multi-channel reference σref (Section 8) is then simply the inverse-variance
+combination of the six per-channel results.
+For each channel c, σc
+ref is the uncertainty from a single bin containing only events
+from that channel. With the per-process weight
+wp =
+σp
+Ngen,p · ftest
+,
+ftest = 0.10,
+(D3)
+where ftest is the fraction of generated events retained in the held-out test split used
+for evaluation, so that N c
+test,p below is counted directly from that test-split sample
+rather than extrapolated to the full selected sample, the nominal signal and total
+yields of channel c at luminosity L are
+sc = L wt¯tH N c
+test,t¯tH,
+ν0,c = L
+X
+p
+wp N c
+test,p,
+(D4)
+the sum running over the three simulated processes and N c
+test,p the number of se-
+lected events of process p in channel c within the test-split sample. The summed
+squared Monte-Carlo weights are σ2
+MC,c = L 2 P
+p w2
+p N c
+test,p, so the effective count
+40
+τc = ν2
+0,c/σ2
+MC,c is L -independent (Appendix D.2). The Asimov Fisher information
+in (µ, γc) at µ = γc = 1 is
+Ic =
+
+s2
+c/ν0,c
+sc
+sc
+ν0,c + τc
+
+,
+(D5)
+where the Poisson part being rank one with the γc constraint adding τc on its diagonal.
+Profiling out γc by the Schur complement, ˜Iµµ = s2
+c/(ν0,c + σ2
+MC,c), gives
+(σc
+ref)2 =
+ν0,c + σ2
+MC,c
+s2c
+=
+P
+p wpN c
+test,p
+L (wt¯tHN c
+test,t¯tH)2
+|
+{z
+}
+data statistics
++
+P
+p w2
+pN c
+test,p
+(wt¯tHN c
+test,t¯tH)2
+|
+{z
+}
+Monte-Carlo statistics
+.
+(D6)
+The data-Poisson term falls as 1/L while the Monte-Carlo term is an L -independent
+floor set by simulated sample size of channel c, the two crossing over at L ⋆
+c
+=
+P
+p wpN c
+test,p
+ P
+p w2
+pN c
+test,p.
+For the multi-channel studies, σref is defined from the same six channels used in
+the simultaneous TRExFitter fit for σ(µ): same samples, same fixed kt¯tW , kt¯tZ at
+their Standard Model values, same Barlow–Beeston-lite treatment of γck, but with
+each channel collapsed to a single bin rather than binned by classifier score with
+TransfoD. Because the six channels are statistically independent and share only µ,
+with no correlated systematic linking them, their Asimov Fisher information simply
+adds, and σref follows by combining the six closed-form channel results of Eq. (D6)
+via inverse-variance weighting, Eq. (15) of Section 8.
+The data-Poisson variance of each bin scales as L and its Monte-Carlo variance as
+L 2 (Appendix D.2), so σ(µ) and σref (or σc
+ref) pass through the same data-to-Monte-
+Carlo transition, and the ratio ϱµ = σ(µ)/σref is comparatively stable in L (Fig. C2).
+Whether ϱµ drifts towards or away from unity as L grows depends on whether the
+signal-rich, high-score bins are well simulated (large τck) or Monte-Carlo-starved (small
+τck); the TRExFitter TransfoD binning rule (zb = zs = 10, Section 8) is designed
+to keep τck from becoming too small.
+41
