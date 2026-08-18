@@ -1,7 +1,3 @@
-That layout happens because the raw text was pasted directly into GitHub's web editor without code blocks, which squeezed the commands onto the same line and stripped out the formatting.
-
-Here is the clean, correctly formatted Markdown file. In GitHub, click the **Pencil (Edit file)** icon, clear everything out, paste this entire block, and click **Commit changes**:
-
 ```markdown
 # 🧠 RoachMind: Autonomous RAG Agent with 4-Layer Memory Architecture
 
