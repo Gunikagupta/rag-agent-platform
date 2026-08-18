@@ -10,8 +10,8 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("⚡ Persistent Agentic Memory RAG Engine")
-st.caption("Powered by CockroachDB Vector Indexing, Managed MCP, and AWS")
+st.title("🪲 RoachMind: Persistent Agentic Memory RAG")
+st.caption("Powered by CockroachDB Vector Indexing & AWS")
 
 @st.cache_resource
 def load_agent():
