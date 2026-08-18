@@ -211,16 +211,3 @@ Interaction state successfully persisted to CockroachDB conversations table.
 └── README.md               # Architecture Documentation
 
 ```
-
-```
-
----
-
-### Key GitHub Fixes Applied
-* Added code fences (```) around `bash`, `sql`, `text`, and ASCII diagrams so commands don't run together.
-* Separate line breaks inserted for terminal execution steps.
-* Stripped out leftover UI elements (like `<ElicitationsGroup>`) that belong in chat interfaces, not your code repository.
-
-<FollowUp label="Want the word-for-word 2-minute video recording script now?" query="Write out the exact word-for-word 2-minute video script for me to read during my recording." />
-
-```
