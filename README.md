@@ -1,4 +1,4 @@
-# ⚡ Persistent Agentic Memory RAG Engine
+# ⚡ RoachMind — Persistent Agentic Memory RAG Engine
 
 A production-grade Agentic RAG Platform built with **CockroachDB Cloud**, **Distributed Vector Indexing**, and **AWS Services** (Amazon Bedrock & AWS Infrastructure). Designed to maintain persistent, fault-tolerant context across multi-turn agent conversations.
 

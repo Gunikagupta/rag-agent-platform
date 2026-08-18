@@ -45,7 +45,7 @@ class RAGAgent:
                 top_chunk = str(first_item)
             
             summary = top_chunk[:350] + "..." if len(top_chunk) > 350 else top_chunk
-            return f"Based on distributed vector indices from CockroachDB (AWS ap-south-1): {summary}"
+            return f"**RoachMind** retrieved from CockroachDB (AWS ap-south-1): {summary}"
     
         return "Retrieved relevant context from CockroachDB distributed vector index."
     
